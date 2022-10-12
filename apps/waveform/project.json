@@ -1,0 +1,81 @@
+{
+  "name": "waveform",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/waveform/src",
+  "projectType": "application",
+  "targets": {
+    "build": {
+      "executor": "@nrwl/webpack:webpack",
+      "outputs": ["{options.outputPath}"],
+      "defaultConfiguration": "production",
+      "options": {
+        "compiler": "babel",
+        "outputPath": "dist/apps/waveform",
+        "index": "apps/waveform/src/index.html",
+        "baseHref": "/",
+        "main": "apps/waveform/src/main.tsx",
+        "polyfills": "apps/waveform/src/polyfills.ts",
+        "tsConfig": "apps/waveform/tsconfig.app.json",
+        "assets": ["apps/waveform/src/favicon.ico", "apps/waveform/src/assets"],
+        "styles": [],
+        "scripts": [],
+        "webpackConfig": "@nrwl/react/plugins/webpack"
+      },
+      "configurations": {
+        "development": {
+          "extractLicenses": false,
+          "optimization": false,
+          "sourceMap": true,
+          "vendorChunk": true
+        },
+        "production": {
+          "fileReplacements": [
+            {
+              "replace": "apps/waveform/src/environments/environment.ts",
+              "with": "apps/waveform/src/environments/environment.prod.ts"
+            }
+          ],
+          "optimization": true,
+          "outputHashing": "all",
+          "sourceMap": false,
+          "namedChunks": false,
+          "extractLicenses": true,
+          "vendorChunk": false
+        }
+      }
+    },
+    "serve": {
+      "executor": "@nrwl/webpack:dev-server",
+      "defaultConfiguration": "development",
+      "options": {
+        "buildTarget": "waveform:build",
+        "hmr": true
+      },
+      "configurations": {
+        "development": {
+          "buildTarget": "waveform:build:development"
+        },
+        "production": {
+          "buildTarget": "waveform:build:production",
+          "hmr": false
+        }
+      }
+    },
+    "lint": {
+      "executor": "@nrwl/linter:eslint",
+      "outputs": ["{options.outputFile}"],
+      "options": {
+        "lintFilePatterns": ["apps/waveform/**/*.{ts,tsx,js,jsx}"]
+      }
+    },
+    "test": {
+      "executor": "@nrwl/jest:jest",
+      "outputs": ["coverage/apps/waveform"],
+      "options": {
+        "jestConfig": "apps/waveform/jest.config.ts",
+        "passWithNoTests": true
+      }
+    }
+  },
+  "tags": []
+}
