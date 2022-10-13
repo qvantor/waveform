@@ -1,5 +1,6 @@
 export { Handle } from './handle';
 export { Tooltip } from './tooltip';
+export { WaveDrawer } from './wave-drawer';
 
 export { theme } from './common/constants';
 export * from './common/styles';

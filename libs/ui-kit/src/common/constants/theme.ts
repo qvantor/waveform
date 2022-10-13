@@ -3,7 +3,10 @@ const colors = {
   primary: '#ecf0f1',
   primaryMediumContrast: '#95a5a6',
   primaryHighContrast: '#7f8c8d',
-  dark: '#2c3e50',
+
+  primaryDark: '#121A22',
+  primaryDarkMediumContrast: '#2c3e50',
+  primaryDarkHighContrast: '#5A7FA4',
   accent: '#2ecc71',
 };
 

@@ -27,7 +27,7 @@ const TooltipInner = styled.div`
   ${absoluteCenterX};
   position: absolute;
   padding: 3px 8px;
-  background: ${hexToRgba(theme.colors.dark, 0.8)};
+  background: ${hexToRgba(theme.colors.primaryDarkMediumContrast, 0.8)};
   color: ${theme.colors.white};
   border-radius: ${theme.borderRadius.m};
   white-space: nowrap;

@@ -1,7 +1,7 @@
 import React from 'react';
 import styled from 'styled-components';
 import { arc } from 'd3-shape';
-import { Vector2D, vector2d } from '@waveform/math';
+import { Vector2D, vector2d, number } from '@waveform/math';
 import { scaleLinear } from 'd3-scale';
 import { theme } from '../common/constants';
 import { absoluteCenterXY } from '../common/styles';
@@ -26,10 +26,7 @@ interface StyledProps {
 
 const sizes: Record<
   Size,
-  Record<
-    'wrapper' | 'handleOuter' | 'handleInner' | 'mark',
-    [string, string]
-  > & {
+  Record<'wrapper' | 'handleOuter' | 'handleInner' | 'mark', [string, string]> & {
     arc: [number, number];
     svg: [number, number];
   }
@@ -99,7 +96,7 @@ const HandleMark = styled.div<StyledProps>`
   width: ${(props) => `${sizes[props.size].mark[0]}`};
   height: ${(props) => `${sizes[props.size].mark[1]}`};
   border-radius: 100%;
-  background: ${theme.colors.dark};
+  background: ${theme.colors.primaryDarkMediumContrast};
   position: absolute;
   left: 16px;
   top: 2px;
@@ -136,14 +133,12 @@ export const Handle = ({
       outerRadius: arcSize[1],
       startAngle: minAngle,
     };
-    const arcBackground =
-      arc()({ ...commonArcOptions, endAngle: maxAngle }) ?? undefined;
+    const arcBackground = arc()({ ...commonArcOptions, endAngle: maxAngle }) ?? undefined;
     return { arcBackground, scale, commonArcOptions };
   }, [min, max, size]);
 
   const { arcValue, rotateRad } = React.useMemo(() => {
-    const arcValue =
-      arc()({ ...commonArcOptions, endAngle: scale(value) }) ?? undefined;
+    const arcValue = arc()({ ...commonArcOptions, endAngle: scale(value) }) ?? undefined;
     const rotateRad = scale(value);
     return { arcValue, rotateRad };
   }, [commonArcOptions, value, scale]);
@@ -155,16 +150,9 @@ export const Handle = ({
         if (!mousePosition.current) return;
         const current = vector2d.fromMouseEvent(e);
         const prev = mousePosition.current;
-        const diff = vector2d.getBigger(
-          vector2d.invertY(vector2d.subtract(current, prev))
-        );
+        const diff = vector2d.getBigger(vector2d.invertY(vector2d.subtract(current, prev)));
 
-        onChange?.(
-          Math.max(
-            Math.min(value + Math.round(diff / rotateSpeed) * step, max),
-            min
-          )
-        );
+        onChange?.(number.thresholds(value + Math.round(diff / rotateSpeed) * step, min, max));
       };
       const cleanUp = () => {
         document.removeEventListener('mousemove', mouseMove);
@@ -179,10 +167,7 @@ export const Handle = ({
   return (
     <Tooltip content={formatValue?.(value) ?? value}>
       <Root size={size} onMouseDown={onMouseDown}>
-        <HandleCircle
-          style={{ transform: `rotate(${rotateRad}rad)` }}
-          size={size}
-        >
+        <HandleCircle style={{ transform: `rotate(${rotateRad}rad)` }} size={size}>
           <HandleCircleInner size={size}>
             <HandleMark size={size} />
           </HandleCircleInner>
@@ -194,11 +179,7 @@ export const Handle = ({
             transform={`translate(${svg[0] / 2},${svg[1] / 2})`}
             d={arcBackground}
           />
-          <path
-            fill={theme.colors.accent}
-            transform={`translate(${svg[0] / 2},${svg[1] / 2})`}
-            d={arcValue}
-          />
+          <path fill={theme.colors.accent} transform={`translate(${svg[0] / 2},${svg[1] / 2})`} d={arcValue} />
         </Svg>
       </Root>
     </Tooltip>

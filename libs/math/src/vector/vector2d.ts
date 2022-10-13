@@ -2,17 +2,11 @@ import React from 'react';
 
 export type Vector2D = [number, number];
 
-const fromValues = (x: number, y: number): Vector2D => [x, y];
+const fromValues = (x: number, y?: number): Vector2D => (y !== undefined ? [x, y] : [x, x]);
 
-const fromMouseEvent = (e: MouseEvent | React.MouseEvent): Vector2D => [
-  e.clientX,
-  e.clientY,
-];
+const fromMouseEvent = (e: MouseEvent | React.MouseEvent): Vector2D => [e.clientX, e.clientY];
 
-const subtract = (a: Vector2D, b: Vector2D): Vector2D => [
-  a[0] - b[0],
-  a[1] - b[1],
-];
+const subtract = (a: Vector2D, b: Vector2D): Vector2D => [a[0] - b[0], a[1] - b[1]];
 
 const invertY = (a: Vector2D): Vector2D => [a[0], -a[1]];
 
