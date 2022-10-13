@@ -10,6 +10,9 @@
   "private": true,
   "dependencies": {
     "core-js": "^3.6.5",
+    "d3-scale": "^4.0.2",
+    "d3-shape": "^3.1.0",
+    "hex-to-rgba": "^2.0.1",
     "react": "18.2.0",
     "react-dom": "18.2.0",
     "react-is": "18.2.0",
@@ -28,6 +31,8 @@
     "@nrwl/web": "14.8.4",
     "@nrwl/workspace": "14.8.4",
     "@testing-library/react": "13.4.0",
+    "@types/d3-scale": "^4.0.2",
+    "@types/d3-shape": "^3.1.0",
     "@types/jest": "28.1.1",
     "@types/node": "16.11.7",
     "@types/react": "18.0.20",
