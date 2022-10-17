@@ -1,4 +1,5 @@
-const thresholds = (value: number, min: number, max: number) =>
-  Math.max(Math.min(value, max), min);
+const thresholds = (value: number, min: number, max: number) => Math.max(Math.min(value, max), min);
 
-export const number = { thresholds };
+const powerOfTwo = (val: number) => 2 ** val;
+
+export const number = { thresholds, powerOfTwo };

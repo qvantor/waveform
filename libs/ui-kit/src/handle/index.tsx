@@ -13,7 +13,7 @@ interface Props {
   min?: number;
   max?: number;
   value?: number;
-  step?: number;
+  step?: number | number[];
   size?: Size;
   onChange?: (value: number) => void;
   rotateSpeed?: number;
@@ -127,7 +127,9 @@ export const Handle = ({
     const { arc: arcSize } = sizes[size];
     const arcPadding = 1.2;
     const [minAngle, maxAngle] = [-Math.PI / arcPadding, Math.PI / arcPadding];
-    const scale = scaleLinear().domain([min, max]).range([minAngle, maxAngle]);
+    const scale = scaleLinear()
+      .domain(Array.isArray(step) ? [0, step.length - 1] : [min, max])
+      .range([minAngle, maxAngle]);
     const commonArcOptions = {
       innerRadius: arcSize[0],
       outerRadius: arcSize[1],
@@ -135,13 +137,13 @@ export const Handle = ({
     };
     const arcBackground = arc()({ ...commonArcOptions, endAngle: maxAngle }) ?? undefined;
     return { arcBackground, scale, commonArcOptions };
-  }, [min, max, size]);
+  }, [min, max, size, step]);
 
   const { arcValue, rotateRad } = React.useMemo(() => {
-    const arcValue = arc()({ ...commonArcOptions, endAngle: scale(value) }) ?? undefined;
-    const rotateRad = scale(value);
+    const rotateRad = Array.isArray(step) ? scale(step.indexOf(value)) : scale(value);
+    const arcValue = arc()({ ...commonArcOptions, endAngle: rotateRad }) ?? undefined;
     return { arcValue, rotateRad };
-  }, [commonArcOptions, value, scale]);
+  }, [commonArcOptions, value, scale, step]);
 
   const onMouseDown = React.useCallback(
     (e: React.MouseEvent) => {
@@ -152,7 +154,13 @@ export const Handle = ({
         const prev = mousePosition.current;
         const diff = vector2d.getBigger(vector2d.invertY(vector2d.subtract(current, prev)));
 
-        onChange?.(number.thresholds(value + Math.round(diff / rotateSpeed) * step, min, max));
+        const rotateDelta = Math.round(diff / rotateSpeed);
+        if (Array.isArray(step)) {
+          const currentIndex = step.indexOf(value);
+          onChange?.(step[number.thresholds(currentIndex + rotateDelta, 0, step.length - 1)]);
+        } else {
+          onChange?.(number.thresholds(value + rotateDelta * step, min, max));
+        }
       };
       const cleanUp = () => {
         document.removeEventListener('mousemove', mouseMove);
@@ -179,7 +187,11 @@ export const Handle = ({
             transform={`translate(${svg[0] / 2},${svg[1] / 2})`}
             d={arcBackground}
           />
-          <path fill={theme.colors.accent} transform={`translate(${svg[0] / 2},${svg[1] / 2})`} d={arcValue} />
+          <path
+            fill={theme.colors.accent}
+            transform={`translate(${svg[0] / 2},${svg[1] / 2})`}
+            d={arcValue}
+          />
         </Svg>
       </Root>
     </Tooltip>
