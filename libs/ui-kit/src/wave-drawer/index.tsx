@@ -5,14 +5,13 @@ import { MouseInteractive } from './components';
 
 interface Props {
   wave: number[];
-  onChange?: (fn: (prevValue: number[]) => number[]) => void;
+  onChange?: (value: [number, number]) => void;
   rate?: number;
   precision?: number;
-  height?: number;
 }
 
 // @todo improve performance
-export const WaveDrawer = ({ rate = 4, height = 300, precision = 10, wave, onChange }: Props) => {
+export const WaveDrawer = ({ rate = 4, precision = 10, wave, onChange }: Props) => {
   const { rateInternal, dotSize, domainX, domainY } = React.useMemo(() => {
     const dotSize = 6;
     const range: [number, number] = [2, 7]; // draw from 4 to 128 points
@@ -28,15 +27,7 @@ export const WaveDrawer = ({ rate = 4, height = 300, precision = 10, wave, onCha
     () => [...wave].splice(0, number.powerOfTwo(rateInternal)),
     [wave, rateInternal]
   );
-  const updateWave = React.useCallback(
-    (mouseValue: Vector2D) =>
-      onChange?.((wave) => {
-        const newWave = [...wave];
-        newWave[mouseValue[0]] = mouseValue[1];
-        return newWave;
-      }),
-    [onChange]
-  );
+  const updateWave = React.useCallback((mouseValue: Vector2D) => onChange?.(mouseValue), [onChange]);
   const onMouseDown = React.useCallback(() => {
     if (!mouse) return;
     updateWave(mouse);
@@ -57,7 +48,6 @@ export const WaveDrawer = ({ rate = 4, height = 300, precision = 10, wave, onCha
       onMouseDown={onMouseDown}
       onMouseLeave={onMouseLeave}
       onMouseUp={onMouseLeave}
-      height={height}
       domainX={domainX}
       domainY={domainY}
     >

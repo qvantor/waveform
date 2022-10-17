@@ -7,7 +7,6 @@ import { theme } from '../../common/constants';
 import { LineChartContext } from '../constants';
 
 type Props = {
-  height?: number;
   padding?: Vector2D;
   domainX?: [number, number];
   domainY?: [number, number];
@@ -15,10 +14,16 @@ type Props = {
 
 const Root = styled.div`
   background: ${theme.colors.primaryDark};
+  overflow: hidden;
+  height: 100%;
+`;
+
+const Svg = styled.svg`
+  width: 100%;
+  height: 100%;
 `;
 
 export const LineChart = ({
-  height = 300,
   padding = [5, 2],
   domainX,
   domainY,
@@ -26,11 +31,18 @@ export const LineChart = ({
   ...rest
 }: React.PropsWithChildren<Props>) => {
   const ref = React.useRef<HTMLDivElement>(null);
-  const [width, setWidth] = React.useState(400);
+  const [[width, height], setSize] = React.useState([400, 10]);
 
   React.useEffect(() => {
-    if (!ref.current) return;
-    setWidth(ref.current.clientWidth);
+    const onResize = () => {
+      if (!ref.current) return;
+      setSize([ref.current.clientWidth, ref.current.clientHeight]);
+    };
+    onResize();
+    window.addEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+    };
   }, []);
 
   const [scaleX, scaleY, lineFn] = React.useMemo(() => {
@@ -44,14 +56,16 @@ export const LineChart = ({
       .y(scaleY);
 
     return [scaleX, scaleY, lineFn];
-  }, [width, padding, height, domainX, domainY]);
+  }, [width, height, padding, domainX, domainY]);
 
   return (
-    <LineChartContext.Provider value={{ width, height, padding, scaleX, scaleY, lineFn, ref }}>
-      <Root style={{ height }} {...rest} ref={ref}>
-        <svg style={{ width, height }}>
+    <LineChartContext.Provider
+      value={{ width, height, padding, scaleX, scaleY, lineFn, ref }}
+    >
+      <Root {...rest} ref={ref}>
+        <Svg>
           <g transform={`translate(${padding[0]}, ${padding[1]})`}>{children}</g>
-        </svg>
+        </Svg>
       </Root>
     </LineChartContext.Provider>
   );
