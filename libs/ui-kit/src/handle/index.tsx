@@ -6,6 +6,7 @@ import { scaleLinear } from 'd3-scale';
 import { theme } from '../common/constants';
 import { absoluteCenterXY } from '../common/styles';
 import { Tooltip } from '../tooltip';
+import { Label } from '../label';
 
 type Size = 'm' | 'l';
 
@@ -18,6 +19,7 @@ interface Props {
   onChange?: (value: number) => void;
   rotateSpeed?: number;
   formatValue?: (value: number) => React.ReactNode;
+  label?: React.ReactNode;
 }
 
 interface StyledProps {
@@ -120,6 +122,7 @@ export const Handle = ({
   size = 'm',
   onChange,
   formatValue,
+  label,
 }: Props) => {
   const { svg } = sizes[size];
   const mousePosition = React.useRef<Vector2D>([0, 0]);
@@ -174,26 +177,29 @@ export const Handle = ({
 
   return (
     <Tooltip content={formatValue?.(value) ?? value}>
-      <Root size={size} onMouseDown={onMouseDown}>
-        <HandleCircle style={{ transform: `rotate(${rotateRad}rad)` }} size={size}>
-          <HandleCircleInner size={size}>
-            <HandleMark size={size} />
-          </HandleCircleInner>
-        </HandleCircle>
-        <HandleCircleShadow size={size} />
-        <Svg size={size}>
-          <path
-            fill={theme.colors.primaryHighContrast}
-            transform={`translate(${svg[0] / 2},${svg[1] / 2})`}
-            d={arcBackground}
-          />
-          <path
-            fill={theme.colors.accent}
-            transform={`translate(${svg[0] / 2},${svg[1] / 2})`}
-            d={arcValue}
-          />
-        </Svg>
-      </Root>
+      <div onMouseDown={onMouseDown}>
+        <Root size={size}>
+          <HandleCircle style={{ transform: `rotate(${rotateRad}rad)` }} size={size}>
+            <HandleCircleInner size={size}>
+              <HandleMark size={size} />
+            </HandleCircleInner>
+          </HandleCircle>
+          <HandleCircleShadow size={size} />
+          <Svg size={size}>
+            <path
+              fill={theme.colors.primaryHighContrast}
+              transform={`translate(${svg[0] / 2},${svg[1] / 2})`}
+              d={arcBackground}
+            />
+            <path
+              fill={theme.colors.accent}
+              transform={`translate(${svg[0] / 2},${svg[1] / 2})`}
+              d={arcValue}
+            />
+          </Svg>
+        </Root>
+        {label && <Label>{label}</Label>}
+      </div>
     </Tooltip>
   );
 };

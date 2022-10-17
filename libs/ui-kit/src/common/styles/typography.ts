@@ -5,7 +5,7 @@ export const textLight14 = css`
   font-weight: 200;
 `;
 
-export const textLight14b = css`
-  font-size: 14px;
+export const textBold12 = css`
+  font-size: 12px;
   font-weight: 550;
-`
+`;

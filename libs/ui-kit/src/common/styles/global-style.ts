@@ -8,4 +8,8 @@ export const GlobalStyle = createGlobalStyle`
     padding: 0;
     font-family: 'Inter Tight', sans-serif;
   }
+
+  h1 {
+    margin: 0;
+  }
 `;

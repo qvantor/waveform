@@ -1,1 +1,1 @@
-export { Wave, Rate } from './models';
+export { Wave } from './models';

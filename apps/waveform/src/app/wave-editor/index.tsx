@@ -9,7 +9,14 @@ const Root = styled.div`
   flex: 1 1;
   display: grid;
   grid-template-columns: 50px 1fr;
+  gap: 20px;
+`;
+
+const HandlersWrapper = styled.div`
+  display: flex;
+  flex-direction: column;
   gap: 10px;
+  justify-content: space-between;
 `;
 
 export const WaveEditor = () => {
@@ -27,7 +34,7 @@ export const WaveEditor = () => {
   );
   return (
     <Root>
-      <div>
+      <HandlersWrapper>
         <Handle
           value={rate}
           onChange={(value) => $rate.next(value)}
@@ -35,9 +42,16 @@ export const WaveEditor = () => {
           min={2}
           max={maxRate}
           formatValue={(value) => <>Rate: {number.powerOfTwo(value)}</>}
+          label='Rate'
         />
-        <Handle step={[2, 5, 10, 20]} rotateSpeed={20} value={precision} onChange={setPrecision} />
-      </div>
+        <Handle
+          step={[2, 5, 10, 20]}
+          rotateSpeed={20}
+          value={precision}
+          onChange={setPrecision}
+          label='Precision'
+        />
+      </HandlersWrapper>
       <WaveDrawer wave={wave} onChange={onChange} rate={rate} precision={precision} />
     </Root>
   );

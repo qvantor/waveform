@@ -1,6 +1,7 @@
 const colors = {
   white: '#fff',
   primary: '#ecf0f1',
+  primaryLowContrast: '#bdc3c7',
   primaryMediumContrast: '#95a5a6',
   primaryHighContrast: '#7f8c8d',
 

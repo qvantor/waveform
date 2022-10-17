@@ -2,6 +2,8 @@ export { LineChart, Line, SquareDots, XAxis, YAxis, useLineChartContext } from '
 export { Handle } from './handle';
 export { Tooltip } from './tooltip';
 export { WaveDrawer } from './wave-drawer';
+export { Label } from './label';
+export { Analyser } from './analyser';
 
 export { theme } from './common/constants';
 export * from './common/styles';
