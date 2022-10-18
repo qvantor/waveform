@@ -3,7 +3,7 @@ import { createRxModule } from '@waveform/rxjs';
 import { number } from '@waveform/math';
 import { Wave } from '../../wave-editor/common';
 import { OutputWave } from '../../output-wave/common';
-import { fft } from 'fft-js';
+import FFT from 'fft.js';
 
 const audioModule = () => {
   const audioCtx = new window.AudioContext();
@@ -16,8 +16,12 @@ const audioModule = () => {
   const setWave = (value: [number[], number[]]) =>
     oscillator.setPeriodicWave(audioCtx.createPeriodicWave(...value));
 
-  const play = () => oscillator.connect(analyser);
-  const stop = () => oscillator.disconnect();
+  const play = () => {
+    oscillator.connect(analyser);
+  };
+  const stop = () => {
+    oscillator.disconnect();
+  };
 
   return { audioCtx, analyser, setFrequency, setWave, play, stop };
 };
@@ -74,22 +78,31 @@ export const appModule = () =>
           map(() => [...$wave.value].splice(0, number.powerOfTwo($rate.value))),
           map((croppedWave): number[] => {
             if ($rate.value >= $outputRate.value) return croppedWave;
-            const fullArray: number[] = croppedWave
-              .map((from, index) => {
-                const to = croppedWave[index + 1] ?? croppedWave[0];
-                const stepsCount = number.powerOfTwo($outputRate.value) / number.powerOfTwo($rate.value);
-                const diff = to - from;
-                const stepDiff = diff / stepsCount;
-                return [...Array(stepsCount)].map((_, i) => from + stepDiff * i);
-              })
-              .flat();
-            const newArray = [...fullArray];
-            return [...newArray.splice(Math.round(($phase.value / 100) * fullArray.length)), ...newArray];
+            const fArray = [];
+            for (let i = 0; i < croppedWave.length; i++) {
+              const from = croppedWave[i];
+              const to = croppedWave[i + 1] ?? croppedWave[0];
+              const stepsCount = number.powerOfTwo($outputRate.value) / number.powerOfTwo($rate.value);
+              const diff = to - from;
+              const stepDiff = diff / stepsCount;
+              for (let j = 0; j < stepsCount; j++) {
+                fArray.push(from + stepDiff * j);
+              }
+            }
+
+            return [...fArray.splice(Math.round(($phase.value / 100) * fArray.length)), ...fArray];
           }),
           map((real): [number[], number[]] => {
-            const waveFFT = fft(real);
-            const imag = waveFFT.map((item) => item[1]);
-            return [real, imag];
+            const f = new FFT(real.length);
+            const imag = new Array(real.length);
+            f.realTransform(imag, real);
+
+            const imagOutput: number[] = [];
+            for (let i = 0; i < imag.length; i++) {
+              if (i % 2 === 0) continue;
+              imagOutput.push(imag[i]);
+            }
+            return [real, imagOutput];
           })
         )
         .subscribe($outputWave),

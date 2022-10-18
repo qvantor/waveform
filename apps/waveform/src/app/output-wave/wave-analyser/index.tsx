@@ -22,7 +22,7 @@ export const WaveAnalyser = () => {
       <div>
         <Handle
           min={5}
-          max={15}
+          max={12}
           value={fftSize}
           onChange={setFftSize}
           label='FFT Size'
