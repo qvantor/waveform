@@ -2,6 +2,7 @@ import React from 'react';
 import { Vector2D, number, vector2d } from '@waveform/math';
 import { LineChart, YAxis, Line, SquareDots, XAxis } from '../line-chart';
 import { MouseInteractive } from './components';
+import { theme } from '../common/constants';
 
 interface Props {
   wave: number[];
@@ -54,7 +55,7 @@ export const WaveDrawer = ({ rate = 4, precision = 10, wave, onChange }: Props) 
       <XAxis ticks={domainX[1]} />
       <YAxis ticks={precision * 2} />
       <MouseInteractive mouse={mouse} setMouse={setMouse} precision={precision} />
-      <Line data={croppedWave} />
+      <Line data={croppedWave} style={{ fill: theme.colors.accent, fillOpacity: 0.2 }} />
       <SquareDots data={croppedWave} size={dotSize} />
     </LineChart>
   );

@@ -4,6 +4,7 @@ export { Tooltip } from './tooltip';
 export { WaveDrawer } from './wave-drawer';
 export { Label } from './label';
 export { Analyser } from './analyser';
+export { FileDrop } from './file-drop';
 
 export { theme } from './common/constants';
 export * from './common/styles';

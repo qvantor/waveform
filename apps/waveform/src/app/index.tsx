@@ -4,14 +4,18 @@ import { App } from './app';
 import { WaveEditor } from './wave-editor';
 import { OutputWave } from './output-wave';
 import { Header } from './header';
+import { AudiofileWave } from './audiofile-wave';
+import { WaveTableEditor } from './wave-table-editor';
 
 export function Core() {
   return (
     <App>
       <GlobalStyle />
-      <Header />
-      <WaveEditor />
-      <OutputWave />
+      {/*<Header />*/}
+      {/*<AudiofileWave />*/}
+      {/*<WaveEditor />*/}
+      {/*<OutputWave />*/}
+      <WaveTableEditor />
     </App>
   );
 }

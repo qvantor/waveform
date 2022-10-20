@@ -1,9 +1,9 @@
 import React from 'react';
 import styled from 'styled-components';
-import { useBehaviorSubject } from '@waveform/rxjs';
 import { theme, Handle } from '@waveform/ui-kit';
-import { useAppContext } from '../app';
+import { useBehaviorSubject } from '@waveform/rxjs';
 import { PlayButton } from './play-button';
+import { useAudioProcessorContext } from '../wave-table-editor';
 
 const Root = styled.div`
   border-bottom: 1px solid ${theme.colors.primaryLowContrast};
@@ -36,20 +36,16 @@ const Container = styled.div`
 `;
 
 export const Header = () => {
-  const { $frequency } = useAppContext().context;
+  const {
+    context: { $frequency },
+    actions: { setFrequency },
+  } = useAudioProcessorContext();
   const frequency = useBehaviorSubject($frequency);
   return (
     <Root>
       <Name>WAVETABLE</Name>
       <Container>
-        <Handle
-          min={20}
-          max={4000}
-          step={10}
-          value={frequency}
-          onChange={(value) => $frequency.next(value)}
-          label='Freq'
-        />
+        <Handle min={20} max={4000} step={10} value={frequency} onChange={setFrequency} label='Freq' />
         <PlayButton />
       </Container>
     </Root>

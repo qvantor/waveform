@@ -11,7 +11,7 @@ const Root = styled.div`
   background: ${theme.colors.primary};
   height: calc(100vh - 40px);
   display: grid;
-  grid-template-rows: 60px 1fr 1fr;
+  grid-template-rows: 60px 1fr 1fr 1fr;
   gap: 20px;
   padding: 20px;
 `;
