@@ -26,7 +26,7 @@ export const Controls = () => {
     <HandlersWrapper>
       <Handle
         min={rate}
-        max={13}
+        max={14}
         value={outputRate}
         rotateSpeed={10}
         onChange={setOutputRate}

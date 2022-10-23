@@ -17,6 +17,7 @@
     "paths": {
       "@waveform/math": ["libs/math/src/index.ts"],
       "@waveform/rxjs": ["libs/rxjs/src/index.ts"],
+      "@waveform/rxjs-react": ["libs/rxjs-react/src/index.ts"],
       "@waveform/ui-kit": ["libs/ui-kit/src/index.ts"]
     }
   },

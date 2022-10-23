@@ -7,7 +7,8 @@ export const OutputWave = () => {
   const {
     context: { $outputWave },
   } = useWaveUpscale();
-  const outputWave = useBehaviorSubject($outputWave);
+  // const outputWave = useBehaviorSubject($outputWave);
+  const outputWave = $outputWave.value;
   return (
     <>
       <LineChart domainY={[2, -2]} domainX={[0, outputWave[1].length - 1]}>

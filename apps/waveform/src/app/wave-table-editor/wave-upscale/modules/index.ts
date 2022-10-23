@@ -29,7 +29,7 @@ export const waveUpscaleModule = (
           map((croppedWave): number[] => {
             if ($rate.value >= $outputRate.value) return croppedWave;
             const fArray = [];
-            for (let i = 0; i < croppedWave.length; i++) {
+            for (let i = 0; i < number.powerOfTwo($rate.value); i++) {
               const from = croppedWave[i];
               const to = croppedWave[i + 1] ?? croppedWave[0];
               const stepsCount = number.powerOfTwo($outputRate.value) / number.powerOfTwo($rate.value);
@@ -39,7 +39,6 @@ export const waveUpscaleModule = (
                 fArray.push(from + stepDiff * j);
               }
             }
-
             return [...fArray.splice(Math.round(($phase.value / 100) * fArray.length)), ...fArray];
           }),
           map((real): [number[], number[]] => {
@@ -67,3 +66,17 @@ export const waveUpscaleModule = (
 export const WaveUpscaleContext = React.createContext<ReturnType<typeof waveUpscaleModule> | null>(null);
 
 export const useWaveUpscale = () => useNullableContext(WaveUpscaleContext, 'useWaveUpscale');
+
+// @todo return to it later
+// const ModuleComponent = <ARGS, T, A>(module: (args: ARGS) => Module<T, A>) => {
+//   const Context = React.createContext<Module<T, A> | null>(null);
+//   const useHook = () => useNullableContext(Context);
+//   const Component = (args: React.PropsWithChildren<ARGS>) => {
+//     const value = useModuleCustom(module, args);
+//     return <Context.Provider value={value}>{args.children}</Context.Provider>;
+//     // return Context.Provider({ value, children: args.children });
+//   };
+//   return { useHook, Component };
+// };
+//
+// export const { useHook: useWaveUpscale, Component: WaveUpscale } = ModuleComponent(waveUpscaleModule);
