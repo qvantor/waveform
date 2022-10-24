@@ -1,3 +1,2 @@
-export * from './create-module';
-export * from './create-rx-module';
-export * from './with-model';
+export { rxModelReact } from './rx-model-react';
+export { rxModel } from './rx-model';

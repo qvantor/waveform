@@ -1,22 +1,8 @@
 import React from 'react';
-import { Model, ModelFactory } from './create-rx-module';
-import { useNullableContext } from '../hooks';
+import { ModelFactory, Model } from '../types';
+import { useNullableContext, useRxModel } from '../hooks';
 
-const useRxModel = <D, M extends Record<any, any>, A>(
-  name: string,
-  rxModelFactory: (deps: D) => ModelFactory<M, A>,
-  deps: D
-): Model<M, A> => {
-  const [state, actions, lifecycle] = React.useMemo(() => rxModelFactory(deps).init(name), []);
-  React.useEffect(() => {
-    return () => {
-      lifecycle.stop();
-    };
-  }, [lifecycle]);
-  return [state, actions];
-};
-
-export const modelProvider = <
+export const rxModelReact = <
   D extends Record<any, any>, // dependencies
   M extends Record<any, any>, // model
   A // actions

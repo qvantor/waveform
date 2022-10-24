@@ -1,6 +1,7 @@
 import { Subscription } from 'rxjs';
 import { Initializers, ModelInternal, ModelFactory, Plugin } from '../types';
 
+// @todo improvements - make a model by types, then initial it with values
 export const rxModel = <M extends Record<any, unknown>, A extends Record<any, unknown>>(
   state: M,
   initializers: Initializers<M, A> = { actions: [], subscriptions: [], plugins: [] }

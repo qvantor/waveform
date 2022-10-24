@@ -1,7 +1,7 @@
 import React from 'react';
 import * as ReactDOM from 'react-dom/client';
 import { BehaviorSubject, map, mergeWith } from 'rxjs';
-import { rxModel, useBehaviorSubject, Model, modelProvider } from '@waveform/rxjs-react';
+import { rxModel, useBehaviorSubject, Model, rxModelReact } from '@waveform/rxjs-react';
 import { Handle } from '@waveform/ui-kit';
 
 // 1
@@ -12,7 +12,7 @@ const model1Fc = rxModel({ $wavetable }).actions(({ $wavetable }) => ({
 
 const model1Wrapper = () => model1Fc;
 type Module1Type = Model<ReturnType<typeof model1Fc.init>[0], ReturnType<typeof model1Fc.init>[1]>;
-const { useModel: useModel1, ModelProvider: Model1Provider } = modelProvider('model1', model1Wrapper);
+const { useModel: useModel1, ModelProvider: Model1Provider } = rxModelReact('model1', model1Wrapper);
 
 const Model1Intrnal = () => {
   const model1 = useModel1();
@@ -55,7 +55,7 @@ const model2Fc = ({ model1: [{ $wavetable }] }: { model1: Module1Type }) =>
         )
         .subscribe($croppedWave)
     );
-const { useModel: useModel2, ModelProvider } = modelProvider('model2', model2Fc);
+const { useModel: useModel2, ModelProvider } = rxModelReact('model2', model2Fc);
 
 const Model2Internal = () => {
   const [{ $rate, $croppedWave }, { setRate }] = useModel2();
