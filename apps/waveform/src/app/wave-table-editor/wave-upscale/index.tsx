@@ -1,10 +1,9 @@
 import React from 'react';
 import styled from 'styled-components';
-import { useModule } from '@waveform/rxjs';
-import { waveUpscaleModule, WaveUpscaleContext } from './modules';
-import { useWaveTableModule } from '../wave-table';
+import { WaveUpscaleProvider } from './modules';
 import { Controls, OutputWave } from './components';
-import { useAudioProcessorContext } from '../wave-table-editor';
+import { useAudioProcessor } from '../wave-table-editor';
+import { useWaveTable } from '../wave-table';
 
 const Root = styled.div`
   display: grid;
@@ -13,15 +12,14 @@ const Root = styled.div`
 `;
 
 export const WaveUpscale = () => {
-  const WaveTableModule = useWaveTableModule();
-  const AudioProcessorModule = useAudioProcessorContext();
-  const WaveUpscaleModule = useModule(waveUpscaleModule, [WaveTableModule, AudioProcessorModule]);
+  const audioProcessor = useAudioProcessor();
+  const waveTable = useWaveTable();
   return (
-    <WaveUpscaleContext.Provider value={WaveUpscaleModule}>
+    <WaveUpscaleProvider audioProcessor={audioProcessor} waveTable={waveTable} initial={{}}>
       <Root>
         <Controls />
         <OutputWave />
       </Root>
-    </WaveUpscaleContext.Provider>
+    </WaveUpscaleProvider>
   );
 };

@@ -1,24 +1,28 @@
-import React from 'react';
-import { createRxModule, useNullableContext } from '@waveform/rxjs';
-import { BehaviorSubject, distinctUntilChanged, filter, map, mergeWith } from 'rxjs';
-import { WaveTableModule } from '../../wave-table';
+import { distinctUntilChanged, filter, map, mergeWith } from 'rxjs';
+import { rxModel, rxModelReact, ArrayBS, PrimitiveBS } from '@waveform/rxjs-react';
+import { WaveTableModel } from '../../wave-table';
 import { number } from '@waveform/math';
-import { AudioProcessorModule } from '../../wave-table-editor';
+import { AudioProcessorModel } from '../../wave-table-editor';
 import FFT from 'fft.js';
 
-export const waveUpscaleModule = (
-  { context: { $rate, $wave } }: WaveTableModule,
-  { actions: { setWave } }: AudioProcessorModule
-) =>
-  createRxModule({
-    createContext: () => {
-      const $inputWave = new BehaviorSubject<number[]>([]);
-      const $outputRate = new BehaviorSubject<number>(10);
-      const $outputWave = new BehaviorSubject<[number[], number[]]>([[], []]);
-      const $phase = new BehaviorSubject<number>(0);
-      return { $outputRate, $outputWave, $inputWave, $phase };
-    },
-    subscriptions: ({ $inputWave, $outputRate, $phase, $outputWave }) => [
+interface Dependencies {
+  audioProcessor: AudioProcessorModel;
+  waveTable: WaveTableModel;
+}
+
+const waveUpscale = ({ audioProcessor: [, { setWave }], waveTable: [{ $rate, $wave }] }: Dependencies) =>
+  rxModel(() => {
+    const $inputWave = new ArrayBS<number[]>([]);
+    const $outputRate = new PrimitiveBS<number>(10);
+    const $outputWave = new ArrayBS<[number[], number[]]>([[], []]);
+    const $phase = new PrimitiveBS<number>(0);
+    return { $outputRate, $outputWave, $inputWave, $phase };
+  })
+    .actions(({ $outputRate, $phase }) => ({
+      setOutputRate: (value: number) => $outputRate.next(value),
+      setPhase: (value: number) => $phase.next(value),
+    }))
+    .subscriptions(({ $inputWave, $outputRate, $phase, $outputWave }) => [
       $wave.subscribe($inputWave),
       $rate.pipe(filter((rate) => rate > $outputRate.value)).subscribe($outputRate),
       $inputWave
@@ -56,27 +60,11 @@ export const waveUpscaleModule = (
         )
         .subscribe($outputWave),
       $outputWave.subscribe(setWave),
-    ],
-    actions: ({ $outputRate, $phase }) => ({
-      setOutputRate: (value: number) => $outputRate.next(value),
-      setPhase: (value: number) => $phase.next(value),
-    }),
-  });
+    ]);
 
-export const WaveUpscaleContext = React.createContext<ReturnType<typeof waveUpscaleModule> | null>(null);
+export const { ModelProvider: WaveUpscaleProvider, useModel: useWaveUpscale } = rxModelReact(
+  'waveUpscale',
+  waveUpscale
+);
 
-export const useWaveUpscale = () => useNullableContext(WaveUpscaleContext, 'useWaveUpscale');
-
-// @todo return to it later
-// const ModuleComponent = <ARGS, T, A>(module: (args: ARGS) => Module<T, A>) => {
-//   const Context = React.createContext<Module<T, A> | null>(null);
-//   const useHook = () => useNullableContext(Context);
-//   const Component = (args: React.PropsWithChildren<ARGS>) => {
-//     const value = useModuleCustom(module, args);
-//     return <Context.Provider value={value}>{args.children}</Context.Provider>;
-//     // return Context.Provider({ value, children: args.children });
-//   };
-//   return { useHook, Component };
-// };
-//
-// export const { useHook: useWaveUpscale, Component: WaveUpscale } = ModuleComponent(waveUpscaleModule);
+export type WaveUpscaleModel = ReturnType<typeof useWaveUpscale>;

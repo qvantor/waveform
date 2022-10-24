@@ -2,8 +2,8 @@ import React from 'react';
 import { CaretRightOutlined, PauseOutlined } from '@ant-design/icons';
 import styled from 'styled-components';
 import { theme } from '@waveform/ui-kit';
-import { useBehaviorSubject } from '@waveform/rxjs';
-import { useAudioProcessorContext } from '../../wave-table-editor';
+import { useBehaviorSubject } from '@waveform/rxjs-react';
+import { useAudioProcessor } from '../../wave-table-editor';
 
 const Button = styled.button`
   border: none;
@@ -30,10 +30,7 @@ const Button = styled.button`
 `;
 
 export const PlayButton = () => {
-  const {
-    context: { $isPlay },
-    actions: { playToggle },
-  } = useAudioProcessorContext();
+  const [{ $isPlay }, { playToggle }] = useAudioProcessor();
   const play = useBehaviorSubject($isPlay);
 
   return (

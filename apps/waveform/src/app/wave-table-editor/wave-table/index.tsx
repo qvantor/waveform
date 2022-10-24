@@ -1,16 +1,11 @@
 import React from 'react';
-import { useBehaviorSubject, useModule, useObservable } from '@waveform/rxjs';
-import { WaveTableContext, useWaveTableModule, waveTableModule, WaveTableModule } from './modules';
+import { useBehaviorSubject, useObservable } from '@waveform/rxjs-react';
+import { WaveTableProvider, useWaveTable, WaveTableModel } from './modules';
 import { WaveEditor } from '../wave-editor';
 import { WaveUpscale } from '../wave-upscale';
 
-export { useWaveTableModule, WaveTableModule };
-
 const WaveTableInternal = () => {
-  const {
-    context: { $wave, $current, $rate, rateRange },
-    actions: { updateCurrentWave, setCurrent, setRate },
-  } = useWaveTableModule();
+  const [{ $wave, $current, $rate, rateRange }, { updateCurrentWave, setCurrent, setRate }] = useWaveTable();
   const wave = useObservable($wave, []);
   const rate = useBehaviorSubject($rate);
   return (
@@ -29,10 +24,12 @@ const WaveTableInternal = () => {
 };
 
 export const WaveTable = () => {
-  const WaveTableModule = useModule(waveTableModule, []);
   return (
-    <WaveTableContext.Provider value={WaveTableModule}>
+    <WaveTableProvider initial={{}}>
       <WaveTableInternal />
-    </WaveTableContext.Provider>
+    </WaveTableProvider>
   );
 };
+
+export { useWaveTable };
+export type { WaveTableModel };

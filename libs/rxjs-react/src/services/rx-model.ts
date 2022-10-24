@@ -4,7 +4,7 @@ import { Initializers, ModelInternal, ModelFactory, Plugin } from '../types';
 type State<M, I = undefined> = M | ((initial: I) => M);
 
 // @todo improvements - make a model by types, then initial it with values
-export const rxModel = <M extends Record<any, unknown>, A extends Record<any, unknown>, I>(
+export const rxModel = <M extends Record<string | number, unknown>, A extends Record<string | number, unknown>, I>(
   model: State<M, I>,
   initializers: Initializers<M, A> = { actions: [], subscriptions: [], plugins: [] }
 ): ModelFactory<M, A, I> => {
@@ -19,7 +19,7 @@ export const rxModel = <M extends Record<any, unknown>, A extends Record<any, un
   };
 
   const actions = <NA>(fn: (model: M) => NA) => cloneSelf(model, { actions: [fn] });
-  const subscriptions = (fn: (model: M) => Subscription | Subscription[]) =>
+  const subscriptions = (fn: (model: M, actions: A) => Subscription | Subscription[]) =>
     cloneSelf(model, { subscriptions: [fn] });
   const plugins = (plugin: Plugin<M> | Array<Plugin<M>>) =>
     cloneSelf(model, { plugins: Array.isArray(plugin) ? plugin : [plugin] });
@@ -28,7 +28,7 @@ export const rxModel = <M extends Record<any, unknown>, A extends Record<any, un
     const meta = { name, active: true };
     const modelValue = typeof model === 'function' ? model(initial) : model;
     const actions = initializers.actions.reduce((sum, fn) => ({ ...sum, ...fn(modelValue) }), {} as A);
-    const subscriptions = initializers.subscriptions.map((fn) => fn(modelValue)).flat();
+    const subscriptions = initializers.subscriptions.map((fn) => fn(modelValue, actions)).flat();
     initializers.plugins.forEach((plugin) => plugin?.onInit?.(modelValue, meta));
 
     const stop = () => {

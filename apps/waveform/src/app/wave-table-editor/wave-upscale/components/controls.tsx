@@ -2,9 +2,9 @@ import React from 'react';
 import styled from 'styled-components';
 import { Handle } from '@waveform/ui-kit';
 import { number } from '@waveform/math';
-import { useBehaviorSubject } from '@waveform/rxjs';
+import { useBehaviorSubject } from '@waveform/rxjs-react';
 import { useWaveUpscale } from '../modules';
-import { useWaveTableModule } from '../../wave-table';
+import { useWaveTable } from '../../wave-table';
 
 const HandlersWrapper = styled.div`
   display: flex;
@@ -14,11 +14,8 @@ const HandlersWrapper = styled.div`
 `;
 
 export const Controls = () => {
-  const { $rate } = useWaveTableModule().context;
-  const {
-    context: { $outputRate, $phase },
-    actions: { setOutputRate, setPhase },
-  } = useWaveUpscale();
+  const [{ $rate }] = useWaveTable();
+  const [{ $outputRate, $phase }, { setOutputRate, setPhase }] = useWaveUpscale();
   const rate = useBehaviorSubject($rate);
   const phase = useBehaviorSubject($phase);
   const outputRate = useBehaviorSubject($outputRate);

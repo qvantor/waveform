@@ -1,6 +1,2 @@
-export {
-  AudioProcessorContext,
-  useAudioProcessorContext,
-  audioProcessorModule,
-  AudioProcessorModule,
-} from './audio-processor-module';
+export { AudioProcessorProvider, useAudioProcessor } from './audio-processor-module';
+export type { AudioProcessorModel } from './audio-processor-module';

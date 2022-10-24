@@ -1,9 +1,9 @@
 import React from 'react';
 import styled from 'styled-components';
 import { theme, Handle } from '@waveform/ui-kit';
-import { useBehaviorSubject } from '@waveform/rxjs';
+import { useBehaviorSubject } from '@waveform/rxjs-react';
 import { PlayButton } from './play-button';
-import { useAudioProcessorContext } from '../wave-table-editor';
+import { useAudioProcessor } from '../wave-table-editor';
 
 const Root = styled.div`
   border-bottom: 1px solid ${theme.colors.primaryLowContrast};
@@ -36,10 +36,7 @@ const Container = styled.div`
 `;
 
 export const Header = () => {
-  const {
-    context: { $frequency },
-    actions: { setFrequency },
-  } = useAudioProcessorContext();
+  const [{ $frequency }, { setFrequency }] = useAudioProcessor();
   const frequency = useBehaviorSubject($frequency);
   return (
     <Root>

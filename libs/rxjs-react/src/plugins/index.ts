@@ -1,1 +1,1 @@
-export * from './snapshot';
+export { snapshotPlugin } from './snapshot';
