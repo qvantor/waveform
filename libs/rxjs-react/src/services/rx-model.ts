@@ -1,36 +1,42 @@
 import { Subscription } from 'rxjs';
 import { Initializers, ModelInternal, ModelFactory, Plugin } from '../types';
 
+type State<M, I = undefined> = M | ((initial: I) => M);
+
 // @todo improvements - make a model by types, then initial it with values
-export const rxModel = <M extends Record<any, unknown>, A extends Record<any, unknown>>(
-  state: M,
+export const rxModel = <M extends Record<any, unknown>, A extends Record<any, unknown>, I>(
+  model: State<M, I>,
   initializers: Initializers<M, A> = { actions: [], subscriptions: [], plugins: [] }
-): ModelFactory<M, A> => {
-  const cloneSelf = <NA>(model: M, opts: Partial<Initializers<M, NA>>): ModelFactory<M, A & NA> => {
+): ModelFactory<M, A, I> => {
+  const cloneSelf = <NA>(
+    model: State<M, I>,
+    opts: Partial<Initializers<M, NA>>
+  ): ModelFactory<M, A & NA, I> => {
     const actions = [...initializers.actions, ...(opts.actions ?? [])] as ((model: M) => A & NA)[];
     const subscriptions = [...initializers.subscriptions, ...(opts.subscriptions ?? [])];
     const plugins = [...initializers.plugins, ...(opts.plugins ?? [])];
     return rxModel(model, { actions, subscriptions, plugins });
   };
 
-  const actions = <NA>(fn: (model: M) => NA) => cloneSelf(state, { actions: [fn] });
+  const actions = <NA>(fn: (model: M) => NA) => cloneSelf(model, { actions: [fn] });
   const subscriptions = (fn: (model: M) => Subscription | Subscription[]) =>
-    cloneSelf(state, { subscriptions: [fn] });
+    cloneSelf(model, { subscriptions: [fn] });
   const plugins = (plugin: Plugin<M> | Array<Plugin<M>>) =>
-    cloneSelf(state, { plugins: Array.isArray(plugin) ? plugin : [plugin] });
+    cloneSelf(model, { plugins: Array.isArray(plugin) ? plugin : [plugin] });
 
-  const init = (name: string): ModelInternal<M, A> => {
+  const init = (name: string, initial: I): ModelInternal<M, A> => {
     const meta = { name, active: true };
-    const actions = initializers.actions.reduce((sum, fn) => ({ ...sum, ...fn(state) }), {} as A);
-    const subscriptions = initializers.subscriptions.map((fn) => fn(state)).flat();
-    initializers.plugins.forEach((plugin) => plugin?.onInit?.(state, meta));
+    const modelValue = typeof model === 'function' ? model(initial) : model;
+    const actions = initializers.actions.reduce((sum, fn) => ({ ...sum, ...fn(modelValue) }), {} as A);
+    const subscriptions = initializers.subscriptions.map((fn) => fn(modelValue)).flat();
+    initializers.plugins.forEach((plugin) => plugin?.onInit?.(modelValue, meta));
 
     const stop = () => {
       meta.active = false;
       subscriptions.forEach((subscription) => subscription.unsubscribe());
-      initializers.plugins.forEach((plugin) => plugin?.onStop?.(state, meta));
+      initializers.plugins.forEach((plugin) => plugin?.onStop?.(modelValue, meta));
     };
-    return [state, actions, { stop, meta }];
+    return [modelValue, actions, { stop, meta }];
   };
   return {
     init,

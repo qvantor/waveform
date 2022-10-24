@@ -5,8 +5,9 @@ import { rxModel, useBehaviorSubject, Model, rxModelReact } from '@waveform/rxjs
 import { Handle } from '@waveform/ui-kit';
 
 // 1
-const $wavetable = new BehaviorSubject<number[]>([1, 2]);
-const model1Fc = rxModel({ $wavetable }).actions(({ $wavetable }) => ({
+const model1Fc = rxModel(({ wavetable }: { wavetable: number[] }) => {
+  return { $wavetable: new BehaviorSubject(wavetable) };
+}).actions(({ $wavetable }) => ({
   randomWave: () => $wavetable.next(new Array(Math.round(Math.random() * 50) + 1).fill(Math.random())),
 }));
 
@@ -30,7 +31,7 @@ const Model1Intrnal = () => {
 };
 
 const Model1 = () => (
-  <Model1Provider>
+  <Model1Provider initial={{ wavetable: [1, 3, 2] }}>
     <Model1Intrnal />
   </Model1Provider>
 );
@@ -74,7 +75,7 @@ const Model2Internal = () => {
 const Model2 = React.memo(() => {
   const model1 = useModel1();
   return (
-    <ModelProvider model1={model1}>
+    <ModelProvider model1={model1} initial={null}>
       <Model2Internal />
     </ModelProvider>
   );

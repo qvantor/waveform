@@ -22,9 +22,10 @@ export type ModelLifecycle = {
 export type ModelInternal<M extends Record<any, unknown>, A> = [M, A, ModelLifecycle];
 export type Model<M extends Record<any, unknown>, A> = [M, A];
 
-export type ModelFactory<M extends Record<any, unknown>, A> = {
-  init: (name: string) => ModelInternal<M, A>;
-  actions: <NA>(fn: (model: M) => NA) => ModelFactory<M, A & NA>;
-  subscriptions: (fn: (model: M) => Subscription | Subscription[]) => ModelFactory<M, A>;
-  plugins: (plugins: Plugin<M> | Array<Plugin<M>>) => ModelFactory<M, A>;
+
+export type ModelFactory<M extends Record<any, unknown>, A, I> = {
+  init: (name: string, initial: I) => ModelInternal<M, A>;
+  actions: <NA>(fn: (model: M) => NA) => ModelFactory<M, A & NA, I>;
+  subscriptions: (fn: (model: M) => Subscription | Subscription[]) => ModelFactory<M, A, I>;
+  plugins: (plugins: Plugin<M> | Array<Plugin<M>>) => ModelFactory<M, A, I>;
 };

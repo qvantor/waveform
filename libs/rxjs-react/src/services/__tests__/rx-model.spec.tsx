@@ -13,9 +13,16 @@ describe('RxModel', () => {
     expect(typeof model.subscriptions).toBe('function');
     expect(typeof model.plugins).toBe('function');
   });
+  it('should init with a initial params', () => {
+    const [model] = rxModel((value: number) => ({
+      ...simpleData,
+      value,
+    })).init('name', 32);
+    expect(model).toEqual({ ...simpleData, value: 32 });
+  });
   it('should pass a model', () => {
     const model = rxModel(simpleData);
-    const [modelData] = model.init('name');
+    const [modelData] = model.init('name', {});
     expect(modelData).toEqual(simpleData);
   });
   it('should attach an actions', () => {
@@ -25,7 +32,7 @@ describe('RxModel', () => {
         fn,
         returnValue: () => value,
       }))
-      .init('name');
+      .init('name', {});
     expect(actions.fn).toEqual(fn);
     expect(fn.mock.calls.length).toEqual(0);
 
@@ -39,7 +46,7 @@ describe('RxModel', () => {
     const modelFactory = rxModel(rxjsData).subscriptions(({ $array }) => $array.subscribe());
     expect(rxjsData.$array.observed).toBeFalsy();
 
-    const [, , { stop }] = modelFactory.init('name');
+    const [, , { stop }] = modelFactory.init('name', {});
     expect(rxjsData.$array.observed).toBeTruthy();
 
     stop();
@@ -56,7 +63,7 @@ describe('RxModel', () => {
     expect(onInit.mock.calls.length).toBe(0);
     expect(onStop.mock.calls.length).toBe(0);
 
-    const [, , { stop }] = modelFactory.init('name');
+    const [, , { stop }] = modelFactory.init('name', {});
     expect(onInit.mock.calls[0]).toEqual([simpleData, { active: true, name: 'name' }]);
     expect(onInit.mock.calls.length).toBe(1);
 
