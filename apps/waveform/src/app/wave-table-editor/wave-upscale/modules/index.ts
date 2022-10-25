@@ -4,6 +4,7 @@ import { WaveTableModel } from '../../wave-table';
 import { number } from '@waveform/math';
 import { AudioProcessorModel } from '../../wave-table-editor';
 import FFT from 'fft.js';
+import { appSnapshotPlugin } from '../../../app';
 
 interface Dependencies {
   audioProcessor: AudioProcessorModel;
@@ -60,7 +61,8 @@ const waveUpscale = ({ audioProcessor: [, { setWave }], waveTable: [{ $rate, $wa
         )
         .subscribe($outputWave),
       $outputWave.subscribe(setWave),
-    ]);
+    ])
+    .plugins(appSnapshotPlugin());
 
 export const { ModelProvider: WaveUpscaleProvider, useModel: useWaveUpscale } = rxModelReact(
   'waveUpscale',

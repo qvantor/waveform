@@ -1,7 +1,7 @@
 import { jest } from '@jest/globals';
-import { rxModel } from '../../../services/rx-model';
+import { rxModel } from '../../../';
 import { snapshotPlugin } from '../';
-import { PrimitiveBS, ArrayBS, ObjectBS } from '../../../observables';
+import { PrimitiveBS, ArrayBS, ObjectBS } from '../../../';
 
 const primitives = {
   null: null,
@@ -21,8 +21,10 @@ const primitiveBs: Record<string, PrimitiveBS<keyof typeof primitives>> = (
   Object.keys(primitives) as Array<keyof typeof primitives>
 ).reduce((sum, key) => ({ ...sum, [key]: new PrimitiveBS(primitives[key]) }), {});
 
-const arrayBs = new ArrayBS<number>([1, 2, 3, 4]);
-const arrayBsDeep = new ArrayBS<ArrayBS<ArrayBS<number>>>([new ArrayBS<ArrayBS<number>>([arrayBs, arrayBs])]);
+const arrayBs = new ArrayBS<number[]>([1, 2, 3, 4]);
+const arrayBsDeep = new ArrayBS<ArrayBS<ArrayBS<number[]>[]>[]>([
+  new ArrayBS<ArrayBS<number[]>[]>([arrayBs, arrayBs]),
+]);
 
 const objectBs = new ObjectBS(primitives);
 const objectBsDeep = new ObjectBS({
@@ -40,7 +42,7 @@ describe('snapshotPlugin', () => {
     const modelFactory = rxModel(primitives).plugins(snapshotInstance.modelPlugin());
     expect(snapshotInstance.getSnapshot()).toBe('{}');
 
-    const [, , { stop }] = modelFactory.init(modelName);
+    const [, , { stop }] = modelFactory.init(modelName, {});
     expect(snapshotInstance.getSnapshot()).toBe(snapshotWrapper({}));
 
     stop();
@@ -48,13 +50,13 @@ describe('snapshotPlugin', () => {
   });
 
   it('getSnapshot should ignore primitive values', () => {
-    rxModel(primitives).plugins(snapshotInstance.modelPlugin()).init(modelName);
+    rxModel(primitives).plugins(snapshotInstance.modelPlugin()).init(modelName, {});
     expect(snapshotInstance.getSnapshot()).toBe(snapshotWrapper({}));
   });
   it('getSnapshot should make snapshot of PrimitiveBS values', () => {
     rxModel(primitiveBs)
       .plugins(snapshotInstance.modelPlugin(['string', 'number']))
-      .init(modelName);
+      .init(modelName, {});
     expect(snapshotInstance.getSnapshot()).toBe(
       snapshotWrapper({
         string: {
@@ -69,7 +71,7 @@ describe('snapshotPlugin', () => {
     );
   });
   it('getSnapshot make snapshot of ArrayBS', () => {
-    rxModel({ arrayBs }).plugins(snapshotInstance.modelPlugin()).init(modelName);
+    rxModel({ arrayBs }).plugins(snapshotInstance.modelPlugin()).init(modelName, {});
     expect(snapshotInstance.getSnapshot()).toBe(
       snapshotWrapper({
         arrayBs: {
@@ -81,7 +83,7 @@ describe('snapshotPlugin', () => {
   });
 
   it('getSnapshot make snapshot of ArrayBS deep', () => {
-    rxModel({ arrayBsDeep }).plugins(snapshotInstance.modelPlugin()).init(modelName);
+    rxModel({ arrayBsDeep }).plugins(snapshotInstance.modelPlugin()).init(modelName, {});
     expect(snapshotInstance.getSnapshot()).toBe(
       snapshotWrapper({
         arrayBsDeep: {
@@ -106,7 +108,7 @@ describe('snapshotPlugin', () => {
     );
   });
   it('getSnapshot make snapshot of ObjectBs', () => {
-    rxModel({ objectBs }).plugins(snapshotInstance.modelPlugin()).init(modelName);
+    rxModel({ objectBs }).plugins(snapshotInstance.modelPlugin()).init(modelName, {});
     expect(snapshotInstance.getSnapshot()).toBe(
       snapshotWrapper({
         objectBs: {
@@ -118,7 +120,7 @@ describe('snapshotPlugin', () => {
   });
 
   it('getSnapshot make snapshot of ObjectBs deep', () => {
-    rxModel({ objectBsDeep }).plugins(snapshotInstance.modelPlugin()).init(modelName);
+    rxModel({ objectBsDeep }).plugins(snapshotInstance.modelPlugin()).init(modelName, {});
     expect(snapshotInstance.getSnapshot()).toBe(
       snapshotWrapper({
         objectBsDeep: {
@@ -151,7 +153,7 @@ describe('snapshotPlugin', () => {
     const [model] = rxModel(primitiveBs)
       .plugins(snapshotInstance.modelPlugin())
       .subscriptions(({ string }) => string.subscribe(stringSub))
-      .init(modelName);
+      .init(modelName, {});
     expect(stringSub.mock.calls.length).toBe(1);
 
     const newStringValue = 'newStringValue';
@@ -172,7 +174,7 @@ describe('snapshotPlugin', () => {
     const [model] = rxModel({ arrayBs })
       .plugins(snapshotInstance.modelPlugin())
       .subscriptions(({ arrayBs }) => arrayBs.subscribe(arraySub))
-      .init(modelName);
+      .init(modelName, {});
     expect(arraySub.mock.calls.length).toBe(1);
 
     const newArrayValue = [100, 99, 98];
@@ -192,7 +194,7 @@ describe('snapshotPlugin', () => {
     const [model] = rxModel({ arrayBsDeep })
       .subscriptions(({ arrayBsDeep }) => arrayBsDeep.subscribe(arraySub))
       .plugins(snapshotInstance.modelPlugin())
-      .init(modelName);
+      .init(modelName, {});
 
     const newArrayValue = [50, 40, 30];
     expect(arraySub.mock.calls.length).toEqual(1);
@@ -230,7 +232,7 @@ describe('snapshotPlugin', () => {
     const [model] = rxModel({ objectBs })
       .subscriptions(({ objectBs }) => objectBs.subscribe(objectSub))
       .plugins(snapshotInstance.modelPlugin())
-      .init(modelName);
+      .init(modelName, {});
     expect(objectSub.mock.calls.length).toEqual(1);
 
     snapshotInstance.loadSnapshot(
@@ -250,7 +252,7 @@ describe('snapshotPlugin', () => {
     const [model] = rxModel({ objectBsDeep })
       .subscriptions(({ objectBsDeep }) => objectBsDeep.subscribe(objectSub))
       .plugins(snapshotInstance.modelPlugin())
-      .init(modelName);
+      .init(modelName, {});
     expect(objectSub.mock.calls.length).toEqual(1);
 
     const newArrayValue = [6, 5, 4, 3, 2, 1];
@@ -289,7 +291,7 @@ describe('snapshotPlugin', () => {
   });
 
   it('save/load snapshot is equal', () => {
-    rxModel({ objectBsDeep }).plugins(snapshotInstance.modelPlugin()).init(modelName);
+    rxModel({ objectBsDeep }).plugins(snapshotInstance.modelPlugin()).init(modelName, {});
     const snapshot1 = snapshotInstance.getSnapshot();
     snapshotInstance.loadSnapshot(snapshot1);
     const snapshot2 = snapshotInstance.getSnapshot();
@@ -301,7 +303,7 @@ describe('snapshotPlugin', () => {
     rxModel({ objectBsDeep })
       .subscriptions(({ objectBsDeep }) => objectBsDeep.subscribe(sub))
       .plugins(snapshotInstance.modelPlugin())
-      .init(modelName);
+      .init(modelName, {});
     const snapshot1 = snapshotInstance.getSnapshot();
 
     snapshotInstance.loadSnapshot('[1,2,3]');
@@ -315,5 +317,25 @@ describe('snapshotPlugin', () => {
 
     const snapshot2 = snapshotInstance.getSnapshot();
     expect(snapshot1).toBe(snapshot2);
+  });
+
+  it('setInitSnapshot should set Snapshot after model created', async () => {
+    const newStringValue = 'newStringValue';
+    snapshotInstance.setInitSnapshot(
+      snapshotWrapper({
+        string: {
+          _type_: 'PrimitiveBS',
+          value: newStringValue,
+        },
+      })
+    );
+    const [model] = rxModel(primitiveBs)
+      .plugins(snapshotInstance.modelPlugin())
+      .init(modelName, {});
+    expect(model['string'].value).toBe(newStringValue);
+
+    snapshotInstance.setInitSnapshot();
+    const [model2] = rxModel({ string: new PrimitiveBS(primitives.string) }).init(modelName, {});
+    expect(model2['string'].value).toBe(primitives.string);
   });
 });

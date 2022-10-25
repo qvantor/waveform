@@ -1,10 +1,12 @@
 import React from 'react';
 import styled from 'styled-components';
 import { theme } from '@waveform/ui-kit';
-import { useModule } from '@waveform/rxjs';
-import { AppContext } from './constants';
-import { appModule } from './modules';
+// import { useModule } from '@waveform/rxjs';
+// import { AppContext } from './constants';
+// import { appModule } from './modules';
+import { AppModelProvider } from './modules/app-module';
 
+export { appSnapshotPlugin } from './plugins/snapshot';
 export { useAppContext } from './hooks';
 
 const Root = styled.div`
@@ -17,10 +19,12 @@ const Root = styled.div`
 `;
 
 export const App = ({ children }: React.PropsWithChildren) => {
-  const module = useModule(appModule, []);
+  // const module = useModule(appModule, []);
   return (
-    <AppContext.Provider value={module}>
+    <AppModelProvider initial={{}}>
+      {/*<AppContext.Provider value={module}>*/}
       <Root>{children}</Root>
-    </AppContext.Provider>
+      {/*</AppContext.Provider>*/}
+    </AppModelProvider>
   );
 };
