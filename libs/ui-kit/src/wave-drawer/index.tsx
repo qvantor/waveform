@@ -9,18 +9,18 @@ interface Props {
   onChange?: (value: [number, number]) => void;
   rate?: number;
   precision?: number;
+  range?: [number, number];
 }
 
 // @todo improve performance
-export const WaveDrawer = ({ rate = 4, precision = 10, wave, onChange }: Props) => {
+export const WaveDrawer = ({ rate = 4, precision = 10, wave, range = [2, 7], onChange }: Props) => {
   const { rateInternal, dotSize, domainX, domainY } = React.useMemo(() => {
     const dotSize = 6;
-    const range: [number, number] = [2, 7]; // draw from 4 to 128 points
     const rateInternal = number.thresholds(rate, ...range);
     const domainX = vector2d.fromValues(0, number.powerOfTwo(rateInternal) - 1);
     const domainY = vector2d.fromValues(1, -1);
     return { rateInternal, dotSize, domainX, domainY };
-  }, [rate]);
+  }, [rate, range]);
 
   const [mouse, setMouse] = React.useState<Vector2D | null>(null);
   const [isMouseDown, setIsMouseDown] = React.useState(false);

@@ -14,7 +14,7 @@ export class Wave extends ArrayBS<number[]> {
 
 const waveTable = () =>
   rxModel(() => {
-    const rateRange: [number, number] = [2, 7];
+    const rateRange: [number, number] = [2, 8];
     const $rate = new PrimitiveBS<number>(4);
     const $waveTable = new ArrayBS<ArrayBS<number[]>[]>([
       new ArrayBS(Array(number.powerOfTwo(rateRange[1])).fill(0)),
@@ -35,6 +35,9 @@ const waveTable = () =>
       },
       setCurrent: (i: number) => $current.next(i),
       setRate: (value: number) => $rate.next(value),
+      cloneCurrent: () => {
+        $waveTable.next([...$waveTable.value, new ArrayBS([...$waveTable.value[$current.value].value])]);
+      },
     }))
     .plugins(appSnapshotPlugin());
 
