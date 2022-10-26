@@ -10,7 +10,7 @@ import { Label } from '../label';
 
 type Size = 'm' | 'l';
 
-interface Props {
+export interface HandleProps {
   min?: number;
   max?: number;
   value?: number;
@@ -123,7 +123,7 @@ export const Handle = ({
   onChange,
   formatValue,
   label,
-}: Props) => {
+}: HandleProps) => {
   const { svg } = sizes[size];
   const mousePosition = React.useRef<Vector2D>([0, 0]);
   const { arcBackground, commonArcOptions, scale } = React.useMemo(() => {
@@ -155,7 +155,7 @@ export const Handle = ({
         if (!mousePosition.current) return;
         const current = vector2d.fromMouseEvent(e);
         const prev = mousePosition.current;
-        const diff = vector2d.getBigger(vector2d.invertY(vector2d.subtract(current, prev)));
+        const diff = vector2d.addition(vector2d.invertY(vector2d.subtract(current, prev)));
 
         const rotateDelta = Math.round(diff / rotateSpeed);
         if (Array.isArray(step)) {

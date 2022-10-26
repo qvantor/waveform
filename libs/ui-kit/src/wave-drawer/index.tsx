@@ -54,7 +54,7 @@ export const WaveDrawer = ({ rate = 4, precision = 10, wave, range = [2, 7], onC
     >
       <XAxis ticks={domainX[1]} />
       <YAxis ticks={precision * 2} />
-      <MouseInteractive mouse={mouse} setMouse={setMouse} precision={precision} />
+      {onChange && <MouseInteractive mouse={mouse} setMouse={setMouse} precision={precision} />}
       <Line data={croppedWave} style={{ fill: theme.colors.accent, fillOpacity: 0.2 }} />
       <SquareDots data={croppedWave} size={dotSize} />
     </LineChart>

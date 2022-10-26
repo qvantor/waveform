@@ -12,16 +12,13 @@ const invertY = (a: Vector2D): Vector2D => [a[0], -a[1]];
 
 const abs = (a: Vector2D): Vector2D => [Math.abs(a[0]), Math.abs(a[1])];
 
-const getBigger = (a: Vector2D) => {
-  const [x, y] = abs(a);
-  return x > y ? a[0] : a[1];
-};
+const addition = (a: Vector2D): number => a[0] + a[1];
 
 export const vector2d = {
   fromMouseEvent,
   subtract,
+  addition,
   abs,
-  getBigger,
   invertY,
   fromValues,
 };

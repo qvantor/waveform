@@ -1,30 +1,20 @@
 import React from 'react';
 import styled from 'styled-components';
 import { theme } from '@waveform/ui-kit';
-// import { useModule } from '@waveform/rxjs';
-// import { AppContext } from './constants';
-// import { appModule } from './modules';
-import { AppModelProvider } from './modules/app-module';
-
+import { AppModelProvider } from './modules';
 export { appSnapshotPlugin } from './plugins/snapshot';
-export { useAppContext } from './hooks';
 
 const Root = styled.div`
   background: ${theme.colors.primary};
-  height: calc(100vh - 40px);
+  height: 100vh;
   display: grid;
-  grid-template-rows: 60px 46px 1fr 1fr;
-  gap: 20px;
-  padding: 20px;
+  grid-template-rows: 80px 1fr;
 `;
 
 export const App = ({ children }: React.PropsWithChildren) => {
-  // const module = useModule(appModule, []);
   return (
     <AppModelProvider initial={{}}>
-      {/*<AppContext.Provider value={module}>*/}
       <Root>{children}</Root>
-      {/*</AppContext.Provider>*/}
     </AppModelProvider>
   );
 };
