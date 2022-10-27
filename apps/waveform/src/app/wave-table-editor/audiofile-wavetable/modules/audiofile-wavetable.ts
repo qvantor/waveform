@@ -1,8 +1,7 @@
 import { map } from 'rxjs';
 import { ArrayBS, rxModelReact } from '@waveform/rxjs-react';
 import { wave } from '@waveform/math';
-import { wavetable } from '../../common/modules';
-import { AudioProcessorModule } from '../../wave-table-editor';
+import { wavetable, AudioProcessorModule } from '../../common/modules';
 
 interface Dependencies {
   audioProcessor: AudioProcessorModule;

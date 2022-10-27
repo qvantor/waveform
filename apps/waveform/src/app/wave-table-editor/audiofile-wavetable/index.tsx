@@ -1,7 +1,7 @@
 import React from 'react';
+import { useAudioProcessor } from '../common/modules';
 import { AudiofileWavetableProvider } from './modules';
 import { LoadFile, AudiofileWavetable } from './components';
-import { useAudioProcessor } from '../wave-table-editor';
 
 export default () => {
   const audioProcessor = useAudioProcessor();

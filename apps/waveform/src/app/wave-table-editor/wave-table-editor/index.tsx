@@ -1,10 +1,9 @@
 import React from 'react';
 import styled from 'styled-components';
 import { HighlightOutlined, SoundOutlined } from '@ant-design/icons';
-import { useAudioProcessor, AudioProcessorModule, AudioProcessorProvider } from './modules';
 import { Tabs } from '@waveform/ui-kit';
 import AudiofileWavetable from '../audiofile-wavetable';
-import { ManualWavetable } from '../manual-wavetable';
+import ManualWavetable from '../manual-wavetable';
 
 const Root = styled.div`
   display: grid;
@@ -26,5 +25,3 @@ export const WaveTableEditor = () => {
     </Root>
   );
 };
-export { useAudioProcessor, AudioProcessorProvider };
-export type { AudioProcessorModule };

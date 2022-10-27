@@ -39,8 +39,8 @@ const NewWave = styled.div`
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 38px;
-  height: 38px;
+  width: 57px;
+  height: 57px;
   color: ${theme.colors.primaryDarkHighContrast};
   border: 2px solid transparent;
   transition: all 150ms;

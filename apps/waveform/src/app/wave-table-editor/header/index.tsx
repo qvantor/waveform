@@ -2,7 +2,7 @@ import React from 'react';
 import styled from 'styled-components';
 import { theme } from '@waveform/ui-kit';
 import { PlayButton } from './play-button';
-import { useAudioProcessor } from '../wave-table-editor';
+import { useAudioProcessor } from '../common/modules';
 import { RxHandle } from '../../common/components';
 
 const Root = styled.div`
@@ -38,7 +38,7 @@ export const Header = () => {
   const [{ $frequency }, { setFrequency }] = useAudioProcessor();
   return (
     <Root>
-      <Name>WAVETABLE</Name>
+      <Name>WAVEFORM</Name>
       <Container>
         <RxHandle min={20} max={4000} step={10} $value={$frequency} onChange={setFrequency} label='Freq' />
         <PlayButton />

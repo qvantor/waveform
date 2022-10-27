@@ -1,7 +1,9 @@
 import React from 'react';
 import styled from 'styled-components';
+import { Toaster } from 'react-hot-toast';
 import { GlobalStyle, theme } from '@waveform/ui-kit';
 import { AppModelProvider } from './modules';
+
 export { appSnapshotPlugin } from './plugins/snapshot';
 
 const Root = styled.div`
@@ -16,6 +18,7 @@ export const App = ({ children }: React.PropsWithChildren) => {
     <AppModelProvider initial={{}}>
       <GlobalStyle />
       <Root>{children}</Root>
+      <Toaster />
     </AppModelProvider>
   );
 };

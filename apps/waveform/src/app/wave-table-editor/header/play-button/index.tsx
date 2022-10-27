@@ -3,7 +3,7 @@ import { CaretRightOutlined, PauseOutlined } from '@ant-design/icons';
 import styled from 'styled-components';
 import { theme } from '@waveform/ui-kit';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
-import { useAudioProcessor } from '../../wave-table-editor';
+import { useAudioProcessor } from '../../common/modules';
 
 const Button = styled.button`
   border: none;

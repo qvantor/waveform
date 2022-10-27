@@ -1,17 +1,19 @@
 import { distinctUntilChanged, filter, map, mergeWith } from 'rxjs';
 import { rxModel, rxModelReact, ArrayBS, PrimitiveBS } from '@waveform/rxjs-react';
 import { number, wave } from '@waveform/math';
-import { ManualWavetableModule } from '../../modules';
-import { AudioProcessorModule } from '../../../wave-table-editor';
 import { appSnapshotPlugin } from '../../../../app';
-
+import { AudioProcessorModule } from '../../../common/modules';
+import { ManualWavetableModule } from '../../modules';
 
 interface Dependencies {
   audioProcessor: AudioProcessorModule;
   manualWavetable: ManualWavetableModule;
 }
 
-const waveUpscale = ({ audioProcessor: [, { setWave }], manualWavetable: [{ $rate, $wave }] }: Dependencies) =>
+const waveUpscale = ({
+  audioProcessor: [, { setWave }],
+  manualWavetable: [{ $rate, $wave }],
+}: Dependencies) =>
   rxModel(() => {
     const $inputWave = new ArrayBS<number[]>([]);
     const $outputRate = new PrimitiveBS<number>(10);

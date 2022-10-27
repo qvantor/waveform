@@ -1,6 +1,7 @@
 import React from 'react';
 import { Header } from './header';
-import { WaveTableEditor, AudioProcessorProvider } from './wave-table-editor';
+import { AudioProcessorProvider } from './common/modules';
+import { WaveTableEditor } from './wave-table-editor';
 
 export default () => {
   return (

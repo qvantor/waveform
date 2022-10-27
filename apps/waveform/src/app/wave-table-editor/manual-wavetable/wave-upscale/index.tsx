@@ -1,9 +1,9 @@
 import React from 'react';
 import styled from 'styled-components';
+import { useAudioProcessor } from '../../common/modules';
+import { useManualWavetable } from '../modules';
 import { WaveUpscaleProvider } from './modules';
 import { Controls, OutputWave } from './components';
-import { useManualWavetable } from '../modules';
-import { useAudioProcessor } from '../../wave-table-editor';
 
 const Root = styled.div`
   display: grid;

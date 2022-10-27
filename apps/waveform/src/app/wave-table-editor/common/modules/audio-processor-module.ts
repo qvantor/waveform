@@ -17,7 +17,10 @@ const audioProcessor = () =>
         oscillator.setPeriodicWave(audioCtx.createPeriodicWave(...value)),
 
       setFrequency: (fq: number) => $frequency.next(fq),
-      play: () => oscillator.connect(analyser),
+      play: () => {
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        oscillator.connect(analyser);
+      },
       stop: () => oscillator.disconnect(),
       playToggle: () => $isPlay.next(!$isPlay.value),
     }))
