@@ -1,9 +1,9 @@
 import React from 'react';
 import styled from 'styled-components';
 import { HighlightOutlined, SoundOutlined } from '@ant-design/icons';
-import { useAudioProcessor, AudioProcessorModel, AudioProcessorProvider } from './modules';
+import { useAudioProcessor, AudioProcessorModule, AudioProcessorProvider } from './modules';
 import { Tabs } from '@waveform/ui-kit';
-import { AudiofileWavetable } from '../audiofile-wavetable';
+import AudiofileWavetable from '../audiofile-wavetable';
 import { ManualWavetable } from '../manual-wavetable';
 
 const Root = styled.div`
@@ -12,7 +12,7 @@ const Root = styled.div`
 `;
 
 export const WaveTableEditor = () => {
-  const [tab, setTab] = React.useState('Manual');
+  const [tab, setTab] = React.useState('Audio file');
   return (
     <Root>
       <Tabs activeTab={tab} onSelect={setTab}>
@@ -27,4 +27,4 @@ export const WaveTableEditor = () => {
   );
 };
 export { useAudioProcessor, AudioProcessorProvider };
-export type { AudioProcessorModel };
+export type { AudioProcessorModule };

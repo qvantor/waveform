@@ -1,14 +1,13 @@
 import { distinctUntilChanged, filter, map, mergeWith } from 'rxjs';
-import FFT from 'fft.js';
 import { rxModel, rxModelReact, ArrayBS, PrimitiveBS } from '@waveform/rxjs-react';
-import { number } from '@waveform/math';
+import { number, wave } from '@waveform/math';
 import { ManualWavetableModule } from '../../modules';
-import { AudioProcessorModel } from '../../../wave-table-editor';
+import { AudioProcessorModule } from '../../../wave-table-editor';
 import { appSnapshotPlugin } from '../../../../app';
 
 
 interface Dependencies {
-  audioProcessor: AudioProcessorModel;
+  audioProcessor: AudioProcessorModule;
   manualWavetable: ManualWavetableModule;
 }
 
@@ -47,18 +46,7 @@ const waveUpscale = ({ audioProcessor: [, { setWave }], manualWavetable: [{ $rat
             }
             return [...fArray.splice(Math.round(($phase.value / 100) * fArray.length)), ...fArray];
           }),
-          map((real): [number[], number[]] => {
-            const f = new FFT(real.length);
-            const imag = new Array(real.length);
-            f.realTransform(imag, real);
-
-            const imagOutput: number[] = [];
-            for (let i = 0; i < imag.length; i++) {
-              if (i % 2 === 0) continue;
-              imagOutput.push(imag[i]);
-            }
-            return [real, imagOutput];
-          })
+          map(wave.realWithImag)
         )
         .subscribe($outputWave),
       $outputWave.subscribe(setWave),
@@ -69,5 +57,3 @@ export const { ModelProvider: WaveUpscaleProvider, useModel: useWaveUpscale } = 
   'waveUpscale',
   waveUpscale
 );
-
-export type WaveUpscaleModel = ReturnType<typeof useWaveUpscale>;

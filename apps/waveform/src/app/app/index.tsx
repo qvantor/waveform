@@ -1,6 +1,6 @@
 import React from 'react';
 import styled from 'styled-components';
-import { theme } from '@waveform/ui-kit';
+import { GlobalStyle, theme } from '@waveform/ui-kit';
 import { AppModelProvider } from './modules';
 export { appSnapshotPlugin } from './plugins/snapshot';
 
@@ -14,6 +14,7 @@ const Root = styled.div`
 export const App = ({ children }: React.PropsWithChildren) => {
   return (
     <AppModelProvider initial={{}}>
+      <GlobalStyle />
       <Root>{children}</Root>
     </AppModelProvider>
   );

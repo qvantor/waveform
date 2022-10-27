@@ -30,4 +30,4 @@ export const { ModelProvider: AudioProcessorProvider, useModel: useAudioProcesso
   'audioProcessor',
   audioProcessor
 );
-export type AudioProcessorModel = ReturnType<typeof useAudioProcessor>;
+export type AudioProcessorModule = ReturnType<typeof useAudioProcessor>;

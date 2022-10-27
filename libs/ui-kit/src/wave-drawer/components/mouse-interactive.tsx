@@ -1,8 +1,7 @@
 import React from 'react';
-import { useLineChartContext } from '../../line-chart';
-import { theme } from '@waveform/ui-kit';
-import { vector2d, Vector2D } from '@waveform/math';
-import { line } from 'd3-shape';
+import { Vector2D } from '@waveform/math';
+import { useLineChartContext, useChartMousePosition } from '../../line-chart';
+import { theme } from '../../common/constants';
 
 interface Props {
   mouse: Vector2D | null;
@@ -11,22 +10,8 @@ interface Props {
 }
 
 export const MouseInteractive = ({ mouse, setMouse, precision }: Props) => {
-  const { ref, scaleX, scaleY, padding, height, width } = useLineChartContext();
-
-  React.useEffect(() => {
-    const onMouseMove = (e: MouseEvent) => {
-      if (!ref.current) return;
-      const { x: xOffset, y: yOffset } = ref.current.getBoundingClientRect();
-      const x = Math.round(scaleX.invert(e.clientX - xOffset - padding[0]));
-      const y = Math.round(scaleY.invert(e.clientY - yOffset - padding[1]) * precision) / precision;
-      if (mouse?.[0] !== x || mouse?.[1] !== y) setMouse(vector2d.fromValues(x, y));
-    };
-    ref.current?.addEventListener('mousemove', onMouseMove);
-
-    return () => {
-      ref.current?.removeEventListener('mousemove', onMouseMove);
-    };
-  }, [scaleX, scaleX, precision, padding]);
+  const { scaleX, scaleY, padding, height, width } = useLineChartContext();
+  useChartMousePosition(setMouse, [1, precision]);
 
   return mouse ? (
     <g>

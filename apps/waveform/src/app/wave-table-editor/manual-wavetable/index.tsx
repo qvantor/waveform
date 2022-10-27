@@ -4,9 +4,9 @@ import { WaveSelector, WaveEditor } from '../common/components';
 import { WaveUpscale } from './wave-upscale';
 import styled from 'styled-components';
 
-const ManualRoot = styled.div`
+const Root = styled.div`
   display: grid;
-  grid-template-rows: 46px 1fr 1fr;
+  grid-template-rows: 65px 1fr 1fr;
   gap: 20px;
   padding: 20px 20px 20px 0;
 `;
@@ -24,11 +24,11 @@ const WaveEditorInternal = () => {
 export const ManualWavetable = () => {
   return (
     <ManualWavetableProvider initial={{}}>
-      <ManualRoot>
+      <Root>
         <WaveSelectorInternal />
         <WaveEditorInternal />
         <WaveUpscale />
-      </ManualRoot>
+      </Root>
     </ManualWavetableProvider>
   );
 };

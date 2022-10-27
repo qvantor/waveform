@@ -1,4 +1,4 @@
-import { mergeMap } from 'rxjs';
+import { mergeMap, mergeWith } from 'rxjs';
 import { ArrayBS, PrimitiveBS, rxModel } from '@waveform/rxjs-react';
 import { number } from '@waveform/math';
 
@@ -11,7 +11,10 @@ export const wavetable = rxModel(() => {
   ]);
   const $current = new PrimitiveBS<number>(0);
 
-  const $wave = $current.pipe(mergeMap((value) => $waveTable.value[value]));
+  const $wave = $current.pipe(
+    mergeWith($waveTable),
+    mergeMap(() => $waveTable.value[$current.value])
+  );
 
   return { $waveTable, $wave, $current, $rate, rateRange };
 }).actions(({ $current, $rate }) => ({

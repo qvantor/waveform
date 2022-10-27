@@ -1,2 +1,2 @@
 export * from './components';
-export { useLineChartContext } from './hooks';
+export { useLineChartContext, useChartMousePosition } from './hooks';
