@@ -6,8 +6,10 @@ export { Label } from './label';
 export { Analyser } from './analyser';
 export { FileDrop } from './file-drop';
 export { Tabs } from './tabs';
+export { PianoKeyboard } from './piano-keyboard';
 export { theme } from './common/constants';
 export * from './common/styles';
+export * from './common/types';
 
 export type { HandleProps } from './handle';
 export type { Theme } from './common/constants';
