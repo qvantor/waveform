@@ -8,8 +8,10 @@ const colors = {
   primaryDark: '#121A22',
   primaryDarkMediumContrast: '#2c3e50',
   primaryDarkHighContrast: '#5A7FA4',
+
   accent: '#2ecc71',
-  secondAccent: '#3498db'
+  secondAccent: '#3498db',
+  thirdAccent: '#f1c40f',
 };
 
 const borderRadius = {

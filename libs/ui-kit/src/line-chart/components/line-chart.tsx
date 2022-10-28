@@ -31,7 +31,7 @@ export const LineChart = ({
   ...rest
 }: React.PropsWithChildren<Props>) => {
   const ref = React.useRef<HTMLDivElement>(null);
-  const [[width, height], setSize] = React.useState([400, 10]);
+  const [[width, height], setSize] = React.useState([0, 0]);
 
   React.useEffect(() => {
     const onResize = () => {
@@ -57,15 +57,14 @@ export const LineChart = ({
 
     return [scaleX, scaleY, lineFn];
   }, [width, height, padding, domainX, domainY]);
-
   return (
-    <LineChartContext.Provider
-      value={{ width, height, padding, scaleX, scaleY, lineFn, ref }}
-    >
+    <LineChartContext.Provider value={{ width, height, padding, scaleX, scaleY, lineFn, ref }}>
       <Root {...rest} ref={ref}>
-        <Svg>
-          <g transform={`translate(${padding[0]}, ${padding[1]})`}>{children}</g>
-        </Svg>
+        {width !== 0 && (
+          <Svg>
+            <g transform={`translate(${padding[0]}, ${padding[1]})`}>{children}</g>
+          </Svg>
+        )}
       </Root>
     </LineChartContext.Provider>
   );

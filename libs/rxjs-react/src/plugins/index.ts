@@ -1,0 +1,1 @@
+export { snapshotPlugin } from './snapshot';

@@ -1,8 +1,7 @@
 import React from 'react';
+import { Vector2D, vector2d } from '@waveform/math';
 import { useLineChartContext } from '../../line-chart';
-import { theme } from '@waveform/ui-kit';
-import { vector2d, Vector2D } from '@waveform/math';
-import { line } from 'd3-shape';
+import { theme } from '../../common/constants';
 
 interface Props {
   mouse: Vector2D | null;
@@ -12,7 +11,6 @@ interface Props {
 
 export const MouseInteractive = ({ mouse, setMouse, precision }: Props) => {
   const { ref, scaleX, scaleY, padding, height, width } = useLineChartContext();
-
   React.useEffect(() => {
     const onMouseMove = (e: MouseEvent) => {
       if (!ref.current) return;
@@ -26,7 +24,7 @@ export const MouseInteractive = ({ mouse, setMouse, precision }: Props) => {
     return () => {
       ref.current?.removeEventListener('mousemove', onMouseMove);
     };
-  }, [scaleX, scaleX, precision, padding]);
+  }, [ref, scaleX, scaleX, precision, padding, mouse, setMouse]);
 
   return mouse ? (
     <g>
