@@ -5,7 +5,11 @@ export const textLight14 = css`
   font-weight: 200;
 `;
 
+export const text12 = css`
+  font-size: 12px;
+`;
+
 export const textBold12 = css`
   font-size: 12px;
-  font-weight: 550;
+  font-weight: 600;
 `;

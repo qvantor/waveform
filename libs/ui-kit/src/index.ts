@@ -7,6 +7,7 @@ export { Analyser } from './analyser';
 export { FileDrop } from './file-drop';
 export { Tabs } from './tabs';
 export { PianoKeyboard } from './piano-keyboard';
+export { AdsrEnvelope } from './adsr-envelope';
 export { theme } from './common/constants';
 export * from './common/styles';
 export * from './common/types';

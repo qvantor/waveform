@@ -1,33 +1,22 @@
 import { rxModel, rxModelReact } from '@waveform/rxjs-react';
 import { InputControllerModule } from './input-controller';
+import { AdsrEnvelopeModule, AdsrEnvelopeModel } from './adsr-envelope';
 import { Note } from '@waveform/ui-kit';
 import { noteFrequency } from '../../../common/constants';
 
 interface Deps {
   inputController: InputControllerModule;
+  adsrEnvelope: AdsrEnvelopeModule;
 }
-
-const config = {
-  attack: 0.005,
-  hold: 0.1,
-  decay: 0.05,
-  sustain: 0.4, // Gain
-  release: 0.005,
-};
 
 const getFq = ([octave, note]: Note) => noteFrequency[note] * 2 ** (octave - 1);
 const noteToString = ([octave, note]: Note) => `${note}${octave}`;
 
-const voice = (audioCtx: AudioContext, note: Note) => {
-  const oscillator = audioCtx.createOscillator();
+const envelope = (audioCtx: AudioContext, config: AdsrEnvelopeModel['$envelope']['value']) => {
   const gain = audioCtx.createGain();
 
-  oscillator.type = 'triangle';
-
-  oscillator.connect(gain);
-  gain.connect(audioCtx.destination);
   const now = audioCtx.currentTime;
-  oscillator.frequency.setValueAtTime(getFq(note), now);
+
   // Attack
   gain.gain.linearRampToValueAtTime(1, now + config.attack);
   gain.gain.setValueAtTime(1, now + config.attack);
@@ -38,18 +27,33 @@ const voice = (audioCtx: AudioContext, note: Note) => {
   // Decay and sustain
   gain.gain.linearRampToValueAtTime(config.sustain, now + config.attack + config.hold + config.decay);
 
-  oscillator.start(now);
   const stop = () => {
     const now = audioCtx.currentTime;
     gain.gain.cancelScheduledValues(now);
     gain.gain.setValueAtTime(gain.gain.value, now);
     gain.gain.linearRampToValueAtTime(0.001, now + config.release);
-    oscillator.stop(audioCtx.currentTime + config.release);
+  };
+
+  return { stop, envelope: gain };
+};
+const voice = (audioCtx: AudioContext, note: Note, adsrConfig: AdsrEnvelopeModel['$envelope']['value']) => {
+  const oscillator = audioCtx.createOscillator();
+  const adsr = envelope(audioCtx, adsrConfig);
+  oscillator.connect(adsr.envelope);
+  adsr.envelope.connect(audioCtx.destination);
+
+  oscillator.type = 'triangle';
+  oscillator.frequency.setValueAtTime(getFq(note), audioCtx.currentTime);
+
+  oscillator.start();
+  const stop = () => {
+    adsr.stop();
+    oscillator.stop(audioCtx.currentTime + adsrConfig.release);
   };
   return { stop };
 };
 
-const synth = ({ inputController: [{ $onPress, $onRelease }] }: Deps) =>
+const synth = ({ inputController: [{ $onPress, $onRelease }], adsrEnvelope: [{ $envelope }] }: Deps) =>
   rxModel(() => {
     const audioCtx = new window.AudioContext();
 
@@ -64,7 +68,7 @@ const synth = ({ inputController: [{ $onPress, $onRelease }] }: Deps) =>
       $onPress.subscribe((note) => {
         if (oscillators[noteToString(note)]) return;
 
-        oscillators[noteToString(note)] = voice(audioCtx, note);
+        oscillators[noteToString(note)] = voice(audioCtx, note, $envelope.value);
       }),
     ];
   });

@@ -7,6 +7,7 @@ export function Core() {
   return (
     <App>
       <Synth />
+      {/*<WaveTableEditor />*/}
     </App>
   );
 }
