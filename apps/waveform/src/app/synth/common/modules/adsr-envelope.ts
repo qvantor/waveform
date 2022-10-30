@@ -1,4 +1,5 @@
 import { ObjectBS, rxModel, rxModelReact } from '@waveform/rxjs-react';
+import { appSnapshotPlugin } from '../../../app';
 
 const adsrEnvelope = () =>
   rxModel(() => {
@@ -10,13 +11,15 @@ const adsrEnvelope = () =>
       release: 0.005,
     });
     return { $envelope };
-  }).actions(({ $envelope }) => ({
-    setEnvelopeValue: (key: keyof typeof $envelope.value, value: number) =>
-      $envelope.next({
-        ...$envelope.value,
-        [key]: value,
-      }),
-  }));
+  })
+    .actions(({ $envelope }) => ({
+      setEnvelopeValue: (key: keyof typeof $envelope.value, value: number) =>
+        $envelope.next({
+          ...$envelope.value,
+          [key]: value,
+        }),
+    }))
+    .plugins(appSnapshotPlugin(['$envelope']));
 
 export const { ModelProvider: AdsrEnvelopeProvider, useModel: useAdsrEnvelope } = rxModelReact(
   'adsrEnvelope',
