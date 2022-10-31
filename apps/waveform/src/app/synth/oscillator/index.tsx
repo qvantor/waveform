@@ -1,18 +1,14 @@
 import React from 'react';
 import styled from 'styled-components';
-import { theme, Handle } from '@waveform/ui-kit';
-import { OscillatorActions, OscillatorModel } from '../common/modules';
+import { Handle } from '@waveform/ui-kit';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
+import { OscillatorActions, OscillatorModel } from '../common/modules';
+import { Wave } from './components';
 
 const Root = styled.div`
   height: 100%;
   display: grid;
   grid-template-rows: 1fr 1fr;
-`;
-
-const Wave = styled.div`
-  background: ${theme.colors.primaryDark};
-  margin: 10px 10px 0 10px;
 `;
 
 const Handles = styled.div`
