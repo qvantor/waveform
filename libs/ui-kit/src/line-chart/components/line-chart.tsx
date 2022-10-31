@@ -16,9 +16,11 @@ const Root = styled.div`
   background: ${theme.colors.primaryDark};
   overflow: hidden;
   height: 100%;
+  position: relative;
 `;
 
 const Svg = styled.svg`
+  position: absolute;
   width: 100%;
   height: 100%;
 `;
@@ -38,7 +40,7 @@ export const LineChart = ({
       if (!ref.current) return;
       setSize([ref.current.clientWidth, ref.current.clientHeight]);
     };
-    onResize();
+    onResize()
     window.addEventListener('resize', onResize);
     return () => {
       window.removeEventListener('resize', onResize);

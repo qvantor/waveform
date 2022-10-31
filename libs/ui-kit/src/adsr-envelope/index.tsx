@@ -7,11 +7,21 @@ import { Handle } from '../handle';
 import { theme } from '../common/constants';
 import { text12 } from '../common/styles';
 
-const Root = styled.div``;
+const Root = styled.div`
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+`;
+
+const ChartContainer = styled.div`
+  flex: 1 1;
+  padding: 0 10px;
+`;
 
 const Handlers = styled.div`
   display: flex;
   justify-content: space-between;
+  padding: 0 10px 10px 10px;
 `;
 
 const HandlersGroup = styled.div`
@@ -84,16 +94,17 @@ export const AdsrEnvelope = ({ onChange, ...rest }: Props) => {
 
   return (
     <Root>
-      <LineChart
-        style={{ height: 150 }}
-        domainX={[0, Math.max(attack + hold + decay + release + 0.1, 0.5)]}
-        domainY={[1, 0]}
-        padding={[10, 5]}
-      >
-        <YAxis ticks={2} />
-        <XAxis ticks={4} formatText={(value) => `${value * 1000}ms`} />
-        <CustomLine {...rest} />
-      </LineChart>
+      <ChartContainer>
+        <LineChart
+          domainX={[0, Math.max(attack + hold + decay + release + 0.1, 0.5)]}
+          domainY={[1, 0]}
+          padding={[10, 5]}
+        >
+          <YAxis ticks={2} />
+          <XAxis ticks={4} formatText={(value) => `${value * 1000}ms`} />
+          <CustomLine {...rest} />
+        </LineChart>
+      </ChartContainer>
       <Handlers>
         <HandlersGroup>
           <div>
@@ -126,7 +137,7 @@ export const AdsrEnvelope = ({ onChange, ...rest }: Props) => {
         </HandlersGroup>
 
         <div>
-          <HandleValue>{formatValue(release )}</HandleValue>
+          <HandleValue>{formatValue(release)}</HandleValue>
           <Handle label='Release' {...handleProps} value={release} onChange={onChangeInternal('release')} />
         </div>
       </Handlers>

@@ -1,12 +1,14 @@
 import { rxModel, rxModelReact } from '@waveform/rxjs-react';
 import { InputControllerModule } from './input-controller';
 import { AdsrEnvelopeModule, AdsrEnvelopeModel } from './adsr-envelope';
+import { OscillatorModule } from './oscillator';
 import { Note } from '@waveform/ui-kit';
 import { noteFrequency } from '../../../common/constants';
 
 interface Deps {
   inputController: InputControllerModule;
   adsrEnvelope: AdsrEnvelopeModule;
+  oscillator: OscillatorModule;
 }
 
 const getFq = ([octave, note]: Note) => noteFrequency[note] * 2 ** (octave - 1);
@@ -36,13 +38,14 @@ const envelope = (audioCtx: AudioContext, config: AdsrEnvelopeModel['$envelope']
   return { stop, envelope: gain };
 };
 
-interface Config {
+interface OscillatorConfig {
   frequency: number;
   unison: number;
   detune: number;
+  randPhase: number;
 }
 
-const unisonOscillator = (audioCtx: AudioContext, config: Config) => {
+const unisonOscillator = (audioCtx: AudioContext, config: OscillatorConfig) => {
   const oscillators: OscillatorNode[] = [];
   const from = -config.detune / 2;
   const step = config.detune / (config.unison - 1);
@@ -56,7 +59,10 @@ const unisonOscillator = (audioCtx: AudioContext, config: Config) => {
     oscillators.push(oscillator);
   }
 
-  const start = (time?: number) => oscillators.forEach((oscillator) => oscillator.start(time));
+  const start = (time?: number) =>
+    oscillators.forEach(
+      (oscillator) => oscillator.start((time ?? audioCtx.currentTime) + Math.random() * config.randPhase) // starts with random phase
+    );
   const connect = (node: AudioNode) => oscillators.forEach((oscillator) => oscillator.connect(node));
   const stop = (time?: number) => oscillators.forEach((oscillator) => oscillator.stop(time));
 
@@ -67,9 +73,13 @@ const voice = (
   audioCtx: AudioContext,
   outputNode: AudioNode,
   note: Note,
-  adsrConfig: AdsrEnvelopeModel['$envelope']['value']
+  adsrConfig: AdsrEnvelopeModel['$envelope']['value'],
+  oscConfig: Omit<OscillatorConfig, 'frequency'>
 ) => {
-  const uOsc = unisonOscillator(audioCtx, { unison: 6, detune: 30, frequency: getFq(note) });
+  const uOsc = unisonOscillator(audioCtx, {
+    ...oscConfig,
+    frequency: getFq(note),
+  });
   const adsr = envelope(audioCtx, adsrConfig);
   uOsc.connect(adsr.envelope);
   adsr.envelope.connect(outputNode);
@@ -82,14 +92,18 @@ const voice = (
   return { stop };
 };
 
-const synth = ({ inputController: [{ $onPress, $onRelease }], adsrEnvelope: [{ $envelope }] }: Deps) =>
+const synth = ({
+  inputController: [{ $onPress, $onRelease }],
+  adsrEnvelope: [{ $envelope }],
+  oscillator: [{ $osc }],
+}: Deps) =>
   rxModel(() => {
     const audioCtx = new window.AudioContext();
     const preGain = audioCtx.createGain();
     const masterLimiter = audioCtx.createDynamicsCompressor();
     const masterGain = audioCtx.createGain();
-    preGain.gain.setValueAtTime(0.05, audioCtx.currentTime);
-    masterGain.gain.setValueAtTime(0.7, audioCtx.currentTime);
+    preGain.gain.setValueAtTime(0.07, audioCtx.currentTime);
+    masterGain.gain.setValueAtTime(0.8, audioCtx.currentTime);
 
     masterLimiter.threshold.setValueAtTime(-12.0, audioCtx.currentTime);
     masterLimiter.ratio.setValueAtTime(1.0, audioCtx.currentTime);
@@ -111,7 +125,7 @@ const synth = ({ inputController: [{ $onPress, $onRelease }], adsrEnvelope: [{ $
       $onPress.subscribe((note) => {
         if (oscillators[noteToString(note)]) return;
 
-        oscillators[noteToString(note)] = voice(audioCtx, preGain, note, $envelope.value);
+        oscillators[noteToString(note)] = voice(audioCtx, preGain, note, $envelope.value, $osc.value);
       }),
     ];
   });
