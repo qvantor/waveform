@@ -11,6 +11,7 @@ import {
   useOscillator,
 } from './common/modules';
 import { useApp } from '../app';
+import { Header } from '../common/components';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
 import { Oscillator } from './oscillator';
 
@@ -64,6 +65,7 @@ export default () => {
     <InputControllerProvider initial={{}} app={app}>
       <AdsrEnvelopeProvider initial={{}}>
         <OscillatorProvider initial={{}}>
+          <Header />
           <Internal />
         </OscillatorProvider>
       </AdsrEnvelopeProvider>

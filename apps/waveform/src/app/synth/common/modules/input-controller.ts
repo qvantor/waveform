@@ -10,18 +10,18 @@ interface Dependencies {
 
 // @todo separate inputController and keyboardController
 const keyboardToNotes: Record<string, Note> = {
-  KeyZ: [4, 'C'],
-  KeyS: [4, 'C#'],
-  KeyX: [4, 'D'],
-  KeyD: [4, 'D#'],
-  KeyC: [4, 'E'],
-  KeyV: [4, 'F'],
-  KeyG: [4, 'F#'],
-  KeyB: [4, 'G'],
-  KeyH: [4, 'G#'],
-  KeyN: [4, 'A'],
-  KeyJ: [4, 'A#'],
-  KeyM: [4, 'B'],
+  KeyZ: [3, 'C'],
+  KeyS: [3, 'C#'],
+  KeyX: [3, 'D'],
+  KeyD: [3, 'D#'],
+  KeyC: [3, 'E'],
+  KeyV: [3, 'F'],
+  KeyG: [3, 'F#'],
+  KeyB: [3, 'G'],
+  KeyH: [3, 'G#'],
+  KeyN: [3, 'A'],
+  KeyJ: [3, 'A#'],
+  KeyM: [3, 'B'],
 };
 const keyboardKeys = Object.keys(keyboardToNotes);
 

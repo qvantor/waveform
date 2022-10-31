@@ -12,7 +12,7 @@ const Root = styled.div`
 
 const Wave = styled.div`
   background: ${theme.colors.primaryDark};
-  margin: 0 10px;
+  margin: 10px 10px 0 10px;
 `;
 
 const Handles = styled.div`

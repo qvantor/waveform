@@ -6,7 +6,6 @@ import Synth from './synth';
 export function Core() {
   return (
     <App>
-      <div />
       <Synth />
       {/*<WaveTableEditor />*/}
     </App>
