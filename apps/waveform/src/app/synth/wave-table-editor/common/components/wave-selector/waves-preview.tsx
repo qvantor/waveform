@@ -1,26 +1,12 @@
 import React from 'react';
 import styled from 'styled-components';
+import { Line, LineChart, theme } from '@waveform/ui-kit';
 import { PlusOutlined } from '@ant-design/icons';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
-import { theme, LineChart, Line } from '@waveform/ui-kit';
+import { OscillatorActions, OscillatorModel } from '../../../../common/modules';
 import { ManualWavetableActions } from '../../../manual-wavetable/modules';
-import { OscillatorModel, OscillatorActions } from '../../../../common/modules';
-import { RxHandle } from '../../../../../common/components';
 
 const Root = styled.div`
-  display: grid;
-  grid-template-columns: 70px 1fr;
-`;
-
-const HandlersWrapper = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  justify-content: space-between;
-  align-items: center;
-`;
-
-const WavesPreview = styled.div`
   display: flex;
   gap: 4px;
   background: ${theme.colors.primaryDark};
@@ -34,6 +20,7 @@ const Wave = styled.div<{ selected: boolean }>`
   border: 1px solid
     ${({ selected }) => (selected ? theme.colors.accent : theme.colors.primaryDarkHighContrast)};
 `;
+
 const NewWave = styled.div`
   display: flex;
   align-items: center;
@@ -54,28 +41,23 @@ export type Props = Pick<OscillatorModel, '$waveTable' | '$current'> &
   Pick<OscillatorActions, 'setCurrent'> &
   Partial<Pick<ManualWavetableActions, 'cloneCurrent'>>;
 
-export const WaveSelector = ({ $waveTable, $current, setCurrent, cloneCurrent }: Props) => {
+export const WavesPreview = ({ $waveTable, $current, cloneCurrent, setCurrent }: Props) => {
   const waveTable = useBehaviorSubject($waveTable);
   useBehaviorSubject($current);
   return (
     <Root>
-      <HandlersWrapper>
-        <RxHandle min={0} max={waveTable.length - 1} $value={$current} onChange={setCurrent} label='Wave' />
-      </HandlersWrapper>
-      <WavesPreview>
-        {waveTable.map((wave, i) => (
-          <Wave key={i} onClick={() => setCurrent(i)} selected={i === $current.value}>
-            <LineChart domainX={[0, wave.value.length - 1]} domainY={[1, -1]} padding={[0, 0]}>
-              <Line data={wave.value} />
-            </LineChart>
-          </Wave>
-        ))}
-        {cloneCurrent && (
-          <NewWave onClick={cloneCurrent}>
-            <PlusOutlined />
-          </NewWave>
-        )}
-      </WavesPreview>
+      {waveTable.map((wave, i) => (
+        <Wave key={i} onClick={() => setCurrent(i)} selected={i === $current.value}>
+          <LineChart domainX={[0, wave.value.length - 1]} domainY={[1, -1]} padding={[0, 0]}>
+            <Line data={wave.value} />
+          </LineChart>
+        </Wave>
+      ))}
+      {cloneCurrent && (
+        <NewWave onClick={cloneCurrent}>
+          <PlusOutlined />
+        </NewWave>
+      )}
     </Root>
   );
 };

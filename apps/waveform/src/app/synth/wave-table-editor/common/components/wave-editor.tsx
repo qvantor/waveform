@@ -42,7 +42,7 @@ export const WaveEditor = ({
           onChange={setRate}
           rotateSpeed={20}
           min={minRate}
-          max={maxRate}
+          max={Math.min(maxRate, number.getLogOfTwo(wave.length > 0 ? wave.length : 2))}
           formatValue={(value) => number.powerOfTwo(value)}
           label='Grid X'
         />
@@ -54,12 +54,7 @@ export const WaveEditor = ({
           label='Grid Y'
         />
       </HandlersWrapper>
-      <WaveDrawer
-        wave={wave}
-        onChange={updateCurrentWave}
-        rate={rate}
-        precisionY={precisionY}
-      />
+      <WaveDrawer wave={wave} onChange={updateCurrentWave} rate={rate} precisionY={precisionY} />
     </Root>
   );
 };

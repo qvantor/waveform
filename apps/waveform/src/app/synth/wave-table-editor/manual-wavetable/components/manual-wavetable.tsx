@@ -6,7 +6,7 @@ import { useManualWavetable } from '../modules';
 
 const Root = styled.div`
   display: grid;
-  grid-template-rows: 65px 1fr 1fr;
+  grid-template-rows: 65px 1fr;
   gap: 20px;
   padding: 20px 20px 20px 0;
 `;
@@ -18,7 +18,6 @@ export const ManualWavetable = () => {
     <Root>
       <WaveSelector
         $waveTable={$waveTable}
-        $wave={$wave}
         $current={$current}
         setCurrent={setCurrent}
         cloneCurrent={cloneCurrent}
