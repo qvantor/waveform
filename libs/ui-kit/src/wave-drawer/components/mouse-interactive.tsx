@@ -1,22 +1,33 @@
 import React from 'react';
-import { Vector2D, vector2d } from '@waveform/math';
-import { useLineChartContext } from '../../line-chart';
+import { Vector2D, vector2d, number } from '@waveform/math';
+import { scaleLinear } from 'd3-scale';
 import { theme } from '../../common/constants';
+import { useLineChartContext, XAxis } from '../../line-chart';
 
 interface Props {
   mouse: Vector2D | null;
   setMouse: React.Dispatch<React.SetStateAction<Vector2D | null>>;
-  precision: number;
+  precisionY: number;
+  customDomainX: [number, number];
 }
 
-export const MouseInteractive = ({ mouse, setMouse, precision }: Props) => {
-  const { ref, scaleX, scaleY, padding, height, width } = useLineChartContext();
+export const MouseInteractive = ({ mouse, setMouse, precisionY, customDomainX }: Props) => {
+  const { ref, scaleX, scaleY, padding, width } = useLineChartContext();
+  const customScaleX = React.useMemo(
+    () => scaleLinear([0, width - padding[0] * 2]).domain(customDomainX),
+    [customDomainX, width, padding]
+  );
+  const tickWidth = customScaleX(1) - customScaleX(0);
   React.useEffect(() => {
     const onMouseMove = (e: MouseEvent) => {
       if (!ref.current) return;
       const { x: xOffset, y: yOffset } = ref.current.getBoundingClientRect();
-      const x = Math.round(scaleX.invert(e.clientX - xOffset - padding[0]));
-      const y = Math.round(scaleY.invert(e.clientY - yOffset - padding[1]) * precision) / precision;
+      const x = number.thresholds(
+        Math.round(customScaleX.invert(e.clientX - tickWidth / 2 - xOffset - padding[0])),
+        customDomainX[0],
+        customDomainX[1] - 1
+      );
+      const y = Math.round(scaleY.invert(e.clientY - yOffset - padding[1]) * precisionY) / precisionY;
       if (mouse?.[0] !== x || mouse?.[1] !== y) setMouse(vector2d.fromValues(x, y));
     };
     ref.current?.addEventListener('mousemove', onMouseMove);
@@ -24,22 +35,19 @@ export const MouseInteractive = ({ mouse, setMouse, precision }: Props) => {
     return () => {
       ref.current?.removeEventListener('mousemove', onMouseMove);
     };
-  }, [ref, scaleX, scaleX, precision, padding, mouse, setMouse]);
+  }, [ref, scaleX, scaleY, precisionY, padding, mouse, setMouse, customScaleX, customDomainX, tickWidth]);
 
-  return mouse ? (
+  return (
     <g>
-      <line
-        transform={`translate(${scaleX(mouse[0])},0)`}
-        stroke={theme.colors.primaryDarkHighContrast}
-        y1={0}
-        y2={height - padding[1] * 2}
-      />
-      <line
-        transform={`translate(0,${scaleY(mouse[1])})`}
-        style={{ stroke: theme.colors.primaryDarkHighContrast }}
-        x1={0}
-        x2={width - padding[0] * 2}
-      />
+      <XAxis ticks={customDomainX[1]} customScaleX={customScaleX} />
+      {mouse && (
+        <rect
+          width={tickWidth}
+          height={1}
+          fill={theme.colors.secondAccent}
+          transform={`translate(${customScaleX(mouse[0])},${scaleY(mouse[1]) - 0.5})`}
+        />
+      )}
     </g>
-  ) : null;
+  );
 };

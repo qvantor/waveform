@@ -58,8 +58,7 @@ export const WaveEditor = ({
         wave={wave}
         onChange={updateCurrentWave}
         rate={rate}
-        precision={precision}
-        range={[minRate, maxRate]}
+        precisionY={precision}
       />
     </Root>
   );

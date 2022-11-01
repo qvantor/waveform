@@ -17,7 +17,7 @@ const oscillator = () =>
       detune: 30,
       randPhase: 0.001,
     });
-    const $waveTable = new ArrayBS<ArrayBS<number[]>[]>([new ArrayBS(Array(number.powerOfTwo(5)).fill(0))]);
+    const $waveTable = new ArrayBS<ArrayBS<number[]>[]>([new ArrayBS(Array(number.powerOfTwo(12)).fill(0))]);
     const $current = new PrimitiveBS<number>(0);
     const $periodicWave = new BehaviorSubject<PeriodicWave>(audioCtx.createPeriodicWave([0, 1], [0, 1]));
     const $wave = $current.pipe(
@@ -46,20 +46,6 @@ const oscillator = () =>
     .subscriptions(({ $wave, $periodicWave, audioCtx }) =>
       $wave
         .pipe(
-          map((croppedWave): number[] => {
-            const fArray = [];
-            for (let i = 0; i < number.powerOfTwo(5); i++) {
-              const from = croppedWave[i];
-              const to = croppedWave[i + 1] ?? croppedWave[0];
-              const stepsCount = number.powerOfTwo(12) / number.powerOfTwo(5);
-              const diff = to - from;
-              const stepDiff = diff / stepsCount;
-              for (let j = 0; j < stepsCount; j++) {
-                fArray.push(from + stepDiff * j);
-              }
-            }
-            return fArray;
-          }),
           map(wave.realWithImag),
           map((value) => audioCtx.createPeriodicWave(...value))
         )

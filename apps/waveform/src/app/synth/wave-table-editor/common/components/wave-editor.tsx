@@ -5,8 +5,7 @@ import { number } from '@waveform/math';
 import { useBehaviorSubject, useObservable } from '@waveform/rxjs-react';
 import { RxHandle } from '../../../../common/components';
 import { OscillatorModel } from '../../../common/modules';
-import { WavetableModel, WavetableActions } from '../modules';
-import { ManualWavetableActions } from '../../manual-wavetable/modules';
+import { ManualWavetableActions, ManualWavetableModel } from '../../manual-wavetable/modules';
 
 const Root = styled.div`
   display: grid;
@@ -22,9 +21,8 @@ const HandlersWrapper = styled.div`
 `;
 
 type Props = Pick<OscillatorModel, '$wave'> &
-  Pick<WavetableModel, '$rate' | 'rateRange'> &
-  Pick<WavetableActions, 'setRate'> &
-  Partial<Pick<ManualWavetableActions, 'updateCurrentWave'>>;
+  Pick<ManualWavetableModel, '$rate' | 'rateRange'> &
+  Partial<Pick<ManualWavetableActions, 'updateCurrentWave' | 'setRate'>>;
 
 export const WaveEditor = ({
   $wave,
@@ -35,7 +33,7 @@ export const WaveEditor = ({
 }: Props) => {
   const wave = useObservable($wave, []);
   const rate = useBehaviorSubject($rate);
-  const [precision, setPrecision] = React.useState(5);
+  const [precisionY, setPrecisionY] = React.useState(5);
   return (
     <Root>
       <HandlersWrapper>
@@ -45,23 +43,22 @@ export const WaveEditor = ({
           rotateSpeed={20}
           min={minRate}
           max={maxRate}
-          formatValue={(value) => <>Rate: {number.powerOfTwo(value)}</>}
-          label='Rate'
+          formatValue={(value) => number.powerOfTwo(value)}
+          label='Grid X'
         />
         <Handle
           step={[2, 5, 10, 20]}
           rotateSpeed={20}
-          value={precision}
-          onChange={setPrecision}
-          label='Precision'
+          value={precisionY}
+          onChange={setPrecisionY}
+          label='Grid Y'
         />
       </HandlersWrapper>
       <WaveDrawer
         wave={wave}
         onChange={updateCurrentWave}
         rate={rate}
-        precision={precision}
-        range={[minRate, maxRate]}
+        precisionY={precisionY}
       />
     </Root>
   );
