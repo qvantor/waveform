@@ -9,6 +9,7 @@ import {
   useAdsrEnvelope,
   OscillatorProvider,
   useOscillator,
+  KeyboardControllerProvider,
 } from './common/modules';
 import { useApp } from '../app';
 import { Header } from '../common/components';
@@ -38,6 +39,7 @@ const AdsrEnvelopeInternal = () => {
 };
 
 const Internal = () => {
+  const app = useApp();
   const inputController = useInputController();
   const adsrEnvelope = useAdsrEnvelope();
   const oscillator = useOscillator();
@@ -48,27 +50,26 @@ const Internal = () => {
       adsrEnvelope={adsrEnvelope}
       oscillator={oscillator}
     >
-      <Root>
-        <div style={{ width: '40%' }}>
-          <Oscillator {...oscillator[0]} {...oscillator[1]} />
-        </div>
-        <AdsrEnvelopeInternal />
-        <PianoInternal />
-      </Root>
+      <KeyboardControllerProvider initial={{}} app={app} inputController={inputController}>
+        <Root>
+          <div style={{ width: '40%' }}>
+            <Oscillator {...oscillator[0]} {...oscillator[1]} />
+          </div>
+          <AdsrEnvelopeInternal />
+          <PianoInternal />
+        </Root>
+      </KeyboardControllerProvider>
     </SynthProvider>
   );
 };
 
-export default () => {
-  const app = useApp();
-  return (
-    <InputControllerProvider initial={{}} app={app}>
-      <AdsrEnvelopeProvider initial={{}}>
-        <OscillatorProvider initial={{}}>
-          <Header />
-          <Internal />
-        </OscillatorProvider>
-      </AdsrEnvelopeProvider>
-    </InputControllerProvider>
-  );
-};
+export default () => (
+  <InputControllerProvider initial={{}}>
+    <AdsrEnvelopeProvider initial={{}}>
+      <OscillatorProvider initial={{}}>
+        <Header />
+        <Internal />
+      </OscillatorProvider>
+    </AdsrEnvelopeProvider>
+  </InputControllerProvider>
+);

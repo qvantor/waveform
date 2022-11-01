@@ -105,7 +105,7 @@ const synth = ({
     const preGain = audioCtx.createGain();
     const masterLimiter = audioCtx.createDynamicsCompressor();
     const masterGain = audioCtx.createGain();
-    preGain.gain.setValueAtTime(0.07, audioCtx.currentTime);
+    preGain.gain.setValueAtTime(0.2, audioCtx.currentTime);
     masterGain.gain.setValueAtTime(0.8, audioCtx.currentTime);
 
     masterLimiter.threshold.setValueAtTime(-12.0, audioCtx.currentTime);

@@ -1,4 +1,5 @@
 export { InputControllerProvider, useInputController } from './input-controller';
+export { KeyboardControllerProvider, useKeyboardController } from './keyboard-controller';
 export { AdsrEnvelopeProvider, useAdsrEnvelope } from './adsr-envelope';
 export { OscillatorProvider, useOscillator } from './oscillator';
 export { SynthProvider, useSynth } from './synth';
