@@ -1,6 +1,6 @@
 import React from 'react';
 import styled from 'styled-components';
-import { PianoKeyboard, AdsrEnvelope, Section, theme } from '@waveform/ui-kit';
+import { PianoKeyboard, AdsrEnvelope, Section, VolumeAnalyser, theme } from '@waveform/ui-kit';
 import {
   SynthProvider,
   InputControllerProvider,
@@ -101,12 +101,21 @@ const OscillatorInternal = ({ children }: React.PropsWithChildren) => {
   );
 };
 
+const HeaderInternal = () => {
+  const [{ analyserNode }] = useSynthCore();
+  return (
+    <Header>
+      <VolumeAnalyser analyserNode={analyserNode} />
+    </Header>
+  );
+};
+
 export default () => (
   <InputControllerProvider initial={{}}>
     <SynthCoreProvider initial={{}}>
       <AdsrEnvelopeProvider initial={{}}>
         <OscillatorInternal>
-          <Header />
+          <HeaderInternal />
           <Internal />
         </OscillatorInternal>
       </AdsrEnvelopeProvider>

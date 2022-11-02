@@ -10,6 +10,7 @@ export { PianoKeyboard } from './piano-keyboard';
 export { AdsrEnvelope } from './adsr-envelope';
 export { Modal } from './modal';
 export { Section } from './section';
+export { VolumeAnalyser } from './volume-analyser';
 export { theme } from './common/constants';
 export * from './common/styles';
 export * from './common/types';

@@ -71,7 +71,11 @@ const unisonOscillator = (audioCtx: AudioContext, config: OscillatorConfig) => {
   const setWave = (wave: PeriodicWave) =>
     oscillators.forEach((oscillator) => oscillator.setPeriodicWave(wave));
   const connect = (node: AudioNode) => oscillators.forEach((oscillator) => oscillator.connect(node));
-  const stop = (time?: number) => oscillators.forEach((oscillator) => oscillator.stop(time));
+  const stop = (time?: number) =>
+    oscillators.forEach((oscillator) => {
+      oscillator.stop(time);
+      oscillator.addEventListener('ended', oscillator.disconnect);
+    });
 
   return { start, connect, setWave, stop };
 };
@@ -83,26 +87,25 @@ const voice = (
   adsrConfig: AdsrEnvelopeModel['$envelope']['value'],
   oscConfigs: Array<Omit<OscillatorConfig, 'frequency'>>
 ) => {
-  const uOscs = oscConfigs.map((oscConfig) =>
-    unisonOscillator(audioCtx, {
+  const voices = oscConfigs.map((oscConfig) => {
+    const osc = unisonOscillator(audioCtx, {
       ...oscConfig,
       frequency: getFq(note),
-    })
-  );
-
-  const adsr = envelope(audioCtx, adsrConfig);
-  uOscs.forEach((uOsc, i) => {
-    uOsc.connect(oscConfigs[i].gainNode);
-    oscConfigs[i].gainNode.connect(adsr.envelope);
+    });
+    const adsr = envelope(audioCtx, adsrConfig);
+    osc.connect(adsr.envelope);
+    adsr.envelope.connect(oscConfig.gainNode);
+    oscConfig.gainNode.connect(outputNode);
+    osc.start();
+    return { osc, adsr };
   });
-  adsr.envelope.connect(outputNode);
-
-  uOscs.forEach((uOsc) => uOsc.start());
   const stop = () => {
-    adsr.stop();
-    uOscs.forEach((uOsc) => uOsc.stop(audioCtx.currentTime + adsrConfig.release));
+    voices.forEach((voice) => {
+      voice.osc.stop(audioCtx.currentTime + adsrConfig.release);
+      voice.adsr.stop();
+    });
   };
-  const setWave = (index: number, wave: PeriodicWave) => uOscs[index]?.setWave(wave);
+  const setWave = (index: number, wave: PeriodicWave) => voices[index]?.osc.setWave(wave);
   return { stop, setWave };
 };
 
