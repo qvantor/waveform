@@ -13,10 +13,10 @@ const Root = styled.div`
 `;
 
 export const AudiofileWavetable = () => {
-  const [{ $waveTable, $current }, { setCurrent }] = useOscillatorContext();
+  const [{ $waveTable, $current, $wave }, { setCurrent }] = useOscillatorContext();
   return (
     <Root>
-      <WaveSelector $waveTable={$waveTable} $current={$current} setCurrent={setCurrent} />
+      <WaveSelector $wave={$wave} $waveTable={$waveTable} $current={$current} setCurrent={setCurrent} />
       <AudiofileWavePicker />
       <WavePreview />
     </Root>

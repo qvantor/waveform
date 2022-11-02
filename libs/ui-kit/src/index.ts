@@ -9,6 +9,7 @@ export { Tabs } from './tabs';
 export { PianoKeyboard } from './piano-keyboard';
 export { AdsrEnvelope } from './adsr-envelope';
 export { Modal } from './modal';
+export { Section } from './section';
 export { theme } from './common/constants';
 export * from './common/styles';
 export * from './common/types';

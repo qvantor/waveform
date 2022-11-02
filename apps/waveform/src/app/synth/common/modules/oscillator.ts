@@ -10,9 +10,9 @@ export const oscillator = () =>
     const ranges = {
       unison: [1, 8],
       detune: [0, 100],
-      randPhase: [0, 0.005],
+      randPhase: [0, 0.002],
     };
-    const $enabled = new PrimitiveBS<boolean>(true);
+    const $active = new PrimitiveBS<boolean>(true);
     const $osc = new ObjectBS({
       unison: 4,
       detune: 30,
@@ -29,7 +29,7 @@ export const oscillator = () =>
     return {
       audioCtx,
       ranges,
-      $enabled,
+      $active,
       $waveTable,
       $current,
       $osc,
@@ -37,13 +37,14 @@ export const oscillator = () =>
       $periodicWave,
     };
   })
-    .actions(({ $osc, $current }) => ({
+    .actions(({ $osc, $current, $active }) => ({
       setOscValue: (key: keyof typeof $osc.value, value: number) =>
         $osc.next({
           ...$osc.value,
           [key]: value,
         }),
       setCurrent: (i: number) => $current.next(i),
+      toggleActive: () => $active.next(!$active.value),
     }))
     .subscriptions(({ $wave, $periodicWave, audioCtx }) =>
       $wave

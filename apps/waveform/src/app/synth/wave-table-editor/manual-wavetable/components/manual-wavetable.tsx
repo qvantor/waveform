@@ -17,6 +17,7 @@ export const ManualWavetable = () => {
   return (
     <Root>
       <WaveSelector
+        $wave={$wave}
         $waveTable={$waveTable}
         $current={$current}
         setCurrent={setCurrent}

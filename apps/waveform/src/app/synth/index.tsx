@@ -1,6 +1,6 @@
 import React from 'react';
 import styled from 'styled-components';
-import { PianoKeyboard, AdsrEnvelope } from '@waveform/ui-kit';
+import { PianoKeyboard, AdsrEnvelope, Section, theme } from '@waveform/ui-kit';
 import {
   SynthProvider,
   InputControllerProvider,
@@ -16,32 +16,48 @@ import {
 import { useApp } from '../app';
 import { Header } from '../common/components';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
-import { Oscillator } from './oscillator';
+import { OscillatorsContainer } from './synth/components';
 
 const Root = styled.div`
   display: grid;
-  grid-template-rows: 1fr 1fr 100px;
+  grid-template-rows: 1fr 1fr 110px;
   height: calc(100vh - 80px);
+  gap: 1px;
+  background: ${theme.colors.primaryLowContrast};
 `;
 
-const OscillatorContainer = styled.div`
+const AdsrContainer = styled.div`
   display: grid;
   grid-template-columns: 1fr 1fr;
+  background: ${theme.colors.primaryLowContrast};
+  gap: 1px;
+`;
+
+const PianoContainer = styled.div`
+  display: flex;
+  justify-content: center;
 `;
 
 const PianoInternal = () => {
   const [{ $pressed }, { onPress, onRelease }] = useInputController();
   const pressed = useBehaviorSubject($pressed);
-  return <PianoKeyboard onPress={onPress} onRelease={onRelease} pressed={pressed} />;
+  return (
+    <PianoContainer>
+      <PianoKeyboard onPress={onPress} onRelease={onRelease} pressed={pressed} />
+    </PianoContainer>
+  );
 };
 
 const AdsrEnvelopeInternal = () => {
   const [{ $envelope }, { setEnvelopeValue }] = useAdsrEnvelope();
   const envelope = useBehaviorSubject($envelope);
   return (
-    <div style={{ width: '50%' }}>
-      <AdsrEnvelope {...envelope} onChange={setEnvelopeValue} />
-    </div>
+    <AdsrContainer>
+      <Section name='Envelope'>
+        <AdsrEnvelope {...envelope} onChange={setEnvelopeValue} />
+      </Section>
+      <Section name='Filters'>filters will be in here</Section>
+    </AdsrContainer>
   );
 };
 
@@ -61,10 +77,7 @@ const Internal = () => {
         oscillator={[oscillator1, oscillator2]}
       >
         <Root>
-          <OscillatorContainer>
-            <Oscillator {...oscillator1[0]} {...oscillator1[1]} useOscillator={useOscillator1} />
-            <Oscillator {...oscillator2[0]} {...oscillator2[1]} useOscillator={useOscillator2} />
-          </OscillatorContainer>
+          <OscillatorsContainer />
           <AdsrEnvelopeInternal />
           <PianoInternal />
         </Root>

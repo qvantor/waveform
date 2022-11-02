@@ -5,6 +5,7 @@ import { OscillatorModule } from './oscillator';
 import { Note } from '@waveform/ui-kit';
 import { noteFrequency } from '../../../common/constants';
 
+// @todo refactor and decompose that file
 interface Deps {
   inputController: InputControllerModule;
   adsrEnvelope: AdsrEnvelopeModule;
@@ -95,9 +96,7 @@ const voice = (
     adsr.stop();
     uOscs.forEach((uOsc) => uOsc.stop(audioCtx.currentTime + adsrConfig.release));
   };
-  const setWave = (wave: PeriodicWave) => {
-    console.log(wave);
-  };
+  const setWave = (index: number, wave: PeriodicWave) => uOscs[index]?.setWave(wave);
   return { stop, setWave };
 };
 
@@ -139,17 +138,21 @@ const synth = ({
           preGain,
           note,
           $envelope.value,
-          oscillators.map(([oscillator]) => ({
-            ...oscillator.$osc.value,
-            wave: oscillator.$periodicWave.value,
-          }))
+          oscillators
+            .filter(([oscillator]) => oscillator.$active.value)
+            .map(([oscillator]) => ({
+              ...oscillator.$osc.value,
+              wave: oscillator.$periodicWave.value,
+            }))
         );
       }),
-      // $periodicWave.subscribe((wave) => {
-      //   for (const voice in voices) {
-      //     voices[voice]?.setWave(wave);
-      //   }
-      // }),
+      ...oscillators.map(([{ $periodicWave }], i) =>
+        $periodicWave.subscribe((wave) => {
+          for (const voice in voices) {
+            voices[voice]?.setWave(i, wave);
+          }
+        })
+      ),
     ];
   });
 

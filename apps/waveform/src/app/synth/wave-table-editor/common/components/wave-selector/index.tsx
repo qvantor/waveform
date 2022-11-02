@@ -1,7 +1,7 @@
 import React from 'react';
 import styled from 'styled-components';
 import { PlusOutlined } from '@ant-design/icons';
-import { useBehaviorSubject } from '@waveform/rxjs-react';
+import { useBehaviorSubject, useObservable } from '@waveform/rxjs-react';
 import { theme, LineChart, Line } from '@waveform/ui-kit';
 import { ManualWavetableActions } from '../../../manual-wavetable/modules';
 import { OscillatorModel, OscillatorActions } from '../../../../common/modules';
@@ -50,13 +50,13 @@ const NewWave = styled.div`
   }
 `;
 
-export type Props = Pick<OscillatorModel, '$waveTable' | '$current'> &
+export type Props = Pick<OscillatorModel, '$waveTable' | '$current' | '$wave'> &
   Pick<OscillatorActions, 'setCurrent'> &
   Partial<Pick<ManualWavetableActions, 'cloneCurrent'>>;
 
-export const WaveSelector = ({ $waveTable, $current, setCurrent, cloneCurrent }: Props) => {
+export const WaveSelector = ({ $waveTable, $current, $wave, setCurrent, cloneCurrent }: Props) => {
   const waveTable = useBehaviorSubject($waveTable);
-  useBehaviorSubject($current);
+  useObservable($wave, []);
   return (
     <Root>
       <HandlersWrapper>

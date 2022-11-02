@@ -13,15 +13,14 @@ const Root = styled.div`
   flex-direction: column;
 `;
 
-const ChartContainer = styled.div`
+const Chart = styled(LineChart)`
   flex: 1 1;
-  padding: 0 10px;
+  border-radius: 3px;
 `;
 
 const Handlers = styled.div`
   display: flex;
   justify-content: space-between;
-  padding: 0 10px 10px 10px;
 `;
 
 const HandlersGroup = styled.div`
@@ -94,17 +93,15 @@ export const AdsrEnvelope = ({ onChange, ...rest }: Props) => {
 
   return (
     <Root>
-      <ChartContainer>
-        <LineChart
-          domainX={[0, Math.max(attack + hold + decay + release + 0.1, 0.5)]}
-          domainY={[1, 0]}
-          padding={[10, 5]}
-        >
-          <YAxis ticks={2} />
-          <XAxis ticks={4} formatText={(value) => `${value * 1000}ms`} />
-          <CustomLine {...rest} />
-        </LineChart>
-      </ChartContainer>
+      <Chart
+        domainX={[0, Math.max(attack + hold + decay + release + 0.1, 0.5)]}
+        domainY={[1, 0]}
+        padding={[10, 5]}
+      >
+        <YAxis ticks={2} />
+        <XAxis ticks={4} formatText={(value) => `${value * 1000}ms`} />
+        <CustomLine {...rest} />
+      </Chart>
       <Handlers>
         <HandlersGroup>
           <div>

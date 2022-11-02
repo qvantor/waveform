@@ -6,8 +6,7 @@ import WaveTableEditor from '../../../wave-table-editor';
 import { Chart } from './chart';
 
 const Root = styled.div`
-  background: ${theme.colors.primaryDark};
-  margin: 10px 10px 0 10px;
+  flex: 1 1;
   position: relative;
 `;
 
