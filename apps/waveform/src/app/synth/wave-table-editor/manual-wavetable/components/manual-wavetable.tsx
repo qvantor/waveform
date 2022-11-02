@@ -1,6 +1,6 @@
 import React from 'react';
 import styled from 'styled-components';
-import { useOscillator } from '../../../common/modules';
+import { useOscillatorContext } from '../../../oscillator';
 import { WaveSelector, WaveEditor } from '../../common/components';
 import { useManualWavetable } from '../modules';
 
@@ -12,7 +12,7 @@ const Root = styled.div`
 `;
 
 export const ManualWavetable = () => {
-  const [{ $waveTable, $wave, $current }, { setCurrent }] = useOscillator();
+  const [{ $waveTable, $wave, $current }, { setCurrent }] = useOscillatorContext();
   const [{ $rate, rateRange }, { cloneCurrent, setRate, updateCurrentWave }] = useManualWavetable();
   return (
     <Root>

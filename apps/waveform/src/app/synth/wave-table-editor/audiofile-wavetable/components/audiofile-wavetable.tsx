@@ -1,9 +1,9 @@
 import React from 'react';
 import styled from 'styled-components';
+import { useOscillatorContext } from '../../../oscillator';
 import { WaveSelector } from '../../common/components';
 import { AudiofileWavePicker } from './audiofile-wave-picker';
 import { WavePreview } from './wave-preview';
-import { useOscillator } from '../../../common/modules';
 
 const Root = styled.div`
   display: grid;
@@ -13,7 +13,7 @@ const Root = styled.div`
 `;
 
 export const AudiofileWavetable = () => {
-  const [{ $waveTable, $current }, { setCurrent }] = useOscillator();
+  const [{ $waveTable, $current }, { setCurrent }] = useOscillatorContext();
   return (
     <Root>
       <WaveSelector $waveTable={$waveTable} $current={$current} setCurrent={setCurrent} />

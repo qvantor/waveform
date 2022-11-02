@@ -1,12 +1,12 @@
 import React from 'react';
+import {useOscillatorContext} from '../../oscillator';
 import { AudiofileProvider } from './modules';
 import { LoadFile, AudiofileWavetable } from './components';
-import { useOscillator } from '../../common/modules';
 
 let initialBuffer = new Float32Array(0);
 
 export default () => {
-  const oscillator = useOscillator();
+  const oscillator = useOscillatorContext();
   const [audioBuffer, setAudioBuffer] = React.useState<Float32Array>(initialBuffer);
   const setAudioBufferInternal = (buffer: Float32Array) => {
     initialBuffer = buffer;

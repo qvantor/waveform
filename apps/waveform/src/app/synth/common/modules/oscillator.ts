@@ -4,7 +4,7 @@ import { number, wave } from '@waveform/math';
 import { appSnapshotPlugin } from '../../../app';
 
 // @todo AudioContext should be used as dep
-const oscillator = () =>
+export const oscillator = () =>
   rxModel(() => {
     const audioCtx = new AudioContext();
     const ranges = {
@@ -12,6 +12,7 @@ const oscillator = () =>
       detune: [0, 100],
       randPhase: [0, 0.005],
     };
+    const $enabled = new PrimitiveBS<boolean>(true);
     const $osc = new ObjectBS({
       unison: 4,
       detune: 30,
@@ -28,6 +29,7 @@ const oscillator = () =>
     return {
       audioCtx,
       ranges,
+      $enabled,
       $waveTable,
       $current,
       $osc,
@@ -53,11 +55,16 @@ const oscillator = () =>
     )
     .plugins(appSnapshotPlugin());
 
-export const { ModelProvider: OscillatorProvider, useModel: useOscillator } = rxModelReact(
-  'oscillator',
+export const { ModelProvider: Oscillator1Provider, useModel: useOscillator1 } = rxModelReact(
+  'oscillator1',
   oscillator
 );
 
-export type OscillatorModule = ReturnType<typeof useOscillator>;
+export const { ModelProvider: Oscillator2Provider, useModel: useOscillator2 } = rxModelReact(
+  'oscillator2',
+  oscillator
+);
+
+export type OscillatorModule = ReturnType<typeof useOscillator1>;
 export type OscillatorModel = OscillatorModule[0];
 export type OscillatorActions = OscillatorModule[1];

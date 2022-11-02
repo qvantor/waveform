@@ -8,7 +8,7 @@ import { noteFrequency } from '../../../common/constants';
 interface Deps {
   inputController: InputControllerModule;
   adsrEnvelope: AdsrEnvelopeModule;
-  oscillator: OscillatorModule;
+  oscillator: [OscillatorModule, OscillatorModule];
 }
 
 const getFq = ([octave, note]: Note) => noteFrequency[note] * 2 ** (octave - 1);
@@ -77,28 +77,34 @@ const voice = (
   outputNode: AudioNode,
   note: Note,
   adsrConfig: AdsrEnvelopeModel['$envelope']['value'],
-  oscConfig: Omit<OscillatorConfig, 'frequency'>
+  oscConfigs: Array<Omit<OscillatorConfig, 'frequency'>>
 ) => {
-  const uOsc = unisonOscillator(audioCtx, {
-    ...oscConfig,
-    frequency: getFq(note),
-  });
+  const uOscs = oscConfigs.map((oscConfig) =>
+    unisonOscillator(audioCtx, {
+      ...oscConfig,
+      frequency: getFq(note),
+    })
+  );
+
   const adsr = envelope(audioCtx, adsrConfig);
-  uOsc.connect(adsr.envelope);
+  uOscs.forEach((uOsc) => uOsc.connect(adsr.envelope));
   adsr.envelope.connect(outputNode);
 
-  uOsc.start();
+  uOscs.forEach((uOsc) => uOsc.start());
   const stop = () => {
     adsr.stop();
-    uOsc.stop(audioCtx.currentTime + adsrConfig.release);
+    uOscs.forEach((uOsc) => uOsc.stop(audioCtx.currentTime + adsrConfig.release));
   };
-  return { stop, setWave: uOsc.setWave };
+  const setWave = (wave: PeriodicWave) => {
+    console.log(wave);
+  };
+  return { stop, setWave };
 };
 
 const synth = ({
   inputController: [{ $onPress, $onRelease }],
   adsrEnvelope: [{ $envelope }],
-  oscillator: [{ $osc, $periodicWave }],
+  oscillator: oscillators,
 }: Deps) =>
   rxModel(() => {
     const audioCtx = new window.AudioContext();
@@ -119,25 +125,31 @@ const synth = ({
 
     return { audioCtx, preGain, masterLimiter, masterGain };
   }).subscriptions(({ audioCtx, preGain }) => {
-    const oscillators: Record<string, ReturnType<typeof voice> | null> = {};
+    const voices: Record<string, ReturnType<typeof voice> | null> = {};
     return [
       $onRelease.subscribe((note) => {
-        oscillators[noteToString(note)]?.stop();
-        oscillators[noteToString(note)] = null;
+        voices[noteToString(note)]?.stop();
+        voices[noteToString(note)] = null;
       }),
       $onPress.subscribe((note) => {
-        if (oscillators[noteToString(note)]) return;
+        if (voices[noteToString(note)]) return;
 
-        oscillators[noteToString(note)] = voice(audioCtx, preGain, note, $envelope.value, {
-          ...$osc.value,
-          wave: $periodicWave.value,
-        });
+        voices[noteToString(note)] = voice(
+          audioCtx,
+          preGain,
+          note,
+          $envelope.value,
+          oscillators.map(([oscillator]) => ({
+            ...oscillator.$osc.value,
+            wave: oscillator.$periodicWave.value,
+          }))
+        );
       }),
-      $periodicWave.subscribe((wave) => {
-        for (const voice in oscillators) {
-          oscillators[voice]?.setWave(wave);
-        }
-      }),
+      // $periodicWave.subscribe((wave) => {
+      //   for (const voice in voices) {
+      //     voices[voice]?.setWave(wave);
+      //   }
+      // }),
     ];
   });
 

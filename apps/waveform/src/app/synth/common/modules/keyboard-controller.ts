@@ -53,7 +53,7 @@ const keyboardToNotes: Record<string, Note> = {
 };
 const keyboardKeys = Object.keys(keyboardToNotes);
 
-const keyFilter = (e: KeyboardEvent) => keyboardKeys.includes(e.code);
+const keyFilter = (e: KeyboardEvent) => !e.metaKey && keyboardKeys.includes(e.code);
 
 const keyboardController = ({
   app: [{ $keyDown, $keyUp }],

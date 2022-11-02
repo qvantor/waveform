@@ -1,7 +1,7 @@
 export { InputControllerProvider, useInputController } from './input-controller';
 export { KeyboardControllerProvider, useKeyboardController } from './keyboard-controller';
 export { AdsrEnvelopeProvider, useAdsrEnvelope } from './adsr-envelope';
-export { OscillatorProvider, useOscillator } from './oscillator';
+export { Oscillator1Provider, Oscillator2Provider, useOscillator1, useOscillator2 } from './oscillator';
 export { SynthProvider, useSynth } from './synth';
 export type { AdsrEnvelopeModule, AdsrEnvelopeModel } from './adsr-envelope';
 export type { OscillatorModule, OscillatorModel, OscillatorActions } from './oscillator';

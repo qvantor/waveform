@@ -2,13 +2,13 @@ import React from 'react';
 import { number } from '@waveform/math';
 import { theme, useLineChartContext } from '@waveform/ui-kit';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
-import { useOscillator } from '../../../../common/modules';
+import {useOscillatorContext} from '../../../../oscillator';
 import { useAudiofile } from '../../modules';
 
 export const Pickers = () => {
   const { scaleX, height, padding } = useLineChartContext();
   const [{ $wavePickers, $waveSize }] = useAudiofile();
-  const [{ $current }] = useOscillator();
+  const [{ $current }] = useOscillatorContext();
   const wavePickers = useBehaviorSubject($wavePickers);
   const waveSize = useBehaviorSubject($waveSize);
   const current = useBehaviorSubject($current);

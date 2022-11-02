@@ -7,8 +7,10 @@ import {
   useInputController,
   AdsrEnvelopeProvider,
   useAdsrEnvelope,
-  OscillatorProvider,
-  useOscillator,
+  Oscillator1Provider,
+  Oscillator2Provider,
+  useOscillator1,
+  useOscillator2,
   KeyboardControllerProvider,
 } from './common/modules';
 import { useApp } from '../app';
@@ -20,6 +22,11 @@ const Root = styled.div`
   display: grid;
   grid-template-rows: 1fr 1fr 100px;
   height: calc(100vh - 80px);
+`;
+
+const OscillatorContainer = styled.div`
+  display: grid;
+  grid-template-columns: 1fr 1fr;
 `;
 
 const PianoInternal = () => {
@@ -42,34 +49,39 @@ const Internal = () => {
   const app = useApp();
   const inputController = useInputController();
   const adsrEnvelope = useAdsrEnvelope();
-  const oscillator = useOscillator();
+  const oscillator1 = useOscillator1();
+  const oscillator2 = useOscillator2();
+
   return (
-    <SynthProvider
-      initial={{}}
-      inputController={inputController}
-      adsrEnvelope={adsrEnvelope}
-      oscillator={oscillator}
-    >
-      <KeyboardControllerProvider initial={{}} app={app} inputController={inputController}>
+    <KeyboardControllerProvider initial={{}} app={app} inputController={inputController}>
+      <SynthProvider
+        initial={{}}
+        inputController={inputController}
+        adsrEnvelope={adsrEnvelope}
+        oscillator={[oscillator1, oscillator2]}
+      >
         <Root>
-          <div style={{ width: '40%' }}>
-            <Oscillator {...oscillator[0]} {...oscillator[1]} />
-          </div>
+          <OscillatorContainer>
+            <Oscillator {...oscillator1[0]} {...oscillator1[1]} useOscillator={useOscillator1} />
+            <Oscillator {...oscillator2[0]} {...oscillator2[1]} useOscillator={useOscillator2} />
+          </OscillatorContainer>
           <AdsrEnvelopeInternal />
           <PianoInternal />
         </Root>
-      </KeyboardControllerProvider>
-    </SynthProvider>
+      </SynthProvider>
+    </KeyboardControllerProvider>
   );
 };
 
 export default () => (
   <InputControllerProvider initial={{}}>
     <AdsrEnvelopeProvider initial={{}}>
-      <OscillatorProvider initial={{}}>
-        <Header />
-        <Internal />
-      </OscillatorProvider>
+      <Oscillator1Provider initial={{}}>
+        <Oscillator2Provider initial={{}}>
+          <Header />
+          <Internal />
+        </Oscillator2Provider>
+      </Oscillator1Provider>
     </AdsrEnvelopeProvider>
   </InputControllerProvider>
 );

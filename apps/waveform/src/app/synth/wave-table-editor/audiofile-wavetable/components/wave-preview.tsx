@@ -3,7 +3,7 @@ import styled from 'styled-components';
 import { useObservable } from '@waveform/rxjs-react';
 import { LineChart, Line, XAxis, YAxis } from '@waveform/ui-kit';
 import { RxHandle } from '../../../../common/components';
-import { useOscillator } from '../../../common/modules';
+import { useOscillatorContext } from '../../../oscillator';
 import { useAudiofile } from '../modules';
 
 const Root = styled.div`
@@ -20,7 +20,7 @@ const HandlersWrapper = styled.div`
 `;
 
 export const WavePreview = () => {
-  const [{ $wave }] = useOscillator();
+  const [{ $wave }] = useOscillatorContext();
   const [{ $phase }, { setPhase }] = useAudiofile();
   const wave = useObservable($wave, []);
   return (
