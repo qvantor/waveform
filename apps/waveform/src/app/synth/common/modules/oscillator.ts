@@ -2,11 +2,16 @@ import { map, mergeMap, mergeWith, BehaviorSubject } from 'rxjs';
 import { ObjectBS, ArrayBS, rxModel, rxModelReact, PrimitiveBS } from '@waveform/rxjs-react';
 import { number, wave } from '@waveform/math';
 import { appSnapshotPlugin } from '../../../app';
+import { SynthCoreModule } from './synth-core';
+
+interface Dependencies {
+  synthCore: SynthCoreModule;
+}
 
 // @todo AudioContext should be used as dep
-export const oscillator = () =>
+export const oscillator = ({ synthCore: [{ audioCtx }] }: Dependencies) =>
   rxModel(() => {
-    const audioCtx = new AudioContext();
+    const gainNode = audioCtx.createGain();
     const ranges = {
       unison: [1, 8],
       detune: [0, 100],
@@ -25,9 +30,10 @@ export const oscillator = () =>
       mergeWith($waveTable),
       mergeMap(() => $waveTable.value[$current.value])
     );
+    const $gain = new PrimitiveBS<number>(0.25);
 
     return {
-      audioCtx,
+      gainNode,
       ranges,
       $active,
       $waveTable,
@@ -35,9 +41,10 @@ export const oscillator = () =>
       $osc,
       $wave,
       $periodicWave,
+      $gain,
     };
   })
-    .actions(({ $osc, $current, $active }) => ({
+    .actions(({ $osc, $current, $active, $gain }) => ({
       setOscValue: (key: keyof typeof $osc.value, value: number) =>
         $osc.next({
           ...$osc.value,
@@ -45,15 +52,17 @@ export const oscillator = () =>
         }),
       setCurrent: (i: number) => $current.next(i),
       toggleActive: () => $active.next(!$active.value),
+      setGain: (value: number) => $gain.next(value)
     }))
-    .subscriptions(({ $wave, $periodicWave, audioCtx }) =>
+    .subscriptions(({ $wave, $periodicWave, $gain, gainNode }) => [
       $wave
         .pipe(
           map(wave.realWithImag),
           map((value) => audioCtx.createPeriodicWave(...value))
         )
-        .subscribe($periodicWave)
-    )
+        .subscribe($periodicWave),
+      $gain.subscribe((value) => gainNode.gain.setValueAtTime(value, audioCtx.currentTime)),
+    ])
     .plugins(appSnapshotPlugin());
 
 export const { ModelProvider: Oscillator1Provider, useModel: useOscillator1 } = rxModelReact(

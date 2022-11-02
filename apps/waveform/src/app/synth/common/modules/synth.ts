@@ -2,6 +2,7 @@ import { rxModel, rxModelReact } from '@waveform/rxjs-react';
 import { InputControllerModule } from './input-controller';
 import { AdsrEnvelopeModule, AdsrEnvelopeModel } from './adsr-envelope';
 import { OscillatorModule } from './oscillator';
+import { SynthCoreModule } from './synth-core';
 import { Note } from '@waveform/ui-kit';
 import { noteFrequency } from '../../../common/constants';
 
@@ -10,6 +11,7 @@ interface Deps {
   inputController: InputControllerModule;
   adsrEnvelope: AdsrEnvelopeModule;
   oscillator: [OscillatorModule, OscillatorModule];
+  synthCore: SynthCoreModule;
 }
 
 const getFq = ([octave, note]: Note) => noteFrequency[note] * 2 ** (octave - 1);
@@ -41,6 +43,7 @@ const envelope = (audioCtx: AudioContext, config: AdsrEnvelopeModel['$envelope']
 
 interface OscillatorConfig {
   wave: PeriodicWave;
+  gainNode: GainNode;
   frequency: number;
   unison: number;
   detune: number;
@@ -62,8 +65,8 @@ const unisonOscillator = (audioCtx: AudioContext, config: OscillatorConfig) => {
   }
 
   const start = (time?: number) =>
-    oscillators.forEach(
-      (oscillator) => oscillator.start((time ?? audioCtx.currentTime) + Math.random() * config.randPhase) // starts with random phase
+    oscillators.forEach((oscillator) =>
+      oscillator.start((time ?? audioCtx.currentTime) + Math.random() * config.randPhase)
     );
   const setWave = (wave: PeriodicWave) =>
     oscillators.forEach((oscillator) => oscillator.setPeriodicWave(wave));
@@ -88,7 +91,10 @@ const voice = (
   );
 
   const adsr = envelope(audioCtx, adsrConfig);
-  uOscs.forEach((uOsc) => uOsc.connect(adsr.envelope));
+  uOscs.forEach((uOsc, i) => {
+    uOsc.connect(oscConfigs[i].gainNode);
+    oscConfigs[i].gainNode.connect(adsr.envelope);
+  });
   adsr.envelope.connect(outputNode);
 
   uOscs.forEach((uOsc) => uOsc.start());
@@ -101,59 +107,44 @@ const voice = (
 };
 
 const synth = ({
+  synthCore: [{ audioCtx, preGain }],
   inputController: [{ $onPress, $onRelease }],
   adsrEnvelope: [{ $envelope }],
   oscillator: oscillators,
 }: Deps) =>
   rxModel(() => {
-    const audioCtx = new window.AudioContext();
-    const preGain = audioCtx.createGain();
-    const masterLimiter = audioCtx.createDynamicsCompressor();
-    const masterGain = audioCtx.createGain();
-    preGain.gain.setValueAtTime(0.2, audioCtx.currentTime);
-    masterGain.gain.setValueAtTime(0.8, audioCtx.currentTime);
-
-    masterLimiter.threshold.setValueAtTime(-12.0, audioCtx.currentTime);
-    masterLimiter.ratio.setValueAtTime(1.0, audioCtx.currentTime);
-    masterLimiter.attack.setValueAtTime(0.003, audioCtx.currentTime);
-    masterLimiter.release.setValueAtTime(0.01, audioCtx.currentTime);
-
-    preGain.connect(masterLimiter);
-    masterLimiter.connect(masterGain);
-    masterGain.connect(audioCtx.destination);
-
-    return { audioCtx, preGain, masterLimiter, masterGain };
-  }).subscriptions(({ audioCtx, preGain }) => {
     const voices: Record<string, ReturnType<typeof voice> | null> = {};
-    return [
-      $onRelease.subscribe((note) => {
-        voices[noteToString(note)]?.stop();
-        voices[noteToString(note)] = null;
-      }),
-      $onPress.subscribe((note) => {
-        if (voices[noteToString(note)]) return;
+    return { voices };
+  }).subscriptions(({ voices }) => [
+    $onRelease.subscribe((note) => {
+      voices[noteToString(note)]?.stop();
+      voices[noteToString(note)] = null;
+    }),
+    $onPress.subscribe((note) => {
+      if (voices[noteToString(note)]) return;
 
-        voices[noteToString(note)] = voice(
-          audioCtx,
-          preGain,
-          note,
-          $envelope.value,
-          oscillators
-            .filter(([oscillator]) => oscillator.$active.value)
-            .map(([oscillator]) => ({
-              ...oscillator.$osc.value,
-              wave: oscillator.$periodicWave.value,
-            }))
-        );
-      }),
-      ...oscillators.map(([{ $periodicWave }], i) =>
-        $periodicWave.subscribe((wave) => {
-          for (const voice in voices) {
-            voices[voice]?.setWave(i, wave);
-          }
-        })
-      ),
-    ];
-  });
+      voices[noteToString(note)] = voice(
+        audioCtx,
+        preGain,
+        note,
+        $envelope.value,
+        oscillators
+          .filter(([oscillator]) => oscillator.$active.value)
+          .map(([oscillator]) => ({
+            ...oscillator.$osc.value,
+            wave: oscillator.$periodicWave.value,
+            gainNode: oscillator.gainNode,
+          }))
+      );
+    }),
+    ...oscillators.map(([{ $periodicWave }], i) =>
+      $periodicWave.subscribe((wave) => {
+        for (const voice in voices) {
+          // @todo here is the bug - wave not update while playing for osc2, if osc1 is stoped
+          voices[voice]?.setWave(i, wave);
+        }
+      })
+    ),
+  ]);
 
 export const { ModelProvider: SynthProvider, useModel: useSynth } = rxModelReact('synth', synth);

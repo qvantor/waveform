@@ -33,10 +33,12 @@ export const Oscillator = ({
   $osc,
   $current,
   $waveTable,
+  $gain,
   ranges,
   setOscValue,
   useOscillator,
   setCurrent,
+  setGain,
 }: Props) => {
   const oscillator = useOscillator();
   const osc = useBehaviorSubject($osc);
@@ -49,6 +51,9 @@ export const Oscillator = ({
       <Root>
         <Wave />
         <Handles>
+          <HandlesGroup>
+            <RxHandle min={0} max={1} step={0.01} $value={$gain} label='Gain' onChange={setGain} />
+          </HandlesGroup>
           <HandlesGroup>
             <RxHandle max={wavetable.length - 1} $value={$current} label='Wave' onChange={setCurrent} />
           </HandlesGroup>

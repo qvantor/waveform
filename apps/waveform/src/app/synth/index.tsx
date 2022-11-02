@@ -12,6 +12,8 @@ import {
   useOscillator1,
   useOscillator2,
   KeyboardControllerProvider,
+  SynthCoreProvider,
+  useSynthCore,
 } from './common/modules';
 import { useApp } from '../app';
 import { Header } from '../common/components';
@@ -63,6 +65,7 @@ const AdsrEnvelopeInternal = () => {
 
 const Internal = () => {
   const app = useApp();
+  const synthCore = useSynthCore();
   const inputController = useInputController();
   const adsrEnvelope = useAdsrEnvelope();
   const oscillator1 = useOscillator1();
@@ -75,6 +78,7 @@ const Internal = () => {
         inputController={inputController}
         adsrEnvelope={adsrEnvelope}
         oscillator={[oscillator1, oscillator2]}
+        synthCore={synthCore}
       >
         <Root>
           <OscillatorsContainer />
@@ -86,15 +90,26 @@ const Internal = () => {
   );
 };
 
+const OscillatorInternal = ({ children }: React.PropsWithChildren) => {
+  const synthCore = useSynthCore();
+  return (
+    <Oscillator1Provider initial={{}} synthCore={synthCore}>
+      <Oscillator2Provider initial={{}} synthCore={synthCore}>
+        {children}
+      </Oscillator2Provider>
+    </Oscillator1Provider>
+  );
+};
+
 export default () => (
   <InputControllerProvider initial={{}}>
-    <AdsrEnvelopeProvider initial={{}}>
-      <Oscillator1Provider initial={{}}>
-        <Oscillator2Provider initial={{}}>
+    <SynthCoreProvider initial={{}}>
+      <AdsrEnvelopeProvider initial={{}}>
+        <OscillatorInternal>
           <Header />
           <Internal />
-        </Oscillator2Provider>
-      </Oscillator1Provider>
-    </AdsrEnvelopeProvider>
+        </OscillatorInternal>
+      </AdsrEnvelopeProvider>
+    </SynthCoreProvider>
   </InputControllerProvider>
 );
