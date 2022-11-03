@@ -1,4 +1,4 @@
-import { rxModel, rxModelReact } from '@waveform/rxjs-react';
+import { PrimitiveBS, rxModel, rxModelReact } from '@waveform/rxjs-react';
 
 const synthCore = () =>
   rxModel(() => {
@@ -6,24 +6,30 @@ const synthCore = () =>
     const preGain = audioCtx.createGain();
     const masterLimiter = audioCtx.createDynamicsCompressor();
     const masterGain = audioCtx.createGain();
-    const analyserNode = audioCtx.createAnalyser();
 
-    preGain.gain.setValueAtTime(0.3, audioCtx.currentTime);
+    preGain.gain.setValueAtTime(1, audioCtx.currentTime);
     masterGain.gain.setValueAtTime(0.8, audioCtx.currentTime);
 
-    masterLimiter.threshold.setValueAtTime(-12.0, audioCtx.currentTime);
-    masterLimiter.ratio.setValueAtTime(1.0, audioCtx.currentTime);
-    masterLimiter.attack.setValueAtTime(0.0001, audioCtx.currentTime);
+    masterLimiter.threshold.setValueAtTime(-16.0, audioCtx.currentTime);
+    masterLimiter.ratio.setValueAtTime(20, audioCtx.currentTime);
+    masterLimiter.attack.setValueAtTime(0.001, audioCtx.currentTime);
     masterLimiter.release.setValueAtTime(0.01, audioCtx.currentTime);
 
     preGain.connect(masterLimiter);
     masterLimiter.connect(masterGain);
-    // preGain.connect(masterGain)
-    masterGain.connect(analyserNode);
-    analyserNode.connect(audioCtx.destination);
+    masterGain.connect(audioCtx.destination);
 
-    return { audioCtx, preGain, masterLimiter, masterGain, analyserNode };
-  });
+    const $masterGain = new PrimitiveBS<number>(0.8);
+    const $limiter = new PrimitiveBS<boolean>(false);
+
+    return { audioCtx, preGain, masterLimiter, masterGain, $masterGain, $limiter };
+  })
+    .actions(({ $masterGain }) => ({
+      setMasterGain: (value: number) => $masterGain.next(value)
+    }))
+    .subscriptions(({ $masterGain, audioCtx, masterGain }) =>
+      $masterGain.subscribe((value) => masterGain.gain.setValueAtTime(value, audioCtx.currentTime))
+    );
 
 export const { ModelProvider: SynthCoreProvider, useModel: useSynthCore } = rxModelReact(
   'synthCore',

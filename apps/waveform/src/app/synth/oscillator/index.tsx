@@ -2,6 +2,7 @@ import React from 'react';
 import styled from 'styled-components';
 import { Handle } from '@waveform/ui-kit';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
+import { number } from '@waveform/math';
 import { OscillatorActions, OscillatorModel, useOscillator1 } from '../common/modules';
 import { OscillatorContext, useOscillatorContext } from './hooks';
 import { Wave } from './components';
@@ -52,7 +53,15 @@ export const Oscillator = ({
         <Wave />
         <Handles>
           <HandlesGroup>
-            <RxHandle min={0} max={1} step={0.01} $value={$gain} label='Gain' onChange={setGain} />
+            <RxHandle
+              min={0}
+              max={1}
+              step={0.01}
+              $value={$gain}
+              label='Gain'
+              onChange={setGain}
+              formatValue={number.round}
+            />
           </HandlesGroup>
           <HandlesGroup>
             <RxHandle max={wavetable.length - 1} $value={$current} label='Wave' onChange={setCurrent} />

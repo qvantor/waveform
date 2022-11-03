@@ -17,8 +17,10 @@ import {
 } from './common/modules';
 import { useApp } from '../app';
 import { Header } from '../common/components';
+import { RxHandle } from '../common/components';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
 import { OscillatorsContainer } from './synth/components';
+import { number } from '@waveform/math';
 
 const Root = styled.div`
   display: grid;
@@ -38,6 +40,12 @@ const AdsrContainer = styled.div`
 const PianoContainer = styled.div`
   display: flex;
   justify-content: center;
+`;
+
+const HeaderContainer = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 10px;
 `;
 
 const PianoInternal = () => {
@@ -102,10 +110,21 @@ const OscillatorInternal = ({ children }: React.PropsWithChildren) => {
 };
 
 const HeaderInternal = () => {
-  const [{ analyserNode }] = useSynthCore();
+  const [{ audioCtx, masterGain, $masterGain }, { setMasterGain }] = useSynthCore();
   return (
     <Header>
-      <VolumeAnalyser analyserNode={analyserNode} />
+      <HeaderContainer>
+        <RxHandle
+          min={0}
+          max={1.3}
+          step={0.01}
+          $value={$masterGain}
+          onChange={setMasterGain}
+          label='Master'
+          formatValue={number.round}
+        />
+        <VolumeAnalyser audioCtx={audioCtx} master={masterGain} />
+      </HeaderContainer>
     </Header>
   );
 };

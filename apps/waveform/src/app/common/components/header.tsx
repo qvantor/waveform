@@ -4,8 +4,9 @@ import { theme } from '@waveform/ui-kit';
 
 const Root = styled.div`
   border-bottom: 1px solid ${theme.colors.primaryLowContrast};
-  padding: 0 20px;
+  padding: 0 10px;
   display: flex;
+  align-items: center;
   gap: 20px;
   justify-content: space-between;
 `;

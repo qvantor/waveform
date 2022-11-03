@@ -54,6 +54,7 @@ const unisonOscillator = (audioCtx: AudioContext, config: OscillatorConfig) => {
   const oscillators: OscillatorNode[] = [];
   const from = -config.detune / 2;
   const step = config.detune / (config.unison - 1);
+  const merger = audioCtx.createChannelMerger(2);
 
   for (let i = 0; i < config.unison; i++) {
     const oscillator = audioCtx.createOscillator();
@@ -70,11 +71,26 @@ const unisonOscillator = (audioCtx: AudioContext, config: OscillatorConfig) => {
     );
   const setWave = (wave: PeriodicWave) =>
     oscillators.forEach((oscillator) => oscillator.setPeriodicWave(wave));
-  const connect = (node: AudioNode) => oscillators.forEach((oscillator) => oscillator.connect(node));
+  const connect = (node: AudioNode) => {
+    merger.connect(node);
+    for (let i = 0; i < oscillators.length; i += 2) {
+      const oscillator1 = oscillators[i];
+      const oscillator2 = oscillators[i + 1];
+      if (oscillator1 && oscillator2) {
+        oscillator1.connect(merger, 0, 0);
+        oscillator2.connect(merger, 0, 1);
+      } else if (oscillator1) {
+        oscillator1.connect(node);
+      }
+    }
+  };
   const stop = (time?: number) =>
     oscillators.forEach((oscillator) => {
       oscillator.stop(time);
-      oscillator.addEventListener('ended', oscillator.disconnect);
+      oscillator.addEventListener('ended', () => {
+        oscillator.disconnect();
+        merger.disconnect();
+      });
     });
 
   return { start, connect, setWave, stop };
@@ -136,7 +152,7 @@ const synth = ({
           .map(([oscillator]) => ({
             ...oscillator.$osc.value,
             wave: oscillator.$periodicWave.value,
-            gainNode: oscillator.gainNode,
+            gainNode: oscillator.gainNode
           }))
       );
     }),

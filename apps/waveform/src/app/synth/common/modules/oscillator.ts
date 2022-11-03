@@ -30,7 +30,7 @@ export const oscillator = ({ synthCore: [{ audioCtx }] }: Dependencies) =>
       mergeWith($waveTable),
       mergeMap(() => $waveTable.value[$current.value])
     );
-    const $gain = new PrimitiveBS<number>(0.25);
+    const $gain = new PrimitiveBS<number>(0.5);
 
     return {
       gainNode,
