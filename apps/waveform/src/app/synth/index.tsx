@@ -1,6 +1,6 @@
 import React from 'react';
 import styled from 'styled-components';
-import { PianoKeyboard, AdsrEnvelope, Section, VolumeAnalyser, theme } from '@waveform/ui-kit';
+import { PianoKeyboard, AdsrEnvelope, Section, VolumeAnalyser, Filter, theme } from '@waveform/ui-kit';
 import {
   SynthProvider,
   InputControllerProvider,
@@ -14,6 +14,8 @@ import {
   KeyboardControllerProvider,
   SynthCoreProvider,
   useSynthCore,
+  FilterProvider,
+  useFilter,
 } from './common/modules';
 import { useApp } from '../app';
 import { Header } from '../common/components';
@@ -58,6 +60,17 @@ const PianoInternal = () => {
   );
 };
 
+const FilterInternal = () => {
+  const [{ $filter, $active }, { toggleActive, setType, setNumericValue }] = useFilter();
+  const active = useBehaviorSubject($active);
+  const filter = useBehaviorSubject($filter);
+  return (
+    <Section name='Filter' active={active} onClick={toggleActive}>
+      <Filter {...filter} setType={setType} setNumericValue={setNumericValue} />
+    </Section>
+  );
+};
+
 const AdsrEnvelopeInternal = () => {
   const [{ $envelope }, { setEnvelopeValue }] = useAdsrEnvelope();
   const envelope = useBehaviorSubject($envelope);
@@ -66,7 +79,7 @@ const AdsrEnvelopeInternal = () => {
       <Section name='Envelope'>
         <AdsrEnvelope {...envelope} onChange={setEnvelopeValue} />
       </Section>
-      <Section name='Filters'>filters will be in here</Section>
+      <FilterInternal />
     </AdsrContainer>
   );
 };
@@ -80,21 +93,23 @@ const Internal = () => {
   const oscillator2 = useOscillator2();
 
   return (
-    <KeyboardControllerProvider initial={{}} app={app} inputController={inputController}>
-      <SynthProvider
-        initial={{}}
-        inputController={inputController}
-        adsrEnvelope={adsrEnvelope}
-        oscillator={[oscillator1, oscillator2]}
-        synthCore={synthCore}
-      >
-        <Root>
-          <OscillatorsContainer />
-          <AdsrEnvelopeInternal />
-          <PianoInternal />
-        </Root>
-      </SynthProvider>
-    </KeyboardControllerProvider>
+    <FilterProvider initial={{}} synthCore={synthCore}>
+      <KeyboardControllerProvider initial={{}} app={app} inputController={inputController}>
+        <SynthProvider
+          initial={{}}
+          inputController={inputController}
+          adsrEnvelope={adsrEnvelope}
+          oscillator={[oscillator1, oscillator2]}
+          synthCore={synthCore}
+        >
+          <Root>
+            <OscillatorsContainer />
+            <AdsrEnvelopeInternal />
+            <PianoInternal />
+          </Root>
+        </SynthProvider>
+      </KeyboardControllerProvider>
+    </FilterProvider>
   );
 };
 
@@ -117,11 +132,11 @@ const HeaderInternal = () => {
         <RxHandle
           min={0}
           max={1.3}
-          step={0.01}
           $value={$masterGain}
           onChange={setMasterGain}
           label='Master'
           formatValue={number.round}
+          precision={100}
         />
         <VolumeAnalyser audioCtx={audioCtx} master={masterGain} />
       </HeaderContainer>

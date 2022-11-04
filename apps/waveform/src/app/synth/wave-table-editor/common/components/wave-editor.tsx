@@ -40,18 +40,20 @@ export const WaveEditor = ({
         <RxHandle
           $value={$rate}
           onChange={setRate}
-          rotateSpeed={20}
           min={minRate}
           max={Math.min(maxRate, number.getLogOfTwo(wave.length > 0 ? wave.length : 2))}
           formatValue={(value) => number.powerOfTwo(value)}
+          precision={1}
+          plotSize={30}
           label='Grid X'
         />
         <Handle
           step={[2, 5, 10, 20]}
-          rotateSpeed={20}
+          precision={1}
           value={precisionY}
           onChange={setPrecisionY}
           label='Grid Y'
+          plotSize={30}
         />
       </HandlersWrapper>
       <WaveDrawer wave={wave} onChange={updateCurrentWave} rate={rate} precisionY={precisionY} />

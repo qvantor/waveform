@@ -11,6 +11,7 @@ export { AdsrEnvelope } from './adsr-envelope';
 export { Modal } from './modal';
 export { Section } from './section';
 export { VolumeAnalyser } from './volume-analyser';
+export {Filter} from './filter';
 export { theme } from './common/constants';
 export * from './common/styles';
 export * from './common/types';

@@ -56,23 +56,24 @@ export const Oscillator = ({
             <RxHandle
               min={0}
               max={1}
-              step={0.01}
               $value={$gain}
               label='Gain'
               onChange={setGain}
               formatValue={number.round}
+              precision={100}
             />
           </HandlesGroup>
           <HandlesGroup>
-            <RxHandle max={wavetable.length - 1} $value={$current} label='Wave' onChange={setCurrent} />
+            <RxHandle max={wavetable.length - 1} $value={$current} label='Wave' onChange={setCurrent} precision={1}/>
           </HandlesGroup>
           <HandlesGroup>
             <Handle
+              plotSize={30}
               label='Unison'
               value={osc.unison}
               min={ranges.unison[0]}
               max={ranges.unison[1]}
-              rotateSpeed={10}
+              precision={1}
               onChange={onChangeInternal('unison')}
             />
             <Handle
@@ -81,13 +82,14 @@ export const Oscillator = ({
               min={ranges.detune[0]}
               max={ranges.detune[1]}
               onChange={onChangeInternal('detune')}
+              precision={1}
             />
             <Handle
               label='Phase rand'
               value={osc.randPhase}
               min={ranges.randPhase[0]}
               max={ranges.randPhase[1]}
-              step={0.00001}
+              precision={100000}
               onChange={onChangeInternal('randPhase')}
             />
           </HandlesGroup>

@@ -40,7 +40,7 @@ export const Header = () => {
     <Root>
       <Name>WAVEFORM</Name>
       <Container>
-        <RxHandle min={20} max={4000} step={10} $value={$frequency} onChange={setFrequency} label='Freq' />
+        <RxHandle min={20} max={4000} $value={$frequency} onChange={setFrequency} label='Freq' />
         <PlayButton />
       </Container>
     </Root>

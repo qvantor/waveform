@@ -84,8 +84,7 @@ export const AdsrEnvelope = ({ onChange, ...rest }: Props) => {
   const handleProps = {
     min: 0,
     max: 1,
-    step: 0.001,
-    rotateSpeed: 3,
+    plotSize: 500,
     formatValue,
   };
   const onChangeInternal = (key: keyof LineProps) => (value: number) =>
@@ -125,7 +124,6 @@ export const AdsrEnvelope = ({ onChange, ...rest }: Props) => {
               label='Sustain'
               min={0}
               max={1}
-              step={0.01}
               value={sustain}
               onChange={onChangeInternal('sustain')}
               formatValue={(value) => Math.round(value * 100)}

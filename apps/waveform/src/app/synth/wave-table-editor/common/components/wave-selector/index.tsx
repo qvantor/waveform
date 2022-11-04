@@ -60,7 +60,7 @@ export const WaveSelector = ({ $waveTable, $current, $wave, setCurrent, cloneCur
   return (
     <Root>
       <HandlersWrapper>
-        <RxHandle min={0} max={waveTable.length - 1} $value={$current} onChange={setCurrent} label='Wave' />
+        <RxHandle min={0} max={waveTable.length - 1} $value={$current} onChange={setCurrent} label='Wave' precision={1}/>
       </HandlersWrapper>
       <WavesPreview>
         {waveTable.map((wave, i) => (

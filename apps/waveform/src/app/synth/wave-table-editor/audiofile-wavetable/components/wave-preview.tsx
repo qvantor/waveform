@@ -26,7 +26,7 @@ export const WavePreview = () => {
   return (
     <Root>
       <HandlersWrapper>
-        <RxHandle $value={$phase} onChange={setPhase} label='Phase' />
+        <RxHandle $value={$phase} onChange={setPhase} label='Phase' precision={1}/>
       </HandlersWrapper>
       <LineChart domainY={[-1, 1]} domainX={[0, wave.length - 1]}>
         <XAxis ticks={10} />
