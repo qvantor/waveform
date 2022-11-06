@@ -1,6 +1,14 @@
 import React from 'react';
 import styled from 'styled-components';
-import { PianoKeyboard, AdsrEnvelope, Section, VolumeAnalyser, Filter, theme } from '@waveform/ui-kit';
+import {
+  PianoKeyboard,
+  AdsrEnvelope,
+  Section,
+  VolumeAnalyser,
+  Filter,
+  FqAnalyser,
+  theme,
+} from '@waveform/ui-kit';
 import {
   SynthProvider,
   InputControllerProvider,
@@ -48,6 +56,11 @@ const HeaderContainer = styled.div`
   display: flex;
   align-items: center;
   gap: 10px;
+`;
+
+const HeaderEq = styled(FqAnalyser)`
+  flex: 1 1;
+  height: 100%;
 `;
 
 const PianoInternal = () => {
@@ -128,6 +141,7 @@ const HeaderInternal = () => {
   const [{ audioCtx, masterGain, $masterGain }, { setMasterGain }] = useSynthCore();
   return (
     <Header>
+      <HeaderEq audioCtx={audioCtx} master={masterGain} />
       <HeaderContainer>
         <RxHandle
           min={0}

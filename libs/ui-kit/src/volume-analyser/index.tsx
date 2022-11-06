@@ -56,7 +56,7 @@ export const VolumeAnalyser = ({ master, audioCtx, width = 40, height = 60, gap 
     gradient.addColorStop(0.85, theme.colors.red);
     gradient.addColorStop(1, theme.colors.red);
 
-    let animationFrameId: number;
+    let idleCallback: number;
     analyserL.fftSize = 2048;
     analyserR.fftSize = 2048;
 
@@ -69,7 +69,7 @@ export const VolumeAnalyser = ({ master, audioCtx, width = 40, height = 60, gap 
 
     //
     function draw() {
-      animationFrameId = requestIdleCallback(draw);
+      idleCallback = requestIdleCallback(draw);
       analyserL.getFloatTimeDomainData(dataArrayL);
       analyserR.getFloatTimeDomainData(dataArrayR);
 
@@ -100,7 +100,7 @@ export const VolumeAnalyser = ({ master, audioCtx, width = 40, height = 60, gap 
 
     requestIdleCallback(draw);
     return () => {
-      window.cancelIdleCallback(animationFrameId);
+      window.cancelIdleCallback(idleCallback);
     };
   }, [height, width, gap, clippingHeight, audioCtx, master]);
 
