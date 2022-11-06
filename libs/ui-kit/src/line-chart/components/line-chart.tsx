@@ -33,6 +33,7 @@ export const LineChart = ({
   ...rest
 }: React.PropsWithChildren<Props>) => {
   const ref = React.useRef<HTMLDivElement>(null);
+  const [paddingX, paddingY] = padding;
   const [[width, height], setSize] = React.useState([0, 0]);
 
   React.useEffect(() => {
@@ -40,7 +41,7 @@ export const LineChart = ({
       if (!ref.current) return;
       setSize([ref.current.clientWidth, ref.current.clientHeight]);
     };
-    onResize()
+    onResize();
     window.addEventListener('resize', onResize);
     return () => {
       window.removeEventListener('resize', onResize);
@@ -48,8 +49,8 @@ export const LineChart = ({
   }, []);
 
   const [scaleX, scaleY, lineFn] = React.useMemo(() => {
-    const scaleX = scaleLinear([0, width - padding[0] * 2]);
-    const scaleY = scaleLinear([0, height - padding[1] * 2]);
+    const scaleX = scaleLinear([0, width - paddingX * 2]);
+    const scaleY = scaleLinear([0, height - paddingY * 2]);
     if (domainX) scaleX.domain(domainX);
     if (domainY) scaleY.domain(domainY);
 
@@ -58,13 +59,13 @@ export const LineChart = ({
       .y(scaleY);
 
     return [scaleX, scaleY, lineFn];
-  }, [width, height, padding, domainX, domainY]);
+  }, [width, height, paddingX, paddingY]);
   return (
     <LineChartContext.Provider value={{ width, height, padding, scaleX, scaleY, lineFn, ref }}>
       <Root {...rest} ref={ref}>
         {width !== 0 && (
           <Svg>
-            <g transform={`translate(${padding[0]}, ${padding[1]})`}>{children}</g>
+            <g transform={`translate(${paddingX}, ${paddingY})`}>{children}</g>
           </Svg>
         )}
       </Root>

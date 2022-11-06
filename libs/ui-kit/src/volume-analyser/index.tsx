@@ -94,8 +94,8 @@ export const VolumeAnalyser = ({ master, audioCtx, width = 40, height = 60, gap 
       ctx.fillRect(width / 2 + gap / 2, height, columnWidth, -valueR * clippingHeight);
 
       ctx.fillStyle = theme.colors.thirdAccent;
-      ctx.fillRect(0, height - Math.max(...historyL) * height, columnWidth, 1);
-      ctx.fillRect(width / 2 + gap / 2, height - Math.max(...historyR) * height, columnWidth, 1);
+      ctx.fillRect(0, height - Math.round(Math.max(...historyL) * height), columnWidth, 1);
+      ctx.fillRect(width / 2 + gap / 2, height - Math.round(Math.max(...historyR) * height), columnWidth, 1);
     }
 
     requestIdleCallback(draw);
