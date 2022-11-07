@@ -1,17 +1,19 @@
 import React from 'react';
 import { Handle } from '../../handle';
-import type { FilterProps } from '../types';
+import { FilterProps } from '../types';
 import { HandlersContainer, LineChartFilter } from '../styles';
 import { FilterLineChart } from './filter-linechart';
 
-export const Lowpass = ({ setNumericValue, resonance, cutoff }: FilterProps) => {
+export const Bandpass = ({ setNumericValue, resonance, cutoff }: FilterProps) => {
   const data: [number, number][] = [
-    [10, 0],
-    [cutoff - cutoff * 0.01, 0],
-    [cutoff, resonance / 15],
-    [cutoff + cutoff * 0.1, 0],
-    [cutoff * 4, -1],
+    [(cutoff * resonance) / 1000, -1],
+    [(cutoff * resonance) / 1000, -1],
+    [cutoff, 1],
+    [cutoff / (resonance / 1000), -1],
+    [cutoff / (resonance / 1000), -1],
+    [20000, -1],
   ];
+  if (data[0][0] > 10) data.unshift([10, -1]);
 
   return (
     <>
@@ -31,11 +33,12 @@ export const Lowpass = ({ setNumericValue, resonance, cutoff }: FilterProps) => 
         />
         <Handle
           value={resonance}
-          min={0}
-          max={20}
-          precision={10}
+          min={0.01}
+          max={1000}
+          precision={100}
           onChange={setNumericValue('resonance')}
           label='Res'
+          mode='log'
         />
       </HandlersContainer>
     </>

@@ -1,16 +1,16 @@
 import React from 'react';
 import { Handle } from '../../handle';
-import type { FilterProps } from '../types';
+import { FilterProps } from '../types';
 import { HandlersContainer, LineChartFilter } from '../styles';
 import { FilterLineChart } from './filter-linechart';
 
-export const Lowpass = ({ setNumericValue, resonance, cutoff }: FilterProps) => {
+export const Highpass = ({ setNumericValue, resonance, cutoff }: FilterProps) => {
   const data: [number, number][] = [
-    [10, 0],
-    [cutoff - cutoff * 0.01, 0],
-    [cutoff, resonance / 15],
-    [cutoff + cutoff * 0.1, 0],
-    [cutoff * 4, -1],
+    [cutoff - cutoff * 0.75, -1],
+    [cutoff - cutoff * 0.1, 0],
+    [cutoff + cutoff * 0.01, resonance / 15],
+    [cutoff, 0],
+    [20000, 0],
   ];
 
   return (

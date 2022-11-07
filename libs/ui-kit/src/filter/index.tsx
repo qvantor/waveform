@@ -5,11 +5,11 @@ import { CommonFilterProps, Numerics } from './types';
 import { FilterRouter } from './components';
 
 const types: BiquadFilterType[] = [
-  'allpass',
-  'bandpass',
-  'highpass',
-  'highshelf',
   'lowpass',
+  'highpass',
+  'bandpass',
+  'allpass',
+  'highshelf',
   'lowshelf',
   'notch',
   'peaking'
