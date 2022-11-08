@@ -7,14 +7,14 @@ const synthCore = () =>
     const masterLimiter = audioCtx.createDynamicsCompressor();
     const masterGain = audioCtx.createGain();
 
-    (async () => {
-      await audioCtx.audioWorklet.addModule("/assets/examples/random-noise-processor.js");
-      const whiteNoiseNode = new AudioWorkletNode(
-        audioCtx,
-        "white-noise-processor"
-      );
-      whiteNoiseNode.connect(preGain)
-    })()
+    // (async () => {
+    //   await audioCtx.audioWorklet.addModule("/assets/examples/random-noise-processor.js");
+    //   const whiteNoiseNode = new AudioWorkletNode(
+    //     audioCtx,
+    //     "white-noise-processor"
+    //   );
+    //   whiteNoiseNode.connect(preGain)
+    // })()
 
     preGain.gain.setValueAtTime(1, audioCtx.currentTime);
     masterGain.gain.setValueAtTime(0.8, audioCtx.currentTime);

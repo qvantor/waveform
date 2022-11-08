@@ -1,6 +1,6 @@
 import { map, mergeMap, mergeWith, BehaviorSubject } from 'rxjs';
 import { ObjectBS, ArrayBS, rxModel, rxModelReact, PrimitiveBS } from '@waveform/rxjs-react';
-import { number, wave } from '@waveform/math';
+import { wave } from '@waveform/math';
 import { appSnapshotPlugin } from '../../../app';
 import { SynthCoreModule } from './synth-core';
 
@@ -10,20 +10,20 @@ interface Dependencies {
 
 // @todo AudioContext should be used as dep
 export const oscillator = ({ synthCore: [{ audioCtx }] }: Dependencies) =>
-  rxModel(() => {
+  rxModel(({ waveTable, active }: { waveTable: number[][]; active: boolean }) => {
     const gainNode = audioCtx.createGain();
     const ranges = {
       unison: [1, 8],
       detune: [0, 100],
       randPhase: [0, 0.002],
     };
-    const $active = new PrimitiveBS<boolean>(true);
+    const $active = new PrimitiveBS<boolean>(active);
     const $osc = new ObjectBS({
-      unison: 4,
-      detune: 30,
-      randPhase: 0.001,
+      unison: 2,
+      detune: 5,
+      randPhase: 0.0001,
     });
-    const $waveTable = new ArrayBS<ArrayBS<number[]>[]>([new ArrayBS(Array(number.powerOfTwo(12)).fill(0))]);
+    const $waveTable = new ArrayBS<ArrayBS<number[]>[]>(waveTable.map((value) => new ArrayBS(value)));
     const $current = new PrimitiveBS<number>(0);
     const $periodicWave = new BehaviorSubject<PeriodicWave>(audioCtx.createPeriodicWave([0, 1], [0, 1]));
     const $wave = $current.pipe(
@@ -52,7 +52,7 @@ export const oscillator = ({ synthCore: [{ audioCtx }] }: Dependencies) =>
         }),
       setCurrent: (i: number) => $current.next(i),
       toggleActive: () => $active.next(!$active.value),
-      setGain: (value: number) => $gain.next(value)
+      setGain: (value: number) => $gain.next(value),
     }))
     .subscriptions(({ $wave, $periodicWave, $gain, gainNode }) => [
       $wave

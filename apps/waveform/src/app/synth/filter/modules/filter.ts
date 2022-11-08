@@ -4,6 +4,7 @@ import { FilterRanges, FilterParams } from '@waveform/ui-kit';
 import { ObjectBS, PrimitiveBS, rxModel, rxModelReact } from '@waveform/rxjs-react';
 import { number } from '@waveform/math';
 import { SynthCoreModule } from '../../common/modules/synth-core';
+import { appSnapshotPlugin } from '../../../app';
 import { defaultFilterRanges, filterRanges } from '../constants';
 
 interface Dependencies {
@@ -15,7 +16,7 @@ const filter = ({ synthCore: [{ audioCtx }, { addMidNode, removeMidNode }] }: De
     const filterNode = audioCtx.createBiquadFilter();
     const $active = new PrimitiveBS<boolean>(false);
     const $ranges = new ObjectBS<FilterRanges>(defaultFilterRanges);
-    const $filterType = new PrimitiveBS<BiquadFilterType>('highpass');
+    const $filterType = new PrimitiveBS<BiquadFilterType>('lowpass');
     const $filter = new ObjectBS({
       cutoff: 440,
       resonance: 1,
@@ -65,6 +66,6 @@ const filter = ({ synthCore: [{ audioCtx }, { addMidNode, removeMidNode }] }: De
           });
         }),
       ]
-    );
-
+    )
+    .plugins(appSnapshotPlugin());
 export const { ModelProvider: FilterProvider, useModel: useFilter } = rxModelReact('filter', filter);

@@ -107,10 +107,20 @@ const Internal = () => {
 };
 
 const OscillatorInternal = ({ children }: React.PropsWithChildren) => {
+  const [wt, setWT] = React.useState<number[][] | null>(null);
   const synthCore = useSynthCore();
+  React.useEffect(() => {
+    const load = async () => {
+      const data = await fetch('/assets/wavetables/basic-shapes.json');
+      const result = (await data.json()) as number[][];
+      setWT(result);
+    };
+    load();
+  }, []);
+  if (wt === null) return null;
   return (
-    <Oscillator1Provider initial={{}} synthCore={synthCore}>
-      <Oscillator2Provider initial={{}} synthCore={synthCore}>
+    <Oscillator1Provider initial={{ waveTable: wt, active: true }} synthCore={synthCore}>
+      <Oscillator2Provider initial={{ waveTable: wt, active: false }} synthCore={synthCore}>
         {children}
       </Oscillator2Provider>
     </Oscillator1Provider>
