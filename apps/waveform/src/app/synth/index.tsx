@@ -1,14 +1,6 @@
 import React from 'react';
 import styled from 'styled-components';
-import {
-  PianoKeyboard,
-  AdsrEnvelope,
-  Section,
-  VolumeAnalyser,
-  Filter,
-  FqAnalyser,
-  theme,
-} from '@waveform/ui-kit';
+import { PianoKeyboard, AdsrEnvelope, Section, VolumeAnalyser, FqAnalyser, theme } from '@waveform/ui-kit';
 import {
   SynthProvider,
   InputControllerProvider,
@@ -22,9 +14,8 @@ import {
   KeyboardControllerProvider,
   SynthCoreProvider,
   useSynthCore,
-  FilterProvider,
-  useFilter,
 } from './common/modules';
+import { FilterProvider, FilterSection } from './filter';
 import { useApp } from '../app';
 import { Header } from '../common/components';
 import { RxHandle } from '../common/components';
@@ -73,17 +64,6 @@ const PianoInternal = () => {
   );
 };
 
-const FilterInternal = () => {
-  const [{ $filter, $active }, { toggleActive, setType, setNumericValue }] = useFilter();
-  const active = useBehaviorSubject($active);
-  const filter = useBehaviorSubject($filter);
-  return (
-    <Section name='Filter' active={active} onClick={toggleActive}>
-      <Filter {...filter} setType={setType} setNumericValue={setNumericValue} />
-    </Section>
-  );
-};
-
 const AdsrEnvelopeInternal = () => {
   const [{ $envelope }, { setEnvelopeValue }] = useAdsrEnvelope();
   const envelope = useBehaviorSubject($envelope);
@@ -92,7 +72,7 @@ const AdsrEnvelopeInternal = () => {
       <Section name='Envelope'>
         <AdsrEnvelope {...envelope} onChange={setEnvelopeValue} />
       </Section>
-      <FilterInternal />
+      <FilterSection />
     </AdsrContainer>
   );
 };

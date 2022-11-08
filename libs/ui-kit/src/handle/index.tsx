@@ -1,6 +1,7 @@
 import React from 'react';
 import styled from 'styled-components';
 import { arc } from 'd3-shape';
+import cls from 'classnames';
 import { Vector2D, vector2d, number } from '@waveform/math';
 import { scaleLinear, scaleLog } from 'd3-scale';
 import { theme } from '../common/constants';
@@ -24,6 +25,7 @@ export interface HandleProps {
   mode?: Mode;
   precision?: number;
   plotSize?: number;
+  disabled?: boolean;
 }
 
 interface StyledProps {
@@ -59,6 +61,11 @@ const Root = styled.div`
   display: flex;
   flex-direction: column;
   align-items: center;
+
+  &.disabled {
+    pointer-events: none;
+    opacity: 0.5;
+  }
 `;
 
 const HandleContainer = styled.div<StyledProps>`
@@ -135,6 +142,7 @@ export const Handle = ({
   mode = 'linear',
   precision = 1000,
   plotSize = 100,
+  disabled = false,
 }: HandleProps) => {
   const { svg } = sizes[size];
   const prevValue = React.useRef(value);
@@ -203,7 +211,7 @@ export const Handle = ({
 
   return (
     <Tooltip content={formatValue?.(value) ?? value}>
-      <Root onMouseDown={onMouseDown}>
+      <Root onMouseDown={onMouseDown} className={cls({ disabled: disabled })}>
         <HandleContainer size={size}>
           <HandleCircle style={{ transform: `rotate(${rotateRad}rad)` }} size={size}>
             <HandleCircleInner size={size}>

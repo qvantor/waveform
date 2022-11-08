@@ -17,5 +17,6 @@ export { theme } from './common/constants';
 export * from './common/styles';
 export * from './common/types';
 
+export type { FilterNumerics, FilterRange, FilterRanges, FilterParams } from './filter';
 export type { HandleProps } from './handle';
 export type { Theme } from './common/constants';

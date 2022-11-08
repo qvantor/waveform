@@ -1,5 +1,5 @@
 import React from 'react';
-import clsx from 'classnames';
+import cls from 'classnames';
 import styled from 'styled-components';
 import { theme } from '../common/constants';
 import { textBold12 } from '../common/styles';
@@ -53,7 +53,7 @@ export const Section = ({ name, children, active, onClick }: React.PropsWithChil
   return (
     <Root>
       <Header onClick={onClick}>
-        {active !== undefined && <ActiveIndicator className={clsx({ active: active })} />}
+        {active !== undefined && <ActiveIndicator className={cls({ active: active })} />}
         {name}
       </Header>
       <Content>{children}</Content>
