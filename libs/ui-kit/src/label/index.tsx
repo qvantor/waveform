@@ -8,7 +8,6 @@ const Root = styled.label`
   color: ${theme.colors.primaryDarkMediumContrast};
   display: block;
   text-align: center;
-  user-select: none;
 `;
 
 export const Label = ({ children }: React.PropsWithChildren) => <Root>{children}</Root>;

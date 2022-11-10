@@ -48,6 +48,7 @@ interface OscillatorConfig {
   unison: number;
   detune: number;
   randPhase: number;
+  octave: number;
 }
 
 const unisonOscillator = (audioCtx: AudioContext, config: OscillatorConfig) => {
@@ -99,14 +100,14 @@ const unisonOscillator = (audioCtx: AudioContext, config: OscillatorConfig) => {
 const voice = (
   audioCtx: AudioContext,
   outputNode: AudioNode,
-  note: Note,
+  [octave, note]: Note,
   adsrConfig: AdsrEnvelopeModel['$envelope']['value'],
   oscConfigs: Array<Omit<OscillatorConfig, 'frequency'>>
 ) => {
   const voices = oscConfigs.map((oscConfig) => {
     const osc = unisonOscillator(audioCtx, {
       ...oscConfig,
-      frequency: getFq(note),
+      frequency: getFq([octave + oscConfig.octave, note]),
     });
     const adsr = envelope(audioCtx, adsrConfig);
     osc.connect(adsr.envelope);
@@ -152,7 +153,7 @@ const synth = ({
           .map(([oscillator]) => ({
             ...oscillator.$osc.value,
             wave: oscillator.$periodicWave.value,
-            gainNode: oscillator.gainNode
+            gainNode: oscillator.gainNode,
           }))
       );
     }),

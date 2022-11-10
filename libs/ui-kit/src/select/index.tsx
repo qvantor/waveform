@@ -10,6 +10,7 @@ const SelectContainer = styled.div`
   border-radius: 3px;
   cursor: pointer;
   gap: 7px;
+  width: 100%;
 `;
 
 const Root = styled.select`

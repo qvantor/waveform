@@ -1,6 +1,6 @@
 import React from 'react';
 import styled from 'styled-components';
-import { Handle } from '@waveform/ui-kit';
+import { Handle, DraggableNumber, Select } from '@waveform/ui-kit';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
 import { number } from '@waveform/math';
 import { OscillatorActions, OscillatorModel, useOscillator1 } from '../common/modules';
@@ -14,7 +14,12 @@ const Root = styled.div`
   height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 5px;
+`;
+
+const TopControls = styled.div`
+  display: flex;
+  gap: 5px;
 `;
 
 const Handles = styled.div`
@@ -50,6 +55,15 @@ export const Oscillator = ({
   return (
     <OscillatorContext.Provider value={oscillator}>
       <Root>
+        <TopControls>
+          <DraggableNumber
+            value={osc.octave}
+            label='Oct'
+            range={ranges.octave}
+            onChange={(value) => setOscValue('octave', value)}
+          />
+          <Select value='basic' options={[{ name: 'Basic waves', value: 'basic' }]} onChange={() => null} />
+        </TopControls>
         <Wave />
         <Handles>
           <HandlesGroup>
@@ -64,7 +78,13 @@ export const Oscillator = ({
             />
           </HandlesGroup>
           <HandlesGroup>
-            <RxHandle max={wavetable.length - 1} $value={$current} label='Wave' onChange={setCurrent} precision={1}/>
+            <RxHandle
+              max={wavetable.length - 1}
+              $value={$current}
+              label='Wave'
+              onChange={setCurrent}
+              precision={1}
+            />
           </HandlesGroup>
           <HandlesGroup>
             <Handle

@@ -22,7 +22,6 @@ const Name = styled.h1`
   padding: 20px 20px 20px 0;
   margin: 0;
   border-right: 1px solid ${theme.colors.primaryLowContrast};
-  user-select: none;
 `;
 
 export const Header = ({ children }: React.PropsWithChildren) => {

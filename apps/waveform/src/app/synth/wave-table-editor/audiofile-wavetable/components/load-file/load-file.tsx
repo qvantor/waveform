@@ -11,7 +11,6 @@ const DropText = styled.div`
   justify-content: center;
   align-items: center;
   height: 100%;
-  user-select: none;
   gap: 5px;
 
   h1 {

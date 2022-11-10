@@ -1,6 +1,6 @@
 import { map, mergeMap, mergeWith, BehaviorSubject } from 'rxjs';
 import { ObjectBS, ArrayBS, rxModel, rxModelReact, PrimitiveBS } from '@waveform/rxjs-react';
-import { wave } from '@waveform/math';
+import { Vector2D, wave } from '@waveform/math';
 import { appSnapshotPlugin } from '../../../app';
 import { SynthCoreModule } from './synth-core';
 
@@ -12,16 +12,18 @@ interface Dependencies {
 export const oscillator = ({ synthCore: [{ audioCtx }] }: Dependencies) =>
   rxModel(({ waveTable, active }: { waveTable: number[][]; active: boolean }) => {
     const gainNode = audioCtx.createGain();
-    const ranges = {
+    const ranges: Record<'unison' | 'detune' | 'randPhase' | 'octave', Vector2D> = {
       unison: [1, 8],
       detune: [0, 100],
       randPhase: [0, 0.002],
+      octave: [-3, 3],
     };
     const $active = new PrimitiveBS<boolean>(active);
     const $osc = new ObjectBS({
       unison: 2,
       detune: 5,
       randPhase: 0.0001,
+      octave: 0,
     });
     const $waveTable = new ArrayBS<ArrayBS<number[]>[]>(waveTable.map((value) => new ArrayBS(value)));
     const $current = new PrimitiveBS<number>(0);

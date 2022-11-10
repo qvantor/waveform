@@ -2,7 +2,7 @@ import React from 'react';
 import styled from 'styled-components';
 import { arc } from 'd3-shape';
 import cls from 'classnames';
-import { Vector2D, vector2d, number } from '@waveform/math';
+import { number, vector2d } from '@waveform/math';
 import { scaleLinear, scaleLog } from 'd3-scale';
 import { theme } from '../common/constants';
 import { absoluteCenterXY } from '../common/styles';
@@ -75,7 +75,6 @@ const HandleContainer = styled.div<StyledProps>`
   flex-direction: column;
   justify-content: space-between;
   position: relative;
-  user-select: none;
 `;
 
 const HandleCircle = styled.div<StyledProps>`
@@ -146,7 +145,6 @@ export const Handle = ({
 }: HandleProps) => {
   const { svg } = sizes[size];
   const prevValue = React.useRef(value);
-  const mousePosition = React.useRef<Vector2D>([0, 0]);
   const { arcBackground, commonArcOptions, scale } = React.useMemo(() => {
     const { arc: arcSize } = sizes[size];
     const arcPadding = 1.2;
@@ -179,13 +177,11 @@ export const Handle = ({
 
   const onMouseDown = React.useCallback(
     (e: React.MouseEvent) => {
-      mousePosition.current = vector2d.fromMouseEvent(e);
+      const initialPosition = vector2d.fromMouseEvent(e);
 
       const mouseMove = (e: MouseEvent) => {
-        if (!mousePosition.current) return;
         const current = vector2d.fromMouseEvent(e);
-        const prev = mousePosition.current;
-        const diff = vector2d.addition(vector2d.invertY(vector2d.subtract(current, prev)));
+        const diff = vector2d.addition(vector2d.invertY(vector2d.subtract(current, initialPosition)));
         const currValue = step ? scaleMouse(step.indexOf(value * precision)) : scaleMouse(value * precision);
         const currValueAbs = Math.abs(currValue);
         const tDiff = number.thresholds(diff, -plotSize - currValueAbs, plotSize + currValueAbs);

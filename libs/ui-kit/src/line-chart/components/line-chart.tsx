@@ -27,8 +27,8 @@ const Svg = styled.svg`
 
 export const LineChart = ({
   padding = [5, 2],
-  domainX,
-  domainY,
+  domainX: [domainXMin, domainXMax] = [0, 1],
+  domainY: [domainYMin, domainYMax] = [0, 1],
   children,
   ...rest
 }: React.PropsWithChildren<Props>) => {
@@ -51,15 +51,15 @@ export const LineChart = ({
   const [scaleX, scaleY, lineFn] = React.useMemo(() => {
     const scaleX = scaleLinear([0, width - paddingX * 2]);
     const scaleY = scaleLinear([0, height - paddingY * 2]);
-    if (domainX) scaleX.domain(domainX);
-    if (domainY) scaleY.domain(domainY);
+    scaleX.domain([domainXMin, domainXMax]);
+    scaleY.domain([domainYMin, domainYMax]);
 
     const lineFn = line<number>()
       .x((d, i) => scaleX(i))
       .y(scaleY);
 
     return [scaleX, scaleY, lineFn];
-  }, [width, height, paddingX, paddingY]);
+  }, [width, height, paddingX, paddingY, domainXMin, domainXMax, domainYMin, domainYMax]);
   return (
     <LineChartContext.Provider value={{ width, height, padding, scaleX, scaleY, lineFn, ref }}>
       <Root {...rest} ref={ref}>

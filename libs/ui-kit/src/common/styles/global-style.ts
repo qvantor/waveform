@@ -7,6 +7,10 @@ export const GlobalStyle = createGlobalStyle`
     font-family: 'Inter Tight', sans-serif;
   }
 
+  body {
+    user-select: none;
+  }
+
   h1 {
     margin: 0;
   }

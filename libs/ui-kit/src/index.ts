@@ -13,6 +13,8 @@ export { Section } from './section';
 export { VolumeAnalyser } from './volume-analyser';
 export { FqAnalyser } from './fq-analyser';
 export { Filter } from './filter';
+export { Select } from './select';
+export { DraggableNumber } from './draggable-number';
 export { theme } from './common/constants';
 export * from './common/styles';
 export * from './common/types';
