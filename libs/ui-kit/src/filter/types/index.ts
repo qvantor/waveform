@@ -14,6 +14,7 @@ export type FilterRange = Required<Pick<HandleProps, 'min' | 'max'>> &
 export type FilterRanges = Record<FilterNumerics, FilterRange>;
 
 export type CommonFilterProps = FilterParams & {
+  active?: boolean;
   setType: (value: BiquadFilterType) => void;
   setNumericValue: (key: FilterNumerics, value: number) => void;
   ranges: FilterRanges;

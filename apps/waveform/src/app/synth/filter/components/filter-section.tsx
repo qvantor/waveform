@@ -19,6 +19,7 @@ export const FilterSection = () => {
         ranges={ranges}
         setType={setType}
         setNumericValue={setNumericValue}
+        active={active}
       />
     </Section>
   );
