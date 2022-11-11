@@ -1,5 +1,5 @@
 import React from 'react';
-import cls from 'classnames';
+import { Checkbox } from '../checkbox';
 import styled from 'styled-components';
 import { theme } from '../common/constants';
 import { textBold12 } from '../common/styles';
@@ -30,21 +30,6 @@ const Header = styled.div`
   border-radius: 3px;
 `;
 
-const ActiveIndicator = styled.div`
-  width: 12px;
-  height: 12px;
-  background: ${theme.colors.primaryHighContrast};
-  border: 1px solid ${theme.colors.primaryDarkMediumContrast};
-  border-radius: 3px;
-  box-shadow: none;
-  transition: all 150ms;
-
-  &.active {
-    background: ${theme.colors.secondAccent};
-    box-shadow: inset 0 0 0 1px #99cbec, 0 0 3px 2px rgba(153, 203, 236, 0.5);
-  }
-`;
-
 const Content = styled.div`
   flex: 1 1;
 `;
@@ -53,7 +38,7 @@ export const Section = ({ name, children, active, onClick }: React.PropsWithChil
   return (
     <Root>
       <Header onClick={onClick}>
-        {active !== undefined && <ActiveIndicator className={cls({ active: active })} />}
+        {active !== undefined && <Checkbox checked={active} />}
         {name}
       </Header>
       <Content>{children}</Content>

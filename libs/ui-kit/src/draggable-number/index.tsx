@@ -18,6 +18,7 @@ const Root = styled.div`
   line-height: 12px;
   display: inline-flex;
   align-items: end;
+  justify-content: space-between;
   gap: 8px;
   background: ${theme.colors.primaryDark};
   color: ${theme.colors.white};

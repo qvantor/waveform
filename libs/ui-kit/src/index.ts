@@ -15,6 +15,7 @@ export { FqAnalyser } from './fq-analyser';
 export { Filter } from './filter';
 export { Select } from './select';
 export { DraggableNumber } from './draggable-number';
+export { Checkbox } from './checkbox';
 export { theme } from './common/constants';
 export * from './common/styles';
 export * from './common/types';
