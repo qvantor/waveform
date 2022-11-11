@@ -64,10 +64,12 @@ const unisonOscillator = (audioCtx: AudioContext, config: OscillatorConfig) => {
   const step = config.detune / (config.unison - 1);
   const merger = audioCtx.createChannelMerger(2);
 
-  const setFqPortamento = (fq: number, porta: number, fromFq?: number) => (oscillator: OscillatorNode) => {
-    oscillator.frequency.setValueAtTime(fromFq ?? oscillator.frequency.value, audioCtx.currentTime);
-    oscillator.frequency.linearRampToValueAtTime(fq, audioCtx.currentTime + porta);
-  };
+  const setFqPortamento =
+    (fromFq: number, [fq, time]: [number, number]) =>
+    (oscillator: OscillatorNode) => {
+      oscillator.frequency.setValueAtTime(fromFq, audioCtx.currentTime);
+      oscillator.frequency.linearRampToValueAtTime(fq, audioCtx.currentTime + time);
+    };
 
   const setFq = (frequency: number) => (oscillator: OscillatorNode) => {
     oscillator.frequency.setValueAtTime(frequency, audioCtx.currentTime);
@@ -78,8 +80,7 @@ const unisonOscillator = (audioCtx: AudioContext, config: OscillatorConfig) => {
     oscillator.setPeriodicWave(config.wave);
 
     if (config.unison !== 1) oscillator.detune.setValueAtTime(from + step * i, audioCtx.currentTime);
-    if (config.portamento)
-      setFqPortamento(config.frequency, config.portamento[1], config.portamento[0])(oscillator);
+    if (config.portamento) setFqPortamento(config.frequency, config.portamento)(oscillator);
     else setFq(config.frequency)(oscillator);
 
     oscillators.push(oscillator);
@@ -92,9 +93,11 @@ const unisonOscillator = (audioCtx: AudioContext, config: OscillatorConfig) => {
 
   const setWave = (wave: PeriodicWave) =>
     oscillators.forEach((oscillator) => oscillator.setPeriodicWave(wave));
-  const setFrequency = (frequency: number, porta?: number) => {
-    oscillators.forEach(porta ? setFqPortamento(frequency, porta) : setFq(frequency));
-  };
+
+  const setFrequency = (frequency: number) => oscillators.forEach(setFq(frequency));
+
+  const setFrequencyPortamento = (fromFq: number, portamento: [number, number]) =>
+    oscillators.forEach(setFqPortamento(fromFq, portamento));
 
   const connect = (node: AudioNode) => {
     merger.connect(node);
@@ -119,7 +122,7 @@ const unisonOscillator = (audioCtx: AudioContext, config: OscillatorConfig) => {
       });
     });
 
-  return { start, connect, setWave, setFrequency, stop };
+  return { start, connect, setWave, setFrequency, setFrequencyPortamento, stop };
 };
 
 interface VoiceConfig {
@@ -130,17 +133,19 @@ interface VoiceConfig {
 }
 
 const voice = (
-  { audioCtx, outputNode, note: [octave, note], portamento }: VoiceConfig,
+  { audioCtx, outputNode, note, portamento }: VoiceConfig,
   adsrConfig: AdsrEnvelopeModel['$envelope']['value'],
   oscConfigs: Array<Omit<OscillatorConfig, 'frequency'>>
 ) => {
+  const [octave, noteName] = note;
+
   const voices = oscConfigs.map((oscConfig) => {
+    const initFq = getFq([octave + oscConfig.octave, noteName]);
+    const fromFq = portamento ? getFq([portamento[0][0] + oscConfig.octave, portamento[0][1]]) : 0;
     const osc = unisonOscillator(audioCtx, {
       ...oscConfig,
-      frequency: getFq([octave + oscConfig.octave, note]),
-      portamento: portamento
-        ? [getFq([portamento[0][0] + oscConfig.octave, portamento[0][1]]), portamento[1]]
-        : undefined,
+      frequency: portamento ? fromFq : initFq,
+      portamento: portamento ? [initFq, portamento[1]] : undefined,
     });
     const adsr = envelope(audioCtx, adsrConfig);
     osc.connect(adsr.envelope);
@@ -156,10 +161,18 @@ const voice = (
     });
   };
 
-  const setNote = ([octave, note]: Note, porta?: number) => {
+  const setNote = (newNote: Note, portamento?: number) => {
+    const [newOctave, newNoteName] = newNote;
     voices.forEach((voice, i) => {
-      voice.osc.setFrequency(getFq([octave + oscConfigs[i].octave, note]), porta);
+      const nextFq = getFq([newOctave + oscConfigs[i].octave, newNoteName]);
+      if (portamento) {
+        const currFq = getFq([octave + oscConfigs[i].octave, noteName]);
+        voice.osc.setFrequencyPortamento(currFq, [nextFq, portamento]);
+      } else {
+        voice.osc.setFrequency(nextFq);
+      }
     });
+    note = newNote;
   };
   const setWave = (index: number, wave: PeriodicWave) => voices[index]?.osc.setWave(wave);
   return { stop, setWave, setNote };
@@ -172,9 +185,9 @@ const synth = ({
   oscillator: oscillators,
 }: Deps) =>
   rxModel(() => {
-    const $maxVoices = new PrimitiveBS<number>(6);
+    const $maxVoices = new PrimitiveBS<number>(1);
     const $portamento = new PrimitiveBS<number>(30);
-    const $legato = new PrimitiveBS<boolean>(true);
+    const $legato = new PrimitiveBS<boolean>(false);
     const $voicesCount = new PrimitiveBS<number>(0);
     const voices: Record<string, ReturnType<typeof voice> | null> = {};
     return { $maxVoices, $portamento, $legato, $voicesCount, voices };
@@ -190,7 +203,7 @@ const synth = ({
         voices[noteToString(note)]?.stop();
         delete voices[noteToString(note)];
 
-        setVoicesCount(Object.keys(voices).length)
+        setVoicesCount(Object.keys(voices).length);
       }),
       $onPress.pipe(filter(() => Object.keys(voices).length >= $maxVoices.value)).subscribe((note) => {
         const voicesArray = Object.keys(voices);
@@ -221,7 +234,7 @@ const synth = ({
             }))
         );
 
-        setVoicesCount(Object.keys(voices).length)
+        setVoicesCount(Object.keys(voices).length);
       }),
       ...oscillators.map(([{ $periodicWave }], i) =>
         $periodicWave.subscribe((wave) => {
