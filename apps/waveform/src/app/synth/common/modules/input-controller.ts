@@ -20,6 +20,7 @@ const inputController = () =>
     return { $pressed, $onPress, $onRelease };
   }).actions(({ $pressed, $onPress, $onRelease }) => ({
     onPress: (note: Note) => {
+      if ($pressed.value[note[0]].includes(note[1])) return;
       $onPress.next(note);
       const octave = $pressed.value[note[0]];
       $pressed.next({ ...$pressed.value, [note[0]]: [...octave, note[1]] });

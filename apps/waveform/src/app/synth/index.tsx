@@ -1,6 +1,13 @@
 import React from 'react';
 import styled from 'styled-components';
-import { PianoKeyboard, AdsrEnvelope, Section, VolumeAnalyser, FqAnalyser, theme } from '@waveform/ui-kit';
+import {
+  PianoKeyboard,
+  AdsrEnvelope,
+  Section,
+  VolumeAnalyser,
+  FqAnalyser,
+  theme,
+} from '@waveform/ui-kit';
 import {
   SynthProvider,
   InputControllerProvider,
@@ -22,6 +29,7 @@ import { RxHandle } from '../common/components';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
 import { OscillatorsContainer } from './synth/components';
 import { number } from '@waveform/math';
+import { VoicingSection } from './voicing';
 
 const Root = styled.div`
   display: grid;
@@ -33,7 +41,7 @@ const Root = styled.div`
 
 const AdsrContainer = styled.div`
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 3fr 3fr 1fr;
   background: ${theme.colors.primaryLowContrast};
   gap: 1px;
 `;
@@ -73,6 +81,7 @@ const AdsrEnvelopeInternal = () => {
         <AdsrEnvelope {...envelope} onChange={setEnvelopeValue} />
       </Section>
       <FilterSection />
+      <VoicingSection />
     </AdsrContainer>
   );
 };
