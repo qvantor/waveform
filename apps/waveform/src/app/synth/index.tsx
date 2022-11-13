@@ -128,8 +128,8 @@ const OscillatorInternal = ({ children }: React.PropsWithChildren) => {
   }, []);
   if (wt === null) return null;
   return (
-    <Oscillator1Provider initial={{ waveTable: wt, active: true }} synthCore={synthCore}>
-      <Oscillator2Provider initial={{ waveTable: wt, active: false }} synthCore={synthCore}>
+    <Oscillator1Provider initial={{ waveTable: wt, active: true, current: 1 }} synthCore={synthCore}>
+      <Oscillator2Provider initial={{ waveTable: wt, active: false, current: 0 }} synthCore={synthCore}>
         {children}
       </Oscillator2Provider>
     </Oscillator1Provider>
@@ -148,7 +148,7 @@ const HeaderInternal = () => {
           $value={$masterGain}
           onChange={setMasterGain}
           label='Master'
-          formatValue={number.round}
+          formatValue={value => number.percent(number.round(value, 100))}
           precision={100}
         />
         <VolumeAnalyser audioCtx={audioCtx} master={masterGain} />

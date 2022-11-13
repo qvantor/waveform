@@ -19,7 +19,7 @@ const filter = ({ synthCore: [{ audioCtx }, { addMidNode, removeMidNode }] }: De
     const $filterType = new PrimitiveBS<BiquadFilterType>('lowpass');
     const $filter = new ObjectBS({
       cutoff: 440,
-      resonance: 1,
+      resonance: 0,
       gain: 1,
     });
     return { $active, $filter, $filterType, $ranges, filterNode };

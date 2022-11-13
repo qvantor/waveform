@@ -65,6 +65,7 @@ export const VoicingSection = () => {
             onChange={setPortamento}
             plotSize={200}
             precision={1}
+            formatValue={(value) => `${value}ms`}
           />
         </HandleContainer>
       </Root>

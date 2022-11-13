@@ -10,7 +10,7 @@ interface Dependencies {
 
 // @todo AudioContext should be used as dep
 export const oscillator = ({ synthCore: [{ audioCtx }] }: Dependencies) =>
-  rxModel(({ waveTable, active }: { waveTable: number[][]; active: boolean }) => {
+  rxModel(({ waveTable, active, current }: { waveTable: number[][]; active: boolean; current: number }) => {
     const id = generateId();
     const gainNode = audioCtx.createGain();
     const ranges: Record<'unison' | 'detune' | 'randPhase' | 'octave', Vector2D> = {
@@ -23,11 +23,11 @@ export const oscillator = ({ synthCore: [{ audioCtx }] }: Dependencies) =>
     const $osc = new ObjectBS({
       unison: 2,
       detune: 5,
-      randPhase: 0.0001,
+      randPhase: 0,
       octave: 0,
     });
     const $waveTable = new ArrayBS<ArrayBS<number[]>[]>(waveTable.map((value) => new ArrayBS(value)));
-    const $current = new PrimitiveBS<number>(0);
+    const $current = new PrimitiveBS<number>(current);
     const $periodicWave = new BehaviorSubject<PeriodicWave>(audioCtx.createPeriodicWave([0, 1], [0, 1]));
     const $wave = $current.pipe(
       mergeWith($waveTable),

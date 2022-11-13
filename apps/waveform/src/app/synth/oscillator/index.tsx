@@ -73,7 +73,7 @@ export const Oscillator = ({
               $value={$gain}
               label='Gain'
               onChange={setGain}
-              formatValue={number.round}
+              formatValue={value => number.percent(number.round(value, 100))}
               precision={100}
             />
           </HandlesGroup>
@@ -84,6 +84,7 @@ export const Oscillator = ({
               label='Wave'
               onChange={setCurrent}
               precision={1}
+              formatValue={(value) => `${value + 1}`}
             />
           </HandlesGroup>
           <HandlesGroup>

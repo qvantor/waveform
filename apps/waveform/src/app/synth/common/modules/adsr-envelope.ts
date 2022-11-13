@@ -6,8 +6,8 @@ const adsrEnvelope = () =>
     const $envelope = new ObjectBS({
       attack: 0.005,
       hold: 0.1,
-      decay: 0.05,
-      sustain: 0.4,
+      decay: 0,
+      sustain: 1,
       release: 0.005,
     });
     return { $envelope };
