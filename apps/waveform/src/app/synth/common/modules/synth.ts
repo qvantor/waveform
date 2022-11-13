@@ -1,10 +1,10 @@
+import { Note } from '@waveform/ui-kit';
 import { PrimitiveBS, rxModel, rxModelReact } from '@waveform/rxjs-react';
 import { InputControllerModule } from './input-controller';
 import { AdsrEnvelopeModule, AdsrEnvelopeModel } from './adsr-envelope';
 import { OscillatorModel, OscillatorModule } from './oscillator';
 import { SynthCoreModule } from './synth-core';
-import { Note, Notes } from '@waveform/ui-kit';
-import { noteFrequency } from '../../../common/constants';
+import { getFq, stringToNote, noteToString } from '../../services';
 
 // @todo refactor and decompose that file
 interface Deps {
@@ -13,14 +13,6 @@ interface Deps {
   adsrEnvelope: AdsrEnvelopeModule;
   oscillator: [OscillatorModule, OscillatorModule];
 }
-
-const getFq = ([octave, note]: Note) => noteFrequency[note] * 2 ** (octave - 1);
-const noteToString = ([octave, note]: Note) => `${note}${octave}`;
-const stringToNote = (value: string): Note => {
-  const octave = value.slice(-1);
-  const note = value.replace(octave, '');
-  return [Number(octave), note as Notes];
-};
 
 const envelope = (audioCtx: AudioContext, config: AdsrEnvelopeModel['$envelope']['value']) => {
   const gain = audioCtx.createGain();
@@ -47,12 +39,14 @@ const envelope = (audioCtx: AudioContext, config: AdsrEnvelopeModel['$envelope']
 };
 
 interface OscillatorConfig {
+  id: string;
   wave: PeriodicWave;
   frequency: number;
   unison: number;
   detune: number;
   randPhase: number;
   octave: number;
+  gain: number;
   portamento?: [number, number]; // [freq, time]
   onEnd?: () => void;
 }
@@ -78,7 +72,8 @@ const unisonOscillator = (audioCtx: AudioContext, config: OscillatorConfig) => {
     const oscillator = audioCtx.createOscillator();
     oscillator.setPeriodicWave(config.wave);
 
-    if (config.unison !== 1) oscillator.detune.setValueAtTime(from + step * i, audioCtx.currentTime);
+    if (config.unison !== 1 && config.detune !== 0)
+      oscillator.detune.setValueAtTime(from + step * i, audioCtx.currentTime);
     if (config.portamento) setFqPortamento(config.frequency, config.portamento)(oscillator);
     else setFq(config.frequency)(oscillator);
 
@@ -128,7 +123,7 @@ interface OscillatorVoiceConfig {
   audioCtx: AudioContext;
   outputNode: AudioNode;
   note: Note;
-  oscConfigs: Array<Omit<OscillatorConfig, 'frequency'> & { gainNode: GainNode }>;
+  oscConfigs: Array<Omit<OscillatorConfig, 'frequency'>>;
   portamento?: [Note, number];
 }
 
@@ -136,7 +131,7 @@ type VoiceConfig = OscillatorVoiceConfig & {
   adsrConfig: AdsrEnvelopeModel['$envelope']['value'];
 };
 
-type VoiceOscillators = Array<ReturnType<typeof unisonOscillator>>;
+type VoiceOscillators = Record<string, { osc: ReturnType<typeof unisonOscillator>; gain: GainNode }>;
 
 abstract class OscillatorVoice {
   protected config: OscillatorVoiceConfig;
@@ -154,8 +149,9 @@ abstract class OscillatorVoice {
       portamento,
       oscConfigs,
     } = this.config;
+    const oscillators: VoiceOscillators = {};
 
-    return oscConfigs.map((oscConfig) => {
+    for (const oscConfig of oscConfigs) {
       const initFq = getFq([octave + oscConfig.octave, noteName]);
       const fromFq = portamento ? getFq([portamento[0][0] + oscConfig.octave, portamento[0][1]]) : 0;
       const osc = unisonOscillator(audioCtx, {
@@ -164,22 +160,34 @@ abstract class OscillatorVoice {
         portamento: portamento ? [initFq, portamento[1]] : undefined,
       });
 
-      osc.connect(this.config.outputNode);
+      const gain = audioCtx.createGain();
+      gain.gain.setValueAtTime(oscConfig.gain, audioCtx.currentTime);
+      gain.connect(this.config.outputNode);
+      osc.connect(gain);
+
       osc.start();
-      return osc;
-    });
+
+      oscillators[oscConfig.id] = { osc, gain };
+    }
+    return oscillators;
   }
 
   stop(time: number) {
-    this.oscillators.forEach((oscillator) => {
-      oscillator.stop(time);
-    });
+    Object.values(this.oscillators).forEach(({ osc }) => osc.stop(time));
   }
 
   immediatelyStop() {
     const { audioCtx } = this.config;
-    this.oscillators.forEach((oscillator) => oscillator.stop(audioCtx.currentTime));
+    Object.values(this.oscillators).forEach(({ osc }) => osc.stop(audioCtx.currentTime));
   }
+
+  setGainValue = (id: string, value: number) => {
+    this.oscillators[id]?.gain.gain.setValueAtTime(value, this.config.audioCtx.currentTime);
+  };
+
+  setWave = (id: string, value: PeriodicWave) => {
+    this.oscillators[id].osc.setWave(value);
+  };
 }
 
 class Voice extends OscillatorVoice {
@@ -243,7 +251,7 @@ interface VoicingContext {
   $maxVoices: PrimitiveBS<number>;
   $legato: PrimitiveBS<boolean>;
   $portamento: PrimitiveBS<number>;
-  oscillators: Array<Pick<OscillatorModel, '$osc' | '$active' | '$periodicWave' | 'gainNode'>>;
+  oscillators: Array<Pick<OscillatorModel, 'id' | '$osc' | '$active' | '$periodicWave' | '$gain'>>;
   $envelope: AdsrEnvelopeModel['$envelope'];
 }
 
@@ -276,8 +284,9 @@ class Voicing {
         .filter(({ $active }) => $active.value)
         .map((oscillator) => ({
           ...oscillator.$osc.value,
+          id: oscillator.id,
           wave: oscillator.$periodicWave.value,
-          gainNode: oscillator.gainNode,
+          gain: oscillator.$gain.value,
         })),
     };
 
@@ -317,6 +326,14 @@ class Voicing {
   get voicesCount() {
     return Object.keys(this.voices).length;
   }
+
+  setGain = (oscId: string) => (value: number) => {
+    Object.values(this.voices).forEach((voice) => voice?.setGainValue(oscId, value));
+  };
+
+  setWave = (oscId: string) => (wave: PeriodicWave) => {
+    Object.values(this.voices).forEach((voice) => voice?.setWave(oscId, wave));
+  };
 }
 
 const synth = ({
@@ -326,8 +343,8 @@ const synth = ({
   oscillator: oscillators,
 }: Deps) =>
   rxModel(() => {
-    const $maxVoices = new PrimitiveBS<number>(2);
-    const $portamento = new PrimitiveBS<number>(30);
+    const $maxVoices = new PrimitiveBS<number>(8);
+    const $portamento = new PrimitiveBS<number>(0);
     const $legato = new PrimitiveBS<boolean>(false);
     const $voicesCount = new PrimitiveBS<number>(0);
 
@@ -340,10 +357,11 @@ const synth = ({
       $portamento,
       $envelope,
       oscillators: oscillators.map(([osc]) => ({
+        id: osc.id,
         $osc: osc.$osc,
         $active: osc.$active,
         $periodicWave: osc.$periodicWave,
-        gainNode: osc.gainNode,
+        $gain: osc.$gain,
       })),
     };
     const voicing = new Voicing(voicingContext);
@@ -366,14 +384,12 @@ const synth = ({
         voicing.onPress(note);
         setVoicesCount(voicing.voicesCount);
       }),
-      // ...oscillators.map(([{ $periodicWave }], i) =>
-      //   $periodicWave.subscribe((wave) => {
-      //     for (const voice in voices) {
-      //       // @todo here is the bug - wave not update while playing for osc2, if osc1 is stoped
-      //       voices[voice]?.setWave(i, wave);
-      //     }
-      //   })
-      // ),
+      ...oscillators
+        .map(([{ id, $gain, $periodicWave }]) => [
+          $gain.subscribe(voicing.setGain(id)),
+          $periodicWave.subscribe(voicing.setWave(id)),
+        ])
+        .flat(),
     ]);
 
 export const { ModelProvider: SynthProvider, useModel: useSynth } = rxModelReact('synth', synth);

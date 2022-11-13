@@ -17,7 +17,6 @@ const synthCore = () =>
     // })()
 
     preGain.gain.setValueAtTime(1, audioCtx.currentTime);
-    masterGain.gain.setValueAtTime(0.8, audioCtx.currentTime);
 
     masterLimiter.threshold.setValueAtTime(-16.0, audioCtx.currentTime);
     masterLimiter.ratio.setValueAtTime(20, audioCtx.currentTime);
