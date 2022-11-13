@@ -31,4 +31,4 @@ const appModel = () => {
 
 export const { ModelProvider: AppProvider, useModel: useApp } = rxModelReact('appModel', appModel);
 
-export type AppModule = ReturnType<typeof useApp>
+export type AppModule = ReturnType<typeof useApp>;

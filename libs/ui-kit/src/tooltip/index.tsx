@@ -33,12 +33,7 @@ const TooltipInner = styled.div`
   white-space: nowrap;
 `;
 
-const handle = (
-  trigger: Trigger,
-  element: HTMLElement,
-  show: () => void,
-  hide: () => void
-) => {
+const handle = (trigger: Trigger, element: HTMLElement, show: () => void, hide: () => void) => {
   switch (trigger) {
     case 'mousedown': {
       const hideInternal = (): void => {
@@ -98,8 +93,7 @@ export const Tooltip = ({
     );
   }, [trigger]);
 
-  if (React.Children.count(children) !== 1)
-    throw new Error('Tooltip required exactly one child');
+  if (React.Children.count(children) !== 1) throw new Error('Tooltip required exactly one child');
 
   return (
     <>

@@ -13,7 +13,7 @@ const colors = {
   secondAccent: '#3498db',
   thirdAccent: '#f1c40f',
 
-  red: '#e74c3c'
+  red: '#e74c3c',
 };
 
 const borderRadius = {

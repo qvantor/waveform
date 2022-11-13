@@ -1,13 +1,6 @@
 import React from 'react';
 import styled from 'styled-components';
-import {
-  PianoKeyboard,
-  AdsrEnvelope,
-  Section,
-  VolumeAnalyser,
-  FqAnalyser,
-  theme,
-} from '@waveform/ui-kit';
+import { PianoKeyboard, AdsrEnvelope, Section, VolumeAnalyser, FqAnalyser, theme } from '@waveform/ui-kit';
 import {
   SynthProvider,
   InputControllerProvider,
@@ -148,7 +141,7 @@ const HeaderInternal = () => {
           $value={$masterGain}
           onChange={setMasterGain}
           label='Master'
-          formatValue={value => number.percent(number.round(value, 100))}
+          formatValue={(value) => number.percent(number.round(value, 100))}
           precision={100}
         />
         <VolumeAnalyser audioCtx={audioCtx} master={masterGain} />

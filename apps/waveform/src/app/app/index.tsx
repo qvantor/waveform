@@ -5,7 +5,7 @@ import { GlobalStyle, theme } from '@waveform/ui-kit';
 import { AppProvider, useApp } from './modules';
 import { appSnapshotPlugin } from './plugins/snapshot';
 
-export {AppProvider, useApp, appSnapshotPlugin}
+export { AppProvider, useApp, appSnapshotPlugin };
 
 const Root = styled.div`
   background: ${theme.colors.primary};

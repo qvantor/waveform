@@ -4,7 +4,11 @@ import { Initializers, ModelInternal, ModelFactory, Plugin } from '../types';
 type State<M, I = undefined> = M | ((initial: I) => M);
 
 // @todo improvements - make a model by types, then initial it with values
-export const rxModel = <M extends Record<string | number, unknown>, A extends Record<string | number, unknown>, I>(
+export const rxModel = <
+  M extends Record<string | number, unknown>,
+  A extends Record<string | number, unknown>,
+  I
+>(
   model: State<M, I>,
   initializers: Initializers<M, A> = { actions: [], subscriptions: [], plugins: [] }
 ): ModelFactory<M, A, I> => {

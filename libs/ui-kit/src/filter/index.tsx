@@ -35,7 +35,6 @@ const ChartContainer = styled.div`
   border-radius: 3px;
 `;
 
-
 export const HandlersContainer = styled.div`
   display: flex;
   gap: 10px;
@@ -45,7 +44,6 @@ export const LineChartFilter = styled(LineChart)`
   flex: 1 1;
   border-radius: 3px;
 `;
-
 
 export const Filter = ({
   type,

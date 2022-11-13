@@ -59,7 +59,11 @@ const CustomLine = ({ attack, hold, decay, sustain, release }: LineProps) => {
   const dotSize = 4;
   return (
     <>
-      <Line customLineFn={customLineFn} data={data} style={{ strokeWidth: 1, fill: theme.colors.accent, fillOpacity: 0.1 }} />
+      <Line
+        customLineFn={customLineFn}
+        data={data}
+        style={{ strokeWidth: 1, fill: theme.colors.accent, fillOpacity: 0.1 }}
+      />
       {data.map((value, index) => (
         <rect
           key={index}

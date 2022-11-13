@@ -5,7 +5,9 @@
   "scripts": {
     "start": "nx serve",
     "build": "nx build",
-    "test": "nx test"
+    "test": "nx test",
+    "prettier:check": "prettier -l './apps/**/*.{ts,tsx}' './libs/**/*.{ts,tsx}'",
+    "prettier:fix": "prettier --write './apps/**/*.{ts,tsx}' './libs/**/*.{ts,tsx}'"
   },
   "private": true,
   "dependencies": {

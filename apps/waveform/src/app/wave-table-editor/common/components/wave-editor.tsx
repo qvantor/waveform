@@ -45,19 +45,9 @@ export const WaveEditor = ({
           formatValue={(value) => <>Rate: {number.powerOfTwo(value)}</>}
           label='Rate'
         />
-        <Handle
-          step={[2, 5, 10, 20]}
-          value={precision}
-          onChange={setPrecision}
-          label='Precision'
-        />
+        <Handle step={[2, 5, 10, 20]} value={precision} onChange={setPrecision} label='Precision' />
       </HandlersWrapper>
-      <WaveDrawer
-        wave={wave}
-        onChange={updateCurrentWave}
-        rate={rate}
-        precisionY={precision}
-      />
+      <WaveDrawer wave={wave} onChange={updateCurrentWave} rate={rate} precisionY={precision} />
     </Root>
   );
 };

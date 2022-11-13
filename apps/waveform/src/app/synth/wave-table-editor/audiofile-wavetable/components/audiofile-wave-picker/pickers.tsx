@@ -2,7 +2,7 @@ import React from 'react';
 import { number } from '@waveform/math';
 import { theme, useLineChartContext } from '@waveform/ui-kit';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
-import {useOscillatorContext} from '../../../../oscillator';
+import { useOscillatorContext } from '../../../../oscillator';
 import { useAudiofile } from '../../modules';
 
 export const Pickers = () => {

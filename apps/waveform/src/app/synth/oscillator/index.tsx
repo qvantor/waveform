@@ -73,7 +73,7 @@ export const Oscillator = ({
               $value={$gain}
               label='Gain'
               onChange={setGain}
-              formatValue={value => number.percent(number.round(value, 100))}
+              formatValue={(value) => number.percent(number.round(value, 100))}
               precision={100}
             />
           </HandlesGroup>

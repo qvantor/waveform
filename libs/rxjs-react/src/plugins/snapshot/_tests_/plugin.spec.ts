@@ -329,9 +329,7 @@ describe('snapshotPlugin', () => {
         },
       })
     );
-    const [model] = rxModel(primitiveBs)
-      .plugins(snapshotInstance.modelPlugin())
-      .init(modelName, {});
+    const [model] = rxModel(primitiveBs).plugins(snapshotInstance.modelPlugin()).init(modelName, {});
     expect(model['string'].value).toBe(newStringValue);
 
     snapshotInstance.setInitSnapshot();

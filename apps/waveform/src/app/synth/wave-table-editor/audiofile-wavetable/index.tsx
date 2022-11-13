@@ -1,5 +1,5 @@
 import React from 'react';
-import {useOscillatorContext} from '../../oscillator';
+import { useOscillatorContext } from '../../oscillator';
 import { AudiofileProvider } from './modules';
 import { LoadFile, AudiofileWavetable } from './components';
 

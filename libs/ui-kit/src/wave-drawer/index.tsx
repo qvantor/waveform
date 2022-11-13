@@ -14,7 +14,7 @@ interface Props {
 // @todo improve performance
 export const WaveDrawer = ({ rate = 4, precisionY = 10, wave, onChange }: Props) => {
   const { domainX, domainY } = React.useMemo(() => {
-    const domainX = vector2d.fromValues(0, wave.length-1);
+    const domainX = vector2d.fromValues(0, wave.length - 1);
     const domainY = vector2d.fromValues(1, -1);
     return { domainX, domainY };
   }, [wave.length]);
