@@ -1,8 +1,7 @@
-import { filter } from 'rxjs';
 import { PrimitiveBS, rxModel, rxModelReact } from '@waveform/rxjs-react';
 import { InputControllerModule } from './input-controller';
 import { AdsrEnvelopeModule, AdsrEnvelopeModel } from './adsr-envelope';
-import { OscillatorModule } from './oscillator';
+import { OscillatorModel, OscillatorModule } from './oscillator';
 import { SynthCoreModule } from './synth-core';
 import { Note, Notes } from '@waveform/ui-kit';
 import { noteFrequency } from '../../../common/constants';
@@ -40,7 +39,7 @@ const envelope = (audioCtx: AudioContext, config: AdsrEnvelopeModel['$envelope']
   const stop = () => {
     const now = audioCtx.currentTime;
     gain.gain.cancelScheduledValues(now);
-    gain.gain.setValueAtTime(gain.gain.value, now);
+    gain.gain.setValueAtTime(gain.gain.value, now); // more valid - Math.min(gain.gain.value, config.sustain) (but it's clicks)
     gain.gain.linearRampToValueAtTime(0.001, now + config.release);
   };
 
@@ -49,13 +48,13 @@ const envelope = (audioCtx: AudioContext, config: AdsrEnvelopeModel['$envelope']
 
 interface OscillatorConfig {
   wave: PeriodicWave;
-  gainNode: GainNode;
   frequency: number;
   unison: number;
   detune: number;
   randPhase: number;
   octave: number;
   portamento?: [number, number]; // [freq, time]
+  onEnd?: () => void;
 }
 
 const unisonOscillator = (audioCtx: AudioContext, config: OscillatorConfig) => {
@@ -125,58 +124,200 @@ const unisonOscillator = (audioCtx: AudioContext, config: OscillatorConfig) => {
   return { start, connect, setWave, setFrequency, setFrequencyPortamento, stop };
 };
 
-interface VoiceConfig {
+interface OscillatorVoiceConfig {
   audioCtx: AudioContext;
   outputNode: AudioNode;
   note: Note;
-  portamento?: [Note, number]; // noteFrom, time
+  oscConfigs: Array<Omit<OscillatorConfig, 'frequency'> & { gainNode: GainNode }>;
+  portamento?: [Note, number];
 }
 
-const voice = (
-  { audioCtx, outputNode, note, portamento }: VoiceConfig,
-  adsrConfig: AdsrEnvelopeModel['$envelope']['value'],
-  oscConfigs: Array<Omit<OscillatorConfig, 'frequency'>>
-) => {
-  const [octave, noteName] = note;
-
-  const voices = oscConfigs.map((oscConfig) => {
-    const initFq = getFq([octave + oscConfig.octave, noteName]);
-    const fromFq = portamento ? getFq([portamento[0][0] + oscConfig.octave, portamento[0][1]]) : 0;
-    const osc = unisonOscillator(audioCtx, {
-      ...oscConfig,
-      frequency: portamento ? fromFq : initFq,
-      portamento: portamento ? [initFq, portamento[1]] : undefined,
-    });
-    const adsr = envelope(audioCtx, adsrConfig);
-    osc.connect(adsr.envelope);
-    adsr.envelope.connect(oscConfig.gainNode);
-    oscConfig.gainNode.connect(outputNode);
-    osc.start();
-    return { osc, adsr };
-  });
-  const stop = () => {
-    voices.forEach((voice) => {
-      voice.osc.stop(audioCtx.currentTime + adsrConfig.release);
-      voice.adsr.stop();
-    });
-  };
-
-  const setNote = (newNote: Note, portamento?: number) => {
-    const [newOctave, newNoteName] = newNote;
-    voices.forEach((voice, i) => {
-      const nextFq = getFq([newOctave + oscConfigs[i].octave, newNoteName]);
-      if (portamento) {
-        const currFq = getFq([octave + oscConfigs[i].octave, noteName]);
-        voice.osc.setFrequencyPortamento(currFq, [nextFq, portamento]);
-      } else {
-        voice.osc.setFrequency(nextFq);
-      }
-    });
-    note = newNote;
-  };
-  const setWave = (index: number, wave: PeriodicWave) => voices[index]?.osc.setWave(wave);
-  return { stop, setWave, setNote };
+type VoiceConfig = OscillatorVoiceConfig & {
+  adsrConfig: AdsrEnvelopeModel['$envelope']['value'];
 };
+
+type VoiceOscillators = Array<ReturnType<typeof unisonOscillator>>;
+
+abstract class OscillatorVoice {
+  protected config: OscillatorVoiceConfig;
+  protected oscillators: VoiceOscillators;
+
+  constructor(config: OscillatorVoiceConfig) {
+    this.config = config;
+    this.oscillators = this.initOscillators();
+  }
+
+  protected initOscillators(): VoiceOscillators {
+    const {
+      audioCtx,
+      note: [octave, noteName],
+      portamento,
+      oscConfigs,
+    } = this.config;
+
+    return oscConfigs.map((oscConfig) => {
+      const initFq = getFq([octave + oscConfig.octave, noteName]);
+      const fromFq = portamento ? getFq([portamento[0][0] + oscConfig.octave, portamento[0][1]]) : 0;
+      const osc = unisonOscillator(audioCtx, {
+        ...oscConfig,
+        frequency: portamento ? fromFq : initFq,
+        portamento: portamento ? [initFq, portamento[1]] : undefined,
+      });
+
+      osc.connect(this.config.outputNode);
+      osc.start();
+      return osc;
+    });
+  }
+
+  stop(time: number) {
+    this.oscillators.forEach((oscillator) => {
+      oscillator.stop(time);
+    });
+  }
+
+  immediatelyStop() {
+    const { audioCtx } = this.config;
+    this.oscillators.forEach((oscillator) => oscillator.stop(audioCtx.currentTime));
+  }
+}
+
+class Voice extends OscillatorVoice {
+  override config: VoiceConfig;
+  private adsr: ReturnType<typeof envelope>;
+
+  constructor(config: VoiceConfig) {
+    const { adsrConfig, outputNode, ...rest } = config;
+    const adsr = envelope(rest.audioCtx, adsrConfig);
+    super({ ...rest, outputNode: adsr.envelope });
+    this.config = config;
+    this.adsr = adsr;
+    this.adsr.envelope.connect(outputNode);
+  }
+
+  override stop = () => {
+    const { audioCtx, adsrConfig } = this.config;
+    super.stop(audioCtx.currentTime + adsrConfig.release);
+    this.adsr.stop();
+  };
+
+  override immediatelyStop = () => {
+    super.immediatelyStop();
+    this.adsr.stop();
+  };
+}
+
+type LegatoVoiceConfig = VoiceConfig & {
+  adsr: ReturnType<typeof envelope>;
+};
+
+class LegatoVoice extends OscillatorVoice {
+  override config: LegatoVoiceConfig;
+  private gain: GainNode;
+
+  constructor(config: LegatoVoiceConfig) {
+    const { adsr, outputNode, ...rest } = config;
+    const gain = rest.audioCtx.createGain();
+    super({ ...rest, outputNode: gain });
+    this.config = config;
+    this.gain = gain;
+    gain.connect(adsr.envelope);
+  }
+
+  override stop = () => {
+    const { audioCtx, adsrConfig } = this.config;
+    super.stop(audioCtx.currentTime + adsrConfig.release);
+
+    // @todo it should be partial envelope with release only
+    const now = audioCtx.currentTime;
+    this.gain.gain.cancelScheduledValues(now);
+    this.gain.gain.setValueAtTime(this.gain.gain.value, now);
+    this.gain.gain.linearRampToValueAtTime(0.001, now + this.config.adsrConfig.release);
+  };
+}
+
+interface VoicingContext {
+  audioCtx: AudioContext;
+  outputNode: AudioNode;
+
+  $maxVoices: PrimitiveBS<number>;
+  $legato: PrimitiveBS<boolean>;
+  $portamento: PrimitiveBS<number>;
+  oscillators: Array<Pick<OscillatorModel, '$osc' | '$active' | '$periodicWave' | 'gainNode'>>;
+  $envelope: AdsrEnvelopeModel['$envelope'];
+}
+
+class Voicing {
+  private config: VoicingContext;
+  private voices: Record<string, Voice | LegatoVoice | null>;
+  private legatoAdsr: ReturnType<typeof envelope> | undefined;
+
+  constructor(config: VoicingContext) {
+    this.voices = {};
+    this.config = config;
+  }
+
+  private addVoice = (note: Note) => {
+    this.voices[noteToString(note)] = this.getVoice(note);
+  };
+
+  private getVoice = (note: Note): Voice | LegatoVoice => {
+    const { audioCtx, outputNode, $legato, $portamento, $envelope, oscillators } = this.config;
+    const voicesArray = Object.keys(this.voices);
+    const key = voicesArray[voicesArray.length - 1];
+
+    const voiceConfig: VoiceConfig = {
+      audioCtx,
+      outputNode,
+      note,
+      portamento: key && !$legato.value ? [stringToNote(key), $portamento.value / 1000] : undefined,
+      adsrConfig: $envelope.value,
+      oscConfigs: oscillators
+        .filter(({ $active }) => $active.value)
+        .map((oscillator) => ({
+          ...oscillator.$osc.value,
+          wave: oscillator.$periodicWave.value,
+          gainNode: oscillator.gainNode,
+        })),
+    };
+
+    if (!$legato.value) return new Voice(voiceConfig);
+    if (!this.legatoAdsr) {
+      this.legatoAdsr = envelope(audioCtx, $envelope.value);
+      this.legatoAdsr.envelope.connect(outputNode);
+    }
+
+    return new LegatoVoice({ ...voiceConfig, adsr: this.legatoAdsr });
+  };
+
+  private stopLastVoice() {
+    const voicesArray = Object.keys(this.voices);
+    const key = voicesArray[0];
+    this.voices[key]?.immediatelyStop();
+    delete this.voices[key];
+  }
+
+  onPress = (note: Note) => {
+    if (this.voicesCount >= this.config.$maxVoices.value) this.stopLastVoice();
+    this.addVoice(note);
+  };
+
+  onRelease = (note: Note) => {
+    const stringNote = noteToString(note);
+    this.voices[stringNote]?.stop();
+
+    if (this.legatoAdsr && this.voicesCount === 1) {
+      this.legatoAdsr.stop();
+      this.legatoAdsr = undefined;
+    }
+
+    delete this.voices[stringNote];
+  };
+
+  get voicesCount() {
+    return Object.keys(this.voices).length;
+  }
+}
 
 const synth = ({
   synthCore: [{ audioCtx, preGain }],
@@ -185,12 +326,29 @@ const synth = ({
   oscillator: oscillators,
 }: Deps) =>
   rxModel(() => {
-    const $maxVoices = new PrimitiveBS<number>(1);
+    const $maxVoices = new PrimitiveBS<number>(2);
     const $portamento = new PrimitiveBS<number>(30);
     const $legato = new PrimitiveBS<boolean>(false);
     const $voicesCount = new PrimitiveBS<number>(0);
-    const voices: Record<string, ReturnType<typeof voice> | null> = {};
-    return { $maxVoices, $portamento, $legato, $voicesCount, voices };
+
+    // move to another module
+    const voicingContext: VoicingContext = {
+      audioCtx,
+      outputNode: preGain,
+      $maxVoices,
+      $legato,
+      $portamento,
+      $envelope,
+      oscillators: oscillators.map(([osc]) => ({
+        $osc: osc.$osc,
+        $active: osc.$active,
+        $periodicWave: osc.$periodicWave,
+        gainNode: osc.gainNode,
+      })),
+    };
+    const voicing = new Voicing(voicingContext);
+
+    return { $maxVoices, $portamento, $legato, $voicesCount, voicing };
   })
     .actions(({ $maxVoices, $portamento, $legato, $voicesCount }) => ({
       setMaxVoices: (value: number) => $maxVoices.next(value),
@@ -198,52 +356,24 @@ const synth = ({
       setLegato: (value: boolean) => $legato.next(value),
       setVoicesCount: (value: number) => $voicesCount.next(value),
     }))
-    .subscriptions(({ voices, $maxVoices, $portamento, $legato }, { setVoicesCount }) => [
+    .subscriptions(({ $maxVoices, $portamento, $legato, voicing }, { setVoicesCount }) => [
       $onRelease.subscribe((note) => {
-        voices[noteToString(note)]?.stop();
-        delete voices[noteToString(note)];
+        voicing.onRelease(note);
 
-        setVoicesCount(Object.keys(voices).length);
+        setVoicesCount(voicing.voicesCount);
       }),
-      $onPress.pipe(filter(() => Object.keys(voices).length >= $maxVoices.value)).subscribe((note) => {
-        const voicesArray = Object.keys(voices);
-        const key = voicesArray[0];
-        const existingVoice = voices[key];
-        existingVoice?.setNote(note, $legato.value ? undefined : $portamento.value / 1000);
-        voices[noteToString(note)] = existingVoice;
-        delete voices[key];
+      $onPress.subscribe((note) => {
+        voicing.onPress(note);
+        setVoicesCount(voicing.voicesCount);
       }),
-      $onPress.pipe(filter(() => Object.keys(voices).length < $maxVoices.value)).subscribe((note) => {
-        const voicesArray = Object.keys(voices);
-        const key = voicesArray[voicesArray.length - 1];
-
-        voices[noteToString(note)] = voice(
-          {
-            audioCtx,
-            outputNode: preGain,
-            note,
-            portamento: key && !$legato.value ? [stringToNote(key), $portamento.value / 1000] : undefined,
-          },
-          $envelope.value,
-          oscillators
-            .filter(([oscillator]) => oscillator.$active.value)
-            .map(([oscillator]) => ({
-              ...oscillator.$osc.value,
-              wave: oscillator.$periodicWave.value,
-              gainNode: oscillator.gainNode,
-            }))
-        );
-
-        setVoicesCount(Object.keys(voices).length);
-      }),
-      ...oscillators.map(([{ $periodicWave }], i) =>
-        $periodicWave.subscribe((wave) => {
-          for (const voice in voices) {
-            // @todo here is the bug - wave not update while playing for osc2, if osc1 is stoped
-            voices[voice]?.setWave(i, wave);
-          }
-        })
-      ),
+      // ...oscillators.map(([{ $periodicWave }], i) =>
+      //   $periodicWave.subscribe((wave) => {
+      //     for (const voice in voices) {
+      //       // @todo here is the bug - wave not update while playing for osc2, if osc1 is stoped
+      //       voices[voice]?.setWave(i, wave);
+      //     }
+      //   })
+      // ),
     ]);
 
 export const { ModelProvider: SynthProvider, useModel: useSynth } = rxModelReact('synth', synth);
