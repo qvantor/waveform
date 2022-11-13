@@ -34,6 +34,7 @@ export const AudiofileWavePicker = () => {
           onChange={setWavesPickersCount}
           formatValue={(value) => `Waves count: ${value}`}
           label='W Count'
+          precision={1}
         />
         <RxHandle
           min={waveSizeRange[0]}
@@ -42,6 +43,7 @@ export const AudiofileWavePicker = () => {
           onChange={setWaveSize}
           label='Size'
           formatValue={number.powerOfTwo}
+          precision={1}
         />
       </HandlersWrapper>
       <LineChart domainY={[-1, 1]} domainX={[0, audioBuffer.length]}>

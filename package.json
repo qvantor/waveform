@@ -5,16 +5,20 @@
   "scripts": {
     "start": "nx serve",
     "build": "nx build",
-    "test": "nx test"
+    "test": "nx test",
+    "prettier:check": "prettier -l './apps/**/*.{ts,tsx}' './libs/**/*.{ts,tsx}'",
+    "prettier:fix": "prettier --write './apps/**/*.{ts,tsx}' './libs/**/*.{ts,tsx}'"
   },
   "private": true,
   "dependencies": {
     "@ant-design/icons": "^4.7.0",
+    "classnames": "^2.3.2",
     "core-js": "^3.6.5",
     "d3-scale": "^4.0.2",
     "d3-shape": "^3.1.0",
     "fft.js": "^4.0.4",
     "hex-to-rgba": "^2.0.1",
+    "lodash": "^4.17.21",
     "react": "18.2.0",
     "react-dom": "18.2.0",
     "react-hot-toast": "^2.4.0",
@@ -38,6 +42,7 @@
     "@types/d3-scale": "^4.0.2",
     "@types/d3-shape": "^3.1.0",
     "@types/jest": "28.1.1",
+    "@types/lodash": "^4.14.188",
     "@types/node": "16.11.7",
     "@types/react": "18.0.20",
     "@types/react-dom": "18.0.6",

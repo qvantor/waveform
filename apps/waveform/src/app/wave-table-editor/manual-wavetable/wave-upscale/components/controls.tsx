@@ -23,7 +23,6 @@ export const Controls = () => {
         min={rate}
         max={14}
         $value={$outputRate}
-        rotateSpeed={10}
         onChange={setOutputRate}
         label='Output'
         formatValue={(value) => <>Out: {number.powerOfTwo(value)}</>}

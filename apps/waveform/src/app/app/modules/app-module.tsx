@@ -10,16 +10,17 @@ const appModel = () => {
   if (value) setInitSnapshot(value);
 
   return rxModel(() => ({
-    $keyUp: fromEvent<KeyboardEvent>(document, 'keydown'),
+    $keyDown: fromEvent<KeyboardEvent>(document, 'keydown'),
+    $keyUp: fromEvent<KeyboardEvent>(document, 'keyup'),
   }))
     .actions(() => ({
       save: () => {
-        toast.success('Saved successfully')
-        localStorage.setItem(storageKey, getSnapshot())
+        toast.success('Saved successfully');
+        localStorage.setItem(storageKey, getSnapshot());
       },
     }))
-    .subscriptions(({ $keyUp }, { save }) => [
-      $keyUp
+    .subscriptions(({ $keyUp, $keyDown }, { save }) => [
+      $keyDown
         .pipe(
           filter((e) => e.metaKey && e.code === 'KeyS'),
           tap((e) => e.preventDefault())
@@ -28,4 +29,6 @@ const appModel = () => {
     ]);
 };
 
-export const { ModelProvider: AppModelProvider } = rxModelReact('appModel', appModel);
+export const { ModelProvider: AppProvider, useModel: useApp } = rxModelReact('appModel', appModel);
+
+export type AppModule = ReturnType<typeof useApp>;

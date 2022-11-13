@@ -12,8 +12,7 @@ interface StyledProps {
 
 const FileDropRoot = styled.div<StyledProps>`
   transition: all 150ms;
-  background: ${({ droppable }) =>
-    droppable ? theme.colors.primaryLowContrast : theme.colors.primary};
+  background: ${({ droppable }) => (droppable ? theme.colors.primaryLowContrast : theme.colors.primary)};
 
   box-shadow: ${({ droppable }) =>
     droppable

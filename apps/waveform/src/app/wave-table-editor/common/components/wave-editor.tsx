@@ -40,27 +40,14 @@ export const WaveEditor = ({
         <RxHandle
           $value={$rate}
           onChange={setRate}
-          rotateSpeed={20}
           min={minRate}
           max={maxRate}
           formatValue={(value) => <>Rate: {number.powerOfTwo(value)}</>}
           label='Rate'
         />
-        <Handle
-          step={[2, 5, 10, 20]}
-          rotateSpeed={20}
-          value={precision}
-          onChange={setPrecision}
-          label='Precision'
-        />
+        <Handle step={[2, 5, 10, 20]} value={precision} onChange={setPrecision} label='Precision' />
       </HandlersWrapper>
-      <WaveDrawer
-        wave={wave}
-        onChange={updateCurrentWave}
-        rate={rate}
-        precision={precision}
-        range={[minRate, maxRate]}
-      />
+      <WaveDrawer wave={wave} onChange={updateCurrentWave} rate={rate} precisionY={precision} />
     </Root>
   );
 };

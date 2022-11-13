@@ -16,21 +16,24 @@ const Root = styled.div`
   background: ${theme.colors.primaryDark};
   overflow: hidden;
   height: 100%;
+  position: relative;
 `;
 
 const Svg = styled.svg`
+  position: absolute;
   width: 100%;
   height: 100%;
 `;
 
 export const LineChart = ({
   padding = [5, 2],
-  domainX,
-  domainY,
+  domainX: [domainXMin, domainXMax] = [0, 1],
+  domainY: [domainYMin, domainYMax] = [0, 1],
   children,
   ...rest
 }: React.PropsWithChildren<Props>) => {
   const ref = React.useRef<HTMLDivElement>(null);
+  const [paddingX, paddingY] = padding;
   const [[width, height], setSize] = React.useState([0, 0]);
 
   React.useEffect(() => {
@@ -46,23 +49,23 @@ export const LineChart = ({
   }, []);
 
   const [scaleX, scaleY, lineFn] = React.useMemo(() => {
-    const scaleX = scaleLinear([0, width - padding[0] * 2]);
-    const scaleY = scaleLinear([0, height - padding[1] * 2]);
-    if (domainX) scaleX.domain(domainX);
-    if (domainY) scaleY.domain(domainY);
+    const scaleX = scaleLinear([0, width - paddingX * 2]);
+    const scaleY = scaleLinear([0, height - paddingY * 2]);
+    scaleX.domain([domainXMin, domainXMax]);
+    scaleY.domain([domainYMin, domainYMax]);
 
     const lineFn = line<number>()
       .x((d, i) => scaleX(i))
       .y(scaleY);
 
     return [scaleX, scaleY, lineFn];
-  }, [width, height, padding, domainX, domainY]);
+  }, [width, height, paddingX, paddingY, domainXMin, domainXMax, domainYMin, domainYMax]);
   return (
     <LineChartContext.Provider value={{ width, height, padding, scaleX, scaleY, lineFn, ref }}>
       <Root {...rest} ref={ref}>
         {width !== 0 && (
           <Svg>
-            <g transform={`translate(${padding[0]}, ${padding[1]})`}>{children}</g>
+            <g transform={`translate(${paddingX}, ${paddingY})`}>{children}</g>
           </Svg>
         )}
       </Root>

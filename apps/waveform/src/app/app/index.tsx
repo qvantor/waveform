@@ -2,9 +2,10 @@ import React from 'react';
 import styled from 'styled-components';
 import { Toaster } from 'react-hot-toast';
 import { GlobalStyle, theme } from '@waveform/ui-kit';
-import { AppModelProvider } from './modules';
+import { AppProvider, useApp } from './modules';
+import { appSnapshotPlugin } from './plugins/snapshot';
 
-export { appSnapshotPlugin } from './plugins/snapshot';
+export { AppProvider, useApp, appSnapshotPlugin };
 
 const Root = styled.div`
   background: ${theme.colors.primary};
@@ -15,10 +16,10 @@ const Root = styled.div`
 
 export const App = ({ children }: React.PropsWithChildren) => {
   return (
-    <AppModelProvider initial={{}}>
+    <AppProvider initial={{}}>
       <GlobalStyle />
       <Root>{children}</Root>
       <Toaster />
-    </AppModelProvider>
+    </AppProvider>
   );
 };

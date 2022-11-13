@@ -1,11 +1,13 @@
 import React from 'react';
 import { App } from './app';
-import WaveTableEditor from './wave-table-editor';
+// import WaveTableEditor from './wave-table-editor';
+import Synth from './synth';
 
 export function Core() {
   return (
     <App>
-      <WaveTableEditor />
+      <Synth />
+      {/*<WaveTableEditor />*/}
     </App>
   );
 }

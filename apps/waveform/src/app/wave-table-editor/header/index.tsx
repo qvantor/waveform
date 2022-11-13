@@ -24,7 +24,6 @@ const Name = styled.h1`
   padding: 20px 20px 20px 0;
   margin: 0;
   border-right: 1px solid ${theme.colors.primaryLowContrast};
-  user-select: none;
 `;
 
 const Container = styled.div`
@@ -40,7 +39,7 @@ export const Header = () => {
     <Root>
       <Name>WAVEFORM</Name>
       <Container>
-        <RxHandle min={20} max={4000} step={10} $value={$frequency} onChange={setFrequency} label='Freq' />
+        <RxHandle min={20} max={4000} $value={$frequency} onChange={setFrequency} label='Freq' />
         <PlayButton />
       </Container>
     </Root>

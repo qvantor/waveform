@@ -1,8 +1,9 @@
 import React from 'react';
 import styled from 'styled-components';
 import { arc } from 'd3-shape';
-import { Vector2D, vector2d, number } from '@waveform/math';
-import { scaleLinear } from 'd3-scale';
+import cls from 'classnames';
+import { number, vector2d } from '@waveform/math';
+import { scaleLinear, scaleLog } from 'd3-scale';
 import { theme } from '../common/constants';
 import { absoluteCenterXY } from '../common/styles';
 import { Tooltip } from '../tooltip';
@@ -10,16 +11,21 @@ import { Label } from '../label';
 
 type Size = 'm' | 'l';
 
+type Mode = 'linear' | 'log';
+
 export interface HandleProps {
   min?: number;
   max?: number;
   value?: number;
-  step?: number | number[];
+  step?: number[];
   size?: Size;
   onChange?: (value: number) => void;
-  rotateSpeed?: number;
   formatValue?: (value: number) => React.ReactNode;
   label?: React.ReactNode;
+  mode?: Mode;
+  precision?: number;
+  plotSize?: number;
+  disabled?: boolean;
 }
 
 interface StyledProps {
@@ -51,14 +57,24 @@ const sizes: Record<
   },
 };
 
-const Root = styled.div<StyledProps>`
+const Root = styled.div`
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+
+  &.disabled {
+    pointer-events: none;
+    opacity: 0.5;
+  }
+`;
+
+const HandleContainer = styled.div<StyledProps>`
   width: ${(props) => `${sizes[props.size].wrapper[0]}`};
   height: ${(props) => `${sizes[props.size].wrapper[1]}`};
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   position: relative;
-  user-select: none;
 `;
 
 const HandleCircle = styled.div<StyledProps>`
@@ -116,22 +132,25 @@ const Svg = styled.svg<StyledProps>`
 export const Handle = ({
   min = 0,
   max = 100,
+  step,
   value = 0,
-  step = 1,
-  rotateSpeed = 5,
   size = 'm',
   onChange,
   formatValue,
   label,
+  mode = 'linear',
+  precision = 1000,
+  plotSize = 100,
+  disabled = false,
 }: HandleProps) => {
   const { svg } = sizes[size];
-  const mousePosition = React.useRef<Vector2D>([0, 0]);
+  const prevValue = React.useRef(value);
   const { arcBackground, commonArcOptions, scale } = React.useMemo(() => {
     const { arc: arcSize } = sizes[size];
     const arcPadding = 1.2;
     const [minAngle, maxAngle] = [-Math.PI / arcPadding, Math.PI / arcPadding];
-    const scale = scaleLinear()
-      .domain(Array.isArray(step) ? [0, step.length - 1] : [min, max])
+    const scale = (mode === 'linear' ? scaleLinear() : scaleLog())
+      .domain(step ? [0, step.length - 1] : [min, max])
       .range([minAngle, maxAngle]);
     const commonArcOptions = {
       innerRadius: arcSize[0],
@@ -140,7 +159,15 @@ export const Handle = ({
     };
     const arcBackground = arc()({ ...commonArcOptions, endAngle: maxAngle }) ?? undefined;
     return { arcBackground, scale, commonArcOptions };
-  }, [min, max, size, step]);
+  }, [min, max, size, mode, step]);
+
+  const scaleMouse = React.useMemo(
+    () =>
+      (mode === 'linear' ? scaleLinear() : scaleLog())
+        .domain(step ? [0, step.length - 1] : [min * precision, max * precision])
+        .range([-plotSize, plotSize]),
+    [max, min, mode, plotSize, precision, step]
+  );
 
   const { arcValue, rotateRad } = React.useMemo(() => {
     const rotateRad = Array.isArray(step) ? scale(step.indexOf(value)) : scale(value);
@@ -150,20 +177,23 @@ export const Handle = ({
 
   const onMouseDown = React.useCallback(
     (e: React.MouseEvent) => {
-      mousePosition.current = vector2d.fromMouseEvent(e);
-      const mouseMove = (e: MouseEvent) => {
-        if (!mousePosition.current) return;
-        const current = vector2d.fromMouseEvent(e);
-        const prev = mousePosition.current;
-        const diff = vector2d.addition(vector2d.invertY(vector2d.subtract(current, prev)));
+      const initialPosition = vector2d.fromMouseEvent(e);
 
-        const rotateDelta = Math.round(diff / rotateSpeed);
-        if (Array.isArray(step)) {
-          const currentIndex = step.indexOf(value);
-          onChange?.(step[number.thresholds(currentIndex + rotateDelta, 0, step.length - 1)]);
-        } else {
-          onChange?.(number.thresholds(value + rotateDelta * step, min, max));
-        }
+      const mouseMove = (e: MouseEvent) => {
+        const current = vector2d.fromMouseEvent(e);
+        const diff = vector2d.addition(vector2d.invertY(vector2d.subtract(current, initialPosition)));
+        const currValue = step ? scaleMouse(step.indexOf(value * precision)) : scaleMouse(value * precision);
+        const currValueAbs = Math.abs(currValue);
+        const tDiff = number.thresholds(diff, -plotSize - currValueAbs, plotSize + currValueAbs);
+        const result = number.thresholds(
+          Math.round(scaleMouse.invert(currValue + tDiff)) / precision,
+          min,
+          max
+        );
+        if (prevValue.current === result) return;
+        prevValue.current = result;
+
+        onChange?.(step ? step[result] : result);
       };
       const cleanUp = () => {
         document.removeEventListener('mousemove', mouseMove);
@@ -172,13 +202,13 @@ export const Handle = ({
       document.addEventListener('mousemove', mouseMove);
       document.addEventListener('mouseup', cleanUp);
     },
-    [min, max, onChange, step, value, rotateSpeed]
+    [step, scaleMouse, value, precision, plotSize, onChange, min, max]
   );
 
   return (
     <Tooltip content={formatValue?.(value) ?? value}>
-      <div onMouseDown={onMouseDown}>
-        <Root size={size}>
+      <Root onMouseDown={onMouseDown} className={cls({ disabled: disabled })}>
+        <HandleContainer size={size}>
           <HandleCircle style={{ transform: `rotate(${rotateRad}rad)` }} size={size}>
             <HandleCircleInner size={size}>
               <HandleMark size={size} />
@@ -197,9 +227,9 @@ export const Handle = ({
               d={arcValue}
             />
           </Svg>
-        </Root>
+        </HandleContainer>
         {label && <Label>{label}</Label>}
-      </div>
+      </Root>
     </Tooltip>
   );
 };

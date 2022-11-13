@@ -8,11 +8,6 @@ type Props = Omit<HandleProps, 'value'> & {
 
 export const RxHandle = ({ $value, onChange, ...props }: Props) => {
   const value = useBehaviorSubject($value);
-  const onChangeInternal = React.useCallback(
-    (newValue: number) => {
-      if (newValue !== $value.value) onChange?.(newValue);
-    },
-    [$value, onChange]
-  );
+  const onChangeInternal = React.useCallback((newValue: number) => onChange?.(newValue), [onChange]);
   return <Handle {...props} value={value} onChange={onChangeInternal} />;
 };
