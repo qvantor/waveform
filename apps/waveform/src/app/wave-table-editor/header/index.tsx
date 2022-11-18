@@ -1,9 +1,9 @@
 import React from 'react';
 import styled from 'styled-components';
 import { theme } from '@waveform/ui-kit';
-import { PlayButton } from './play-button';
 import { useAudioProcessor } from '../common/modules';
 import { RxHandle } from '../../common/components';
+import { PlayButton } from './play-button';
 
 const Root = styled.div`
   border-bottom: 1px solid ${theme.colors.primaryLowContrast};

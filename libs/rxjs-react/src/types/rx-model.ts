@@ -9,6 +9,7 @@ export interface Initializers<M, A> {
   actions: Array<(model: M) => A>;
   subscriptions: Array<(model: M, actions: A) => Subscription | Subscription[]>;
   plugins: Array<Plugin<M>>;
+  destroy: Array<(model: M) => void>;
 }
 
 export type Meta = {
@@ -27,4 +28,5 @@ export type ModelFactory<M extends Record<string | number, unknown>, A, I> = {
   actions: <NA>(fn: (model: M) => NA) => ModelFactory<M, A & NA, I>;
   subscriptions: (fn: (model: M, actions: A) => Subscription | Subscription[]) => ModelFactory<M, A, I>;
   plugins: (plugins: Plugin<M> | Array<Plugin<M>>) => ModelFactory<M, A, I>;
+  destroy: (fn: (model: M) => void) => ModelFactory<M, A, I>;
 };

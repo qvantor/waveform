@@ -3,6 +3,7 @@ import { scaleLog } from 'd3-scale';
 import styled from 'styled-components';
 import { number } from '@waveform/math';
 import { theme } from '../common/constants';
+import { requestIdleCallback, cancelIdleCallback } from '@waveform/math';
 
 interface Props {
   master: AudioNode;
@@ -92,7 +93,7 @@ export const FqAnalyser = ({ fftSize = 12, master, audioCtx, className }: Props)
     }
 
     return () => {
-      window.cancelIdleCallback(idleCallback);
+      cancelIdleCallback(idleCallback);
     };
   }, [width, height, fftSize, audioCtx, master, scale]);
 

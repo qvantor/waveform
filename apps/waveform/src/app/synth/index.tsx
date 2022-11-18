@@ -1,6 +1,10 @@
 import React from 'react';
 import styled from 'styled-components';
 import { PianoKeyboard, AdsrEnvelope, Section, VolumeAnalyser, FqAnalyser, theme } from '@waveform/ui-kit';
+import { useBehaviorSubject } from '@waveform/rxjs-react';
+import { number } from '@waveform/math';
+import { useApp } from '../app';
+import { Header , RxHandle } from '../common/components';
 import {
   SynthProvider,
   InputControllerProvider,
@@ -14,14 +18,10 @@ import {
   KeyboardControllerProvider,
   SynthCoreProvider,
   useSynthCore,
+  MidiControllerProvider,
 } from './common/modules';
 import { FilterProvider, FilterSection } from './filter';
-import { useApp } from '../app';
-import { Header } from '../common/components';
-import { RxHandle } from '../common/components';
-import { useBehaviorSubject } from '@waveform/rxjs-react';
 import { OscillatorsContainer } from './synth/components';
-import { number } from '@waveform/math';
 import { VoicingSection } from './voicing';
 
 const Root = styled.div`
@@ -88,23 +88,25 @@ const Internal = () => {
   const oscillator2 = useOscillator2();
 
   return (
-    <FilterProvider initial={{}} synthCore={synthCore}>
-      <KeyboardControllerProvider initial={{}} app={app} inputController={inputController}>
-        <SynthProvider
-          initial={{}}
-          inputController={inputController}
-          adsrEnvelope={adsrEnvelope}
-          oscillator={[oscillator1, oscillator2]}
-          synthCore={synthCore}
-        >
-          <Root>
-            <OscillatorsContainer />
-            <AdsrEnvelopeInternal />
-            <PianoInternal />
-          </Root>
-        </SynthProvider>
-      </KeyboardControllerProvider>
-    </FilterProvider>
+    <MidiControllerProvider initial={{}} inputController={inputController}>
+      <FilterProvider initial={{}} synthCore={synthCore}>
+        <KeyboardControllerProvider initial={{}} app={app} inputController={inputController}>
+          <SynthProvider
+            initial={{}}
+            inputController={inputController}
+            adsrEnvelope={adsrEnvelope}
+            oscillator={[oscillator1, oscillator2]}
+            synthCore={synthCore}
+          >
+            <Root>
+              <OscillatorsContainer />
+              <AdsrEnvelopeInternal />
+              <PianoInternal />
+            </Root>
+          </SynthProvider>
+        </KeyboardControllerProvider>
+      </FilterProvider>
+    </MidiControllerProvider>
   );
 };
 

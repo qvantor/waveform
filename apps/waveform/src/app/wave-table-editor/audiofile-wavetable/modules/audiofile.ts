@@ -1,7 +1,7 @@
 import { map, mergeWith } from 'rxjs';
 import { PrimitiveBS, ArrayBS, rxModel, rxModelReact } from '@waveform/rxjs-react';
-import { AudiofileWavetableModule } from './audiofile-wavetable';
 import { number, typedArray } from '@waveform/math';
+import { AudiofileWavetableModule } from './audiofile-wavetable';
 
 interface Props {
   audioBuffer: Float32Array;

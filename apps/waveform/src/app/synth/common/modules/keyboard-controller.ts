@@ -1,8 +1,8 @@
 import { rxModel, rxModelReact } from '@waveform/rxjs-react';
-import { AppModule } from '../../../app/modules';
-import { InputControllerModule } from './input-controller';
 import { filter, tap } from 'rxjs';
 import { Note } from '@waveform/ui-kit';
+import { AppModule } from '../../../app/modules';
+import { InputControllerModule } from './input-controller';
 
 interface Dependencies {
   app: AppModule;

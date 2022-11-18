@@ -3,8 +3,8 @@ import styled from 'styled-components';
 import { LineChart, Line } from '@waveform/ui-kit';
 import { number } from '@waveform/math';
 import { RxHandle } from '../../../../../common/components';
-import { Pickers } from './pickers';
 import { useAudiofile } from '../../modules';
+import { Pickers } from './pickers';
 
 const Root = styled.div`
   display: grid;

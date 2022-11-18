@@ -1,3 +1,4 @@
+export { MidiControllerProvider, useMidiController } from './midi-controller';
 export { InputControllerProvider, useInputController } from './input-controller';
 export { KeyboardControllerProvider, useKeyboardController } from './keyboard-controller';
 export { AdsrEnvelopeProvider, useAdsrEnvelope } from './adsr-envelope';

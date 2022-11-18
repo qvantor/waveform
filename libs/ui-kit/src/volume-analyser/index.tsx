@@ -1,6 +1,7 @@
 import React from 'react';
 import styled from 'styled-components';
 import { theme } from '../common/constants';
+import { requestIdleCallback, cancelIdleCallback } from '@waveform/math';
 
 const Root = styled.div`
   position: relative;
@@ -100,7 +101,7 @@ export const VolumeAnalyser = ({ master, audioCtx, width = 40, height = 60, gap 
 
     requestIdleCallback(draw);
     return () => {
-      window.cancelIdleCallback(idleCallback);
+      cancelIdleCallback(idleCallback);
     };
   }, [height, width, gap, clippingHeight, audioCtx, master]);
 
