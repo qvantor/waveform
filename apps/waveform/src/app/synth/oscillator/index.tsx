@@ -4,9 +4,9 @@ import { Handle, DraggableNumber, Select } from '@waveform/ui-kit';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
 import { number } from '@waveform/math';
 import { OscillatorActions, OscillatorModel, useOscillator1 } from '../common/modules';
+import { RxHandle } from '../../common/components';
 import { OscillatorContext, useOscillatorContext } from './hooks';
 import { Wave } from './components';
-import { RxHandle } from '../../common/components';
 
 export { useOscillatorContext };
 

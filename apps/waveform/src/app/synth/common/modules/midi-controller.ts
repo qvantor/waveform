@@ -1,8 +1,8 @@
 import { fromEvent, BehaviorSubject, filter, Subject, map, pairwise, Subscription } from 'rxjs';
 import { rxModel, rxModelReact } from '@waveform/rxjs-react';
 import { Note, Notes } from '@waveform/ui-kit';
-import { InputControllerModule } from './input-controller';
 import toast from 'react-hot-toast';
+import { InputControllerModule } from './input-controller';
 
 const midiToNote = (midiNote: number): Note => {
   const notes: Notes[] = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];

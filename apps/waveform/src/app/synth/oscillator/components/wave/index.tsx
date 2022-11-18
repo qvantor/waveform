@@ -2,10 +2,10 @@ import React from 'react';
 import { EditFilled } from '@ant-design/icons';
 import styled from 'styled-components';
 import { theme, Modal, Deactivated } from '@waveform/ui-kit';
-import WaveTableEditor from '../../../wave-table-editor';
-import { Chart } from './chart';
-import { useOscillatorContext } from '../../hooks';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
+import WaveTableEditor from '../../../wave-table-editor';
+import { useOscillatorContext } from '../../hooks';
+import { Chart } from './chart';
 
 const Root = styled.div`
   flex: 1 1;

@@ -1,8 +1,8 @@
 import React from 'react';
 import { useObservable } from '@waveform/rxjs-react';
 import { LineChart, Line, XAxis, YAxis } from '@waveform/ui-kit';
-import { useAudiofileWavePicker, useAudiofileWavetable } from '../modules';
 import styled from 'styled-components';
+import { useAudiofileWavePicker, useAudiofileWavetable } from '../modules';
 import { RxHandle } from '../../../common/components';
 
 const Root = styled.div`

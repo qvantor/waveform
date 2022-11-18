@@ -1,9 +1,9 @@
 import React from 'react';
 import styled from 'styled-components';
 import { Section, theme } from '@waveform/ui-kit';
+import { useBehaviorSubject } from '@waveform/rxjs-react';
 import { Oscillator } from '../../oscillator';
 import { useOscillator1, useOscillator2 } from '../../common/modules';
-import { useBehaviorSubject } from '@waveform/rxjs-react';
 
 interface OscillatorComponentParams {
   useOscillator: typeof useOscillator1;

@@ -1,6 +1,10 @@
 import React from 'react';
 import styled from 'styled-components';
 import { PianoKeyboard, AdsrEnvelope, Section, VolumeAnalyser, FqAnalyser, theme } from '@waveform/ui-kit';
+import { useBehaviorSubject } from '@waveform/rxjs-react';
+import { number } from '@waveform/math';
+import { useApp } from '../app';
+import { Header , RxHandle } from '../common/components';
 import {
   SynthProvider,
   InputControllerProvider,
@@ -17,12 +21,7 @@ import {
   MidiControllerProvider,
 } from './common/modules';
 import { FilterProvider, FilterSection } from './filter';
-import { useApp } from '../app';
-import { Header } from '../common/components';
-import { RxHandle } from '../common/components';
-import { useBehaviorSubject } from '@waveform/rxjs-react';
 import { OscillatorsContainer } from './synth/components';
-import { number } from '@waveform/math';
 import { VoicingSection } from './voicing';
 
 const Root = styled.div`

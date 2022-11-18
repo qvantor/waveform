@@ -1,6 +1,5 @@
 import { Subject } from 'rxjs';
-import { rxModel, rxModelReact } from '@waveform/rxjs-react';
-import { ObjectBS } from '@waveform/rxjs-react';
+import { rxModel, rxModelReact , ObjectBS } from '@waveform/rxjs-react';
 import { Note, Notes } from '@waveform/ui-kit';
 
 const inputController = () =>

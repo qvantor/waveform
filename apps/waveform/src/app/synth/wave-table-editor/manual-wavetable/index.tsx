@@ -1,7 +1,7 @@
 import React from 'react';
+import { useOscillatorContext } from '../../oscillator';
 import { ManualWavetableProvider } from './modules';
 import { ManualWavetable } from './components';
-import { useOscillatorContext } from '../../oscillator';
 
 export default () => {
   const oscillator = useOscillatorContext();

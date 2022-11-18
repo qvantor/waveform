@@ -1,10 +1,10 @@
 import { Note } from '@waveform/ui-kit';
 import { PrimitiveBS, rxModel, rxModelReact } from '@waveform/rxjs-react';
+import { getFq, stringToNote, noteToString } from '../../services';
 import { InputControllerModule } from './input-controller';
 import { AdsrEnvelopeModule, AdsrEnvelopeModel } from './adsr-envelope';
 import { OscillatorModel, OscillatorModule } from './oscillator';
 import { SynthCoreModule } from './synth-core';
-import { getFq, stringToNote, noteToString } from '../../services';
 
 // @todo refactor and decompose that file
 interface Deps {
