@@ -10,7 +10,7 @@ export const rxModel = <
   I
 >(
   model: State<M, I>,
-  initializers: Initializers<M, A> = { actions: [], subscriptions: [], plugins: [] }
+  initializers: Initializers<M, A> = { actions: [], subscriptions: [], plugins: [], destroy: [] }
 ): ModelFactory<M, A, I> => {
   const cloneSelf = <NA>(
     model: State<M, I>,
@@ -19,7 +19,8 @@ export const rxModel = <
     const actions = [...initializers.actions, ...(opts.actions ?? [])] as ((model: M) => A & NA)[];
     const subscriptions = [...initializers.subscriptions, ...(opts.subscriptions ?? [])];
     const plugins = [...initializers.plugins, ...(opts.plugins ?? [])];
-    return rxModel(model, { actions, subscriptions, plugins });
+    const destroy = [...initializers.destroy, ...(opts.destroy ?? [])];
+    return rxModel(model, { actions, subscriptions, plugins, destroy });
   };
 
   const actions = <NA>(fn: (model: M) => NA) => cloneSelf(model, { actions: [fn] });
@@ -27,6 +28,7 @@ export const rxModel = <
     cloneSelf(model, { subscriptions: [fn] });
   const plugins = (plugin: Plugin<M> | Array<Plugin<M>>) =>
     cloneSelf(model, { plugins: Array.isArray(plugin) ? plugin : [plugin] });
+  const destroy = (fn: (model: M) => void) => cloneSelf(model, { destroy: [fn] });
 
   const init = (name: string, initial: I): ModelInternal<M, A> => {
     const meta = { name, active: true };
@@ -37,6 +39,7 @@ export const rxModel = <
 
     const stop = () => {
       meta.active = false;
+      initializers.destroy.forEach(fn => fn(modelValue))
       subscriptions.forEach((subscription) => subscription.unsubscribe());
       initializers.plugins.forEach((plugin) => plugin?.onStop?.(modelValue, meta));
     };
@@ -47,5 +50,6 @@ export const rxModel = <
     actions,
     subscriptions,
     plugins,
+    destroy,
   };
 };

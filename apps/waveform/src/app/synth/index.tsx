@@ -14,6 +14,7 @@ import {
   KeyboardControllerProvider,
   SynthCoreProvider,
   useSynthCore,
+  MidiControllerProvider,
 } from './common/modules';
 import { FilterProvider, FilterSection } from './filter';
 import { useApp } from '../app';
@@ -88,23 +89,25 @@ const Internal = () => {
   const oscillator2 = useOscillator2();
 
   return (
-    <FilterProvider initial={{}} synthCore={synthCore}>
-      <KeyboardControllerProvider initial={{}} app={app} inputController={inputController}>
-        <SynthProvider
-          initial={{}}
-          inputController={inputController}
-          adsrEnvelope={adsrEnvelope}
-          oscillator={[oscillator1, oscillator2]}
-          synthCore={synthCore}
-        >
-          <Root>
-            <OscillatorsContainer />
-            <AdsrEnvelopeInternal />
-            <PianoInternal />
-          </Root>
-        </SynthProvider>
-      </KeyboardControllerProvider>
-    </FilterProvider>
+    <MidiControllerProvider initial={{}} inputController={inputController}>
+      <FilterProvider initial={{}} synthCore={synthCore}>
+        <KeyboardControllerProvider initial={{}} app={app} inputController={inputController}>
+          <SynthProvider
+            initial={{}}
+            inputController={inputController}
+            adsrEnvelope={adsrEnvelope}
+            oscillator={[oscillator1, oscillator2]}
+            synthCore={synthCore}
+          >
+            <Root>
+              <OscillatorsContainer />
+              <AdsrEnvelopeInternal />
+              <PianoInternal />
+            </Root>
+          </SynthProvider>
+        </KeyboardControllerProvider>
+      </FilterProvider>
+    </MidiControllerProvider>
   );
 };
 
