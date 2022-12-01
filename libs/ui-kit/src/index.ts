@@ -13,7 +13,7 @@ export { Section } from './section';
 export { VolumeAnalyser } from './volume-analyser';
 export { FqAnalyser } from './fq-analyser';
 export { Filter } from './filter';
-export { Select } from './select';
+export { Select, CascadeSelect } from './select';
 export { DraggableNumber } from './draggable-number';
 export { Checkbox } from './checkbox';
 export { theme } from './common/constants';
@@ -21,5 +21,6 @@ export * from './common/styles';
 export * from './common/types';
 
 export type { FilterNumerics, FilterRange, FilterRanges, FilterParams } from './filter';
+export type { CascadeOption } from './select';
 export type { HandleProps } from './handle';
 export type { Theme } from './common/constants';

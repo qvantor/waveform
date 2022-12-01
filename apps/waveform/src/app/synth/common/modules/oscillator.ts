@@ -1,5 +1,5 @@
 import { map, mergeMap, mergeWith, BehaviorSubject } from 'rxjs';
-import { ObjectBS, ArrayBS, rxModel, rxModelReact, PrimitiveBS } from '@waveform/rxjs-react';
+import { ObjectBS, rxModel, rxModelReact, PrimitiveBS } from '@waveform/rxjs-react';
 import { generateId, Vector2D, wave } from '@waveform/math';
 import { appSnapshotPlugin } from '../../../app';
 import { SynthCoreModule } from './synth-core';
@@ -10,7 +10,7 @@ interface Dependencies {
 
 // @todo AudioContext should be used as dep
 export const oscillator = ({ synthCore: [{ audioCtx }] }: Dependencies) =>
-  rxModel(({ waveTable, active, current }: { waveTable: number[][]; active: boolean; current: number }) => {
+  rxModel(({ active }: { active: boolean }) => {
     const id = generateId();
     const gainNode = audioCtx.createGain();
     const ranges: Record<'unison' | 'detune' | 'randPhase' | 'octave', Vector2D> = {
@@ -26,8 +26,8 @@ export const oscillator = ({ synthCore: [{ audioCtx }] }: Dependencies) =>
       randPhase: 0,
       octave: 0,
     });
-    const $waveTable = new ArrayBS<ArrayBS<number[]>[]>(waveTable.map((value) => new ArrayBS(value)));
-    const $current = new PrimitiveBS<number>(current);
+    const $waveTable = new BehaviorSubject<BehaviorSubject<number[]>[]>([new BehaviorSubject([0, 1])]);
+    const $current = new PrimitiveBS<number>(0);
     const $periodicWave = new BehaviorSubject<PeriodicWave>(audioCtx.createPeriodicWave([0, 1], [0, 1]));
     const $wave = $current.pipe(
       mergeWith($waveTable),
@@ -48,7 +48,7 @@ export const oscillator = ({ synthCore: [{ audioCtx }] }: Dependencies) =>
       $gain,
     };
   })
-    .actions(({ $osc, $current, $active, $gain }) => ({
+    .actions(({ $osc, $current, $active, $gain, $waveTable }) => ({
       setOscValue: (key: keyof typeof $osc.value, value: number) =>
         $osc.next({
           ...$osc.value,
@@ -57,6 +57,10 @@ export const oscillator = ({ synthCore: [{ audioCtx }] }: Dependencies) =>
       setCurrent: (i: number) => $current.next(i),
       toggleActive: () => $active.next(!$active.value),
       setGain: (value: number) => $gain.next(value),
+      setWaveTable: (wavetable: number[][]) => {
+        $current.next(0);
+        $waveTable.next(wavetable.map((value) => new BehaviorSubject(value)));
+      },
     }))
     .subscriptions(({ $wave, $periodicWave, $gain, gainNode }) => [
       $wave

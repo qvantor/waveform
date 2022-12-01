@@ -10,6 +10,10 @@ export const textLight14 = css`
   font-weight: 200;
 `;
 
+export const text14 = css`
+  font-size: 14px;
+`;
+
 export const text12 = css`
   font-size: 12px;
   line-height: 14px;
