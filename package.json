@@ -25,6 +25,7 @@
     "fft.js": "^4.0.4",
     "hex-to-rgba": "^2.0.1",
     "lodash": "^4.17.21",
+    "pretty-bytes": "^6.0.0",
     "react": "18.2.0",
     "react-dom": "18.2.0",
     "react-hot-toast": "^2.4.0",
