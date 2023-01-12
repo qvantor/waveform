@@ -1,11 +1,9 @@
 import React from 'react';
 import ReactDOM from 'react-dom';
 import styled from 'styled-components';
-import hexToRgba from 'hex-to-rgba';
-import { theme } from '../common/constants';
-import { absoluteCenterX, textLight14 } from '../common/styles';
+import { absoluteCenterX } from '../common/styles';
 
-type Trigger = 'mousedown';
+type Trigger = 'hold' | 'mousedown';
 
 interface Props {
   content: React.ReactNode;
@@ -23,28 +21,50 @@ const TooltipWrapper = styled.div`
 `;
 
 const TooltipInner = styled.div`
-  ${textLight14};
   ${absoluteCenterX};
   position: absolute;
-  padding: 3px 8px;
-  background: ${hexToRgba(theme.colors.primaryDarkMediumContrast, 0.8)};
-  color: ${theme.colors.white};
-  border-radius: ${theme.borderRadius.m};
-  white-space: nowrap;
 `;
 
-const handle = (trigger: Trigger, element: HTMLElement, show: () => void, hide: () => void) => {
+const handle = (
+  trigger: Trigger,
+  element: HTMLElement,
+  tooltip: HTMLDivElement,
+  setShow: React.Dispatch<React.SetStateAction<boolean>>
+) => {
   switch (trigger) {
-    case 'mousedown': {
+    case 'hold': {
       const hideInternal = (): void => {
         document.removeEventListener('mouseup', hideInternal);
-        hide();
+        setShow(false);
       };
       const showInternal = () => {
         document.addEventListener('mouseup', hideInternal);
-        show();
+        setShow(true);
       };
       element.addEventListener('mousedown', showInternal);
+      return () => {
+        element.removeEventListener('mousedown', showInternal);
+      };
+    }
+    case 'mousedown': {
+      const hideInternal = (e: MouseEvent) => {
+        if (e.target === element) return;
+        if (!(e.target instanceof HTMLElement)) return;
+        if (tooltip.contains(e.target)) return;
+        setShow(false);
+        document.removeEventListener('click', hideInternal);
+      };
+      const showInternal = () => {
+        setShow((value) => {
+          const newValue = !value;
+          newValue
+            ? document.addEventListener('click', hideInternal)
+            : document.removeEventListener('click', hideInternal);
+          return newValue;
+        });
+      };
+      element.addEventListener('mousedown', showInternal);
+
       return () => {
         element.removeEventListener('mousedown', showInternal);
       };
@@ -55,7 +75,7 @@ const handle = (trigger: Trigger, element: HTMLElement, show: () => void, hide: 
 export const Tooltip = ({
   children,
   content,
-  trigger = 'mousedown',
+  trigger = 'hold',
   bottom = -20,
 }: React.PropsWithChildren<Props>) => {
   const [show, setShow] = React.useState(false);
@@ -66,6 +86,7 @@ export const Tooltip = ({
     width: 0,
   });
   const refElement = React.useRef<HTMLElement>(null);
+  const tooltipElement = React.useRef<HTMLDivElement>(null);
   const domNode = React.useMemo(() => {
     let element = document.getElementById(TooltipElementId);
     if (!element) {
@@ -84,13 +105,8 @@ export const Tooltip = ({
   }, [show]);
 
   React.useEffect(() => {
-    if (!refElement.current) return;
-    return handle(
-      trigger,
-      refElement.current,
-      () => setShow(true),
-      () => setShow(false)
-    );
+    if (!refElement.current || !tooltipElement.current) return;
+    return handle(trigger, refElement.current, tooltipElement.current, setShow);
   }, [trigger]);
 
   if (React.Children.count(children) !== 1) throw new Error('Tooltip required exactly one child');
@@ -105,8 +121,8 @@ export const Tooltip = ({
         });
       })}
       {ReactDOM.createPortal(
-        <TooltipWrapper style={{ ...position, opacity: show ? 1 : 0 }}>
-          <TooltipInner style={{ bottom }}>{content}</TooltipInner>
+        <TooltipWrapper style={{ ...position }} ref={tooltipElement}>
+          {show && <TooltipInner style={{ bottom }}>{content}</TooltipInner>}
         </TooltipWrapper>,
         domNode
       )}

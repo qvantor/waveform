@@ -53,7 +53,8 @@
       },
       "configurations": {
         "development": {
-          "buildTarget": "waveform:build:development"
+          "buildTarget": "waveform:build:development",
+          "proxyConfig": "proxy.conf.json"
         },
         "production": {
           "buildTarget": "waveform:build:production",

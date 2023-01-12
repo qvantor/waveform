@@ -1,5 +1,5 @@
 import { Subject } from 'rxjs';
-import { rxModel, rxModelReact , ObjectBS } from '@waveform/rxjs-react';
+import { rxModel, rxModelReact, ObjectBS } from '@waveform/rxjs-react';
 import { Note, Notes } from '@waveform/ui-kit';
 
 const inputController = () =>
@@ -18,7 +18,7 @@ const inputController = () =>
       6: [],
       7: [],
       8: [],
-      9: []
+      9: [],
     });
     return { $pressed, $onPress, $onRelease };
   }).actions(({ $pressed, $onPress, $onRelease }) => ({
@@ -32,7 +32,7 @@ const inputController = () =>
       $onRelease.next(note);
       const octave = $pressed.value[note[0]];
       $pressed.next({ ...$pressed.value, [note[0]]: octave.filter((oNote) => oNote !== note[1]) });
-    }
+    },
   }));
 
 export const { ModelProvider: InputControllerProvider, useModel: useInputController } = rxModelReact(

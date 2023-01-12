@@ -34,8 +34,8 @@ export const LoadFile = ({ onLoad }: Props) => {
   const [{ audioCtx }] = useSynthCore();
   const bufferToAudio = async (buffer: ArrayBuffer, name?: string) => {
     const audioBuffer = await audioCtx.decodeAudioData(buffer);
-    if (audioBuffer.duration > 2) {
-      toast.error(`${name ?? 'File'} duration is bigger than 2 seconds`);
+    if (audioBuffer.duration > 12) {
+      toast.error(`${name ?? 'File'} duration is bigger than 12 seconds`);
       return;
     }
     const data = audioBuffer.getChannelData(0);

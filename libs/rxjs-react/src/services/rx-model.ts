@@ -39,7 +39,7 @@ export const rxModel = <
 
     const stop = () => {
       meta.active = false;
-      initializers.destroy.forEach(fn => fn(modelValue))
+      initializers.destroy.forEach((fn) => fn(modelValue));
       subscriptions.forEach((subscription) => subscription.unsubscribe());
       initializers.plugins.forEach((plugin) => plugin?.onStop?.(modelValue, meta));
     };

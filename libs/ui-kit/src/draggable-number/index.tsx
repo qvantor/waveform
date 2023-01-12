@@ -2,9 +2,9 @@ import React from 'react';
 import cls from 'classnames';
 import { CaretUpOutlined, CaretDownOutlined } from '@ant-design/icons';
 import styled from 'styled-components';
+import { number, vector2d, Vector2D } from '@waveform/math';
 import { text10 } from '../common/styles';
 import { theme } from '../common/constants';
-import { number, vector2d, Vector2D } from '@waveform/math';
 
 interface Props {
   value: number;

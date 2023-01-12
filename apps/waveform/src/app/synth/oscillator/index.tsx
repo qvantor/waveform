@@ -1,12 +1,12 @@
 import React from 'react';
 import styled from 'styled-components';
-import { Handle, DraggableNumber, Select } from '@waveform/ui-kit';
+import { Handle, DraggableNumber } from '@waveform/ui-kit';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
 import { number } from '@waveform/math';
 import { OscillatorActions, OscillatorModel, useOscillator1 } from '../common/modules';
 import { RxHandle } from '../../common/components';
 import { OscillatorContext, useOscillatorContext } from './hooks';
-import { Wave } from './components';
+import { Wave, WaveSelector } from './components';
 
 export { useOscillatorContext };
 
@@ -46,6 +46,8 @@ export const Oscillator = ({
   setCurrent,
   setGain,
 }: Props) => {
+  // const wavetables = useWavetables();
+
   const oscillator = useOscillator();
   const osc = useBehaviorSubject($osc);
   const wavetable = useBehaviorSubject($waveTable);
@@ -62,7 +64,7 @@ export const Oscillator = ({
             range={ranges.octave}
             onChange={(value) => setOscValue('octave', value)}
           />
-          <Select value='basic' options={[{ name: 'Basic waves', value: 'basic' }]} onChange={() => null} />
+          <WaveSelector />
         </TopControls>
         <Wave />
         <Handles>
