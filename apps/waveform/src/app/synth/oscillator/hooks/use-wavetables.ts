@@ -27,7 +27,7 @@ export const useWavetables = () => {
   const { data } = useQuery<Element[]>({
     queryKey: ['wavetables'],
     queryFn: () =>
-      fetch('http://localhost:8888/.netlify/functions/get-wavetables-list').then((res) => res.json()),
+      fetch('/.netlify/functions/get-wavetables-list').then((res) => res.json()),
     staleTime: 24 * 60 * 60 * 1000,
   });
   return wavetablesToOptions(data ?? []);

@@ -54,11 +54,12 @@ const ArrowIcons = styled.div`
 interface Props {
   prev: () => void;
   next: () => void;
+  className?: string;
 }
 
-export const SelectDumb = ({ prev, next, children }: React.PropsWithChildren<Props>) => {
+export const SelectDumb = ({ prev, next, children, className }: React.PropsWithChildren<Props>) => {
   return (
-    <SelectContainer>
+    <SelectContainer className={className}>
       <ArrowIcons>
         <button onClick={prev}>
           <LeftOutlined />

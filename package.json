@@ -3,7 +3,8 @@
   "version": "0.0.0",
   "license": "MIT",
   "scripts": {
-    "start": "concurrently -k -p \"[{name}]\" -n \"api,client\" -c  \"yellow.bold,green.bold\" \"netlify dev\" \"nx serve\"",
+    "start": "concurrently -k -p \"[{name}]\" -n \"api,client\" -c  \"yellow.bold,green.bold\" \"netlify dev\" \"npm run client:start\"",
+    "client:start": "nx serve",
     "build": "nx build",
     "test": "nx test",
     "prettier:check": "prettier -l './apps/**/*.{ts,tsx}' './libs/**/*.{ts,tsx}'",

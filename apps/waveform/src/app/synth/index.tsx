@@ -112,9 +112,14 @@ const Internal = () => {
 
 const OscillatorInternal = ({ children }: React.PropsWithChildren) => {
   const synthCore = useSynthCore();
+  const initialWavePath = [
+    'ESW Core Tables',
+    'Basics',
+    'ESW Core Tables/Basics/ESW Basics - Saw Collection.wav',
+  ];
   return (
-    <Oscillator1Provider initial={{ active: true }} synthCore={synthCore}>
-      <Oscillator2Provider initial={{ active: false }} synthCore={synthCore}>
+    <Oscillator1Provider initial={{ initialWavePath, active: true }} synthCore={synthCore}>
+      <Oscillator2Provider initial={{ initialWavePath, active: false }} synthCore={synthCore}>
         {children}
       </Oscillator2Provider>
     </Oscillator1Provider>

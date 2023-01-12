@@ -1,16 +1,14 @@
 import React from 'react';
 import { CascadeOption, CascadeSelect } from '@waveform/ui-kit';
-import { useWavetables, useWavetable } from '../hooks';
+import { useBehaviorSubject } from '@waveform/rxjs-react';
+import { useWavetables, useWavetable, useOscillatorContext } from '../hooks';
 
 export const WaveSelector = () => {
   const wavetables = useWavetables();
-  const [keys, setKeys] = React.useState<(string | number)[]>([
-    'Echo Sound Works Core Tables',
-    'Basics',
-    'ESW Core Tables/Basics/ESW Basics - Saw Collection.wav',
-  ]);
+  const [{ $waveTablePath }, { setWaveTablePath }] = useOscillatorContext();
+  const waveTablePath = useBehaviorSubject($waveTablePath);
   const { label, value } = React.useMemo(() => {
-    const { values } = keys.reduce<{ options?: CascadeOption[]; values: CascadeOption[] }>(
+    const { values } = waveTablePath.reduce<{ options?: CascadeOption[]; values: CascadeOption[] }>(
       (sum, key) => {
         if (!sum.options) return sum;
         const value = sum.options.find((option) => option.value === key);
@@ -27,11 +25,11 @@ export const WaveSelector = () => {
     );
     if (values.length === 0) return { label: 'Loading...', value: null };
     return values[values.length - 1];
-  }, [keys, wavetables]);
+  }, [waveTablePath, wavetables]);
 
-  useWavetable(value);
+  const loading = useWavetable(value);
   return (
-    <CascadeSelect options={wavetables} value={keys} setValue={setKeys}>
+    <CascadeSelect options={wavetables} value={waveTablePath} setValue={setWaveTablePath} loading={loading}>
       {label}
     </CascadeSelect>
   );
