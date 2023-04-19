@@ -1,14 +1,9 @@
 import { fromEvent, filter, tap } from 'rxjs';
 import toast from 'react-hot-toast';
 import { rxModel, rxModelReact } from '@waveform/rxjs-react';
-import { getSnapshot, setInitSnapshot } from '../plugins/snapshot';
-
-const storageKey = 'Waveform';
+import { saveUrlSnapshot } from '../plugins/snapshot';
 
 const appModel = () => {
-  const value = localStorage.getItem(storageKey);
-  if (value) setInitSnapshot(value);
-
   return rxModel(() => ({
     $keyDown: fromEvent<KeyboardEvent>(document, 'keydown'),
     $keyUp: fromEvent<KeyboardEvent>(document, 'keyup'),
@@ -16,7 +11,7 @@ const appModel = () => {
     .actions(() => ({
       save: () => {
         toast.success('Saved successfully');
-        localStorage.setItem(storageKey, getSnapshot());
+        saveUrlSnapshot();
       },
     }))
     .subscriptions(({ $keyUp, $keyDown }, { save }) => [

@@ -1,1 +1,1 @@
-export { snapshotPlugin } from './snapshot';
+export { searchParamsSnapshotPlugin } from './search-params-snapshot';
