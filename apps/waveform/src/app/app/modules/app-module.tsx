@@ -10,14 +10,15 @@ const appModel = () => {
   }))
     .actions(() => ({
       save: () => {
-        toast.success('Saved successfully');
+        toast.success('Preset has been saved and the URL has been copied to the clipboard.');
         saveUrlSnapshot();
+        navigator.clipboard.writeText(window.location.href);
       },
     }))
     .subscriptions(({ $keyUp, $keyDown }, { save }) => [
       $keyDown
         .pipe(
-          filter((e) => e.metaKey && e.code === 'KeyS'),
+          filter((e) => (e.metaKey || e.ctrlKey) && e.code === 'KeyS'),
           tap((e) => e.preventDefault())
         )
         .subscribe(save),

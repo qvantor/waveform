@@ -23,7 +23,7 @@ import {
 import { FilterProvider, FilterSection } from './filter';
 import { OscillatorsContainer } from './synth/components';
 import { VoicingSection } from './voicing';
-import { Midi } from './midi';
+import { Settings } from './settings';
 
 const Root = styled.div`
   display: grid;
@@ -134,7 +134,7 @@ const HeaderInternal = () => {
     <Header>
       <HeaderEq audioCtx={audioCtx} master={masterGain} />
       <HeaderContainer>
-        <Midi />
+        <Settings />
         <RxHandle
           min={0}
           max={1.3}
