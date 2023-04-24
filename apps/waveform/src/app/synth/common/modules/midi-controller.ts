@@ -86,8 +86,8 @@ export const midiController = ({ inputController: [, { onPress, onRelease }] }: 
                 .pipe(filter((e) => e.data.length === 3))
                 .subscribe((e) => {
                   const [control, midi] = e.data;
-                  if (control === 146) onPress(midiToNote(midi));
-                  if (control === 130) onRelease(midiToNote(midi));
+                  if (control >= 144 && control <= 159) onPress(midiToNote(midi));
+                  if (control >= 128 && control <= 143) onRelease(midiToNote(midi));
                 }),
             ]);
           }),
