@@ -1,6 +1,7 @@
 import { Note } from '@waveform/ui-kit';
 import { PrimitiveBS, rxModel, rxModelReact } from '@waveform/rxjs-react';
 import { getFq, stringToNote, noteToString } from '../../services';
+import { urlSnapshotPlugin } from '../../../app';
 import { InputControllerModule } from './input-controller';
 import { AdsrEnvelopeModule, AdsrEnvelopeModel } from './adsr-envelope';
 import { OscillatorModel, OscillatorModule } from './oscillator';
@@ -390,6 +391,23 @@ const synth = ({
           $periodicWave.subscribe(voicing.setWave(id)),
         ])
         .flat(),
-    ]);
+    ])
+    .plugins(
+      urlSnapshotPlugin({
+        prefix: 'v',
+        modelToSnap: ({ $legato, $portamento, $voicesCount }) => {
+          return {
+            leg: $legato.value,
+            port: $portamento.value,
+            voi: $voicesCount.value,
+          };
+        },
+        applySnap: (snap, { $legato, $portamento, $voicesCount }) => {
+          snap.leg && $legato.next(snap.leg);
+          snap.port && $portamento.next(snap.port);
+          snap.voi && $voicesCount.next(snap.voi);
+        },
+      })
+    );
 
 export const { ModelProvider: SynthProvider, useModel: useSynth } = rxModelReact('synth', synth);

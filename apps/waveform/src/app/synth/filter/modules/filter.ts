@@ -4,7 +4,7 @@ import { FilterRanges, FilterParams } from '@waveform/ui-kit';
 import { ObjectBS, PrimitiveBS, rxModel, rxModelReact } from '@waveform/rxjs-react';
 import { number } from '@waveform/math';
 import { SynthCoreModule } from '../../common/modules/synth-core';
-import { appSnapshotPlugin } from '../../../app';
+import { urlSnapshotPlugin } from '../../../app';
 import { defaultFilterRanges, filterRanges } from '../constants';
 
 interface Dependencies {
@@ -67,5 +67,24 @@ const filter = ({ synthCore: [{ audioCtx }, { addMidNode, removeMidNode }] }: De
         }),
       ]
     )
-    .plugins(appSnapshotPlugin());
+    .plugins(
+      urlSnapshotPlugin({
+        modelToSnap: ({ $active, $filterType, $filter }) => ({
+          a: $active.value,
+          t: $filterType.value,
+          cut: $filter.value.cutoff,
+          gain: $filter.value.gain,
+          res: $filter.value.resonance,
+        }),
+        applySnap: (snap, { $active, $filterType, $filter }) => {
+          snap.a && $active.next(snap.a);
+          snap.t && $filterType.next(snap.t);
+          $filter.next({
+            cutoff: snap.cut ?? 440,
+            resonance: snap.res ?? 0,
+            gain: snap.gain ?? 1,
+          });
+        },
+      })
+    );
 export const { ModelProvider: FilterProvider, useModel: useFilter } = rxModelReact('filter', filter);

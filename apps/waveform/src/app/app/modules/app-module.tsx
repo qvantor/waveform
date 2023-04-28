@@ -1,28 +1,24 @@
 import { fromEvent, filter, tap } from 'rxjs';
 import toast from 'react-hot-toast';
 import { rxModel, rxModelReact } from '@waveform/rxjs-react';
-import { getSnapshot, setInitSnapshot } from '../plugins/snapshot';
-
-const storageKey = 'Waveform';
+import { saveUrlSnapshot } from '../plugins/snapshot';
 
 const appModel = () => {
-  const value = localStorage.getItem(storageKey);
-  if (value) setInitSnapshot(value);
-
   return rxModel(() => ({
     $keyDown: fromEvent<KeyboardEvent>(document, 'keydown'),
     $keyUp: fromEvent<KeyboardEvent>(document, 'keyup'),
   }))
     .actions(() => ({
       save: () => {
-        toast.success('Saved successfully');
-        localStorage.setItem(storageKey, getSnapshot());
+        toast.success('Preset has been saved and the URL has been copied to the clipboard.');
+        saveUrlSnapshot();
+        navigator.clipboard.writeText(window.location.href);
       },
     }))
     .subscriptions(({ $keyUp, $keyDown }, { save }) => [
       $keyDown
         .pipe(
-          filter((e) => e.metaKey && e.code === 'KeyS'),
+          filter((e) => (e.metaKey || e.ctrlKey) && e.code === 'KeyS'),
           tap((e) => e.preventDefault())
         )
         .subscribe(save),

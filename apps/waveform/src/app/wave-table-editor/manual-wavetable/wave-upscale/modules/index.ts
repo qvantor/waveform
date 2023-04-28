@@ -1,7 +1,6 @@
 import { distinctUntilChanged, filter, map, mergeWith } from 'rxjs';
 import { rxModel, rxModelReact, ArrayBS, PrimitiveBS } from '@waveform/rxjs-react';
 import { number, wave } from '@waveform/math';
-import { appSnapshotPlugin } from '../../../../app';
 import { AudioProcessorModule } from '../../../common/modules';
 import { ManualWavetableModule } from '../../modules';
 
@@ -52,8 +51,7 @@ const waveUpscale = ({
         )
         .subscribe($outputWave),
       $outputWave.subscribe(setWave),
-    ])
-    .plugins(appSnapshotPlugin());
+    ]);
 
 export const { ModelProvider: WaveUpscaleProvider, useModel: useWaveUpscale } = rxModelReact(
   'waveUpscale',

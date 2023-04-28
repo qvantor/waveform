@@ -1,7 +1,7 @@
 import { map, mergeMap, mergeWith, BehaviorSubject } from 'rxjs';
 import { ObjectBS, rxModel, rxModelReact, PrimitiveBS, ArrayBS } from '@waveform/rxjs-react';
 import { generateId, Vector2D, wave } from '@waveform/math';
-import { appSnapshotPlugin } from '../../../app';
+import { urlSnapshotPlugin } from '../../../app';
 import { SynthCoreModule } from './synth-core';
 
 interface Dependencies {
@@ -74,15 +74,41 @@ export const oscillator = ({ synthCore: [{ audioCtx }] }: Dependencies) =>
         .subscribe($periodicWave),
       $gain.subscribe((value) => gainNode.gain.setValueAtTime(value, audioCtx.currentTime)),
     ])
-    .plugins(appSnapshotPlugin());
+    .plugins(
+      urlSnapshotPlugin({
+        modelToSnap: (model) => {
+          return {
+            a: model.$active.value,
+            p: model.$waveTablePath.value.map(String),
+            w: model.$current.value,
+
+            o: model.$osc.value.octave,
+            d: model.$osc.value.detune,
+            u: model.$osc.value.unison,
+            r: model.$osc.value.randPhase,
+          };
+        },
+        applySnap: (snap, model) => {
+          snap.a && model.$active.next(snap.a);
+          snap.p && model.$waveTablePath.next(snap.p);
+          snap.w && model.$current.next(snap.w);
+          model.$osc.next({
+            octave: snap.o ?? 0,
+            detune: snap.d ?? 5,
+            unison: snap.u ?? 2,
+            randPhase: snap.r ?? 0,
+          });
+        },
+      })
+    );
 
 export const { ModelProvider: Oscillator1Provider, useModel: useOscillator1 } = rxModelReact(
-  'oscillator1',
+  'osc1',
   oscillator
 );
 
 export const { ModelProvider: Oscillator2Provider, useModel: useOscillator2 } = rxModelReact(
-  'oscillator2',
+  'osc2',
   oscillator
 );
 

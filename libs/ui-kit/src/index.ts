@@ -16,6 +16,7 @@ export { Filter } from './filter';
 export { Select, CascadeSelect } from './select';
 export { DraggableNumber } from './draggable-number';
 export { Checkbox } from './checkbox';
+export { IconButton } from './icon-button';
 export { theme } from './common/constants';
 export * from './common/styles';
 export * from './common/types';

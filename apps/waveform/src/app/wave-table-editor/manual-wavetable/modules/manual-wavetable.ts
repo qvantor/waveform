@@ -1,21 +1,18 @@
 import { ArrayBS, rxModelReact } from '@waveform/rxjs-react';
 import { wavetable } from '../../common/modules';
-import { appSnapshotPlugin } from '../../../app';
 
 const manualWavetable = () =>
-  wavetable
-    .actions(({ $waveTable, $current }) => ({
-      updateCurrentWave: ([i, value]: [number, number]) => {
-        const $wave = $waveTable.value[$current.value];
-        const newWave = [...$wave.value];
-        newWave[i] = value;
-        $wave.next(newWave);
-      },
-      cloneCurrent: () => {
-        $waveTable.next([...$waveTable.value, new ArrayBS([...$waveTable.value[$current.value].value])]);
-      },
-    }))
-    .plugins(appSnapshotPlugin());
+  wavetable.actions(({ $waveTable, $current }) => ({
+    updateCurrentWave: ([i, value]: [number, number]) => {
+      const $wave = $waveTable.value[$current.value];
+      const newWave = [...$wave.value];
+      newWave[i] = value;
+      $wave.next(newWave);
+    },
+    cloneCurrent: () => {
+      $waveTable.next([...$waveTable.value, new ArrayBS([...$waveTable.value[$current.value].value])]);
+    },
+  }));
 
 export const { ModelProvider: ManualWavetableProvider, useModel: useManualWavetable } = rxModelReact(
   'manualWavetable',

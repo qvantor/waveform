@@ -23,6 +23,7 @@ import {
 import { FilterProvider, FilterSection } from './filter';
 import { OscillatorsContainer } from './synth/components';
 import { VoicingSection } from './voicing';
+import { Settings } from './settings';
 
 const Root = styled.div`
   display: grid;
@@ -98,6 +99,7 @@ const Internal = () => {
             oscillator={[oscillator1, oscillator2]}
             synthCore={synthCore}
           >
+            <HeaderInternal />
             <Root>
               <OscillatorsContainer />
               <AdsrEnvelopeInternal />
@@ -132,6 +134,7 @@ const HeaderInternal = () => {
     <Header>
       <HeaderEq audioCtx={audioCtx} master={masterGain} />
       <HeaderContainer>
+        <Settings />
         <RxHandle
           min={0}
           max={1.3}
@@ -152,7 +155,6 @@ export default () => (
     <SynthCoreProvider initial={{}}>
       <AdsrEnvelopeProvider initial={{}}>
         <OscillatorInternal>
-          <HeaderInternal />
           <Internal />
         </OscillatorInternal>
       </AdsrEnvelopeProvider>
