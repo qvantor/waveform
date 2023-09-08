@@ -15,9 +15,8 @@ export const useWavetable = (id: string | null) => {
       return await fetch(formLink).then(async (res) => {
         const buffer = await res.arrayBuffer();
         const audioBuffer = await audioCtx.decodeAudioData(buffer);
-        if (audioBuffer.length % WAVE_SIZE !== 0) throw new Error('sample format is invalid');
         const data = audioBuffer.getChannelData(0);
-        const wavesCount = audioBuffer.length / WAVE_SIZE;
+        const wavesCount = Math.floor(audioBuffer.length / WAVE_SIZE);
         const wavetable = [];
         for (let i = 0; i < wavesCount; i++)
           wavetable.push([...data.slice(i * WAVE_SIZE, (i + 1) * WAVE_SIZE)]);
