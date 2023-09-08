@@ -50,7 +50,7 @@
       "options": {
         "buildTarget": "waveform:build",
         "hmr": true,
-        "port": 5200
+        "port": 4200
       },
       "configurations": {
         "development": {
