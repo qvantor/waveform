@@ -9,8 +9,9 @@ export const client = new S3Client({
 });
 
 export const getHeaders = () => {
-  if (process.env.URL.includes('localhost'))
-    return {
-      'Access-Control-Allow-Origin': '*',
-    };
+  return {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Methods': 'GET, OPTION',
+  };
 };
