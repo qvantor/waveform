@@ -11,4 +11,4 @@ Experimental wavetable synth written on TS and Web Audio.
 * 2 panoramic osc with detune, unison up to 8 voices in each
 * 7 basic audio filters
 * input from onscreen, qwerty or midi keyboard
-* envelop support
+* envelope support
