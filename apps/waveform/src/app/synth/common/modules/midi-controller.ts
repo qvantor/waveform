@@ -1,4 +1,4 @@
-import { fromEvent, BehaviorSubject, filter, Subject, map, Subscription } from 'rxjs';
+import { fromEvent, BehaviorSubject, filter, Subject, map, skip, Subscription } from 'rxjs';
 import { rxModel, rxModelReact } from '@waveform/rxjs-react';
 import { Note, Notes } from '@waveform/ui-kit';
 import toast from 'react-hot-toast';
@@ -14,12 +14,14 @@ interface Dependencies {
   inputController: InputControllerModule;
 }
 
-export const midiController = ({ inputController: [, { onPress, onRelease }] }: Dependencies) =>
+export const midiController = ({ inputController: [{ $pressed }, { onPress, onRelease }] }: Dependencies) =>
   rxModel(() => {
     const $midiAccess = new BehaviorSubject<WebMidi.MIDIAccess | null>(null);
     const $midiInputs = new BehaviorSubject<WebMidi.MIDIInput[]>([]);
     const $midiConnectionEvent = new Subject<WebMidi.MIDIConnectionEvent>();
     const $selectedInputId = new BehaviorSubject<string | null>(null);
+    // null means all channels
+    const $selectedChannel = new BehaviorSubject<number | null>(null);
 
     const $midiSubscription = new BehaviorSubject<
       [target: WebMidi.MIDIInput, subscription: Subscription] | null
@@ -35,14 +37,29 @@ export const midiController = ({ inputController: [, { onPress, onRelease }] }: 
         // permission denied or no MIDI support (common on mobile): stay without MIDI input
         .catch(() => undefined);
     }
-    return { $midiAccess, $midiInputs, $midiConnectionEvent, $midiSubscription, $selectedInputId };
+    return {
+      $midiAccess,
+      $midiInputs,
+      $midiConnectionEvent,
+      $midiSubscription,
+      $selectedInputId,
+      $selectedChannel,
+    };
   })
-    .actions(({ $selectedInputId }) => ({
+    .actions(({ $selectedInputId, $selectedChannel }) => ({
       selectMidiInput: (id?: string) => $selectedInputId.next(id ?? null),
+      selectMidiChannel: (channel: number | null) => $selectedChannel.next(channel),
     }))
     .subscriptions(
       (
-        { $midiAccess, $midiInputs, $midiConnectionEvent, $midiSubscription, $selectedInputId },
+        {
+          $midiAccess,
+          $midiInputs,
+          $midiConnectionEvent,
+          $midiSubscription,
+          $selectedInputId,
+          $selectedChannel,
+        },
         { selectMidiInput }
       ) => [
         // initial midi inputs
@@ -89,6 +106,8 @@ export const midiController = ({ inputController: [, { onPress, onRelease }] }: 
                 .pipe(filter((e) => e.data.length === 3))
                 .subscribe((e) => {
                   const [control, midi, velocity] = e.data;
+                  const channel = control & 0b1111;
+                  if ($selectedChannel.value !== null && channel !== $selectedChannel.value) return;
                   const noteOn = control >= 144 && control <= 159;
                   // many devices send note on with velocity 0 instead of note off
                   if (noteOn && velocity > 0) onPress(midiToNote(midi));
@@ -96,6 +115,15 @@ export const midiController = ({ inputController: [, { onPress, onRelease }] }: 
                 }),
             ]);
           }),
+
+        // notes held on the previous channel would never get their note off
+        $selectedChannel
+          .pipe(skip(1))
+          .subscribe(() =>
+            Object.entries($pressed.value).forEach(([octave, notes]) =>
+              notes.forEach((note) => onRelease([Number(octave), note]))
+            )
+          ),
       ]
     )
     .destroy(({ $midiSubscription }) => {

@@ -4,11 +4,16 @@ import { MidiInput } from './midi-input';
 
 const mockMidiInputs = new BehaviorSubject<WebMidi.MIDIInput[]>([]);
 const mockSelectedInputId = new BehaviorSubject<string | null>(null);
+const mockSelectedChannel = new BehaviorSubject<number | null>(null);
 
 jest.mock('../common/modules', () => ({
   useMidiController: () => [
-    { $midiInputs: mockMidiInputs, $selectedInputId: mockSelectedInputId },
-    { selectMidiInput: jest.fn() },
+    {
+      $midiInputs: mockMidiInputs,
+      $selectedInputId: mockSelectedInputId,
+      $selectedChannel: mockSelectedChannel,
+    },
+    { selectMidiInput: jest.fn(), selectMidiChannel: jest.fn() },
   ],
 }));
 
