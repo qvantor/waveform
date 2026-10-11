@@ -1,3 +1,8 @@
 import { searchParamsSnapshotPlugin } from '@waveform/rxjs-react';
 
-export const { plugin: urlSnapshotPlugin, saveUrlSnapshot } = searchParamsSnapshotPlugin();
+export const {
+  plugin: urlSnapshotPlugin,
+  getSnapshot,
+  applySnapshot,
+  $changes: $snapshotChanges,
+} = searchParamsSnapshotPlugin();

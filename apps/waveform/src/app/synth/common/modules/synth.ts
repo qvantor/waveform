@@ -395,17 +395,17 @@ const synth = ({
     .plugins(
       urlSnapshotPlugin({
         prefix: 'v',
-        modelToSnap: ({ $legato, $portamento, $voicesCount }) => {
+        modelToSnap: ({ $legato, $portamento, $maxVoices }) => {
           return {
             leg: $legato.value,
             port: $portamento.value,
-            voi: $voicesCount.value,
+            max: $maxVoices.value,
           };
         },
-        applySnap: (snap, { $legato, $portamento, $voicesCount }) => {
-          snap.leg && $legato.next(snap.leg);
-          snap.port && $portamento.next(snap.port);
-          snap.voi && $voicesCount.next(snap.voi);
+        applySnap: (snap, { $legato, $portamento, $maxVoices }) => {
+          snap.leg !== undefined && $legato.next(snap.leg);
+          snap.port !== undefined && $portamento.next(snap.port);
+          snap.max !== undefined && $maxVoices.next(snap.max);
         },
       })
     );

@@ -77,13 +77,14 @@ const filter = ({ synthCore: [{ audioCtx }, { addMidNode, removeMidNode }] }: De
           res: $filter.value.resonance,
         }),
         applySnap: (snap, { $active, $filterType, $filter }) => {
-          snap.a && $active.next(snap.a);
-          snap.t && $filterType.next(snap.t);
+          snap.a !== undefined && $active.next(snap.a);
           $filter.next({
             cutoff: snap.cut ?? 440,
             resonance: snap.res ?? 0,
             gain: snap.gain ?? 1,
           });
+          // type goes after values, so the new values are clamped by the type ranges
+          $filterType.next(snap.t ?? $filterType.value);
         },
       })
     );

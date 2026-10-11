@@ -55,6 +55,11 @@ const keyboardKeys = Object.keys(keyboardToNotes);
 
 const keyFilter = (e: KeyboardEvent) => !(e.metaKey || e.ctrlKey) && keyboardKeys.includes(e.code);
 
+// QWERTY input is suspended while typing into a text field (preset search, preset name, etc.)
+const isTextInput = (target: EventTarget | null) =>
+  target instanceof HTMLElement &&
+  (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
+
 const keyboardController = ({
   app: [{ $keyDown, $keyUp }],
   inputController: [, { onPress, onRelease }],
@@ -62,7 +67,7 @@ const keyboardController = ({
   rxModel({}).subscriptions(() => [
     $keyDown
       .pipe(
-        filter(keyFilter),
+        filter((e) => keyFilter(e) && !isTextInput(e.target)),
         tap((e) => e.preventDefault())
       )
       .subscribe((e) => {
