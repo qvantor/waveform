@@ -45,7 +45,7 @@ const Dirty = styled.span`
   color: ${theme.colors.secondAccent};
 `;
 
-export const PresetPanel = () => {
+export const PresetPanel = ({ className }: { className?: string }) => {
   const [{ $saveRequest }] = useApp();
   const [{ $current, $dirty, $list }, { next, prev }] = usePresets();
   const current = useBehaviorSubject($current);
@@ -71,7 +71,7 @@ export const PresetPanel = () => {
   };
 
   return (
-    <Root>
+    <Root className={className}>
       <IconButton onClick={prev} disabled={list.length === 0}>
         <AiOutlineLeft />
       </IconButton>

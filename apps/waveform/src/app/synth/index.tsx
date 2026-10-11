@@ -1,11 +1,10 @@
 import React from 'react';
 import styled from 'styled-components';
-import { PianoKeyboard, AdsrEnvelope, Section, VolumeAnalyser, FqAnalyser, theme } from '@waveform/ui-kit';
+import { PianoKeyboard, VolumeAnalyser, FqAnalyser, theme, useIsMobile } from '@waveform/ui-kit';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
-import { number } from '@waveform/math';
 import { DEFAULT_WAVETABLE_PATH } from '@waveform/preset-schema';
 import { useApp } from '../app';
-import { Header, RxHandle } from '../common/components';
+import { Header } from '../common/components';
 import { PresetPanel, PresetsProvider } from '../presets';
 import {
   SynthProvider,
@@ -23,9 +22,11 @@ import {
   MidiControllerProvider,
 } from './common/modules';
 import { FilterProvider, FilterSection } from './filter';
-import { OscillatorsContainer } from './synth/components';
+import { OscillatorsContainer, MasterHandle } from './synth/components';
 import { VoicingSection } from './voicing';
 import { Settings } from './settings';
+import { EnvelopeSection } from './envelope';
+import { MobileLayout } from './mobile';
 
 const Root = styled.div`
   display: grid;
@@ -70,20 +71,28 @@ const PianoInternal = () => {
 };
 
 const AdsrEnvelopeInternal = () => {
-  const [{ $envelope }, { setEnvelopeValue }] = useAdsrEnvelope();
-  const envelope = useBehaviorSubject($envelope);
   return (
     <AdsrContainer>
-      <Section name='Envelope'>
-        <AdsrEnvelope {...envelope} onChange={setEnvelopeValue} />
-      </Section>
+      <EnvelopeSection />
       <FilterSection />
       <VoicingSection />
     </AdsrContainer>
   );
 };
 
+const DesktopLayout = () => (
+  <>
+    <HeaderInternal />
+    <Root>
+      <OscillatorsContainer />
+      <AdsrEnvelopeInternal />
+      <PianoInternal />
+    </Root>
+  </>
+);
+
 const Internal = () => {
+  const isMobile = useIsMobile();
   const app = useApp();
   const synthCore = useSynthCore();
   const inputController = useInputController();
@@ -102,14 +111,7 @@ const Internal = () => {
             oscillator={[oscillator1, oscillator2]}
             synthCore={synthCore}
           >
-            <PresetsProvider initial={{}}>
-              <HeaderInternal />
-              <Root>
-                <OscillatorsContainer />
-                <AdsrEnvelopeInternal />
-                <PianoInternal />
-              </Root>
-            </PresetsProvider>
+            <PresetsProvider initial={{}}>{isMobile ? <MobileLayout /> : <DesktopLayout />}</PresetsProvider>
           </SynthProvider>
         </KeyboardControllerProvider>
       </FilterProvider>
@@ -135,22 +137,14 @@ const OscillatorInternal = ({ children }: React.PropsWithChildren) => {
 };
 
 const HeaderInternal = () => {
-  const [{ audioCtx, masterGain, $masterGain }, { setMasterGain }] = useSynthCore();
+  const [{ audioCtx, masterGain }] = useSynthCore();
   return (
     <Header>
       <HeaderEq audioCtx={audioCtx} master={masterGain} />
       <PresetPanel />
       <HeaderContainer>
         <Settings />
-        <RxHandle
-          min={0}
-          max={1.3}
-          $value={$masterGain}
-          onChange={setMasterGain}
-          label='Master'
-          formatValue={(value) => number.percent(number.round(value, 100))}
-          precision={100}
-        />
+        <MasterHandle />
         <VolumeAnalyser audioCtx={audioCtx} master={masterGain} />
       </HeaderContainer>
     </Header>

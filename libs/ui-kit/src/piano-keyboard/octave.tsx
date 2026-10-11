@@ -8,9 +8,11 @@ const Root = styled.div`
   display: flex;
 `;
 
+// key sizes are css variables set on the root: size props would generate a new class for every value
 const KeyWhite = styled.div`
-  width: 40px;
-  height: 100px;
+  width: var(--key-width);
+  height: var(--key-height);
+  flex: 0 0 auto;
   border-radius: 0 0 12px 12px;
   background: ${theme.colors.white};
   box-shadow: inset 0px -2px 3px 1px rgb(127 140 141 / 20%);
@@ -22,7 +24,7 @@ const KeyWhite = styled.div`
 `;
 
 const KeyWhiteOffset = styled(KeyWhite)`
-  margin-left: -10px;
+  margin-left: calc(var(--key-width) / -4);
 `;
 
 const KeyBlack = styled.div`
@@ -30,9 +32,10 @@ const KeyBlack = styled.div`
   background: linear-gradient(45deg, #222 0%, #555 100%);
   border-radius: 0 0 6px 6px;
 
-  height: 50px;
-  width: 20px;
-  margin-left: -10px;
+  height: calc(var(--key-height) / 2);
+  width: calc(var(--key-width) / 2);
+  flex: 0 0 auto;
+  margin-left: calc(var(--key-width) / -4);
   z-index: 1;
 
   &.pressed {
@@ -43,28 +46,21 @@ const KeyBlack = styled.div`
 `;
 
 interface Props {
+  octave: number;
   pressed: Notes[];
-  onPress?: (note: Notes) => void;
-  onRelease?: (note: Notes) => void;
+  keyWidth: number;
+  keyHeight: number;
 }
 
-export const Octave = ({ onPress, onRelease, pressed }: Props) => {
-  const onPressInternal = (note: Notes) => () => {
-    onPress?.(note);
-    const onMouseUp = () => {
-      onRelease?.(note);
-      document.removeEventListener('mouseup', onMouseUp);
-    };
-    document.addEventListener('mouseup', onMouseUp);
-  };
-
+export const Octave = React.memo(({ octave, pressed, keyWidth, keyHeight }: Props) => {
   const keyProps = (note: Notes) => ({
-    onMouseDown: onPressInternal(note),
+    'data-octave': octave,
+    'data-note': note,
     className: cls({ pressed: pressed.includes(note) }),
   });
 
   return (
-    <Root>
+    <Root style={{ '--key-width': `${keyWidth}px`, '--key-height': `${keyHeight}px` } as React.CSSProperties}>
       <KeyWhite {...keyProps('C')} />
       <KeyBlack {...keyProps('C#')} />
       <KeyWhiteOffset {...keyProps('D')} />
@@ -79,4 +75,4 @@ export const Octave = ({ onPress, onRelease, pressed }: Props) => {
       <KeyWhiteOffset {...keyProps('B')} />
     </Root>
   );
-};
+});

@@ -26,11 +26,14 @@ export const midiController = ({ inputController: [, { onPress, onRelease }] }: 
     >(null);
 
     if ('requestMIDIAccess' in navigator) {
-      (async () => {
-        const access = await navigator.requestMIDIAccess();
-        $midiAccess.next(access);
-        access.addEventListener('statechange', (e) => $midiConnectionEvent.next(e));
-      })();
+      navigator
+        .requestMIDIAccess()
+        .then((access) => {
+          $midiAccess.next(access);
+          access.addEventListener('statechange', (e) => $midiConnectionEvent.next(e));
+        })
+        // permission denied or no MIDI support (common on mobile): stay without MIDI input
+        .catch(() => undefined);
     }
     return { $midiAccess, $midiInputs, $midiConnectionEvent, $midiSubscription, $selectedInputId };
   })

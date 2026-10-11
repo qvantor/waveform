@@ -7,6 +7,7 @@ import { number, vector2d } from '@waveform/math';
 import { scaleLinear, scaleLog } from 'd3-scale';
 import { theme } from '../common/constants';
 import { absoluteCenterXY, textLight14 } from '../common/styles';
+import { trackPointer } from '../common/utils';
 import { Tooltip } from '../tooltip';
 import { Label } from '../label';
 
@@ -62,6 +63,7 @@ const Root = styled.div`
   display: flex;
   flex-direction: column;
   align-items: center;
+  touch-action: none;
 
   &.disabled {
     pointer-events: none;
@@ -185,11 +187,10 @@ export const Handle = ({
     return { arcValue, rotateRad };
   }, [commonArcOptions, value, scale, step]);
 
-  const onMouseDown = React.useCallback(
-    (e: React.MouseEvent) => {
+  const onPointerDown = React.useCallback(
+    (e: React.PointerEvent) => {
       const initialPosition = vector2d.fromMouseEvent(e);
-
-      const mouseMove = (e: MouseEvent) => {
+      trackPointer(e, (e) => {
         const current = vector2d.fromMouseEvent(e);
         const diff = vector2d.addition(vector2d.invertY(vector2d.subtract(current, initialPosition)));
         const currValue = step ? scaleMouse(step.indexOf(value * precision)) : scaleMouse(value * precision);
@@ -204,20 +205,14 @@ export const Handle = ({
         prevValue.current = result;
 
         onChange?.(step ? step[result] : result);
-      };
-      const cleanUp = () => {
-        document.removeEventListener('mousemove', mouseMove);
-        document.removeEventListener('mouseup', cleanUp);
-      };
-      document.addEventListener('mousemove', mouseMove);
-      document.addEventListener('mouseup', cleanUp);
+      });
     },
     [step, scaleMouse, value, precision, plotSize, onChange, min, max]
   );
 
   return (
     <Tooltip content={<TooltipContent>{formatValue?.(value) ?? value}</TooltipContent>}>
-      <Root onMouseDown={onMouseDown} className={cls({ disabled: disabled })}>
+      <Root onPointerDown={onPointerDown} className={cls({ disabled: disabled })}>
         <HandleContainer size={size}>
           <HandleCircle style={{ transform: `rotate(${rotateRad}rad)` }} size={size}>
             <HandleCircleInner size={size}>

@@ -2,6 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom';
 import styled from 'styled-components';
 import { absoluteCenterX } from '../common/styles';
+import { trackPointer } from '../common/utils';
 
 type Trigger = 'hold' | 'mousedown';
 
@@ -33,17 +34,13 @@ const handle = (
 ) => {
   switch (trigger) {
     case 'hold': {
-      const hideInternal = (): void => {
-        document.removeEventListener('mouseup', hideInternal);
-        setShow(false);
-      };
-      const showInternal = () => {
-        document.addEventListener('mouseup', hideInternal);
+      const showInternal = (e: PointerEvent) => {
+        trackPointer(e, undefined, () => setShow(false));
         setShow(true);
       };
-      element.addEventListener('mousedown', showInternal);
+      element.addEventListener('pointerdown', showInternal);
       return () => {
-        element.removeEventListener('mousedown', showInternal);
+        element.removeEventListener('pointerdown', showInternal);
       };
     }
     case 'mousedown': {

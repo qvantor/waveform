@@ -31,8 +31,8 @@ const OscillatorComponentFactory =
     );
   };
 
-const Oscillator1 = OscillatorComponentFactory({ name: 'Osc 1', useOscillator: useOscillator1 });
-const Oscillator2 = OscillatorComponentFactory({ name: 'Osc 2', useOscillator: useOscillator2 });
+export const Oscillator1 = OscillatorComponentFactory({ name: 'Osc 1', useOscillator: useOscillator1 });
+export const Oscillator2 = OscillatorComponentFactory({ name: 'Osc 2', useOscillator: useOscillator2 });
 
 export const OscillatorsContainer = () => (
   <Root>

@@ -4,6 +4,7 @@ import { line } from 'd3-shape';
 import styled from 'styled-components';
 import { Vector2D } from '@waveform/math';
 import { theme } from '../../common/constants';
+import { useElementSize } from '../../common/hooks';
 import { LineChartContext } from '../constants';
 
 type Props = {
@@ -32,21 +33,9 @@ export const LineChart = ({
   children,
   ...rest
 }: React.PropsWithChildren<Props>) => {
-  const ref = React.useRef<HTMLDivElement>(null);
+  // observe the element itself: its size may change without a window resize (layout switch on rotation)
+  const [ref, [width, height]] = useElementSize<HTMLDivElement>();
   const [paddingX, paddingY] = padding;
-  const [[width, height], setSize] = React.useState([0, 0]);
-
-  React.useEffect(() => {
-    const onResize = () => {
-      if (!ref.current) return;
-      setSize([ref.current.clientWidth, ref.current.clientHeight]);
-    };
-    onResize();
-    window.addEventListener('resize', onResize);
-    return () => {
-      window.removeEventListener('resize', onResize);
-    };
-  }, []);
 
   const [scaleX, scaleY, lineFn] = React.useMemo(() => {
     const scaleX = scaleLinear([0, width - paddingX * 2]);
