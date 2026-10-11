@@ -3,8 +3,10 @@ import styled from 'styled-components';
 import { PianoKeyboard, AdsrEnvelope, Section, VolumeAnalyser, FqAnalyser, theme } from '@waveform/ui-kit';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
 import { number } from '@waveform/math';
+import { DEFAULT_WAVETABLE_PATH } from '@waveform/preset-schema';
 import { useApp } from '../app';
 import { Header, RxHandle } from '../common/components';
+import { PresetPanel, PresetsProvider } from '../presets';
 import {
   SynthProvider,
   InputControllerProvider,
@@ -54,6 +56,7 @@ const HeaderContainer = styled.div`
 const HeaderEq = styled(FqAnalyser)`
   flex: 1 1;
   height: 100%;
+  margin-left: -20px; // stick to the logo, cancels Header gap
 `;
 
 const PianoInternal = () => {
@@ -99,12 +102,14 @@ const Internal = () => {
             oscillator={[oscillator1, oscillator2]}
             synthCore={synthCore}
           >
-            <HeaderInternal />
-            <Root>
-              <OscillatorsContainer />
-              <AdsrEnvelopeInternal />
-              <PianoInternal />
-            </Root>
+            <PresetsProvider initial={{}}>
+              <HeaderInternal />
+              <Root>
+                <OscillatorsContainer />
+                <AdsrEnvelopeInternal />
+                <PianoInternal />
+              </Root>
+            </PresetsProvider>
           </SynthProvider>
         </KeyboardControllerProvider>
       </FilterProvider>
@@ -114,14 +119,15 @@ const Internal = () => {
 
 const OscillatorInternal = ({ children }: React.PropsWithChildren) => {
   const synthCore = useSynthCore();
-  const initialWavePath = [
-    'ESW Core Tables',
-    'Basics',
-    'ESW Core Tables/Basics/ESW Basics - Saw Collection.wav',
-  ];
   return (
-    <Oscillator1Provider initial={{ initialWavePath, active: true }} synthCore={synthCore}>
-      <Oscillator2Provider initial={{ initialWavePath, active: false }} synthCore={synthCore}>
+    <Oscillator1Provider
+      initial={{ initialWavePath: DEFAULT_WAVETABLE_PATH, active: true }}
+      synthCore={synthCore}
+    >
+      <Oscillator2Provider
+        initial={{ initialWavePath: DEFAULT_WAVETABLE_PATH, active: false }}
+        synthCore={synthCore}
+      >
         {children}
       </Oscillator2Provider>
     </Oscillator1Provider>
@@ -133,6 +139,7 @@ const HeaderInternal = () => {
   return (
     <Header>
       <HeaderEq audioCtx={audioCtx} master={masterGain} />
+      <PresetPanel />
       <HeaderContainer>
         <Settings />
         <RxHandle

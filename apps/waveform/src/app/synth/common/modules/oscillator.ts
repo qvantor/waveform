@@ -60,7 +60,7 @@ export const oscillator = ({ synthCore: [{ audioCtx }] }: Dependencies) =>
       toggleActive: () => $active.next(!$active.value),
       setGain: (value: number) => $gain.next(value),
       setWaveTable: (wavetable: number[][]) => {
-        if (wavetable.length < $current.value) $current.next(wavetable.length - 1);
+        if (wavetable.length <= $current.value) $current.next(wavetable.length - 1);
         $waveTable.next(wavetable.map((value) => new BehaviorSubject(value)));
       },
       setWaveTablePath: (path: (string | number)[]) => $waveTablePath.next(path),
@@ -86,12 +86,14 @@ export const oscillator = ({ synthCore: [{ audioCtx }] }: Dependencies) =>
             d: model.$osc.value.detune,
             u: model.$osc.value.unison,
             r: model.$osc.value.randPhase,
+            g: model.$gain.value,
           };
         },
         applySnap: (snap, model) => {
-          snap.a && model.$active.next(snap.a);
-          snap.p && model.$waveTablePath.next(snap.p);
-          snap.w && model.$current.next(snap.w);
+          snap.a !== undefined && model.$active.next(snap.a);
+          snap.p !== undefined && model.$waveTablePath.next(snap.p);
+          snap.w !== undefined && model.$current.next(snap.w);
+          snap.g !== undefined && model.$gain.next(snap.g);
           model.$osc.next({
             octave: snap.o ?? 0,
             detune: snap.d ?? 5,

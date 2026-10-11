@@ -4,9 +4,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'react-hot-toast';
 import { GlobalStyle, theme } from '@waveform/ui-kit';
 import { AppProvider, useApp } from './modules';
-import { urlSnapshotPlugin, saveUrlSnapshot } from './plugins/snapshot';
+import { urlSnapshotPlugin, getSnapshot, applySnapshot, $snapshotChanges } from './plugins/snapshot';
 
-export { AppProvider, useApp, urlSnapshotPlugin, saveUrlSnapshot };
+export { AppProvider, useApp, urlSnapshotPlugin, getSnapshot, applySnapshot, $snapshotChanges };
 
 const queryClient = new QueryClient();
 

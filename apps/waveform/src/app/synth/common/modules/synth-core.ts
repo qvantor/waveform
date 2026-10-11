@@ -34,7 +34,9 @@ const synthCore = () =>
   })
     .actions(({ $masterGain, $midNodes }) => ({
       setMasterGain: (value: number) => $masterGain.next(value),
-      addMidNode: (node: AudioNode) => $midNodes.next([...$midNodes.value, node]),
+      addMidNode: (node: AudioNode) => {
+        if (!$midNodes.value.includes(node)) $midNodes.next([...$midNodes.value, node]);
+      },
       removeMidNode: (node: AudioNode) => {
         node.disconnect();
         $midNodes.next($midNodes.value.filter((midNode) => midNode !== node));
