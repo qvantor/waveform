@@ -18,3 +18,22 @@ export const trackPointer = (
   document.addEventListener('pointerup', end);
   document.addEventListener('pointercancel', end);
 };
+
+// lets a control follow one pointer at a time: extra fingers and non-main mouse buttons are ignored
+// while it is held. Returns false when the pointer is not tracked.
+export const singlePointerTracker = () => {
+  let active = false;
+  return (
+    e: { pointerId: number; button: number },
+    onMove?: (e: PointerEvent) => void,
+    onEnd?: () => void
+  ) => {
+    if (active || e.button !== 0) return false;
+    active = true;
+    trackPointer(e, onMove, () => {
+      active = false;
+      onEnd?.();
+    });
+    return true;
+  };
+};

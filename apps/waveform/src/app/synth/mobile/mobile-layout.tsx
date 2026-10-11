@@ -11,9 +11,11 @@ const Body = styled.div`
   overflow: hidden;
 `;
 
+const isMode = (value: unknown): value is MobileMode => value === 'synth' || value === 'keys';
+
 export const MobileLayout = () => {
   const portrait = useIsPortrait();
-  const [mode, setMode] = useLocalStorageState<MobileMode>('mobileMode', 'keys');
+  const [mode, setMode] = useLocalStorageState<MobileMode>('mobileMode', 'keys', isMode);
   return (
     <>
       <MobileHeader portrait={portrait} mode={mode} onModeChange={setMode} />

@@ -7,7 +7,7 @@ import { number, vector2d } from '@waveform/math';
 import { scaleLinear, scaleLog } from 'd3-scale';
 import { theme } from '../common/constants';
 import { absoluteCenterXY, textLight14 } from '../common/styles';
-import { trackPointer } from '../common/utils';
+import { singlePointerTracker } from '../common/utils';
 import { Tooltip } from '../tooltip';
 import { Label } from '../label';
 
@@ -187,6 +187,7 @@ export const Handle = ({
     return { arcValue, rotateRad };
   }, [commonArcOptions, value, scale, step]);
 
+  const [trackPointer] = React.useState(singlePointerTracker);
   const onPointerDown = React.useCallback(
     (e: React.PointerEvent) => {
       const initialPosition = vector2d.fromMouseEvent(e);
@@ -207,7 +208,7 @@ export const Handle = ({
         onChange?.(step ? step[result] : result);
       });
     },
-    [step, scaleMouse, value, precision, plotSize, onChange, min, max]
+    [trackPointer, step, scaleMouse, value, precision, plotSize, onChange, min, max]
   );
 
   return (

@@ -33,8 +33,15 @@ const Tiers = styled.div`
   padding: 6px 4px 4px;
 `;
 
+const isOctaves = (value: unknown): value is [number, number] =>
+  Array.isArray(value) && value.length === 2 && value.every(Number.isInteger);
+
 export const KeysView = ({ portrait }: { portrait: boolean }) => {
-  const [octaves, setOctaves] = useLocalStorageState<[number, number]>('mobileKeyboardOctaves', [4, 3]);
+  const [octaves, setOctaves] = useLocalStorageState<[number, number]>(
+    'mobileKeyboardOctaves',
+    [4, 3],
+    isOctaves
+  );
   const octavesCount = portrait ? 1 : 2;
   const setTierOctave = (tier: number) => (octave: number) =>
     setOctaves((prev) => prev.map((o, i) => (i === tier ? octave : o)) as [number, number]);
