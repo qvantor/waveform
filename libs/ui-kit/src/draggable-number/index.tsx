@@ -5,6 +5,7 @@ import styled from 'styled-components';
 import { number, vector2d, Vector2D } from '@waveform/math';
 import { text10 } from '../common/styles';
 import { theme } from '../common/constants';
+import { trackPointer } from '../common/utils';
 
 interface Props {
   value: number;
@@ -25,6 +26,7 @@ const Root = styled.div`
   border-radius: 3px;
   padding: 5px 6px;
   cursor: ns-resize;
+  touch-action: none;
 `;
 
 const Label = styled.div`
@@ -64,25 +66,20 @@ const Controls = styled.div`
 
 export const DraggableNumber = ({ value, onChange, label, range = [0, 10] }: Props) => {
   const [active, setActive] = React.useState(false);
-  const onMouseDown = (e: React.MouseEvent) => {
+  const onPointerDown = (e: React.PointerEvent) => {
     const initial = vector2d.fromMouseEvent(e);
-    const mouseMove = (e: MouseEvent) => {
-      const [, diffY] = vector2d.invertY(vector2d.subtract(vector2d.fromMouseEvent(e), initial));
-      onChange?.(number.thresholds(value + Math.round(diffY / 10), ...range));
-    };
-
-    const cleanUp = () => {
-      setActive(false);
-      document.removeEventListener('mousemove', mouseMove);
-      document.removeEventListener('mouseup', cleanUp);
-    };
-
-    document.addEventListener('mousemove', mouseMove);
-    document.addEventListener('mouseup', cleanUp);
+    trackPointer(
+      e,
+      (e) => {
+        const [, diffY] = vector2d.invertY(vector2d.subtract(vector2d.fromMouseEvent(e), initial));
+        onChange?.(number.thresholds(value + Math.round(diffY / 10), ...range));
+      },
+      () => setActive(false)
+    );
     setActive(true);
   };
   return (
-    <Root onMouseDown={onMouseDown}>
+    <Root onPointerDown={onPointerDown}>
       <Label>{label}</Label>
       <ValueContainer>
         <Value>{value}</Value>

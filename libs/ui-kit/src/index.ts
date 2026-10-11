@@ -25,3 +25,4 @@ export type { FilterNumerics, FilterRange, FilterRanges, FilterParams } from './
 export type { CascadeOption } from './select';
 export type { HandleProps } from './handle';
 export type { Theme } from './common/constants';
+export { useIsMobile, useIsPortrait, useElementSize } from './common/hooks';

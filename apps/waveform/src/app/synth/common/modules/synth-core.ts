@@ -1,4 +1,21 @@
+import { fromEvent, merge } from 'rxjs';
 import { PrimitiveBS, ArrayBS, rxModel, rxModelReact } from '@waveform/rxjs-react';
+
+// browsers (iOS Safari especially) keep the context suspended until a user gesture,
+// and iOS suspends/interrupts it again when the page goes to the background
+const resumeOnGesture = (audioCtx: AudioContext) =>
+  merge(
+    fromEvent(document, 'pointerdown'),
+    fromEvent(document, 'touchend'),
+    fromEvent(document, 'keydown'),
+    fromEvent(document, 'visibilitychange')
+  ).subscribe(() => {
+    if (document.visibilityState !== 'visible' || audioCtx.state === 'running') return;
+    // play through the iOS silent switch (Safari 16.4+)
+    const { audioSession } = navigator as Navigator & { audioSession?: { type: string } };
+    if (audioSession) audioSession.type = 'playback';
+    audioCtx.resume().catch(() => undefined);
+  });
 
 const synthCore = () =>
   rxModel(() => {
@@ -43,6 +60,7 @@ const synthCore = () =>
       },
     }))
     .subscriptions(({ $masterGain, $midNodes, audioCtx, masterGain, preGain, masterLimiter }) => [
+      resumeOnGesture(audioCtx),
       $masterGain.subscribe((value) => masterGain.gain.setValueAtTime(value, audioCtx.currentTime)),
       $midNodes.subscribe((nodes) => {
         preGain.disconnect();

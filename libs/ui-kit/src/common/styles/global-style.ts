@@ -9,6 +9,9 @@ export const GlobalStyle = createGlobalStyle`
 
   body {
     user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior: none;
   }
 
   h1 {
