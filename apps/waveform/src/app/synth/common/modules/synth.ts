@@ -337,7 +337,7 @@ class Voicing {
   };
 }
 
-const synth = ({
+export const synth = ({
   synthCore: [{ audioCtx, preGain }],
   inputController: [{ $onPress, $onRelease }],
   adsrEnvelope: [{ $envelope }],

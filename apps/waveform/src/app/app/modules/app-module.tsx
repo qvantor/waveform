@@ -1,7 +1,7 @@
 import { fromEvent, filter, tap, share } from 'rxjs';
 import { rxModel, rxModelReact } from '@waveform/rxjs-react';
 
-const appModel = () => {
+export const appModel = () => {
   return rxModel(() => {
     const $keyDown = fromEvent<KeyboardEvent>(document, 'keydown');
     return {

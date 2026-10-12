@@ -6,7 +6,7 @@ interface Dependencies {
   oscillator: OscillatorModule;
 }
 
-const manualWavetable = ({ oscillator: [{ $waveTable, $current }] }: Dependencies) =>
+export const manualWavetable = ({ oscillator: [{ $waveTable, $current }] }: Dependencies) =>
   rxModel(() => {
     const rateRange: [number, number] = [2, 8];
     const $rate = new PrimitiveBS<number>(4);

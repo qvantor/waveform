@@ -11,7 +11,7 @@ interface Dependencies {
   oscillator: OscillatorModule;
 }
 
-const audiofile = ({ oscillator: [{ $waveTable, $current }] }: Dependencies) =>
+export const audiofile = ({ oscillator: [{ $waveTable, $current }] }: Dependencies) =>
   rxModel(({ audioBuffer }: Props) => {
     const waveSizeRange = [4, 11];
     const pickersCountRange = [1, 64];

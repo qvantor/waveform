@@ -3,7 +3,7 @@
   "compilerOptions": {
     "outDir": "../../dist/out-tsc",
     "module": "commonjs",
-    "types": ["jest", "node"]
+    "types": ["jest", "node", "@testing-library/jest-dom", "webmidi"]
   },
   "include": [
     "jest.config.ts",
@@ -15,7 +15,10 @@
     "**/*.spec.js",
     "**/*.test.jsx",
     "**/*.spec.jsx",
-    "**/*.d.ts"
+    "**/*.d.ts",
+    "src/test-setup.ts",
+    "src/test-utils/**/*",
+    "__mocks__/**/*"
   ],
   "files": [
     "../../node_modules/@nrwl/react/typings/cssmodule.d.ts",

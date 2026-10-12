@@ -18,7 +18,7 @@ const currentHash = () => {
   }
 };
 
-const presets = () =>
+export const presets = () =>
   rxModel(() => {
     const $current = new BehaviorSubject<CurrentPreset | null>(null);
     const $loadedHash = new BehaviorSubject<string | null>(null);

@@ -1,7 +1,7 @@
 import { ObjectBS, rxModel, rxModelReact } from '@waveform/rxjs-react';
 import { urlSnapshotPlugin } from '../../../app';
 
-const adsrEnvelope = () =>
+export const adsrEnvelope = () =>
   rxModel(() => {
     const $envelope = new ObjectBS({
       attack: 0.005,

@@ -17,7 +17,7 @@ const resumeOnGesture = (audioCtx: AudioContext) =>
     audioCtx.resume().catch(() => undefined);
   });
 
-const synthCore = () =>
+export const synthCore = () =>
   rxModel(() => {
     const audioCtx = new AudioContext();
     const preGain = audioCtx.createGain();

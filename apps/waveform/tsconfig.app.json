@@ -19,7 +19,10 @@
     "**/*.spec.js",
     "**/*.test.js",
     "**/*.spec.jsx",
-    "**/*.test.jsx"
+    "**/*.test.jsx",
+    "src/test-setup.ts",
+    "src/test-utils/**/*",
+    "__mocks__/**/*"
   ],
   "include": [
     "**/*.js",

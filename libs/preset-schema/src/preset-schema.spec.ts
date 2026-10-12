@@ -2,8 +2,10 @@ import { normalizePreset } from './normalize';
 import { presetHash } from './hash';
 import { isProfane } from './profanity';
 import {
+  listPresetsQuerySchema,
   nameKey,
   presetDataSchema,
+  presetIdSchema,
   savePresetRequestSchema,
   updatePresetRequestSchema,
   usageRequestSchema,
@@ -122,6 +124,32 @@ describe('requests', () => {
     expect(
       usageRequestSchema.safeParse({ clientId: 'c', items: [{ presetId: 'x', seconds: 1 }] }).success
     ).toBe(false);
+  });
+
+  it('accepts only uuid preset ids', () => {
+    expect(presetIdSchema.safeParse('5b6a2f2e-4f7c-4c2a-9a39-6f1f3f0b2a11').success).toBe(true);
+    expect(presetIdSchema.safeParse('42').success).toBe(false);
+    expect(presetIdSchema.safeParse("1' or 1=1").success).toBe(false);
+  });
+
+  it('fills defaults for missing data and requires a captcha token', () => {
+    const parsed = savePresetRequestSchema.parse({ name: 'Pad', data: {}, turnstileToken: 't' });
+    expect(parsed.data).toEqual(presetDataSchema.parse({}));
+    expect(savePresetRequestSchema.safeParse({ name: 'Pad', data: preset, turnstileToken: '' }).success).toBe(
+      false
+    );
+    expect(savePresetRequestSchema.safeParse({ name: 'Pad', data: preset }).success).toBe(false);
+  });
+
+  it('parses list query with default sort and trimmed search', () => {
+    expect(listPresetsQuerySchema.parse({})).toEqual({ sort: 'new' });
+    expect(listPresetsQuerySchema.parse({ q: '  pad ', sort: 'popular', cursor: 'abc' })).toEqual({
+      q: 'pad',
+      sort: 'popular',
+      cursor: 'abc',
+    });
+    expect(listPresetsQuerySchema.safeParse({ sort: 'random' }).success).toBe(false);
+    expect(listPresetsQuerySchema.safeParse({ cursor: 'x'.repeat(513) }).success).toBe(false);
   });
 });
 
