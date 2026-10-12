@@ -15,11 +15,10 @@ export type FilterRanges = Record<FilterNumerics, FilterRange>;
 
 export type CommonFilterProps = FilterParams & {
   active?: boolean;
+  sampleRate: number;
   setType: (value: BiquadFilterType) => void;
   setNumericValue: (key: FilterNumerics, value: number) => void;
   ranges: FilterRanges;
 };
 
-export type FilterRouterProps = Pick<CommonFilterProps, FilterNumerics | 'type'>;
-
-export type FilterProps = Pick<FilterRouterProps, FilterNumerics>;
+export type FilterProps = Pick<FilterParams, FilterNumerics>;
