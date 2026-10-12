@@ -11,11 +11,12 @@ Waveform is an experimental browser wavetable synth (TypeScript + Web Audio API,
 - `npm start` — runs `netlify dev` (functions on :8888) and the Nx dev server (:4200) together. The dev server proxies `/.netlify/*` and `/api/*` to :8888 (`proxy.conf.json`), so wavetables and presets only work when both run.
 - `npm run client:start` — frontend only (`nx serve`); wavetable list/download requests will fail.
 - `npm run build` — production build to `dist/apps/waveform`.
-- `npx nx test <project>` — Jest for one project (`waveform`, `math`, `rxjs-react`, `ui-kit`, `preset-schema`). Single file: `npx nx test rxjs-react --testFile=rx-model.spec.tsx`.
+- `npx nx test <project>` — Jest for one project (`waveform`, `math`, `rxjs-react`, `ui-kit`, `preset-schema`, `netlify`). Single file: `npx nx test rxjs-react --testFile=rx-model.spec.tsx`.
 - `npx nx lint <project>` — ESLint (`import/order` is an error).
 - `npm run prettier:check` / `npm run prettier:fix` — Prettier over apps, libs, netlify and scripts (single quotes, JSX single quotes, print width 110).
 
 - `npm run precheck` — everything CI runs: `prettier:check`, `typecheck`, `lint`, `knip`, `test:all`. GitHub Actions (`.github/workflows/ci.yml`) runs the same checks as separate steps (all run even if one fails) on every push to `main` and every PR. Node version comes from `.nvmrc` (used by CI and Netlify).
+- Server tests (`npx nx test netlify`) mock the DB with the fake `sql` tag from `netlify/tests/fake-sql.ts` (records queries, answers by regex). Function specs live in `netlify/tests/`, never in `netlify/functions/` (every file there is deployed as a function).
 - `npm run typecheck` — `tsc --noEmit` over every app/lib tsconfig and `netlify/tsconfig.json` (Netlify bundles functions with esbuild, without typechecking).
 - `npm run knip` — unused files, exports and dependencies (`knip.json`; deps used only implicitly by Nx/jest/eslint are in `ignoreDependencies`).
 - `BASE_URL=... node scripts/check-limits.mjs [--reports]` — checks API rate limits against a dev/staging deployment.

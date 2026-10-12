@@ -2,7 +2,7 @@ import { Subject } from 'rxjs';
 import { rxModel, rxModelReact, ObjectBS } from '@waveform/rxjs-react';
 import { Note, Notes } from '@waveform/ui-kit';
 
-const inputController = () =>
+export const inputController = () =>
   rxModel(() => {
     const $onPress = new Subject<Note>();
     const $onRelease = new Subject<Note>();

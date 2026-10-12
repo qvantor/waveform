@@ -12,5 +12,13 @@
   },
   "include": ["**/*.ts", "**/*.mts"],
   // legacy S3 functions were written without strict mode
-  "exclude": ["functions/get-wavetable.ts", "functions/get-wavetables-list.ts", "utils/index.ts"]
+  "exclude": [
+    "functions/get-wavetable.ts",
+    "functions/get-wavetables-list.ts",
+    "utils/index.ts",
+    // tests are checked by tsconfig.spec.json
+    "jest.config.ts",
+    "**/*.spec.ts",
+    "tests"
+  ]
 }

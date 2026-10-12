@@ -71,4 +71,38 @@ describe('RxModel', () => {
     expect(onStop.mock.calls[0]).toEqual([simpleData, { active: false, name: 'name' }]);
     expect(onStop.mock.calls.length).toBe(1);
   });
+
+  it('runs destroy before unsubscribing and plugins onStop', () => {
+    const calls: string[] = [];
+    const $value = new BehaviorSubject(1);
+    const [, , { stop }] = rxModel({ $value })
+      .subscriptions(({ $value }) => $value.subscribe())
+      .destroy(({ $value }) => calls.push(`destroy:${$value.observed}`))
+      .plugins({ onStop: () => calls.push(`plugin:${$value.observed}`) })
+      .init('name', {});
+
+    stop();
+    expect(calls).toEqual(['destroy:true', 'plugin:false']);
+  });
+
+  it('merges actions from several builders and passes them to subscriptions', () => {
+    const subscription = jest.fn((_model: unknown, actions: { a: () => number; b: () => number }) =>
+      new BehaviorSubject(actions.a() + actions.b()).subscribe()
+    );
+    const [, actions] = rxModel(simpleData)
+      .actions(() => ({ a: () => 1 }))
+      .actions(() => ({ b: () => 2 }))
+      .subscriptions(subscription)
+      .init('name', {});
+
+    expect(actions.a() + actions.b()).toBe(3);
+    expect(subscription).toHaveBeenCalledWith(simpleData, actions);
+  });
+
+  it('does not mutate the factory it was built from', () => {
+    const base = rxModel(simpleData);
+    base.actions(() => ({ extra: () => 1 }));
+    const [, actions] = base.init('name', {});
+    expect(actions).toEqual({});
+  });
 });

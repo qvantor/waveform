@@ -6,8 +6,11 @@
     "libs/*/src/index.ts",
     "netlify/functions/*.{ts,mts}",
     "scripts/*.mjs",
-    "{apps,libs}/*/jest.config.ts",
-    "**/*.spec.{ts,tsx}"
+    "{apps/*,libs/*,netlify}/jest.config.ts",
+    "**/*.spec.{ts,tsx}",
+    "apps/waveform/src/test-setup.ts",
+    "apps/waveform/src/test-utils/*.{ts,tsx}",
+    "apps/waveform/__mocks__/*.ts"
   ],
   "project": ["apps/**/*.{ts,tsx,js}", "libs/**/*.{ts,tsx}", "netlify/**/*.{ts,mts}", "scripts/**/*.mjs"],
   "babel": {
@@ -23,7 +26,6 @@
     "babel-jest",
     "ts-jest",
     "ts-node",
-    "@types/webmidi",
     "eslint-plugin-jsx-a11y",
     "eslint-plugin-react",
     "eslint-plugin-react-hooks"

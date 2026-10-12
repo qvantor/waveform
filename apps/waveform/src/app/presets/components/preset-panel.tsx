@@ -23,13 +23,15 @@ const Root = styled.div`
 const NameButton = styled.button`
   flex: 1;
   min-width: 0;
-  height: 32px;
+  /* same as IconButton: 15px icon + 2 * 3px padding + 2 * 1px border */
+  height: 23px;
   padding: 0 12px;
   border: 1px solid ${theme.colors.primaryLowContrast};
   border-radius: ${theme.borderRadius.m};
   background: ${theme.colors.white};
   color: ${theme.colors.primaryDark};
   font-size: 15px;
+  line-height: 1;
   font-weight: 600;
   cursor: pointer;
   overflow: hidden;

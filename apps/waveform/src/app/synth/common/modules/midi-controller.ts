@@ -4,7 +4,7 @@ import { Note, Notes } from '@waveform/ui-kit';
 import toast from 'react-hot-toast';
 import { InputControllerModule } from './input-controller';
 
-const midiToNote = (midiNote: number): Note => {
+export const midiToNote = (midiNote: number): Note => {
   const notes: Notes[] = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
   const octave = Math.floor(midiNote / 12 - 1);
   return [octave, notes[midiNote % 12]];
@@ -88,9 +88,11 @@ export const midiController = ({ inputController: [, { onPress, onRelease }] }: 
               fromEvent<WebMidi.MIDIMessageEvent>(input, 'midimessage')
                 .pipe(filter((e) => e.data.length === 3))
                 .subscribe((e) => {
-                  const [control, midi] = e.data;
-                  if (control >= 144 && control <= 159) onPress(midiToNote(midi));
-                  if (control >= 128 && control <= 143) onRelease(midiToNote(midi));
+                  const [control, midi, velocity] = e.data;
+                  const noteOn = control >= 144 && control <= 159;
+                  // many devices send note on with velocity 0 instead of note off
+                  if (noteOn && velocity > 0) onPress(midiToNote(midi));
+                  else if (noteOn || (control >= 128 && control <= 143)) onRelease(midiToNote(midi));
                 }),
             ]);
           }),

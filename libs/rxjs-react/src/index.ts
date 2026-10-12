@@ -3,4 +3,4 @@ export * from './hooks';
 export { searchParamsSnapshotPlugin } from './plugins';
 export { PrimitiveBS, ArrayBS, ObjectBS } from './observables';
 
-export type { Model } from './types';
+export type { Model, ModelFactory } from './types';

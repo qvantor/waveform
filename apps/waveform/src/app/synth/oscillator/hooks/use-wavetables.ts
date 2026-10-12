@@ -14,7 +14,7 @@ interface Folder {
   children: Element[];
 }
 
-const wavetablesToOptions = (data: Element[]): CascadeOption[] =>
+export const wavetablesToOptions = (data: Element[]): CascadeOption[] =>
   data.map((wave) => {
     if ('Key' in wave) {
       const path = wave.Key.split('/');

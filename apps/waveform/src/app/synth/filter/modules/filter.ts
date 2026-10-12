@@ -11,7 +11,7 @@ interface Dependencies {
   synthCore: SynthCoreModule;
 }
 
-const filter = ({ synthCore: [{ audioCtx }, { addMidNode, removeMidNode }] }: Dependencies) =>
+export const filter = ({ synthCore: [{ audioCtx }, { addMidNode, removeMidNode }] }: Dependencies) =>
   rxModel(() => {
     const filterNode = audioCtx.createBiquadFilter();
     const $active = new PrimitiveBS<boolean>(false);

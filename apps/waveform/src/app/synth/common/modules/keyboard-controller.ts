@@ -60,7 +60,7 @@ const isTextInput = (target: EventTarget | null) =>
   target instanceof HTMLElement &&
   (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
 
-const keyboardController = ({
+export const keyboardController = ({
   app: [{ $keyDown, $keyUp }],
   inputController: [, { onPress, onRelease }],
 }: Dependencies) =>
