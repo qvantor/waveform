@@ -1,6 +1,6 @@
 import React from 'react';
-import { Checkbox } from '../checkbox';
 import styled from 'styled-components';
+import { Checkbox } from '../checkbox';
 import { theme } from '../common/constants';
 import { textBold12 } from '../common/styles';
 

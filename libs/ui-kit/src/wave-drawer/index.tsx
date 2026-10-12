@@ -1,8 +1,8 @@
 import React from 'react';
 import { Vector2D, number, vector2d } from '@waveform/math';
 import { LineChart, YAxis, Line } from '../line-chart';
-import { MouseInteractive } from './components';
 import { theme } from '../common/constants';
+import { MouseInteractive } from './components';
 
 interface Props {
   wave: number[];

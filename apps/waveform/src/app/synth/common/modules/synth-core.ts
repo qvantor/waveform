@@ -24,15 +24,6 @@ const synthCore = () =>
     const masterLimiter = audioCtx.createDynamicsCompressor();
     const masterGain = audioCtx.createGain();
 
-    // (async () => {
-    //   await audioCtx.audioWorklet.addModule("/assets/examples/random-noise-processor.js");
-    //   const whiteNoiseNode = new AudioWorkletNode(
-    //     audioCtx,
-    //     "white-noise-processor"
-    //   );
-    //   whiteNoiseNode.connect(preGain)
-    // })()
-
     preGain.gain.setValueAtTime(1, audioCtx.currentTime);
 
     masterLimiter.threshold.setValueAtTime(-16.0, audioCtx.currentTime);
@@ -84,5 +75,3 @@ export const { ModelProvider: SynthCoreProvider, useModel: useSynthCore } = rxMo
 );
 
 export type SynthCoreModule = ReturnType<typeof useSynthCore>;
-export type SynthCoreModel = SynthCoreModule[0];
-export type SynthCoreActions = SynthCoreModule[1];

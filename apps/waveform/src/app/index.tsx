@@ -21,5 +21,3 @@ export function Core() {
     </ConfigProvider>
   );
 }
-
-export default Core;

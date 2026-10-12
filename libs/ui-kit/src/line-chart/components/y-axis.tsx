@@ -1,6 +1,5 @@
 import React from 'react';
-import { line } from 'd3-shape';
-import { theme } from '@waveform/ui-kit';
+import { theme } from '../../common/constants';
 import { useLineChartContext } from '../hooks';
 
 interface Props {

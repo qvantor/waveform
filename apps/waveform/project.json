@@ -29,12 +29,6 @@
           "vendorChunk": true
         },
         "production": {
-          "fileReplacements": [
-            {
-              "replace": "apps/waveform/src/environments/environment.ts",
-              "with": "apps/waveform/src/environments/environment.prod.ts"
-            }
-          ],
           "optimization": true,
           "outputHashing": "all",
           "sourceMap": false,

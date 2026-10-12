@@ -1,0 +1,32 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "apps/waveform/src/main.tsx",
+    "apps/waveform/src/polyfills.ts",
+    "libs/*/src/index.ts",
+    "netlify/functions/*.{ts,mts}",
+    "scripts/*.mjs",
+    "{apps,libs}/*/jest.config.ts",
+    "**/*.spec.{ts,tsx}"
+  ],
+  "project": ["apps/**/*.{ts,tsx,js}", "libs/**/*.{ts,tsx}", "netlify/**/*.{ts,mts}", "scripts/**/*.mjs"],
+  "babel": {
+    "config": ["babel.config.json", "{apps,libs}/*/.babelrc"]
+  },
+  "jest": false,
+  "ignoreDependencies": [
+    "@nrwl/cli",
+    "@nrwl/workspace",
+    "@nrwl/webpack",
+    "@jest/globals",
+    "jest-environment-jsdom",
+    "babel-jest",
+    "ts-jest",
+    "ts-node",
+    "@types/webmidi",
+    "eslint-plugin-jsx-a11y",
+    "eslint-plugin-react",
+    "eslint-plugin-react-hooks"
+  ],
+  "ignoreExportsUsedInFile": true
+}

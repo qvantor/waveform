@@ -1,0 +1,37 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  precheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - id: install
+        run: npm ci
+      - name: Prettier
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run prettier:check
+      - name: Typecheck
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run typecheck
+      - name: Lint
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run lint
+      - name: Knip
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run knip
+      - name: Test
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run test:all

@@ -36,6 +36,5 @@ export const { ModelProvider: ManualWavetableProvider, useModel: useManualWaveta
   manualWavetable
 );
 
-export type ManualWavetableModule = ReturnType<typeof useManualWavetable>;
 export type ManualWavetableModel = ReturnType<ReturnType<typeof manualWavetable>['init']>[0];
 export type ManualWavetableActions = ReturnType<ReturnType<typeof manualWavetable>['init']>[1];

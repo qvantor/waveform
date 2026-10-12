@@ -1,7 +1,7 @@
 import React from 'react';
+import { ScaleLinear } from 'd3-scale';
 import { theme } from '../../common/constants';
 import { useLineChartContext } from '../hooks';
-import { ScaleLinear } from 'd3-scale';
 
 interface Props {
   ticks?: number;
