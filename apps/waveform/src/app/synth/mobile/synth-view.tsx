@@ -1,5 +1,7 @@
 import React from 'react';
 import styled from 'styled-components';
+import { FxScreen } from '../fx';
+import { SynthScreen } from '../screens';
 import { SynthSections } from './synth-sections';
 
 const Root = styled.div`
@@ -8,8 +10,10 @@ const Root = styled.div`
   -webkit-overflow-scrolling: touch;
 `;
 
-export const SynthView = ({ portrait }: { portrait: boolean }) => (
-  <Root>
-    <SynthSections layout={portrait ? 'column' : 'grid'} />
-  </Root>
+const Fx = styled(FxScreen)`
+  height: 100%;
+`;
+
+export const SynthView = ({ portrait, screen }: { portrait: boolean; screen: SynthScreen }) => (
+  <Root>{screen === 'fx' ? <Fx /> : <SynthSections layout={portrait ? 'column' : 'grid'} />}</Root>
 );

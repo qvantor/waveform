@@ -1,6 +1,6 @@
 import React from 'react';
 import styled from 'styled-components';
-import { PianoKeyboard, VolumeAnalyser, FqAnalyser, theme, useIsMobile } from '@waveform/ui-kit';
+import { PianoKeyboard, VolumeAnalyser, FqAnalyser, TapeSwitch, theme, useIsMobile } from '@waveform/ui-kit';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
 import { DEFAULT_WAVETABLE_PATH } from '@waveform/preset-schema';
 import { useApp } from '../app';
@@ -27,6 +27,8 @@ import { VoicingSection } from './voicing';
 import { Settings } from './settings';
 import { EnvelopeSection } from './envelope';
 import { MobileLayout } from './mobile';
+import { FxScreen } from './fx';
+import { SYNTH_SCREENS, SynthScreen } from './screens';
 
 const Root = styled.div`
   display: grid;
@@ -52,6 +54,24 @@ const HeaderContainer = styled.div`
   display: flex;
   align-items: center;
   gap: 10px;
+`;
+
+// exactly the right half of the screen: 50% of the header content box + its 10px right padding
+const HeaderRight = styled.div`
+  flex: 0 0 50%;
+  align-self: stretch;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+`;
+
+const HeaderPresetPanel = styled(PresetPanel)`
+  flex: 1 1 auto;
+`;
+
+const DesktopFx = styled(FxScreen)`
+  grid-row: span 2;
 `;
 
 const HeaderEq = styled(FqAnalyser)`
@@ -80,12 +100,23 @@ const AdsrEnvelopeInternal = () => {
   );
 };
 
-const DesktopLayout = () => (
+interface ScreenProps {
+  screen: SynthScreen;
+  onScreenChange: (screen: SynthScreen) => void;
+}
+
+const DesktopLayout = ({ screen, onScreenChange }: ScreenProps) => (
   <>
-    <HeaderInternal />
+    <HeaderInternal screen={screen} onScreenChange={onScreenChange} />
     <Root>
-      <OscillatorsContainer />
-      <AdsrEnvelopeInternal />
+      {screen === 'osc' ? (
+        <>
+          <OscillatorsContainer />
+          <AdsrEnvelopeInternal />
+        </>
+      ) : (
+        <DesktopFx />
+      )}
       <PianoInternal />
     </Root>
   </>
@@ -93,6 +124,8 @@ const DesktopLayout = () => (
 
 const Internal = () => {
   const isMobile = useIsMobile();
+  // lives above the layout switch, so the selected screen survives crossing the mobile breakpoint
+  const [screen, setScreen] = React.useState<SynthScreen>('osc');
   const app = useApp();
   const synthCore = useSynthCore();
   const inputController = useInputController();
@@ -111,7 +144,13 @@ const Internal = () => {
             oscillator={[oscillator1, oscillator2]}
             synthCore={synthCore}
           >
-            <PresetsProvider initial={{}}>{isMobile ? <MobileLayout /> : <DesktopLayout />}</PresetsProvider>
+            <PresetsProvider initial={{}}>
+              {isMobile ? (
+                <MobileLayout screen={screen} onScreenChange={setScreen} />
+              ) : (
+                <DesktopLayout screen={screen} onScreenChange={setScreen} />
+              )}
+            </PresetsProvider>
           </SynthProvider>
         </KeyboardControllerProvider>
       </FilterProvider>
@@ -136,17 +175,20 @@ const OscillatorInternal = ({ children }: React.PropsWithChildren) => {
   );
 };
 
-const HeaderInternal = () => {
+const HeaderInternal = ({ screen, onScreenChange }: ScreenProps) => {
   const [{ audioCtx, masterGain }] = useSynthCore();
   return (
     <Header>
       <HeaderEq audioCtx={audioCtx} master={masterGain} />
-      <PresetPanel />
-      <HeaderContainer>
-        <Settings />
-        <MasterHandle />
-        <VolumeAnalyser audioCtx={audioCtx} master={masterGain} />
-      </HeaderContainer>
+      <HeaderRight>
+        <TapeSwitch options={SYNTH_SCREENS} value={screen} onChange={onScreenChange} />
+        <HeaderPresetPanel />
+        <HeaderContainer>
+          <Settings />
+          <MasterHandle />
+          <VolumeAnalyser audioCtx={audioCtx} master={masterGain} />
+        </HeaderContainer>
+      </HeaderRight>
     </Header>
   );
 };
