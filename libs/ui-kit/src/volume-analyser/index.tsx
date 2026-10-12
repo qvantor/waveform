@@ -1,7 +1,7 @@
 import React from 'react';
 import styled from 'styled-components';
-import { theme } from '../common/constants';
 import { requestIdleCallback, cancelIdleCallback } from '@waveform/math';
+import { theme } from '../common/constants';
 
 const Root = styled.div`
   position: relative;

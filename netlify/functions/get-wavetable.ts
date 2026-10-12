@@ -12,7 +12,7 @@ const handler: Handler = async (event) => {
       Bucket: process.env.BUCKET,
       Key,
     }),
-      { expiresIn: 21600 }
+    { expiresIn: 21600 }
   );
   return {
     statusCode: 200,

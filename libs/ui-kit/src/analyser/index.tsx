@@ -1,7 +1,7 @@
 import React from 'react';
 import styled from 'styled-components';
 import { number } from '@waveform/math';
-import { theme } from '@waveform/ui-kit';
+import { theme } from '../common/constants';
 
 interface Props {
   analyser: AnalyserNode;

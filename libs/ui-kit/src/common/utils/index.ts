@@ -1,1 +1,1 @@
-export { trackPointer, singlePointerTracker } from './track-pointer';
+export { singlePointerTracker } from './track-pointer';

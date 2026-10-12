@@ -1,9 +1,8 @@
 import React from 'react';
 import { scaleLog } from 'd3-scale';
 import styled from 'styled-components';
-import { number } from '@waveform/math';
+import { number, requestIdleCallback, cancelIdleCallback } from '@waveform/math';
 import { theme } from '../common/constants';
-import { requestIdleCallback, cancelIdleCallback } from '@waveform/math';
 
 interface Props {
   master: AudioNode;

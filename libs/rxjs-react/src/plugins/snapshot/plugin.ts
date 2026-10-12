@@ -1,6 +1,6 @@
 import { isRecord } from '../../utils';
-import { isSnapshotable, isSnapshotValue } from './services';
 import { Plugin } from '../../types';
+import { isSnapshotable, isSnapshotValue } from './services';
 
 type ModelForSnapshot = { model: Record<string | number, unknown>; keys: Array<string | number> };
 

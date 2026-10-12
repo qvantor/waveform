@@ -1,5 +1,5 @@
 import React from 'react';
-import { theme } from '@waveform/ui-kit';
+import { theme } from '../../common/constants';
 import { useLineChartContext } from '../hooks';
 
 interface Props {

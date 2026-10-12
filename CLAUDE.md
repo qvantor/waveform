@@ -13,9 +13,11 @@ Waveform is an experimental browser wavetable synth (TypeScript + Web Audio API,
 - `npm run build` — production build to `dist/apps/waveform`.
 - `npx nx test <project>` — Jest for one project (`waveform`, `math`, `rxjs-react`, `ui-kit`, `preset-schema`). Single file: `npx nx test rxjs-react --testFile=rx-model.spec.tsx`.
 - `npx nx lint <project>` — ESLint (`import/order` is an error).
-- `npm run prettier:check` / `npm run prettier:fix` — Prettier (single quotes, JSX single quotes, print width 110).
+- `npm run prettier:check` / `npm run prettier:fix` — Prettier over apps, libs, netlify and scripts (single quotes, JSX single quotes, print width 110).
 
-- `npx tsc -p netlify/tsconfig.json` — typecheck the functions (Netlify bundles them with esbuild, without typechecking).
+- `npm run precheck` — everything CI runs: `prettier:check`, `typecheck`, `lint`, `knip`, `test:all`. GitHub Actions (`.github/workflows/ci.yml`) runs the same checks as separate steps (all run even if one fails) on every push to `main` and every PR. Node version comes from `.nvmrc` (used by CI and Netlify).
+- `npm run typecheck` — `tsc --noEmit` over every app/lib tsconfig and `netlify/tsconfig.json` (Netlify bundles functions with esbuild, without typechecking).
+- `npm run knip` — unused files, exports and dependencies (`knip.json`; deps used only implicitly by Nx/jest/eslint are in `ignoreDependencies`).
 - `BASE_URL=... node scripts/check-limits.mjs [--reports]` — checks API rate limits against a dev/staging deployment.
 
 Env vars are listed in `.env.example` (copy to `.env` for local dev): S3 (`BUCKET`, `ACCESS_KEY_ID`, `SECRET_ACCESS_KEY`, region eu-central-1), `DATABASE_URL`, Turnstile (`NX_TURNSTILE_SITE_KEY` for the client, inlined at build time; `TURNSTILE_SECRET` for functions), `IP_HASH_SALT`, `MIN_UNIQUE_USERS`, `REPORT_HIDE_THRESHOLD`. DB schema is in `db/migrations/` (apply in order) and is applied manually.
@@ -71,7 +73,6 @@ export const { ModelProvider: FooProvider, useModel: useFoo } = rxModelReact('fo
 
 - The Netlify functions (`netlify/functions/get-wavetables-list.ts`, `get-wavetable.ts`) list the wavetable files in an S3 bucket as a folder tree and serve them. The client fetches them with react-query (`synth/oscillator/hooks/use-wavetable(s).ts`).
 - The wavetable editor (`synth/wave-table-editor/`) also builds tables from manual drawing or from an uploaded audio file.
-- `apps/waveform/src/app/wave-table-editor/` (outside `synth/`) looks like an older duplicate: the oscillator UI imports `synth/wave-table-editor`.
 
 ### Libs
 

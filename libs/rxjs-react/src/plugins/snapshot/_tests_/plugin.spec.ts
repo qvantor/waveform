@@ -1,7 +1,6 @@
 import { jest } from '@jest/globals';
-import { rxModel } from '../../../';
+import { rxModel, PrimitiveBS, ArrayBS, ObjectBS } from '../../../';
 import { snapshotPlugin } from '../';
-import { PrimitiveBS, ArrayBS, ObjectBS } from '../../../';
 
 const primitives = {
   null: null,
