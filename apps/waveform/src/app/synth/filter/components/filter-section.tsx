@@ -4,7 +4,7 @@ import { Filter, Section } from '@waveform/ui-kit';
 import { useFilter } from '../modules';
 
 export const FilterSection = () => {
-  const [{ $filter, $filterType, $active, $ranges }, { toggleActive, setType, setNumericValue }] =
+  const [{ $filter, $filterType, $active, $ranges, filterNode }, { toggleActive, setType, setNumericValue }] =
     useFilter();
   const active = useBehaviorSubject($active);
   const filter = useBehaviorSubject($filter);
@@ -20,6 +20,7 @@ export const FilterSection = () => {
         setType={setType}
         setNumericValue={setNumericValue}
         active={active}
+        sampleRate={filterNode.context.sampleRate}
       />
     </Section>
   );

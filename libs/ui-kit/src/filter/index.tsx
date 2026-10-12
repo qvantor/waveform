@@ -3,10 +3,10 @@ import styled from 'styled-components';
 import { Select } from '../select';
 import { Handle } from '../handle';
 import { Deactivated } from '../common/styles';
+import { LineChart } from '../line-chart';
 import { CommonFilterProps, FilterNumerics, FilterRange, FilterRanges, FilterParams } from './types';
 import { FilterLineChart } from './components/filter-linechart';
-import { getChartData } from './services';
-import { LineChart } from '../line-chart';
+import { DB_RANGE, getChartData } from './services';
 
 export type { FilterNumerics, FilterParams, FilterRange, FilterRanges };
 
@@ -51,17 +51,23 @@ export const Filter = ({
   setNumericValue,
   ranges,
   active = true,
-  ...rest
+  sampleRate,
+  cutoff,
+  resonance,
+  gain,
 }: CommonFilterProps) => {
   const setValueInternal = (key: FilterNumerics) => (value: number) => setNumericValue(key, value);
-  const { cutoff, resonance, gain } = rest;
+  const chartData = React.useMemo(
+    () => getChartData(type, { cutoff, resonance, gain }, sampleRate),
+    [type, cutoff, resonance, gain, sampleRate]
+  );
   return (
     <Root>
       <Select value={type} options={options} onChange={setType} />
       <ChartContainer>
         {!active && <Deactivated />}
-        <LineChartFilter domainY={[1, -1]}>
-          <FilterLineChart data={getChartData(type, rest)} />
+        <LineChartFilter domainY={[DB_RANGE, -DB_RANGE]}>
+          <FilterLineChart data={chartData} />
         </LineChartFilter>
       </ChartContainer>
       <HandlersContainer>
