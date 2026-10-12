@@ -2,7 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom';
 import styled from 'styled-components';
 import { absoluteCenterX } from '../common/styles';
-import { trackPointer } from '../common/utils';
+import { singlePointerTracker } from '../common/utils';
 
 type Trigger = 'hold' | 'mousedown';
 
@@ -34,9 +34,9 @@ const handle = (
 ) => {
   switch (trigger) {
     case 'hold': {
+      const trackPointer = singlePointerTracker();
       const showInternal = (e: PointerEvent) => {
-        trackPointer(e, undefined, () => setShow(false));
-        setShow(true);
+        if (trackPointer(e, undefined, () => setShow(false))) setShow(true);
       };
       element.addEventListener('pointerdown', showInternal);
       return () => {

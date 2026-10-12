@@ -32,6 +32,9 @@ const noteFromPoint = (x: number, y: number): Note | undefined => {
 
 const sameNote = (a?: Note, b?: Note) => a?.[0] === b?.[0] && a?.[1] === b?.[1];
 
+// notes held by pointers of all mounted keyboards: several keyboards (mobile tiers) can show the same octave
+const heldNotes = new Map<number, Note>();
+
 export const PianoKeyboard = ({
   octaves = [1, 5],
   fitScreen = true,
@@ -55,8 +58,9 @@ export const PianoKeyboard = ({
     const note = pointers.current.get(pointerId);
     if (!note) return;
     pointers.current.delete(pointerId);
-    // another finger still holds the same key
-    if ([...pointers.current.values()].some((held) => sameNote(held, note))) return;
+    heldNotes.delete(pointerId);
+    // another finger still holds the same key, on this or another keyboard
+    if ([...heldNotes.values()].some((held) => sameNote(held, note))) return;
     callbacks.current.onRelease?.(note);
   }, []);
 
@@ -66,6 +70,7 @@ export const PianoKeyboard = ({
       release(pointerId);
       if (!note) return;
       pointers.current.set(pointerId, note);
+      heldNotes.set(pointerId, note);
       callbacks.current.onPress?.(note);
     },
     [release]

@@ -5,7 +5,7 @@ import styled from 'styled-components';
 import { number, vector2d, Vector2D } from '@waveform/math';
 import { text10 } from '../common/styles';
 import { theme } from '../common/constants';
-import { trackPointer } from '../common/utils';
+import { singlePointerTracker } from '../common/utils';
 
 interface Props {
   value: number;
@@ -66,9 +66,10 @@ const Controls = styled.div`
 
 export const DraggableNumber = ({ value, onChange, label, range = [0, 10] }: Props) => {
   const [active, setActive] = React.useState(false);
+  const [trackPointer] = React.useState(singlePointerTracker);
   const onPointerDown = (e: React.PointerEvent) => {
     const initial = vector2d.fromMouseEvent(e);
-    trackPointer(
+    const tracked = trackPointer(
       e,
       (e) => {
         const [, diffY] = vector2d.invertY(vector2d.subtract(vector2d.fromMouseEvent(e), initial));
@@ -76,7 +77,7 @@ export const DraggableNumber = ({ value, onChange, label, range = [0, 10] }: Pro
       },
       () => setActive(false)
     );
-    setActive(true);
+    if (tracked) setActive(true);
   };
   return (
     <Root onPointerDown={onPointerDown}>
