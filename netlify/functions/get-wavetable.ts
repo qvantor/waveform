@@ -4,8 +4,8 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { GetObjectCommand } from '@aws-sdk/client-s3';
 
 const handler: Handler = async (event) => {
-  if (typeof event.queryStringParameters.id !== 'string') return { statusCode: 400 };
-  const { id: Key } = event.queryStringParameters;
+  const Key = event.queryStringParameters?.id;
+  if (typeof Key !== 'string') return { statusCode: 400 };
   const url = await getSignedUrl(
     client,
     new GetObjectCommand({

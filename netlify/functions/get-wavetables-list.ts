@@ -7,16 +7,11 @@ interface Dir {
   children: Element[];
 }
 
-interface File {
-  key: string;
-  name: string;
-}
+type Element = _Object | Dir;
 
-type Element = File | Dir;
-
-const addElement = (res: Element[], path: string[], obj: _Object) => {
+const addElement = (res: Element[], path: string[], obj: _Object): Element[] => {
   if (path.length === 1) return [...res, obj];
-  const index = res.findIndex((el) => el.name === path[0]);
+  const index = res.findIndex((el) => 'children' in el && el.name === path[0]);
   if (index === -1) {
     return [
       ...res,
@@ -27,8 +22,7 @@ const addElement = (res: Element[], path: string[], obj: _Object) => {
     ];
   } else {
     return res.map((item, i) => {
-      if (i !== index) return item;
-      if (!('children' in item)) throw new Error('Add element error');
+      if (i !== index || !('children' in item)) return item;
       return { ...item, children: addElement(item.children, path.slice(1), obj) };
     });
   }

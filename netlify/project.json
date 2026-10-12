@@ -1,0 +1,17 @@
+{
+  "name": "netlify",
+  "$schema": "../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "netlify",
+  "projectType": "application",
+  "targets": {
+    "test": {
+      "executor": "@nrwl/jest:jest",
+      "outputs": ["coverage/netlify"],
+      "options": {
+        "jestConfig": "netlify/jest.config.ts",
+        "passWithNoTests": true
+      }
+    }
+  },
+  "tags": []
+}

@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "commonjs",
+    "types": ["jest", "node"]
+  },
+  "include": ["jest.config.ts", "**/*.spec.ts", "tests/**/*.ts"],
+  // legacy S3 functions are not strict, so their specs are not typechecked either
+  "exclude": ["tests/get-wavetable.spec.ts", "tests/get-wavetables-list.spec.ts"]
+}
