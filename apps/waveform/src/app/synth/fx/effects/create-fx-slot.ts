@@ -1,7 +1,8 @@
 import { FxCore } from './types';
 
-// smooths gain changes, so mix and bypass don't click
-const TIME_CONSTANT = 0.01;
+// smooths param changes, so mix, bypass and effect params don't click
+export const setSmooth = (audioCtx: BaseAudioContext, param: AudioParam, value: number) =>
+  param.setTargetAtTime(value, audioCtx.currentTime, 0.01);
 
 export type FxSlot = ReturnType<typeof createFxSlot>;
 
@@ -19,8 +20,7 @@ export const createFxSlot = (audioCtx: BaseAudioContext, core: FxCore) => {
   core.output.connect(wet);
   wet.connect(output);
 
-  const setGain = (node: GainNode, value: number) =>
-    node.gain.setTargetAtTime(value, audioCtx.currentTime, TIME_CONSTANT);
+  const setGain = (node: GainNode, value: number) => setSmooth(audioCtx, node.gain, value);
 
   return {
     input,

@@ -62,17 +62,8 @@ export const synthCore = () =>
         preGain.disconnect();
         // removed nodes are disconnected by removeMidNode, the kept ones lose their old links here
         prev.filter((node) => nodes.includes(node)).forEach((node) => node.disconnect());
-        if (nodes.length > 0) {
-          for (let i = 0; i < nodes.length; i++) {
-            const node = nodes[i];
-            const next = nodes[i + 1];
-            if (i === 0) preGain.connect(node);
-            if (next) node.connect(next);
-            else node.connect(fxIn);
-          }
-        } else {
-          preGain.connect(fxIn);
-        }
+        const chain = [preGain, ...nodes, fxIn];
+        for (let i = 0; i < chain.length - 1; i++) chain[i].connect(chain[i + 1]);
       }),
     ]);
 

@@ -7,8 +7,9 @@ import { FxPanel } from './fx-panel';
 
 const Root = styled.div`
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-  grid-auto-rows: minmax(180px, max-content);
+  // every panel takes the full width
+  grid-template-columns: minmax(0, 1fr);
+  grid-auto-rows: max-content;
   align-content: start;
   background: ${theme.colors.primary};
   overflow-y: auto;

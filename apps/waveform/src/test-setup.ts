@@ -3,6 +3,7 @@ import '@testing-library/jest-dom';
 import {
   AudioContext as AudioContextMock,
   ChannelMergerNode as ChannelMergerNodeMock,
+  ChannelSplitterNode as ChannelSplitterNodeMock,
   DelayNode as DelayNodeMock,
   PeriodicWave as PeriodicWaveMock,
   registrar,
@@ -25,6 +26,18 @@ Object.assign(AudioContextMock.prototype, {
       numberOfOutputs: 1,
     } as never);
     registrar.addAudioNode(this, 'ChannelMergerNode' as never, node as never);
+    return node;
+  },
+  createChannelSplitter(this: AudioContextMock, numberOfOutputs = 6) {
+    const node = new ChannelSplitterNodeMock({
+      context: this,
+      channelCount: numberOfOutputs,
+      channelCountMode: 'explicit',
+      channelInterpretation: 'discrete',
+      numberOfInputs: 1,
+      numberOfOutputs,
+    } as never);
+    registrar.addAudioNode(this, 'ChannelSplitterNode' as never, node as never);
     return node;
   },
   createDelay(this: AudioContextMock) {

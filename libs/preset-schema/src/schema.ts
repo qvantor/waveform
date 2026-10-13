@@ -21,24 +21,47 @@ export const FILTER_TYPES = [
 export const FX_TYPES = ['delay'] as const;
 export type FxType = typeof FX_TYPES[number];
 
+// known types only, no duplicates, the missing ones are appended
+// (presets from a newer client may contain effect types this one doesn't know)
+export const normalizeFxOrder = (order: readonly unknown[]): FxType[] => {
+  const known = order.filter(
+    (type, i): type is FxType => FX_TYPES.includes(type as FxType) && order.indexOf(type) === i
+  );
+  return [...known, ...FX_TYPES.filter((type) => !known.includes(type))];
+};
+
 export interface ParamRange {
   min: number;
   max: number;
   default: number;
+  int?: boolean;
 }
 
 // numeric fx params: knob ranges in the app, validation and defaults of presets
 export const FX_MIX_PARAM: ParamRange = { min: 0, max: 1, default: 0.3 };
 export const FX_PARAMS = {
   delay: {
-    time: { min: 0.01, max: 2, default: 0.3 },
-    fb: { min: 0, max: 0.9, default: 0.4 },
+    time: { min: 0.01, max: 1, default: 0.2 },
+    fb: { min: 0, max: 0.9, default: 0.5 },
+    // 0: normal, 1: ping-pong
+    mode: { min: 0, max: 1, default: 0, int: true },
+    // stereo pan by delay (Haas effect, up to 50ms), < 0 delays the left channel, > 0 the right one
+    pan: { min: -0.05, max: 0.05, default: 0 },
+    // bandpass in the feedback loop
+    freq: { min: 50, max: 17000, default: 1000 },
+    q: { min: 0.01, max: 3, default: 0.01 },
   },
 };
 
 const range = (min: number, max: number) => z.number().finite().min(min).max(max);
 const intRange = (min: number, max: number) => range(min, max).int();
-const paramRange = ({ min, max, default: value }: ParamRange) => range(min, max).default(value);
+const paramRange = ({ min, max, default: value, int }: ParamRange) =>
+  (int ? intRange(min, max) : range(min, max)).default(value);
+const paramRanges = <K extends string>(params: Record<K, ParamRange>) =>
+  (Object.keys(params) as K[]).reduce(
+    (acc, key) => ({ ...acc, [key]: paramRange(params[key]) }),
+    {} as Record<K, ReturnType<typeof paramRange>>
+  );
 
 const oscillatorSchema = (active: boolean) =>
   z
@@ -87,16 +110,16 @@ const delaySchema = z
     a: z.boolean().default(false), // in the chain
     on: z.boolean().default(true), // not bypassed
     mix: paramRange(FX_MIX_PARAM),
-    time: paramRange(FX_PARAMS.delay.time),
-    fb: paramRange(FX_PARAMS.delay.fb),
+    ...paramRanges(FX_PARAMS.delay),
   })
   .default({});
 
 const fxSchema = z
   .object({
     o: z
-      .array(z.enum(FX_TYPES))
-      .max(FX_TYPES.length)
+      .array(z.string().max(64))
+      .max(32)
+      .transform(normalizeFxOrder)
       .default([...FX_TYPES]),
     delay: delaySchema,
   })

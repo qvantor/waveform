@@ -2,13 +2,11 @@ import React from 'react';
 import styled from 'styled-components';
 import { Select } from '../select';
 import { Handle } from '../handle';
-import { Deactivated } from '../common/styles';
-import { LineChart } from '../line-chart';
 import { CommonFilterProps, FilterNumerics, FilterRange, FilterRanges, FilterParams } from './types';
-import { FilterLineChart } from './components/filter-linechart';
-import { DB_RANGE, getChartData } from './services';
+import { FilterResponse } from './components/filter-response';
 
 export type { FilterNumerics, FilterParams, FilterRange, FilterRanges };
+export { FilterResponse };
 
 const types: BiquadFilterType[] = [
   'lowpass',
@@ -28,21 +26,13 @@ const Root = styled.div`
   gap: 5px;
 `;
 
-const ChartContainer = styled.div`
-  position: relative;
+const Chart = styled(FilterResponse)`
   flex: 1 1;
-  display: flex;
-  border-radius: 3px;
 `;
 
 export const HandlersContainer = styled.div`
   display: flex;
   gap: 10px;
-`;
-
-export const LineChartFilter = styled(LineChart)`
-  flex: 1 1;
-  border-radius: 3px;
 `;
 
 export const Filter = ({
@@ -57,19 +47,17 @@ export const Filter = ({
   gain,
 }: CommonFilterProps) => {
   const setValueInternal = (key: FilterNumerics) => (value: number) => setNumericValue(key, value);
-  const chartData = React.useMemo(
-    () => getChartData(type, { cutoff, resonance, gain }, sampleRate),
-    [type, cutoff, resonance, gain, sampleRate]
-  );
   return (
     <Root>
       <Select value={type} options={options} onChange={setType} />
-      <ChartContainer>
-        {!active && <Deactivated />}
-        <LineChartFilter domainY={[DB_RANGE, -DB_RANGE]}>
-          <FilterLineChart data={chartData} />
-        </LineChartFilter>
-      </ChartContainer>
+      <Chart
+        type={type}
+        cutoff={cutoff}
+        resonance={resonance}
+        gain={gain}
+        sampleRate={sampleRate}
+        active={active}
+      />
       <HandlersContainer>
         <Handle value={cutoff} onChange={setValueInternal('cutoff')} label='Cutoff' {...ranges.cutoff} />
         <Handle

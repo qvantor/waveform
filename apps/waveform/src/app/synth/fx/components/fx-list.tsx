@@ -1,7 +1,10 @@
 import React from 'react';
 import styled from 'styled-components';
 import { MdDragIndicator } from 'react-icons/md';
-import { useBehaviorSubject } from '@waveform/rxjs-react';
+import { distinctUntilChanged, map } from 'rxjs';
+import { isEqual, mapValues } from 'lodash';
+import { FxType } from '@waveform/preset-schema';
+import { useBehaviorSubject, useObservable } from '@waveform/rxjs-react';
 import { Lamp, SortableList, textBold12, theme } from '@waveform/ui-kit';
 import { useFx } from '../modules';
 import { FX_REGISTRY } from '../effects';
@@ -43,11 +46,19 @@ const Grip = styled(MdDragIndicator)`
   opacity: 0.7;
 `;
 
+const addedFlags = (effects: Record<FxType, { added: boolean }>) =>
+  mapValues(effects, (effect) => effect.added);
+
 // every available effect: the lamp adds it to the chain, drag & drop sets the chain order
 export const FxList = () => {
   const [{ $order, $effects }, { setAdded, move }] = useFx();
   const order = useBehaviorSubject($order);
-  const effects = useBehaviorSubject($effects);
+  // only the added flags, so dragging a knob doesn't re-render the list
+  const $added = React.useMemo(
+    () => $effects.pipe(map(addedFlags), distinctUntilChanged(isEqual)),
+    [$effects]
+  );
+  const added = useObservable($added, addedFlags($effects.value));
   return (
     <Root>
       <Title>Effects</Title>
@@ -57,7 +68,7 @@ export const FxList = () => {
         renderItem={(type) => (
           <Row>
             <Lamp
-              on={effects[type].added}
+              on={added[type]}
               onChange={(added) => setAdded(type, added)}
               label={FX_REGISTRY[type].label}
             />

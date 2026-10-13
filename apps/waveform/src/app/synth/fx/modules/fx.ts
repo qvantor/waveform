@@ -1,6 +1,6 @@
 import { distinctUntilChanged, map, combineLatest, shareReplay } from 'rxjs';
 import { isEqual, isPlainObject, mapValues } from 'lodash';
-import { FX_MIX_PARAM, FX_TYPES, FxType, ParamRange } from '@waveform/preset-schema';
+import { FX_MIX_PARAM, FX_TYPES, FxType, normalizeFxOrder, ParamRange } from '@waveform/preset-schema';
 import { number } from '@waveform/math';
 import { ArrayBS, ObjectBS, rxModel, rxModelReact } from '@waveform/rxjs-react';
 import { SynthCoreModule } from '../../common/modules/synth-core';
@@ -35,16 +35,12 @@ export const getChain = (order: FxType[], effects: Record<FxType, FxState>) =>
   order.filter((type) => effects[type].added);
 
 // legacy url params skip the preset schema: wrong types fall back to the default, numbers are clamped
+// (and rounded for int params, the schema rejects fractions)
 const bool = (value: unknown, fallback: boolean) => (typeof value === 'boolean' ? value : fallback);
-const num = (value: unknown, { min, max, default: fallback }: ParamRange) =>
-  typeof value === 'number' && Number.isFinite(value) ? number.thresholds(value, min, max) : fallback;
-
-// known types only, no duplicates, the missing ones are appended
-const normalizeOrder = (order: unknown[]): FxType[] => {
-  const known = order.filter(
-    (type, i): type is FxType => FX_TYPES.includes(type as FxType) && order.indexOf(type) === i
-  );
-  return [...known, ...FX_TYPES.filter((type) => !known.includes(type))];
+const num = (value: unknown, { min, max, default: fallback, int }: ParamRange) => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
+  const clamped = number.thresholds(value, min, max);
+  return int ? Math.round(clamped) : clamped;
 };
 
 export const fx = ({ synthCore: [{ audioCtx, fxIn, fxOut }] }: Dependencies) =>
@@ -70,6 +66,11 @@ export const fx = ({ synthCore: [{ audioCtx, fxIn, fxOut }] }: Dependencies) =>
         setMix: (type: FxType, mix: number) => update(type, { mix }),
         setParam: (type: FxType, key: string, value: number) =>
           update(type, { params: { ...$effects.value[type].params, [key]: value } }),
+        // unknown id: nothing changes
+        applyPreset: (type: FxType, id: string) => {
+          const preset = FX_REGISTRY[type].presets.find((item) => item.id === id);
+          if (preset) update(type, { mix: preset.mix, params: { ...preset.params } });
+        },
         move: (from: number, to: number) => {
           const order = [...$order.value];
           const [type] = order.splice(from, 1);
@@ -86,19 +87,25 @@ export const fx = ({ synthCore: [{ audioCtx, fxIn, fxOut }] }: Dependencies) =>
         const nodes = [fxIn, ...chain.flatMap((type) => [slots[type].input, slots[type].output]), fxOut];
         for (let i = 0; i < nodes.length; i += 2) nodes[i].connect(nodes[i + 1]);
       }),
-      // update() replaces only the changed effect's object, so the other slots are not touched
-      ...FX_TYPES.map((type) =>
-        $effects
+      // update() replaces only the changed effect's object, so the other slots are not touched,
+      // and only the changed values are applied (a knob drag sets one param per tick)
+      ...FX_TYPES.map((type) => {
+        let prev: FxState | undefined;
+        return $effects
           .pipe(
             map((effects) => effects[type]),
             distinctUntilChanged()
           )
-          .subscribe(({ added, mix, on, params }) => {
-            slots[type].setMix(mix, on);
-            slots[type].setActive(added && on);
-            Object.entries(params).forEach(([key, value]) => slots[type].setParam(key, value));
-          })
-      ),
+          .subscribe((state) => {
+            const { added, mix, on, params } = state;
+            if (prev?.mix !== mix || prev?.on !== on) slots[type].setMix(mix, on);
+            if (!prev || (prev.added && prev.on) !== (added && on)) slots[type].setActive(added && on);
+            Object.entries(params).forEach(([key, value]) => {
+              if (prev?.params[key] !== value) slots[type].setParam(key, value);
+            });
+            prev = state;
+          });
+      }),
     ])
     .plugins(
       urlSnapshotPlugin({
@@ -110,7 +117,7 @@ export const fx = ({ synthCore: [{ audioCtx, fxIn, fxOut }] }: Dependencies) =>
           ),
         }),
         applySnap: (snap, { $order, $effects }) => {
-          $order.next(normalizeOrder(Array.isArray(snap.o) ? snap.o : []));
+          $order.next(normalizeFxOrder(Array.isArray(snap.o) ? snap.o : []));
           $effects.next(
             Object.fromEntries(
               FX_TYPES.map((type) => {
