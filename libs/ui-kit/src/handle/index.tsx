@@ -28,6 +28,8 @@ export interface HandleProps {
   precision?: number;
   plotSize?: number;
   disabled?: boolean;
+  // the value the fill starts from (e.g. 0 for a bipolar knob), min by default
+  fillFrom?: number;
 }
 
 interface StyledProps {
@@ -154,6 +156,7 @@ export const Handle = ({
   precision = 1000,
   plotSize = 100,
   disabled = false,
+  fillFrom,
 }: HandleProps) => {
   const { svg } = sizes[size];
   const prevValue = React.useRef(value);
@@ -183,9 +186,13 @@ export const Handle = ({
 
   const { arcValue, rotateRad } = React.useMemo(() => {
     const rotateRad = Array.isArray(step) ? scale(step.indexOf(value)) : scale(value);
-    const arcValue = arc()({ ...commonArcOptions, endAngle: rotateRad }) ?? undefined;
+    const startAngle = fillFrom === undefined ? commonArcOptions.startAngle : scale(fillFrom);
+    const arcValue =
+      startAngle === rotateRad
+        ? undefined
+        : arc()({ ...commonArcOptions, startAngle, endAngle: rotateRad }) ?? undefined;
     return { arcValue, rotateRad };
-  }, [commonArcOptions, value, scale, step]);
+  }, [commonArcOptions, value, scale, step, fillFrom]);
 
   const [trackPointer] = React.useState(singlePointerTracker);
   const onPointerDown = React.useCallback(
@@ -227,11 +234,13 @@ export const Handle = ({
               transform={`translate(${svg[0] / 2},${svg[1] / 2})`}
               d={arcBackground}
             />
-            <path
-              fill={theme.colors.accent}
-              transform={`translate(${svg[0] / 2},${svg[1] / 2})`}
-              d={arcValue}
-            />
+            {arcValue && (
+              <path
+                fill={theme.colors.accent}
+                transform={`translate(${svg[0] / 2},${svg[1] / 2})`}
+                d={arcValue}
+              />
+            )}
           </Svg>
         </HandleContainer>
         {label && <Label>{label}</Label>}

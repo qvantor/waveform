@@ -9,7 +9,10 @@ interface Props {
   disabled: boolean;
 }
 
-export const ParamHandle = ({ def: { label, min, max, mode, precision, formatValue }, ...props }: Props) => (
+export const ParamHandle = ({
+  def: { label, min, max, mode, precision, formatValue, fillFrom },
+  ...props
+}: Props) => (
   <Handle
     label={label}
     min={min}
@@ -17,6 +20,7 @@ export const ParamHandle = ({ def: { label, min, max, mode, precision, formatVal
     mode={mode}
     precision={precision}
     formatValue={formatValue}
+    fillFrom={fillFrom}
     {...props}
   />
 );

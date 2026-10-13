@@ -31,6 +31,7 @@ export const delay: FxDefinition<DelayParam> = {
       ...pan,
       label: 'Pan',
       precision: 1000,
+      fillFrom: 0,
       formatValue: (value) => {
         const ms = Math.round(value * 1000);
         if (ms === 0) return '0ms';

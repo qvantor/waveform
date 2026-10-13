@@ -27,6 +27,11 @@ const Tick = styled.div`
   color: ${theme.colors.primaryDark};
 `;
 
+const MIN_FQ = 20;
+const TICKS = [100, 1000, 10000];
+
+const formatFq = (fq: number) => (fq >= 1000 ? `${fq / 1000}k` : `${fq}`);
+
 export const FqAnalyser = ({ fftSize = 12, master, audioCtx, className }: Props) => {
   const rootRef = React.useRef<HTMLDivElement>(null);
   const ref = React.useRef<HTMLCanvasElement>(null);
@@ -34,14 +39,11 @@ export const FqAnalyser = ({ fftSize = 12, master, audioCtx, className }: Props)
   const scale = React.useMemo(
     () =>
       scaleLog()
-        .domain([1, audioCtx.sampleRate / 2])
+        .domain([MIN_FQ, audioCtx.sampleRate / 2])
         .range([0, width]),
     [width, audioCtx]
   );
-  const freqLines = [10, 20, 50, 100, 200, 300, 500, 1000, 2000, 3000, 5000, 10000, 15000].map((fq) => ({
-    x: scale(fq),
-    fq,
-  }));
+  const freqLines = TICKS.map((fq) => ({ x: scale(fq), fq }));
 
   React.useEffect(() => {
     const onResize = () => {
@@ -71,13 +73,12 @@ export const FqAnalyser = ({ fftSize = 12, master, audioCtx, className }: Props)
     gradient.addColorStop(0, theme.colors.accent);
     gradient.addColorStop(1, theme.colors.secondAccent);
 
-    let prevColumn = 0;
-    const grid: [number, number][] = [];
+    // [bin index, x, width]; bins below MIN_FQ are not drawn
+    const grid: [number, number, number][] = [];
     for (let i = 0; i < bufferLength; i++) {
-      const column = scale(Math.round((i + 1) * freqPerItem));
-      grid.push([prevColumn, column - prevColumn]);
-
-      prevColumn = column;
+      if ((i + 1) * freqPerItem <= MIN_FQ) continue;
+      const start = scale(Math.max(i * freqPerItem, MIN_FQ));
+      grid.push([i, start, scale((i + 1) * freqPerItem) - start]);
     }
 
     function draw() {
@@ -85,14 +86,15 @@ export const FqAnalyser = ({ fftSize = 12, master, audioCtx, className }: Props)
       analyser.getByteFrequencyData(frequencyData);
       ctx.clearRect(0, 0, width, height);
 
-      for (let i = 0; i < bufferLength; i++) {
-        ctx.fillStyle = gradient;
-        ctx.fillRect(grid[i][0], height, grid[i][1], (-frequencyData[i] / 255) * height);
+      ctx.fillStyle = gradient;
+      for (const [i, x, w] of grid) {
+        ctx.fillRect(x, height, w, (-frequencyData[i] / 255) * height);
       }
     }
 
     return () => {
       cancelIdleCallback(idleCallback);
+      master.disconnect(analyser);
     };
   }, [width, height, fftSize, audioCtx, master, scale]);
 
@@ -102,7 +104,7 @@ export const FqAnalyser = ({ fftSize = 12, master, audioCtx, className }: Props)
       <Axis>
         {freqLines.map(({ x, fq }) => (
           <Tick key={x} style={{ left: x, height }}>
-            <span>{fq}</span>
+            <span>{formatFq(fq)}</span>
           </Tick>
         ))}
       </Axis>
