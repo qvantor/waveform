@@ -18,6 +18,8 @@ export { DraggableNumber } from './draggable-number';
 export { Checkbox } from './checkbox';
 export { IconButton } from './icon-button';
 export { TapeSwitch } from './tape-switch';
+export { Lamp } from './lamp';
+export { SortableList } from './sortable-list';
 export { theme } from './common/constants';
 export * from './common/styles';
 export * from './common/types';

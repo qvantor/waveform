@@ -3,6 +3,7 @@ import '@testing-library/jest-dom';
 import {
   AudioContext as AudioContextMock,
   ChannelMergerNode as ChannelMergerNodeMock,
+  DelayNode as DelayNodeMock,
   PeriodicWave as PeriodicWaveMock,
   registrar,
   setMockingImplementation,
@@ -25,6 +26,19 @@ Object.assign(AudioContextMock.prototype, {
     } as never);
     registrar.addAudioNode(this, 'ChannelMergerNode' as never, node as never);
     return node;
+  },
+  createDelay(this: AudioContextMock) {
+    const node = new DelayNodeMock({
+      context: this,
+      channelCount: 2,
+      channelCountMode: 'max',
+      channelInterpretation: 'speakers',
+      numberOfInputs: 1,
+      numberOfOutputs: 1,
+    } as never);
+    registrar.addAudioNode(this, 'DelayNode' as never, node as never);
+    // the mock has no delayTime and doesn't export AudioParamMock, a gain param is the same mock
+    return Object.assign(node, { delayTime: this.createGain().gain });
   },
   createPeriodicWave(real: Iterable<number>, imag: Iterable<number>) {
     return Object.assign(new PeriodicWaveMock(), { real: [...real], imag: [...imag] });

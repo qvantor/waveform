@@ -17,8 +17,28 @@ export const FILTER_TYPES = [
   'allpass',
 ] as const;
 
+// effects of the fx rack, the order is the default chain order
+export const FX_TYPES = ['delay'] as const;
+export type FxType = typeof FX_TYPES[number];
+
+export interface ParamRange {
+  min: number;
+  max: number;
+  default: number;
+}
+
+// numeric fx params: knob ranges in the app, validation and defaults of presets
+export const FX_MIX_PARAM: ParamRange = { min: 0, max: 1, default: 0.3 };
+export const FX_PARAMS = {
+  delay: {
+    time: { min: 0.01, max: 2, default: 0.3 },
+    fb: { min: 0, max: 0.9, default: 0.4 },
+  },
+};
+
 const range = (min: number, max: number) => z.number().finite().min(min).max(max);
 const intRange = (min: number, max: number) => range(min, max).int();
+const paramRange = ({ min, max, default: value }: ParamRange) => range(min, max).default(value);
 
 const oscillatorSchema = (active: boolean) =>
   z
@@ -62,6 +82,26 @@ const voicingSchema = z
   })
   .default({});
 
+const delaySchema = z
+  .object({
+    a: z.boolean().default(false), // in the chain
+    on: z.boolean().default(true), // not bypassed
+    mix: paramRange(FX_MIX_PARAM),
+    time: paramRange(FX_PARAMS.delay.time),
+    fb: paramRange(FX_PARAMS.delay.fb),
+  })
+  .default({});
+
+const fxSchema = z
+  .object({
+    o: z
+      .array(z.enum(FX_TYPES))
+      .max(FX_TYPES.length)
+      .default([...FX_TYPES]),
+    delay: delaySchema,
+  })
+  .default({});
+
 // keys match snapshot plugin model names (voicing is saved with the `v` prefix)
 export const presetDataSchema = z.object({
   osc1: oscillatorSchema(true),
@@ -69,6 +109,7 @@ export const presetDataSchema = z.object({
   filter: filterSchema,
   adsr: adsrSchema,
   v: voicingSchema,
+  fx: fxSchema,
 });
 
 export type PresetData = z.infer<typeof presetDataSchema>;

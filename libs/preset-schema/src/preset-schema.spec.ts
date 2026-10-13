@@ -17,6 +17,7 @@ const preset = {
   filter: { a: true, t: 'bandpass', cut: 1234.5, res: 2, gain: 1 },
   adsr: { attack: 0.005, hold: 0.1, decay: 0, sustain: 1, release: 0.005 },
   v: { leg: false, port: 0, max: 8 },
+  fx: { o: ['delay'], delay: { a: true, on: true, mix: 0.5, time: 0.25, fb: 0.3 } },
 };
 
 const reversed = (value: Record<string, unknown>): Record<string, unknown> =>
@@ -64,12 +65,17 @@ describe('normalizePreset', () => {
   it('rounds numbers and sorts keys', () => {
     const normalized = normalizePreset({ ...preset, filter: { ...preset.filter, cut: 1234.5678 } });
     expect(normalized.filter.cut).toBe(1235);
-    expect(Object.keys(normalized)).toEqual(['adsr', 'filter', 'osc1', 'osc2', 'v']);
+    expect(Object.keys(normalized)).toEqual(['adsr', 'filter', 'fx', 'osc1', 'osc2', 'v']);
     expect(Object.keys(normalized.osc1)).toEqual(['a', 'd', 'g', 'o', 'p', 'r', 'u', 'w']);
   });
 
   it('keeps small values', () => {
     expect(normalizePreset({ ...preset, osc1: { ...preset.osc1, r: 0.00012346 } }).osc1.r).toBe(0.0001235);
+  });
+
+  it('fills fx defaults: every effect in the order, none in the chain', () => {
+    const { fx } = normalizePreset({ ...preset, fx: undefined });
+    expect(fx).toEqual({ o: ['delay'], delay: { a: false, on: true, mix: 0.3, time: 0.3, fb: 0.4 } });
   });
 
   it.each([
@@ -79,6 +85,11 @@ describe('normalizePreset', () => {
     ['unknown filter type', { ...preset, filter: { ...preset.filter, t: 'comb' } }],
     ['empty wavetable path', { ...preset, osc1: { ...preset.osc1, p: [] } }],
     ['NaN', { ...preset, adsr: { ...preset.adsr, attack: NaN } }],
+    ['unknown effect', { ...preset, fx: { ...preset.fx, o: ['chorus'] } }],
+    [
+      'delay feedback out of range',
+      { ...preset, fx: { ...preset.fx, delay: { ...preset.fx.delay, fb: 1 } } },
+    ],
     ['not an object', 'preset'],
   ])('rejects %s', (_, data) => {
     expect(() => normalizePreset(data)).toThrow();

@@ -15,5 +15,11 @@ const Fx = styled(FxScreen)`
 `;
 
 export const SynthView = ({ portrait, screen }: { portrait: boolean; screen: SynthScreen }) => (
-  <Root>{screen === 'fx' ? <Fx /> : <SynthSections layout={portrait ? 'column' : 'grid'} />}</Root>
+  <Root>
+    {screen === 'fx' ? (
+      <Fx layout={portrait ? 'column' : 'row'} />
+    ) : (
+      <SynthSections layout={portrait ? 'column' : 'grid'} />
+    )}
+  </Root>
 );

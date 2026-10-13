@@ -27,7 +27,7 @@ import { VoicingSection } from './voicing';
 import { Settings } from './settings';
 import { EnvelopeSection } from './envelope';
 import { MobileLayout } from './mobile';
-import { FxScreen } from './fx';
+import { FxScreen, FxProvider } from './fx';
 import { SYNTH_SCREENS, SynthScreen } from './screens';
 
 const Root = styled.div`
@@ -136,23 +136,25 @@ const Internal = () => {
   return (
     <MidiControllerProvider initial={{}} inputController={inputController}>
       <FilterProvider initial={{}} synthCore={synthCore}>
-        <KeyboardControllerProvider initial={{}} app={app} inputController={inputController}>
-          <SynthProvider
-            initial={{}}
-            inputController={inputController}
-            adsrEnvelope={adsrEnvelope}
-            oscillator={[oscillator1, oscillator2]}
-            synthCore={synthCore}
-          >
-            <PresetsProvider initial={{}}>
-              {isMobile ? (
-                <MobileLayout screen={screen} onScreenChange={setScreen} />
-              ) : (
-                <DesktopLayout screen={screen} onScreenChange={setScreen} />
-              )}
-            </PresetsProvider>
-          </SynthProvider>
-        </KeyboardControllerProvider>
+        <FxProvider initial={{}} synthCore={synthCore}>
+          <KeyboardControllerProvider initial={{}} app={app} inputController={inputController}>
+            <SynthProvider
+              initial={{}}
+              inputController={inputController}
+              adsrEnvelope={adsrEnvelope}
+              oscillator={[oscillator1, oscillator2]}
+              synthCore={synthCore}
+            >
+              <PresetsProvider initial={{}}>
+                {isMobile ? (
+                  <MobileLayout screen={screen} onScreenChange={setScreen} />
+                ) : (
+                  <DesktopLayout screen={screen} onScreenChange={setScreen} />
+                )}
+              </PresetsProvider>
+            </SynthProvider>
+          </KeyboardControllerProvider>
+        </FxProvider>
       </FilterProvider>
     </MidiControllerProvider>
   );

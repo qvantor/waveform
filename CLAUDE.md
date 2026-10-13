@@ -43,18 +43,19 @@ export const { ModelProvider: FooProvider, useModel: useFoo } = rxModelReact('fo
 - Each builder call returns a new immutable factory; `init` runs actions, subscriptions, and plugin `onInit`; unmount runs `destroy`, unsubscribes, and plugin `onStop`.
 - `rxModelReact` wraps a model in a React context. `<FooProvider initial={...} {...deps}>` takes the `initial` value plus dependency props (other models' `[model, actions]` tuples); `useFoo()` returns `[model, actions]`.
 - Components read observables via `useBehaviorSubject($x)` / `useObservable`. BehaviorSubject helpers: `PrimitiveBS`, `ArrayBS`, `ObjectBS`. Observable names use a `$` prefix.
-- Dependency injection is done through provider nesting, so provider order matters. The tree in `apps/waveform/src/app/synth/index.tsx` defines it: InputController → SynthCore → AdsrEnvelope → Oscillator1/2 → MidiController → Filter → KeyboardController → Synth → Presets.
+- Dependency injection is done through provider nesting, so provider order matters. The tree in `apps/waveform/src/app/synth/index.tsx` defines it: InputController → SynthCore → AdsrEnvelope → Oscillator1/2 → MidiController → Filter → Fx → KeyboardController → Synth → Presets.
 
 ### Audio graph (apps/waveform/src/app/synth/common/modules)
 
-- `synth-core.ts` owns the single `AudioContext`: `preGain → [$midNodes, e.g. filter] → masterLimiter (compressor) → masterGain → destination`. Other modules insert processing nodes through `addMidNode`.
+- `synth-core.ts` owns the single `AudioContext`: `preGain → [$midNodes, e.g. filter] → fxIn → [fx chain] → fxOut → masterLimiter (compressor) → masterGain → destination`. Other modules insert processing nodes through `addMidNode`.
+- The `fx` model (`synth/fx/`) wires the FX rack between `fxIn` and `fxOut`. Effects are defined in `FX_REGISTRY` (`fx/effects/`, params and ranges from `FX_PARAMS` in `libs/preset-schema`). `createFxSlot` wraps each one: the dry signal always passes at full level, `mix` is the wet level, bypass mutes the wet. The chain is the added effects in `$order`; adding an effect type means a registry entry plus its preset schema.
 - `oscillator.ts` holds a wavetable (`$waveTable`: an array of single-cycle waves), the selected frame, and unison/detune/octave settings. It converts the current wave to a `PeriodicWave` through `wave.realWithImag` (FFT, in `libs/math`).
 - `synth.ts` handles voices: on input-controller note events it builds per-note unison oscillators plus an ADSR gain envelope. Polyphony, portamento and legato also live here.
 - `input-controller.ts` is the shared note-on/off bus. The on-screen piano, `keyboard-controller.ts` (QWERTY) and `midi-controller.ts` (WebMIDI) all feed into it.
 
 ### Snapshots
 
-`app/plugins/snapshot.ts` creates one `searchParamsSnapshotPlugin`. Models that register it (`osc1`, `osc2`, `filter`, `adsr`, synth as `v`) expose their state as `{ [modelName]: { key: value } }`:
+`app/plugins/snapshot.ts` creates one `searchParamsSnapshotPlugin`. Models that register it (`osc1`, `osc2`, `filter`, `adsr`, `fx`, synth as `v`) expose their state as `{ [modelName]: { key: value } }`:
 - `getSnapshot()` / `applySnapshot(obj)` read and apply the state at runtime (used by presets); `$snapshotChanges` emits on any change.
 - Legacy URL params `<modelName>-<key>=<json>` are still applied on init.
 - `applySnap` must handle falsy values (`!== undefined`, not `&&`), and missing keys mean defaults.
