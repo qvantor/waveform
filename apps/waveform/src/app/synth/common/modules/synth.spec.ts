@@ -1,3 +1,4 @@
+import { config } from 'rxjs';
 import { registrar } from 'standardized-audio-context-mock';
 import { applySnapshot, getSnapshot } from '../../../app';
 import { createSynth, stopModels } from '../../../../test-utils/models';
@@ -227,6 +228,23 @@ describe('synth', () => {
 
     const wave = osc1[0].$periodicWave.value;
     oscillators().forEach((oscillator) => expect(oscillator.setPeriodicWave).toHaveBeenLastCalledWith(wave));
+  });
+
+  it('ignores wave changes of an oscillator that is not part of a playing voice', async () => {
+    const { onPress, osc2, oscillators } = setup();
+    // rxjs reports errors thrown in subscribers asynchronously instead of rethrowing them
+    const onUnhandledError = jest.fn();
+    config.onUnhandledError = onUnhandledError;
+    onPress([4, 'C']);
+
+    osc2[1].setWaveTable([[1, 0, -1, 0]]);
+    await new Promise((resolve) => setTimeout(resolve));
+    config.onUnhandledError = null;
+
+    expect(onUnhandledError).not.toHaveBeenCalled();
+
+    const wave = osc2[0].$periodicWave.value;
+    oscillators().forEach((oscillator) => expect(oscillator.setPeriodicWave).not.toHaveBeenCalledWith(wave));
   });
 
   it('stops listening to the input after stop', () => {

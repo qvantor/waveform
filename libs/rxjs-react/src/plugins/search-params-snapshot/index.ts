@@ -2,7 +2,9 @@ import { merge, skip, Subject, Subscription, BehaviorSubject, map, distinctUntil
 import { Plugin } from '../../types';
 import { isSnapshotable } from '../snapshot';
 
-type Snap = Record<string, string | number | boolean | string[]>;
+// values are JSON: in the url every model key is a separate search param with a JSON value
+type SnapValue = string | number | boolean | string[] | { [key: string]: SnapValue };
+type Snap = Record<string, SnapValue>;
 
 interface PluginConfig<M, S> {
   modelToSnap: (model: M) => S;

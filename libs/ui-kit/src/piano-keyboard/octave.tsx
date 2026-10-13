@@ -13,6 +13,9 @@ const KeyWhite = styled.div`
   width: var(--key-width);
   height: var(--key-height);
   flex: 0 0 auto;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
   border-radius: 0 0 12px 12px;
   background: ${theme.colors.white};
   box-shadow: inset 0px -2px 3px 1px rgb(127 140 141 / 20%);
@@ -21,6 +24,16 @@ const KeyWhite = styled.div`
     background: linear-gradient(180deg, rgba(255, 255, 255, 1) 0%, rgba(236, 240, 241, 1) 100%);
     box-shadow: inset 0px -2px 6px 2px rgb(127 140 141 / 20%);
   }
+`;
+
+// octave label on the C key, scales with the key width (narrow keys on mobile)
+const OctaveLabel = styled.span`
+  margin-bottom: 6px;
+  font-size: min(10px, calc(var(--key-width) / 3));
+  line-height: 1;
+  color: ${theme.colors.primaryMediumContrast};
+  pointer-events: none;
+  user-select: none;
 `;
 
 const KeyWhiteOffset = styled(KeyWhite)`
@@ -61,7 +74,9 @@ export const Octave = React.memo(({ octave, pressed, keyWidth, keyHeight }: Prop
 
   return (
     <Root style={{ '--key-width': `${keyWidth}px`, '--key-height': `${keyHeight}px` } as React.CSSProperties}>
-      <KeyWhite {...keyProps('C')} />
+      <KeyWhite {...keyProps('C')}>
+        <OctaveLabel>C{octave}</OctaveLabel>
+      </KeyWhite>
       <KeyBlack {...keyProps('C#')} />
       <KeyWhiteOffset {...keyProps('D')} />
       <KeyBlack {...keyProps('D#')} />

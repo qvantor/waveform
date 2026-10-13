@@ -2,6 +2,7 @@ import { normalizePreset } from './normalize';
 import { presetHash } from './hash';
 import { isProfane } from './profanity';
 import {
+  fxSnapSchema,
   listPresetsQuerySchema,
   nameKey,
   presetDataSchema,
@@ -17,6 +18,10 @@ const preset = {
   filter: { a: true, t: 'bandpass', cut: 1234.5, res: 2, gain: 1 },
   adsr: { attack: 0.005, hold: 0.1, decay: 0, sustain: 1, release: 0.005 },
   v: { leg: false, port: 0, max: 8 },
+  fx: {
+    o: ['delay'],
+    delay: { a: true, on: true, mix: 0.5, time: 0.25, fb: 0.3, mode: 1, pan: -0.01, freq: 800, q: 2 },
+  },
 };
 
 const reversed = (value: Record<string, unknown>): Record<string, unknown> =>
@@ -64,12 +69,36 @@ describe('normalizePreset', () => {
   it('rounds numbers and sorts keys', () => {
     const normalized = normalizePreset({ ...preset, filter: { ...preset.filter, cut: 1234.5678 } });
     expect(normalized.filter.cut).toBe(1235);
-    expect(Object.keys(normalized)).toEqual(['adsr', 'filter', 'osc1', 'osc2', 'v']);
+    expect(Object.keys(normalized)).toEqual(['adsr', 'filter', 'fx', 'osc1', 'osc2', 'v']);
     expect(Object.keys(normalized.osc1)).toEqual(['a', 'd', 'g', 'o', 'p', 'r', 'u', 'w']);
   });
 
   it('keeps small values', () => {
     expect(normalizePreset({ ...preset, osc1: { ...preset.osc1, r: 0.00012346 } }).osc1.r).toBe(0.0001235);
+  });
+
+  it('fills fx defaults: every effect in the order, none in the chain', () => {
+    const { fx } = normalizePreset({ ...preset, fx: undefined });
+    expect(fx).toEqual({
+      o: ['delay'],
+      delay: { a: false, on: true, mix: 0.3, time: 0.2, fb: 0.5, mode: 0, pan: 0, freq: 1000, q: 0.01 },
+    });
+  });
+
+  it('accepts the delay time and pan limits', () => {
+    const delay = { ...preset.fx.delay, time: 1, pan: -0.05 };
+    expect(normalizePreset({ ...preset, fx: { ...preset.fx, delay } }).fx.delay).toMatchObject({
+      time: 1,
+      pan: -0.05,
+    });
+  });
+
+  it('drops unknown and duplicate effects from the order and appends the missing ones', () => {
+    // e.g. a preset saved by a newer client with more effect types
+    expect(
+      normalizePreset({ ...preset, fx: { ...preset.fx, o: ['reverb', 'delay', 'delay'] } }).fx.o
+    ).toEqual(['delay']);
+    expect(normalizePreset({ ...preset, fx: { ...preset.fx, o: [] } }).fx.o).toEqual(['delay']);
   });
 
   it.each([
@@ -79,6 +108,19 @@ describe('normalizePreset', () => {
     ['unknown filter type', { ...preset, filter: { ...preset.filter, t: 'comb' } }],
     ['empty wavetable path', { ...preset, osc1: { ...preset.osc1, p: [] } }],
     ['NaN', { ...preset, adsr: { ...preset.adsr, attack: NaN } }],
+    ['effect type not a string', { ...preset, fx: { ...preset.fx, o: [1] } }],
+    [
+      'delay feedback out of range',
+      { ...preset, fx: { ...preset.fx, delay: { ...preset.fx.delay, fb: 1 } } },
+    ],
+    ['delay mode out of range', { ...preset, fx: { ...preset.fx, delay: { ...preset.fx.delay, mode: 2 } } }],
+    ['delay mode not integer', { ...preset, fx: { ...preset.fx, delay: { ...preset.fx.delay, mode: 0.5 } } }],
+    [
+      'delay time out of range',
+      { ...preset, fx: { ...preset.fx, delay: { ...preset.fx.delay, time: 1.1 } } },
+    ],
+    ['delay pan out of range', { ...preset, fx: { ...preset.fx, delay: { ...preset.fx.delay, pan: 0.06 } } }],
+    ['delay q out of range', { ...preset, fx: { ...preset.fx, delay: { ...preset.fx.delay, q: 0.001 } } }],
     ['not an object', 'preset'],
   ])('rejects %s', (_, data) => {
     expect(() => normalizePreset(data)).toThrow();
@@ -172,5 +214,35 @@ describe('isProfane', () => {
     'Glass bells',
   ])('allows %s', (name) => {
     expect(isProfane(name)).toBe(false);
+  });
+});
+
+describe('fxSnapSchema', () => {
+  const defaults = { a: false, on: true, mix: 0.3, time: 0.2, fb: 0.5, mode: 0, pan: 0, freq: 1000, q: 0.01 };
+
+  it.each([undefined, null, 'x', [], {}])('falls back to the defaults for %p', (snap) => {
+    expect(fxSnapSchema.parse(snap)).toEqual({ o: ['delay'], delay: defaults });
+  });
+
+  it('keeps valid values, falsy ones included', () => {
+    const delay = { a: true, on: false, mix: 0, time: 0.5, fb: 0, mode: 1, pan: 0, freq: 50, q: 3 };
+    expect(fxSnapSchema.parse({ o: ['delay'], delay })).toEqual({ o: ['delay'], delay });
+  });
+
+  it('replaces wrong types with defaults, clamps numbers and rounds int params', () => {
+    const delay = { a: 'yes', on: 1, mix: Infinity, time: -1, fb: 1.5, mode: 0.6, pan: '0', q: 5, freq: NaN };
+    expect(fxSnapSchema.parse({ o: 'delay', delay: { ...delay, extra: 1 } })).toEqual({
+      o: ['delay'],
+      delay: { ...defaults, time: 0.01, fb: 0.9, mode: 1, q: 3 },
+    });
+  });
+
+  it('accepts every value the preset schema accepts', () => {
+    const fx = presetDataSchema.shape.fx.parse({ delay: { a: true, mix: 1, time: 1, mode: 1, pan: -0.05 } });
+    expect(fxSnapSchema.parse(fx)).toEqual(fx);
+  });
+
+  it('a non-object effect falls back to its defaults', () => {
+    expect(fxSnapSchema.parse({ delay: 'on' }).delay).toEqual(defaults);
   });
 });

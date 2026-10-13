@@ -1,2 +1,2 @@
 export { RxHandle } from './rx-handle';
-export { Header } from './header';
+export { Header, HeaderSection } from './header';

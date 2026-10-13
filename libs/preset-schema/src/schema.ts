@@ -17,8 +17,64 @@ export const FILTER_TYPES = [
   'allpass',
 ] as const;
 
+// effects of the fx rack, the order is the default chain order
+export const FX_TYPES = ['delay'] as const;
+export type FxType = typeof FX_TYPES[number];
+
+// known types only, no duplicates, the missing ones are appended
+// (presets from a newer client may contain effect types this one doesn't know)
+export const normalizeFxOrder = (order: readonly unknown[]): FxType[] => {
+  const known = order.filter(
+    (type, i): type is FxType => FX_TYPES.includes(type as FxType) && order.indexOf(type) === i
+  );
+  return [...known, ...FX_TYPES.filter((type) => !known.includes(type))];
+};
+
+export interface ParamRange {
+  min: number;
+  max: number;
+  default: number;
+  int?: boolean;
+}
+
+// numeric fx params: knob ranges in the app, validation and defaults of presets
+export const FX_MIX_PARAM: ParamRange = { min: 0, max: 1, default: 0.3 };
+export const FX_PARAMS = {
+  delay: {
+    time: { min: 0.01, max: 1, default: 0.2 },
+    fb: { min: 0, max: 0.9, default: 0.5 },
+    // 0: normal, 1: ping-pong
+    mode: { min: 0, max: 1, default: 0, int: true },
+    // stereo pan by delay (Haas effect, up to 50ms), < 0 delays the right channel (echoes on the left), > 0 the left one
+    pan: { min: -0.05, max: 0.05, default: 0 },
+    // bandpass in the feedback loop
+    freq: { min: 50, max: 17000, default: 1000 },
+    q: { min: 0.01, max: 3, default: 0.01 },
+  },
+};
+
 const range = (min: number, max: number) => z.number().finite().min(min).max(max);
 const intRange = (min: number, max: number) => range(min, max).int();
+const paramRange = ({ min, max, default: value, int }: ParamRange) =>
+  (int ? intRange(min, max) : range(min, max)).default(value);
+// legacy url params skip presetDataSchema: wrong types fall back to the default, numbers are clamped
+// (and rounded for int params, the strict schema rejects fractions)
+const lenientParamRange = ({ min, max, default: value, int }: ParamRange) =>
+  z
+    .number()
+    .finite()
+    .transform((num) => {
+      const clamped = Math.min(max, Math.max(min, num));
+      return int ? Math.round(clamped) : clamped;
+    })
+    .catch(value);
+const mapParams = <K extends string, T>(params: Record<K, ParamRange>, toSchema: (param: ParamRange) => T) =>
+  (Object.keys(params) as K[]).reduce(
+    (acc, key) => ({ ...acc, [key]: toSchema(params[key]) }),
+    {} as Record<K, T>
+  );
+const toObject = (value: unknown) =>
+  typeof value === 'object' && value !== null && !Array.isArray(value) ? value : {};
 
 const oscillatorSchema = (active: boolean) =>
   z
@@ -62,6 +118,46 @@ const voicingSchema = z
   })
   .default({});
 
+// one shape for presets and url snapshots, only the validation of a value differs
+const fxEffectShape = <K extends string, P, F>(
+  params: Record<K, ParamRange>,
+  param: (range: ParamRange) => P,
+  flag: (value: boolean) => F
+) => ({
+  a: flag(false), // in the chain
+  on: flag(true), // not bypassed
+  mix: param(FX_MIX_PARAM),
+  ...mapParams(params, param),
+});
+
+const fxSchema = z
+  .object({
+    o: z
+      .array(z.string().max(64))
+      .max(32)
+      .transform(normalizeFxOrder)
+      .default([...FX_TYPES]),
+    delay: z
+      .object(fxEffectShape(FX_PARAMS.delay, paramRange, (value) => z.boolean().default(value)))
+      .default({}),
+  })
+  .default({});
+
+const lenientFxEffect = <K extends string>(params: Record<K, ParamRange>) =>
+  z.preprocess(
+    toObject,
+    z.object(fxEffectShape(params, lenientParamRange, (value) => z.boolean().catch(value)))
+  );
+
+// fx snapshot of the url: never fails, invalid values fall back to the defaults (see lenientParamRange)
+export const fxSnapSchema = z.preprocess(
+  toObject,
+  z.object({
+    o: z.array(z.unknown()).catch([]).transform(normalizeFxOrder),
+    delay: lenientFxEffect(FX_PARAMS.delay),
+  })
+);
+
 // keys match snapshot plugin model names (voicing is saved with the `v` prefix)
 export const presetDataSchema = z.object({
   osc1: oscillatorSchema(true),
@@ -69,6 +165,7 @@ export const presetDataSchema = z.object({
   filter: filterSchema,
   adsr: adsrSchema,
   v: voicingSchema,
+  fx: fxSchema,
 });
 
 export type PresetData = z.infer<typeof presetDataSchema>;

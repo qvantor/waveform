@@ -28,6 +28,8 @@ export interface HandleProps {
   precision?: number;
   plotSize?: number;
   disabled?: boolean;
+  // the value the fill starts from (e.g. 0 for a bipolar knob), min by default
+  fillFrom?: number;
 }
 
 interface StyledProps {
@@ -154,24 +156,27 @@ export const Handle = ({
   precision = 1000,
   plotSize = 100,
   disabled = false,
+  fillFrom,
 }: HandleProps) => {
   const { svg } = sizes[size];
   const prevValue = React.useRef(value);
-  const { arcBackground, commonArcOptions, scale } = React.useMemo(() => {
+  const { arcBackground, commonArcOptions, toAngle, fillStartAngle } = React.useMemo(() => {
     const { arc: arcSize } = sizes[size];
     const arcPadding = 1.2;
     const [minAngle, maxAngle] = [-Math.PI / arcPadding, Math.PI / arcPadding];
     const scale = (mode === 'linear' ? scaleLinear() : scaleLog())
       .domain(step ? [0, step.length - 1] : [min, max])
       .range([minAngle, maxAngle]);
+    const toAngle = (value: number) => scale(step ? step.indexOf(value) : value);
     const commonArcOptions = {
       innerRadius: arcSize[0],
       outerRadius: arcSize[1],
       startAngle: minAngle,
     };
     const arcBackground = arc()({ ...commonArcOptions, endAngle: maxAngle }) ?? undefined;
-    return { arcBackground, scale, commonArcOptions };
-  }, [min, max, size, mode, step]);
+    const fillStartAngle = fillFrom === undefined ? minAngle : toAngle(fillFrom);
+    return { arcBackground, commonArcOptions, toAngle, fillStartAngle };
+  }, [min, max, size, mode, step, fillFrom]);
 
   const scaleMouse = React.useMemo(
     () =>
@@ -182,10 +187,14 @@ export const Handle = ({
   );
 
   const { arcValue, rotateRad } = React.useMemo(() => {
-    const rotateRad = Array.isArray(step) ? scale(step.indexOf(value)) : scale(value);
-    const arcValue = arc()({ ...commonArcOptions, endAngle: rotateRad }) ?? undefined;
+    const rotateRad = toAngle(value);
+    // no fill at the start point: only the background arc is visible
+    const arcValue =
+      rotateRad !== fillStartAngle
+        ? arc()({ ...commonArcOptions, startAngle: fillStartAngle, endAngle: rotateRad }) ?? undefined
+        : undefined;
     return { arcValue, rotateRad };
-  }, [commonArcOptions, value, scale, step]);
+  }, [commonArcOptions, value, toAngle, fillStartAngle]);
 
   const [trackPointer] = React.useState(singlePointerTracker);
   const onPointerDown = React.useCallback(
@@ -222,16 +231,10 @@ export const Handle = ({
           </HandleCircle>
           <HandleCircleShadow size={size} />
           <Svg size={size}>
-            <path
-              fill={theme.colors.primaryHighContrast}
-              transform={`translate(${svg[0] / 2},${svg[1] / 2})`}
-              d={arcBackground}
-            />
-            <path
-              fill={theme.colors.accent}
-              transform={`translate(${svg[0] / 2},${svg[1] / 2})`}
-              d={arcValue}
-            />
+            <g transform={`translate(${svg[0] / 2},${svg[1] / 2})`}>
+              <path fill={theme.colors.primaryHighContrast} d={arcBackground} />
+              {arcValue && <path fill={theme.colors.accent} d={arcValue} />}
+            </g>
           </Svg>
         </HandleContainer>
         {label && <Label>{label}</Label>}

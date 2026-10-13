@@ -1,1 +1,1 @@
-export { PresetPanel } from './preset-panel';
+export { PresetSection } from './preset-section';

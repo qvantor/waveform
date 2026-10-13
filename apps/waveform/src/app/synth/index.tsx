@@ -1,11 +1,11 @@
 import React from 'react';
 import styled from 'styled-components';
-import { PianoKeyboard, VolumeAnalyser, FqAnalyser, theme, useIsMobile } from '@waveform/ui-kit';
+import { PianoKeyboard, VolumeAnalyser, FqAnalyser, TapeSwitch, theme, useIsMobile } from '@waveform/ui-kit';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
 import { DEFAULT_WAVETABLE_PATH } from '@waveform/preset-schema';
 import { useApp } from '../app';
-import { Header } from '../common/components';
-import { PresetPanel, PresetsProvider } from '../presets';
+import { Header, HeaderSection } from '../common/components';
+import { PresetSection, PresetsProvider } from '../presets';
 import {
   SynthProvider,
   InputControllerProvider,
@@ -24,9 +24,11 @@ import {
 import { FilterProvider, FilterSection } from './filter';
 import { OscillatorsContainer, MasterHandle } from './synth/components';
 import { VoicingSection } from './voicing';
-import { Settings } from './settings';
+import { MidiInput } from './settings';
 import { EnvelopeSection } from './envelope';
 import { MobileLayout } from './mobile';
+import { FxScreen, FxProvider } from './fx';
+import { SYNTH_SCREENS, SynthScreen } from './screens';
 
 const Root = styled.div`
   display: grid;
@@ -48,10 +50,25 @@ const PianoContainer = styled.div`
   justify-content: center;
 `;
 
-const HeaderContainer = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 10px;
+// exactly the right half of the screen: 50% of the header content box + its 10px right padding;
+// split into full-height sections: tabs | preset | master
+const HeaderRight = styled.div`
+  flex: 0 0 50%;
+  align-self: stretch;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  margin-right: -10px; // reach the right edge, cancels the Header padding
+`;
+
+// the tape switch's dark groove already separates the tabs, only master needs a divider
+const MasterSection = styled(HeaderSection)`
+  gap: 12px;
+  padding: 0 16px;
+`;
+
+const DesktopFx = styled(FxScreen)`
+  grid-row: span 2;
 `;
 
 const HeaderEq = styled(FqAnalyser)`
@@ -80,12 +97,23 @@ const AdsrEnvelopeInternal = () => {
   );
 };
 
-const DesktopLayout = () => (
+interface ScreenProps {
+  screen: SynthScreen;
+  onScreenChange: (screen: SynthScreen) => void;
+}
+
+const DesktopLayout = ({ screen, onScreenChange }: ScreenProps) => (
   <>
-    <HeaderInternal />
+    <HeaderInternal screen={screen} onScreenChange={onScreenChange} />
     <Root>
-      <OscillatorsContainer />
-      <AdsrEnvelopeInternal />
+      {screen === 'osc' ? (
+        <>
+          <OscillatorsContainer />
+          <AdsrEnvelopeInternal />
+        </>
+      ) : (
+        <DesktopFx />
+      )}
       <PianoInternal />
     </Root>
   </>
@@ -93,6 +121,8 @@ const DesktopLayout = () => (
 
 const Internal = () => {
   const isMobile = useIsMobile();
+  // lives above the layout switch, so the selected screen survives crossing the mobile breakpoint
+  const [screen, setScreen] = React.useState<SynthScreen>('osc');
   const app = useApp();
   const synthCore = useSynthCore();
   const inputController = useInputController();
@@ -103,17 +133,25 @@ const Internal = () => {
   return (
     <MidiControllerProvider initial={{}} inputController={inputController}>
       <FilterProvider initial={{}} synthCore={synthCore}>
-        <KeyboardControllerProvider initial={{}} app={app} inputController={inputController}>
-          <SynthProvider
-            initial={{}}
-            inputController={inputController}
-            adsrEnvelope={adsrEnvelope}
-            oscillator={[oscillator1, oscillator2]}
-            synthCore={synthCore}
-          >
-            <PresetsProvider initial={{}}>{isMobile ? <MobileLayout /> : <DesktopLayout />}</PresetsProvider>
-          </SynthProvider>
-        </KeyboardControllerProvider>
+        <FxProvider initial={{}} synthCore={synthCore}>
+          <KeyboardControllerProvider initial={{}} app={app} inputController={inputController}>
+            <SynthProvider
+              initial={{}}
+              inputController={inputController}
+              adsrEnvelope={adsrEnvelope}
+              oscillator={[oscillator1, oscillator2]}
+              synthCore={synthCore}
+            >
+              <PresetsProvider initial={{}}>
+                {isMobile ? (
+                  <MobileLayout screen={screen} onScreenChange={setScreen} />
+                ) : (
+                  <DesktopLayout screen={screen} onScreenChange={setScreen} />
+                )}
+              </PresetsProvider>
+            </SynthProvider>
+          </KeyboardControllerProvider>
+        </FxProvider>
       </FilterProvider>
     </MidiControllerProvider>
   );
@@ -136,17 +174,19 @@ const OscillatorInternal = ({ children }: React.PropsWithChildren) => {
   );
 };
 
-const HeaderInternal = () => {
+const HeaderInternal = ({ screen, onScreenChange }: ScreenProps) => {
   const [{ audioCtx, masterGain }] = useSynthCore();
   return (
     <Header>
       <HeaderEq audioCtx={audioCtx} master={masterGain} />
-      <PresetPanel />
-      <HeaderContainer>
-        <Settings />
-        <MasterHandle />
-        <VolumeAnalyser audioCtx={audioCtx} master={masterGain} />
-      </HeaderContainer>
+      <HeaderRight>
+        <TapeSwitch options={SYNTH_SCREENS} value={screen} onChange={onScreenChange} />
+        <PresetSection actions={<MidiInput />} />
+        <MasterSection>
+          <MasterHandle />
+          <VolumeAnalyser audioCtx={audioCtx} master={masterGain} />
+        </MasterSection>
+      </HeaderRight>
     </Header>
   );
 };

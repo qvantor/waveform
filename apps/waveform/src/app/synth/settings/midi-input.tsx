@@ -1,10 +1,10 @@
 import { MdPiano } from 'react-icons/md';
 import styled from 'styled-components';
-import { Label, Select, IconButton } from '@waveform/ui-kit';
+import { Label, Select, PanelButton } from '@waveform/ui-kit';
 import { useState } from 'react';
 import { Popover } from 'antd';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
-import { useMidiController } from '../../common/modules';
+import { useMidiController } from '../common/modules';
 
 const Content = styled.div`
   min-width: 300px;
@@ -19,7 +19,7 @@ export const MidiInput = () => {
   return (
     <Popover
       trigger='click'
-      placement='left'
+      placement='bottom'
       content={
         <Content>
           <Label>Midi source</Label>
@@ -36,9 +36,9 @@ export const MidiInput = () => {
       open={open}
       onOpenChange={setOpen}
     >
-      <IconButton active={open}>
-        <MdPiano />
-      </IconButton>
+      <PanelButton icon={<MdPiano />} active={open} indicator={selected !== null}>
+        Midi
+      </PanelButton>
     </Popover>
   );
 };

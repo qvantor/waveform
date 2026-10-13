@@ -2,9 +2,11 @@ import { createSynthCore, stopModels } from '../../../../test-utils/models';
 import { setVisibility } from '../../../../test-utils/visibility';
 
 describe('synthCore', () => {
-  it('connects preGain → limiter → masterGain → destination', () => {
-    const [{ audioCtx, preGain, masterLimiter, masterGain }] = createSynthCore();
-    expect(preGain.connect).toHaveBeenLastCalledWith(masterLimiter);
+  it('connects preGain → fxIn → fxOut → limiter → masterGain → destination', () => {
+    const [{ audioCtx, preGain, fxIn, fxOut, masterLimiter, masterGain }] = createSynthCore();
+    expect(preGain.connect).toHaveBeenLastCalledWith(fxIn);
+    expect(fxIn.connect).toHaveBeenCalledWith(fxOut);
+    expect(fxOut.connect).toHaveBeenCalledWith(masterLimiter);
     expect(masterLimiter.connect).toHaveBeenCalledWith(masterGain);
     expect(masterGain.connect).toHaveBeenCalledWith(audioCtx.destination);
   });
@@ -24,8 +26,8 @@ describe('synthCore', () => {
     expect(masterGain.gain.value).toBeCloseTo(0.3);
   });
 
-  it('inserts mid nodes between preGain and limiter in order', () => {
-    const [{ audioCtx, preGain, masterLimiter, $midNodes }, { addMidNode }] = createSynthCore();
+  it('inserts mid nodes between preGain and fxIn in order', () => {
+    const [{ audioCtx, preGain, fxIn, $midNodes }, { addMidNode }] = createSynthCore();
     const first = audioCtx.createGain();
     const second = audioCtx.createGain();
 
@@ -36,7 +38,24 @@ describe('synthCore', () => {
     expect(preGain.disconnect).toHaveBeenCalled();
     expect(preGain.connect).toHaveBeenLastCalledWith(first);
     expect(first.connect).toHaveBeenLastCalledWith(second);
-    expect(second.connect).toHaveBeenLastCalledWith(masterLimiter);
+    expect(second.connect).toHaveBeenLastCalledWith(fxIn);
+  });
+
+  it('drops the old links of the kept mid nodes on rewiring', () => {
+    const [{ audioCtx, fxIn }, { addMidNode }] = createSynthCore();
+    const first = audioCtx.createGain();
+    const second = audioCtx.createGain();
+
+    addMidNode(first);
+    expect(first.connect).toHaveBeenLastCalledWith(fxIn);
+    addMidNode(second);
+
+    // first → fxIn is cut before first → second is made
+    const connectOrder = (first.connect as jest.Mock).mock.invocationCallOrder;
+    const [disconnectOrder] = (first.disconnect as jest.Mock).mock.invocationCallOrder;
+    expect(disconnectOrder).toBeGreaterThan(connectOrder[0]);
+    expect(disconnectOrder).toBeLessThan(connectOrder[1]);
+    expect(first.connect).toHaveBeenLastCalledWith(second);
   });
 
   it('does not add the same mid node twice', () => {
@@ -48,8 +67,7 @@ describe('synthCore', () => {
   });
 
   it('removeMidNode disconnects the node and rewires the chain', () => {
-    const [{ audioCtx, preGain, masterLimiter, $midNodes }, { addMidNode, removeMidNode }] =
-      createSynthCore();
+    const [{ audioCtx, preGain, fxIn, $midNodes }, { addMidNode, removeMidNode }] = createSynthCore();
     const first = audioCtx.createGain();
     const second = audioCtx.createGain();
     addMidNode(first);
@@ -62,7 +80,7 @@ describe('synthCore', () => {
 
     removeMidNode(second);
     expect($midNodes.value).toEqual([]);
-    expect(preGain.connect).toHaveBeenLastCalledWith(masterLimiter);
+    expect(preGain.connect).toHaveBeenLastCalledWith(fxIn);
   });
 
   it.each(['pointerdown', 'touchend', 'keydown', 'visibilitychange'])(
