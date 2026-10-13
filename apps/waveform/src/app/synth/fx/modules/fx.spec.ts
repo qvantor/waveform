@@ -16,6 +16,8 @@ const setup = () => {
   return { model, actions, synthCore: synthCore[0], delayNode, feedback };
 };
 
+const lastGain = (node: GainNode) => (node.gain.setTargetAtTime as jest.Mock).mock.lastCall?.[0];
+
 describe('fx', () => {
   it('passes fxIn straight to fxOut when no effect is added', () => {
     const { model, synthCore } = setup();
@@ -55,22 +57,22 @@ describe('fx', () => {
     [send, wet].forEach((node) => expect(node.gain.setValueAtTime).toHaveBeenCalledWith(0, 0));
   });
 
-  it('keeps dry at full level up to mix 0.5 and wet from 0.5, bypass passes only the dry signal', () => {
+  it('crossfades dry and wet at equal power, bypass passes only the dry signal', () => {
     const { model, actions } = setup();
     const { input, output, dry, wet } = model.slots.delay;
     expect(input.connect).toHaveBeenCalledWith(dry);
     expect(dry.connect).toHaveBeenCalledWith(output);
     const expectGains = (dryGain: number, wetGain: number) => {
-      expect(dry.gain.setTargetAtTime).toHaveBeenLastCalledWith(dryGain, 0, expect.any(Number));
-      expect(wet.gain.setTargetAtTime).toHaveBeenLastCalledWith(wetGain, 0, expect.any(Number));
+      expect(lastGain(dry)).toBeCloseTo(dryGain);
+      expect(lastGain(wet)).toBeCloseTo(wetGain);
     };
 
     actions.setMix('delay', 0.25);
-    expectGains(1, 0.5);
+    expectGains(0.9239, 0.3827);
     actions.setMix('delay', 0.5);
-    expectGains(1, 1);
+    expectGains(Math.SQRT1_2, Math.SQRT1_2);
     actions.setMix('delay', 0.75);
-    expectGains(0.5, 1);
+    expectGains(0.3827, 0.9239);
     actions.setMix('delay', 0);
     expectGains(1, 0);
     actions.setMix('delay', 1);
@@ -105,6 +107,23 @@ describe('fx', () => {
 
     actions.setAdded('delay', false);
     expect(feedback.gain.setTargetAtTime).toHaveBeenLastCalledWith(0, 0, expect.any(Number));
+  });
+
+  it('keeps the effect rendered through a muted drain while removed, so the delay empties', () => {
+    const synthCore = createSynthCore();
+    const { audioCtx } = synthCore[0];
+    const createChannelMerger = jest.spyOn(audioCtx, 'createChannelMerger');
+    const [model, actions] = initModel(fx({ synthCore }), 'fx', undefined);
+    const { drain, wet } = model.slots.delay;
+    // the delay output (merger) feeds both wet and the drain
+    const coreOutput = createChannelMerger.mock.results[0].value as ChannelMergerNode;
+    expect(coreOutput.connect).toHaveBeenCalledWith(wet);
+    expect(coreOutput.connect).toHaveBeenCalledWith(drain);
+    expect(drain.connect).toHaveBeenCalledWith(audioCtx.destination);
+    expect(drain.gain.setValueAtTime).toHaveBeenCalledWith(0, 0);
+
+    model.slots.delay.destroy();
+    expect(drain.disconnect).toHaveBeenCalled();
   });
 
   it('applies the params to the delay node', () => {
@@ -167,23 +186,16 @@ describe('fx', () => {
       const { model, actions, delayNode, feedback } = setup();
       actions.setAdded('delay', true);
       actions.applyPreset('delay', 'tape-echo');
-      const { mix, params } = preset('tape-echo');
+      const { params } = preset('tape-echo');
       expect(delayNode.delayTime.setTargetAtTime).toHaveBeenLastCalledWith(
         params.time,
         0,
         expect.any(Number)
       );
       expect(feedback.gain.setTargetAtTime).toHaveBeenLastCalledWith(params.fb, 0, expect.any(Number));
-      expect(model.slots.delay.wet.gain.setTargetAtTime).toHaveBeenLastCalledWith(
-        Math.min(1, 2 * mix),
-        0,
-        expect.any(Number)
-      );
-      expect(model.slots.delay.dry.gain.setTargetAtTime).toHaveBeenLastCalledWith(
-        Math.min(1, 2 * (1 - mix)),
-        0,
-        expect.any(Number)
-      );
+      // mix 0.3
+      expect(lastGain(model.slots.delay.dry)).toBeCloseTo(0.891);
+      expect(lastGain(model.slots.delay.wet)).toBeCloseTo(0.454);
     });
 
     it('does not share the params object with the preset', () => {
@@ -204,13 +216,13 @@ describe('fx', () => {
     it('survives a snapshot round-trip, incl. zero feedback and pan', () => {
       const { model, actions } = setup();
       actions.setAdded('delay', true);
-      actions.applyPreset('delay', 'doubler');
+      actions.applyPreset('delay', 'stereo-widener');
       const snapshot = getSnapshot();
-      expect(snapshot['fx']).toMatchObject({ delay: { fb: 0, mix: 0.4, pan: 0.015 } });
+      expect(snapshot['fx']).toMatchObject({ delay: { fb: 0, mix: 0.35, pan: 0.018 } });
 
       actions.applyPreset('delay', 'dub');
       applySnapshot(snapshot);
-      expect(findFxPreset('delay', model.$effects.value.delay)).toBe(preset('doubler'));
+      expect(findFxPreset('delay', model.$effects.value.delay)).toBe(preset('stereo-widener'));
     });
 
     it('a fresh effect matches the default preset', () => {

@@ -45,7 +45,7 @@ export const FX_PARAMS = {
     fb: { min: 0, max: 0.9, default: 0.5 },
     // 0: normal, 1: ping-pong
     mode: { min: 0, max: 1, default: 0, int: true },
-    // stereo pan by delay (Haas effect, up to 50ms), < 0 delays the left channel, > 0 the right one
+    // stereo pan by delay (Haas effect, up to 50ms), < 0 delays the right channel (echoes on the left), > 0 the left one
     pan: { min: -0.05, max: 0.05, default: 0 },
     // bandpass in the feedback loop
     freq: { min: 50, max: 17000, default: 1000 },

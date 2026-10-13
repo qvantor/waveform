@@ -13,6 +13,9 @@ const formatHz = (value: number) =>
 
 const isPingPong = (value: number) => value >= 0.5;
 
+// time changes glide like tape (~95% in 0.3s), so a knob drag bends the echoes once instead of chirping per step
+const TIME_GLIDE = 0.1;
+
 // input → splitter → in gains → line L/R → bandpass L/R → pan L/R → merger (output)
 // feedback: bandpass L/R → fb gains → line L/R; normal: each line feeds itself,
 // ping-pong: the mono sum goes into the left line, the lines feed each other (L → R → L)
@@ -111,8 +114,10 @@ export const delay: FxDefinition<DelayParam> = {
     // would briefly run the feedback loop above unity
     let smooth = false;
 
-    const setValue = (param: AudioParam, value: number) =>
-      smooth ? setSmooth(audioCtx, param, value) : param.setValueAtTime(value, audioCtx.currentTime);
+    const setValue = (param: AudioParam, value: number, timeConstant?: number) =>
+      smooth
+        ? setSmooth(audioCtx, param, value, timeConstant)
+        : param.setValueAtTime(value, audioCtx.currentTime);
 
     // inactive: no feedback, so the lines drain within one delay time instead of ringing on
     const applyRouting = () => {
@@ -128,12 +133,13 @@ export const delay: FxDefinition<DelayParam> = {
     };
 
     const apply: Record<DelayParam, (value: number) => void> = {
-      time: (value) => [lines.l, lines.r].forEach((node) => setValue(node.delayTime, value)),
+      time: (value) => [lines.l, lines.r].forEach((node) => setValue(node.delayTime, value, TIME_GLIDE)),
       fb: applyRouting,
       mode: applyRouting,
       pan: (value) => {
-        setValue(offsets.l.delayTime, Math.max(0, -value));
-        setValue(offsets.r.delayTime, Math.max(0, value));
+        // the earlier channel sets the side: L (< 0) delays the right channel
+        setValue(offsets.l.delayTime, Math.max(0, value));
+        setValue(offsets.r.delayTime, Math.max(0, -value));
       },
       freq: (value) => [filters.l, filters.r].forEach((node) => setValue(node.frequency, value)),
       q: (value) => [filters.l, filters.r].forEach((node) => setValue(node.Q, value)),

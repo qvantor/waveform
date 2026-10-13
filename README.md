@@ -33,7 +33,7 @@ Built with TypeScript, RxJS and the Web Audio API. Nothing to install and no acc
 
 - Effects chain with drag-and-drop ordering, per-effect dry/wet mix and bypass
 - **Delay** with normal and ping-pong modes, Haas stereo panning and a bandpass filter in the feedback loop
-- Built-in delay presets: Slapback, Doubler, Ping-pong 1/8, Dotted 1/8, Tape echo, Dub, Ambient wash, Lo-fi, Flutter
+- Built-in delay presets: Slapback, Stereo widener, Digital echo, Ping-pong 250ms, Echo 375ms, Echo 500ms, Wide ping-pong, Tape echo, Dub, Ambient wash, Lo-fi, Metallic comb
 
 ### 🌊 Wavetables
 

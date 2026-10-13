@@ -7,7 +7,6 @@ export type DelayParam = keyof typeof FX_PARAMS.delay;
 const NORMAL = 0;
 const PING_PONG = 1;
 
-// tempo-synced times are at 120 bpm (1/8 = 250ms)
 export const DELAY_PRESETS: FxPreset<DelayParam>[] = [
   // the schema defaults, the state of a freshly added effect
   {
@@ -23,22 +22,40 @@ export const DELAY_PRESETS: FxPreset<DelayParam>[] = [
     params: { mode: NORMAL, time: 0.09, fb: 0.1, pan: 0, freq: 2500, q: 0.3 },
   },
   {
-    id: 'doubler',
-    name: 'Doubler',
-    mix: 0.4,
-    params: { mode: NORMAL, time: 0.02, fb: 0, pan: 0.015, freq: 4000, q: 0.1 },
+    id: 'stereo-widener',
+    name: 'Stereo widener',
+    mix: 0.35,
+    params: { mode: NORMAL, time: 0.012, fb: 0, pan: 0.018, freq: 6000, q: 0.05 },
   },
   {
-    id: 'ping-pong-8th',
-    name: 'Ping-pong 1/8',
+    id: 'digital-echo',
+    name: 'Digital echo',
+    mix: 0.25,
+    params: { mode: NORMAL, time: 0.3, fb: 0.45, pan: 0, freq: 9000, q: 0.05 },
+  },
+  {
+    id: 'ping-pong-250',
+    name: 'Ping-pong 250ms',
     mix: 0.3,
     params: { mode: PING_PONG, time: 0.25, fb: 0.45, pan: 0, freq: 2000, q: 0.2 },
   },
   {
-    id: 'dotted-8th',
-    name: 'Dotted 1/8',
+    id: 'echo-375',
+    name: 'Echo 375ms',
     mix: 0.25,
     params: { mode: NORMAL, time: 0.375, fb: 0.4, pan: 0.01, freq: 1800, q: 0.3 },
+  },
+  {
+    id: 'echo-500',
+    name: 'Echo 500ms',
+    mix: 0.25,
+    params: { mode: NORMAL, time: 0.5, fb: 0.35, pan: 0, freq: 2500, q: 0.2 },
+  },
+  {
+    id: 'ping-pong-wide',
+    name: 'Wide ping-pong',
+    mix: 0.3,
+    params: { mode: PING_PONG, time: 0.4, fb: 0.55, pan: 0.02, freq: 3500, q: 0.1 },
   },
   {
     id: 'tape-echo',
@@ -65,8 +82,8 @@ export const DELAY_PRESETS: FxPreset<DelayParam>[] = [
     params: { mode: NORMAL, time: 0.16, fb: 0.5, pan: 0, freq: 1500, q: 2.5 },
   },
   {
-    id: 'flutter',
-    name: 'Flutter',
+    id: 'comb',
+    name: 'Metallic comb',
     mix: 0.25,
     params: { mode: NORMAL, time: 0.03, fb: 0.8, pan: 0, freq: 5000, q: 0.5 },
   },

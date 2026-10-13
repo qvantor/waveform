@@ -6,11 +6,16 @@ import { findFxPreset } from '.';
 const PARAM_KEYS = Object.keys(FX_PARAMS.delay).sort();
 
 describe('delay presets', () => {
-  it('has 10 presets with unique ids and names, one of them is the default', () => {
-    expect(DELAY_PRESETS).toHaveLength(10);
-    expect(new Set(DELAY_PRESETS.map(({ id }) => id)).size).toBe(10);
-    expect(new Set(DELAY_PRESETS.map(({ name }) => name)).size).toBe(10);
+  it('has 13 presets with unique ids and names, one of them is the default', () => {
+    expect(DELAY_PRESETS).toHaveLength(13);
+    expect(new Set(DELAY_PRESETS.map(({ id }) => id)).size).toBe(DELAY_PRESETS.length);
+    expect(new Set(DELAY_PRESETS.map(({ name }) => name)).size).toBe(DELAY_PRESETS.length);
     expect(DELAY_PRESETS.some(({ id }) => id === 'default')).toBe(true);
+  });
+
+  // there is no tempo sync or time modulation, so names say what the delay does, times are in ms
+  it('names promise no tempo sync or modulation', () => {
+    DELAY_PRESETS.forEach(({ name }) => expect(name).not.toMatch(/\d\/\d|flutter|doubler/i));
   });
 
   it('the default preset is the schema defaults, the state of a freshly added delay', () => {

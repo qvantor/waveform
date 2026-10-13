@@ -99,9 +99,27 @@ describe('delay', () => {
     const created = (feedbacks.ll.gain.setValueAtTime as jest.Mock).mock.calls.length;
     core.setParam('time', 0.3);
     core.setActive(false);
-    lines.forEach((line) => expect(line.delayTime.setTargetAtTime).toHaveBeenLastCalledWith(0.3, 0, 0.01));
-    expect(feedbacks.ll.gain.setTargetAtTime).toHaveBeenLastCalledWith(0, 0, 0.01);
+    lines.forEach((line) =>
+      expect(line.delayTime.setTargetAtTime).toHaveBeenLastCalledWith(0.3, 0, expect.any(Number))
+    );
+    expect(feedbacks.ll.gain.setTargetAtTime).toHaveBeenLastCalledWith(0, 0, expect.any(Number));
     expect(feedbacks.ll.gain.setValueAtTime).toHaveBeenCalledTimes(created);
+  });
+
+  it('glides time slowly like tape, the other params stay fast', () => {
+    const { core, lines, offsets, filters, feedbacks } = setup();
+    core.setParam('time', 0.5);
+    core.setParam('pan', 0.01);
+    core.setParam('freq', 2000);
+    core.setParam('q', 1);
+    core.setParam('fb', 0.4);
+    lines.forEach((line) => expect(line.delayTime.setTargetAtTime).toHaveBeenLastCalledWith(0.5, 0, 0.1));
+    expect(offsets[0].delayTime.setTargetAtTime).toHaveBeenLastCalledWith(0.01, 0, 0.01);
+    filters.forEach((filter) => {
+      expect(filter.frequency.setTargetAtTime).toHaveBeenLastCalledWith(2000, 0, 0.01);
+      expect(filter.Q.setTargetAtTime).toHaveBeenLastCalledWith(1, 0, 0.01);
+    });
+    expect(feedbacks.ll.gain.setTargetAtTime).toHaveBeenLastCalledWith(0.4, 0, 0.01);
   });
 
   it('normal: each line feeds itself, ping-pong: the mono sum bounces between the lines', () => {
@@ -152,12 +170,12 @@ describe('delay', () => {
     expect(createDelay.mock.calls).toEqual([[1], [1], [0.05], [0.05]]);
   });
 
-  it('pan delays the left channel when negative and the right one when positive', () => {
+  it('pan delays the right channel when negative (echoes on the left) and the left one when positive', () => {
     const { core, offsets } = setup();
     core.setParam('pan', -0.02);
-    expect(offsets.map((offset) => lastValue(offset.delayTime))).toEqual([0.02, 0]);
+    expect(offsets.map((offset) => lastValue(offset.delayTime))).toEqual([0, 0.02]);
     core.setParam('pan', 0.025);
-    expect(offsets.map((offset) => lastValue(offset.delayTime))).toEqual([0, 0.025]);
+    expect(offsets.map((offset) => lastValue(offset.delayTime))).toEqual([0.025, 0]);
     core.setParam('pan', 0);
     expect(offsets.map((offset) => lastValue(offset.delayTime))).toEqual([0, 0]);
   });
