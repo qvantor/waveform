@@ -40,6 +40,14 @@ const Small = styled.small`
   margin-top: -6px;
 `;
 
+// a full-height header section, divided from the previous one by a line
+export const HeaderSection = styled.div`
+  border-left: 1px solid ${theme.colors.primaryLowContrast};
+  display: flex;
+  align-items: center;
+  background: ${theme.colors.primary};
+`;
+
 export const Header = ({ children }: React.PropsWithChildren) => {
   return (
     <Root>

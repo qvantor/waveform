@@ -1,2 +1,2 @@
 export { PresetsProvider } from './modules/presets';
-export { PresetPanel } from './components';
+export { PresetSection } from './components';

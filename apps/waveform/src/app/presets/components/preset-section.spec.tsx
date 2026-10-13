@@ -1,10 +1,11 @@
+import React from 'react';
 import { act, fireEvent, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import toast from 'react-hot-toast';
 import { fakePreset } from '../../../test-utils/presets-fixtures';
 import { renderWithPresets } from '../../../test-utils/presets-wrapper';
 import { getPreset, sharePreset } from '../services';
-import { PresetPanel } from './preset-panel';
+import { PresetSection } from './preset-section';
 
 jest.mock('../services', () => ({
   ...jest.requireActual('../services'),
@@ -22,63 +23,57 @@ const list = [
   { id: 'c', name: 'C', uniqueUsers: 0 },
 ];
 
-// icon buttons have no labels, they go in this order
-const buttons = (container: HTMLElement) => {
-  const [prev, name, next, save, share] = Array.from(container.querySelectorAll('button'));
-  return { prev, name, next, save, share };
-};
-
-const setup = () => {
-  const user = userEvent.setup();
-  const result = renderWithPresets(<PresetPanel />);
-  return { ...result, user, buttons: buttons(result.container) };
-};
-
 beforeEach(() => {
   getPresetMock.mockImplementation(fakePreset);
 });
 
-describe('PresetPanel', () => {
+describe('PresetSection', () => {
+  const setupSection = (actions?: React.ReactNode) => {
+    const user = userEvent.setup();
+    const result = renderWithPresets(<PresetSection actions={actions} />);
+    const prev = screen.getByRole('button', { name: 'Previous preset' });
+    const next = screen.getByRole('button', { name: 'Next preset' });
+    // the name sits between ◀ and ▶
+    const name = prev.nextElementSibling as HTMLElement;
+    return { ...result, user, prev, next, name };
+  };
+
   it('shows Init without a preset and the current preset name with a dirty mark', () => {
-    const { buttons, presets } = setup();
-    expect(buttons.name).toHaveTextContent(/^Init$/);
+    const { name, presets } = setupSection();
+    expect(name).toHaveTextContent(/^Init$/);
 
     act(() => presets[1].setSaved({ id: 'a', name: 'Bright pad' }));
-    expect(buttons.name).toHaveTextContent(/^Bright pad$/);
+    expect(name).toHaveTextContent(/^Bright pad$/);
 
     act(() => presets[0].$dirty.next(true));
-    expect(buttons.name).toHaveTextContent(/^Bright pad \*$/);
+    expect(name).toHaveTextContent(/^Bright pad \*$/);
   });
 
-  it('disables ◀ ▶ without a list', () => {
-    const { buttons } = setup();
-    expect(buttons.prev).toBeDisabled();
-    expect(buttons.next).toBeDisabled();
-  });
+  it('disables ◀ ▶ without a list and steps through it otherwise', async () => {
+    const { user, prev, next, name, presets } = setupSection();
+    expect(prev).toBeDisabled();
+    expect(next).toBeDisabled();
 
-  it('steps through the list with ◀ ▶', async () => {
-    const { user, buttons, presets } = setup();
     act(() => presets[1].setList(list));
-    expect(buttons.next).toBeEnabled();
+    expect(prev).toBeEnabled();
+    expect(next).toBeEnabled();
 
-    // nothing from the list is loaded yet, so ▶ starts from the first preset
-    await user.click(buttons.next);
+    await user.click(next);
     await waitFor(() => expect(presets[0].$current.value?.id).toBe('a'));
-
-    await user.click(buttons.prev);
+    await user.click(prev);
     await waitFor(() => expect(presets[0].$current.value?.id).toBe('c'));
-    expect(buttons.name).toHaveTextContent('Preset c');
+    expect(name).toHaveTextContent('Preset c');
   });
 
   it('opens the preset browser by the name', async () => {
-    const { user, buttons } = setup();
-    await user.click(buttons.name);
+    const { user, name } = setupSection();
+    await user.click(name);
     expect(await screen.findByRole('dialog', { name: 'Presets' })).toBeInTheDocument();
   });
 
-  it('opens the save dialog by the button and by Cmd/Ctrl+S', async () => {
-    const { user, buttons } = setup();
-    await user.click(buttons.save);
+  it('opens the save dialog by Save and by Cmd/Ctrl+S', async () => {
+    const { user } = setupSection();
+    await user.click(screen.getByRole('button', { name: 'Save' }));
     expect(await screen.findByRole('dialog', { name: 'Save preset' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Cancel' }));
     await waitFor(() =>
@@ -100,20 +95,26 @@ describe('PresetPanel', () => {
   });
 
   it('does not open the save dialog for a plain S', async () => {
-    setup();
+    setupSection();
     fireEvent.keyDown(document, { code: 'KeyS' });
     await act(() => Promise.resolve());
     expect(screen.queryByRole('dialog', { name: 'Save preset' })).not.toBeInTheDocument();
   });
 
   it('shares only a saved preset', async () => {
-    const { user, buttons, presets } = setup();
-    await user.click(buttons.share);
+    const { user, presets } = setupSection();
+    await user.click(screen.getByRole('button', { name: 'Share' }));
     expect(toast.error).toHaveBeenCalledWith('Save the preset first to share it');
     expect(sharePreset).not.toHaveBeenCalled();
 
     act(() => presets[1].setSaved({ id: 'a', name: 'Bright pad' }));
-    await user.click(buttons.share);
+    await user.click(screen.getByRole('button', { name: 'Share' }));
     expect(sharePreset).toHaveBeenCalledWith('a');
+  });
+
+  it('renders extra actions after Save and Share', () => {
+    setupSection(<button type='button'>Extra</button>);
+    const extra = screen.getByRole('button', { name: 'Extra' });
+    expect(screen.getByRole('button', { name: 'Share' }).nextElementSibling).toBe(extra);
   });
 });

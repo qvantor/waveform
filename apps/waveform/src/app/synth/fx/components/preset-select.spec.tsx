@@ -38,6 +38,21 @@ describe('PresetSelect', () => {
     expect(onSelect).toHaveBeenLastCalledWith(DELAY_PRESETS[4].id);
   });
 
+  it('does not keep the focus after selecting a preset', async () => {
+    const { user, select } = setup();
+    await user.selectOptions(select(), DELAY_PRESETS[4].name);
+    expect(select()).not.toHaveFocus();
+    expect(document.body).toHaveFocus();
+  });
+
+  it('is skipped by Tab and the arrows never take the focus', async () => {
+    const { user } = setup();
+    await user.tab();
+    expect(document.body).toHaveFocus();
+    await user.click(screen.getByRole('button', { name: 'Next preset' }));
+    expect(document.body).toHaveFocus();
+  });
+
   it('steps through the presets and wraps around', async () => {
     const { user, onSelect, rerender } = setup();
     await user.click(screen.getByRole('button', { name: 'Next preset' }));

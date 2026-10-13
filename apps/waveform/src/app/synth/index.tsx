@@ -4,8 +4,8 @@ import { PianoKeyboard, VolumeAnalyser, FqAnalyser, TapeSwitch, theme, useIsMobi
 import { useBehaviorSubject } from '@waveform/rxjs-react';
 import { DEFAULT_WAVETABLE_PATH } from '@waveform/preset-schema';
 import { useApp } from '../app';
-import { Header } from '../common/components';
-import { PresetPanel, PresetsProvider } from '../presets';
+import { Header, HeaderSection } from '../common/components';
+import { PresetSection, PresetsProvider } from '../presets';
 import {
   SynthProvider,
   InputControllerProvider,
@@ -24,7 +24,7 @@ import {
 import { FilterProvider, FilterSection } from './filter';
 import { OscillatorsContainer, MasterHandle } from './synth/components';
 import { VoicingSection } from './voicing';
-import { Settings } from './settings';
+import { MidiInput } from './settings';
 import { EnvelopeSection } from './envelope';
 import { MobileLayout } from './mobile';
 import { FxScreen, FxProvider } from './fx';
@@ -50,24 +50,21 @@ const PianoContainer = styled.div`
   justify-content: center;
 `;
 
-const HeaderContainer = styled.div`
-  display: flex;
-  align-items: center;
-  gap: 10px;
-`;
-
-// exactly the right half of the screen: 50% of the header content box + its 10px right padding
+// exactly the right half of the screen: 50% of the header content box + its 10px right padding;
+// split into full-height sections: tabs | preset | master
 const HeaderRight = styled.div`
   flex: 0 0 50%;
   align-self: stretch;
   min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 20px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  margin-right: -10px; // reach the right edge, cancels the Header padding
 `;
 
-const HeaderPresetPanel = styled(PresetPanel)`
-  flex: 1 1 auto;
+// the tape switch's dark groove already separates the tabs, only master needs a divider
+const MasterSection = styled(HeaderSection)`
+  gap: 12px;
+  padding: 0 16px;
 `;
 
 const DesktopFx = styled(FxScreen)`
@@ -184,12 +181,11 @@ const HeaderInternal = ({ screen, onScreenChange }: ScreenProps) => {
       <HeaderEq audioCtx={audioCtx} master={masterGain} />
       <HeaderRight>
         <TapeSwitch options={SYNTH_SCREENS} value={screen} onChange={onScreenChange} />
-        <HeaderPresetPanel />
-        <HeaderContainer>
-          <Settings />
+        <PresetSection actions={<MidiInput />} />
+        <MasterSection>
           <MasterHandle />
           <VolumeAnalyser audioCtx={audioCtx} master={masterGain} />
-        </HeaderContainer>
+        </MasterSection>
       </HeaderRight>
     </Header>
   );

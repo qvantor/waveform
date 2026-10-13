@@ -20,6 +20,7 @@ export { IconButton } from './icon-button';
 export { TapeSwitch } from './tape-switch';
 export { ModeSwitch } from './mode-switch';
 export { Lamp } from './lamp';
+export { PanelButton } from './panel-button';
 export { SortableList } from './sortable-list';
 export { theme } from './common/constants';
 export * from './common/styles';

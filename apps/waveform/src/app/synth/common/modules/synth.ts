@@ -187,7 +187,7 @@ abstract class OscillatorVoice {
   };
 
   setWave = (id: string, value: PeriodicWave) => {
-    this.oscillators[id].osc.setWave(value);
+    this.oscillators[id]?.osc.setWave(value);
   };
 }
 

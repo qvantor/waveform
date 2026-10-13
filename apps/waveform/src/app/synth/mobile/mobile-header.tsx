@@ -3,33 +3,36 @@ import styled from 'styled-components';
 import cls from 'classnames';
 import { Radio } from 'antd';
 import { TapeSwitch, theme } from '@waveform/ui-kit';
-import { PresetPanel } from '../../presets';
-import { Settings } from '../settings';
+import { HeaderSection } from '../../common/components';
+import { PresetSection } from '../../presets';
+import { MidiInput } from '../settings';
 import { MasterHandle } from '../synth/components';
 import { SYNTH_SCREENS, SynthScreen } from '../screens';
 
 export type MobileMode = 'synth' | 'keys';
 
+// full-height sections like on desktop: logo | tabs | preset | mode | master;
+// portrait: logo and mode on top, tabs and preset below, master through both rows
 const Root = styled.div`
   border-bottom: 1px solid ${theme.colors.primaryLowContrast};
-  padding: 4px 8px;
   display: grid;
-  align-items: center;
-  column-gap: 10px;
-  row-gap: 4px;
-  grid-template-columns: auto auto minmax(0, 1fr) auto auto auto;
-  grid-template-areas: 'logo tabs presets mode settings master';
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+  grid-template-rows: 48px;
+  grid-template-areas: 'logo tabs presets mode master';
 
   &.portrait {
     grid-template-columns: auto minmax(0, 1fr) auto auto;
+    grid-template-rows: auto 50px;
     grid-template-areas:
-      'logo mode settings master'
+      'logo logo mode master'
       'tabs presets presets master';
   }
 `;
 
 const Logo = styled.a`
   grid-area: logo;
+  align-self: center;
+  padding: 0 10px;
   text-decoration: none;
   font-size: 18px;
   font-weight: 700;
@@ -38,37 +41,49 @@ const Logo = styled.a`
   -webkit-text-fill-color: transparent;
 `;
 
-// full header height (cancels the vertical padding); in portrait only the second row, down to the bottom edge
 const Tabs = styled.div`
   grid-area: tabs;
-  align-self: stretch;
   display: flex;
-  margin: -4px 0;
   --tape-key-width: 52px;
   --tape-key-padding: 8px 0 10px;
 
   .portrait > & {
-    height: 50px;
-    margin-top: 0;
     --tape-key-padding: 7px 0 9px;
   }
 `;
 
-const Presets = styled(PresetPanel)`
+// the tape switch's dark groove already separates it from the tabs
+const Presets = styled(PresetSection)`
   grid-area: presets;
 `;
 
 const Mode = styled.div`
   grid-area: mode;
-  justify-self: end;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 8px;
+  border-left: 1px solid ${theme.colors.primaryLowContrast};
+
+  // in portrait it shares the top row with the logo, above the preset section
+  .portrait > & {
+    padding: 4px 8px;
+    border-left: none;
+  }
 `;
 
-const SettingsArea = styled.div`
-  grid-area: settings;
-`;
-
-const Master = styled.div`
+const Master = styled(HeaderSection)`
   grid-area: master;
+  padding: 0 10px;
+`;
+
+// separates the portrait top row from the sections below
+const TopRowLine = styled.div`
+  grid-row: 1;
+  grid-column: 1 / 4;
+  align-self: end;
+  height: 1px;
+  background: ${theme.colors.primaryLowContrast};
 `;
 
 const modeOptions = [
@@ -92,7 +107,7 @@ export const MobileHeader = ({ portrait, mode, onModeChange, screen, onScreenCha
     <Tabs>
       <TapeSwitch options={SYNTH_SCREENS} value={screen} onChange={onScreenChange} />
     </Tabs>
-    <Presets />
+    <Presets actions={<MidiInput />} />
     <Mode>
       <Radio.Group
         options={modeOptions}
@@ -102,9 +117,7 @@ export const MobileHeader = ({ portrait, mode, onModeChange, screen, onScreenCha
         onChange={(e) => onModeChange(e.target.value)}
       />
     </Mode>
-    <SettingsArea>
-      <Settings />
-    </SettingsArea>
+    {portrait && <TopRowLine />}
     <Master>
       <MasterHandle label={null} />
     </Master>

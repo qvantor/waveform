@@ -67,6 +67,9 @@ const Name = styled.select`
 
 const CUSTOM = '';
 
+// the preset select must not keep the focus, otherwise QWERTY notes are swallowed by it
+const preventFocus = (e: React.MouseEvent) => e.preventDefault();
+
 interface Props {
   type: FxType;
   mix: number;
@@ -86,13 +89,17 @@ export const PresetSelect = ({ type, mix, params, onSelect }: Props) => {
   };
   return (
     <Root role='group' aria-label='Preset'>
-      <Arrow onClick={() => step(-1)} aria-label='Previous preset'>
+      <Arrow tabIndex={-1} onMouseDown={preventFocus} onClick={() => step(-1)} aria-label='Previous preset'>
         <AiOutlineLeft />
       </Arrow>
       <Name
         className={cls({ custom: value === CUSTOM })}
         value={value}
-        onChange={(e) => e.target.value !== CUSTOM && onSelect(e.target.value)}
+        tabIndex={-1}
+        onChange={(e) => {
+          e.target.blur();
+          if (e.target.value !== CUSTOM) onSelect(e.target.value);
+        }}
       >
         {value === CUSTOM && <option value={CUSTOM}>Custom</option>}
         {presets.map(({ id, name }) => (
@@ -101,7 +108,7 @@ export const PresetSelect = ({ type, mix, params, onSelect }: Props) => {
           </option>
         ))}
       </Name>
-      <Arrow onClick={() => step(1)} aria-label='Next preset'>
+      <Arrow tabIndex={-1} onMouseDown={preventFocus} onClick={() => step(1)} aria-label='Next preset'>
         <AiOutlineRight />
       </Arrow>
     </Root>
