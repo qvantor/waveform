@@ -1,8 +1,8 @@
 import React from 'react';
 import styled from 'styled-components';
 import cls from 'classnames';
-import { Radio } from 'antd';
-import { TapeSwitch, theme } from '@waveform/ui-kit';
+import { MdKeyboard, MdTune } from 'react-icons/md';
+import { PanelButton, TapeSwitch, theme } from '@waveform/ui-kit';
 import { HeaderSection } from '../../common/components';
 import { PresetSection } from '../../presets';
 import { MidiInput } from '../settings';
@@ -16,13 +16,15 @@ export type MobileMode = 'synth' | 'keys';
 const Root = styled.div`
   border-bottom: 1px solid ${theme.colors.primaryLowContrast};
   display: grid;
-  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+  // mode keys get a share of the width, they never size by their labels
+  grid-template-columns: auto auto minmax(0, 1fr) minmax(0, 200px) auto;
   grid-template-rows: 48px;
   grid-template-areas: 'logo tabs presets mode master';
 
   &.portrait {
-    grid-template-columns: auto minmax(0, 1fr) auto auto;
-    grid-template-rows: auto 50px;
+    // the logo spans tabs and the second column, mode takes the rest of the top row
+    grid-template-columns: auto auto minmax(0, 1fr) auto;
+    grid-template-rows: 40px 50px;
     grid-template-areas:
       'logo logo mode master'
       'tabs presets presets master';
@@ -47,29 +49,28 @@ const Tabs = styled.div`
   --tape-key-width: 52px;
   --tape-key-padding: 8px 0 10px;
 
+  // the line under the portrait top row
   .portrait > & {
     --tape-key-padding: 7px 0 9px;
+    border-top: 1px solid ${theme.colors.primaryLowContrast};
   }
 `;
 
 // the tape switch's dark groove already separates it from the tabs
 const Presets = styled(PresetSection)`
   grid-area: presets;
+
+  .portrait > & {
+    border-top: 1px solid ${theme.colors.primaryLowContrast};
+  }
 `;
 
-const Mode = styled.div`
+// a strip of keys like the preset section's Save / Share row
+const Mode = styled(HeaderSection)`
   grid-area: mode;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  padding: 0 8px;
-  border-left: 1px solid ${theme.colors.primaryLowContrast};
-
-  // in portrait it shares the top row with the logo, above the preset section
-  .portrait > & {
-    padding: 4px 8px;
-    border-left: none;
-  }
+  align-items: stretch;
+  gap: 1px;
+  background: ${theme.colors.primaryLowContrast};
 `;
 
 const Master = styled(HeaderSection)`
@@ -77,18 +78,9 @@ const Master = styled(HeaderSection)`
   padding: 0 10px;
 `;
 
-// separates the portrait top row from the sections below
-const TopRowLine = styled.div`
-  grid-row: 1;
-  grid-column: 1 / 4;
-  align-self: end;
-  height: 1px;
-  background: ${theme.colors.primaryLowContrast};
-`;
-
-const modeOptions = [
-  { label: 'Synth', value: 'synth' },
-  { label: 'Keys', value: 'keys' },
+const modeOptions: { label: string; value: MobileMode; icon: React.ReactNode }[] = [
+  { label: 'Synth', value: 'synth', icon: <MdTune /> },
+  { label: 'Keys', value: 'keys', icon: <MdKeyboard /> },
 ];
 
 interface Props {
@@ -109,15 +101,18 @@ export const MobileHeader = ({ portrait, mode, onModeChange, screen, onScreenCha
     </Tabs>
     <Presets actions={<MidiInput />} />
     <Mode>
-      <Radio.Group
-        options={modeOptions}
-        optionType='button'
-        buttonStyle='solid'
-        value={mode}
-        onChange={(e) => onModeChange(e.target.value)}
-      />
+      {modeOptions.map(({ label, value, icon }) => (
+        <PanelButton
+          key={value}
+          icon={icon}
+          active={mode === value}
+          aria-pressed={mode === value}
+          onClick={() => onModeChange(value)}
+        >
+          {label}
+        </PanelButton>
+      ))}
     </Mode>
-    {portrait && <TopRowLine />}
     <Master>
       <MasterHandle label={null} />
     </Master>

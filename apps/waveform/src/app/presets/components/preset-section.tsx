@@ -38,7 +38,7 @@ const RowButton = styled.button`
   cursor: pointer;
   transition: color 120ms;
 
-  &:hover:not(:disabled) {
+  &:hover {
     color: ${theme.colors.secondAccent};
   }
 `;
@@ -49,11 +49,6 @@ const Arrow = styled(RowButton)`
   align-items: center;
   justify-content: center;
   color: ${theme.colors.primaryHighContrast};
-
-  &:disabled {
-    color: ${theme.colors.primaryLowContrast};
-    cursor: default;
-  }
 `;
 
 const SectionName = styled(RowButton)`
@@ -75,10 +70,9 @@ interface SectionProps {
 
 export const PresetSection = ({ actions, className }: SectionProps) => {
   const [{ $saveRequest }] = useApp();
-  const [{ $current, $dirty, $list }, { next, prev }] = usePresets();
+  const [{ $current, $dirty }, { next, prev }] = usePresets();
   const current = useBehaviorSubject($current);
   const dirty = useBehaviorSubject($dirty);
-  const list = useBehaviorSubject($list);
   const [browserOpen, setBrowserOpen] = React.useState(false);
   const [saveOpen, setSaveOpen] = React.useState(false);
 
@@ -101,7 +95,7 @@ export const PresetSection = ({ actions, className }: SectionProps) => {
   return (
     <Section className={className}>
       <Row>
-        <Arrow aria-label='Previous preset' onClick={prev} disabled={list.length === 0}>
+        <Arrow aria-label='Previous preset' onClick={prev}>
           <AiOutlineLeft />
         </Arrow>
         <Tooltip title='Browse presets'>
@@ -110,7 +104,7 @@ export const PresetSection = ({ actions, className }: SectionProps) => {
             {dirty && <Dirty> *</Dirty>}
           </SectionName>
         </Tooltip>
-        <Arrow aria-label='Next preset' onClick={next} disabled={list.length === 0}>
+        <Arrow aria-label='Next preset' onClick={next}>
           <AiOutlineRight />
         </Arrow>
       </Row>

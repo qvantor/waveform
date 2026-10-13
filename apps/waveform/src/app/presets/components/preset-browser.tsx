@@ -1,12 +1,12 @@
 import React from 'react';
 import styled from 'styled-components';
 import { Button, Input, Modal, Radio, Tabs } from 'antd';
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery } from '@tanstack/react-query';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
 import { PresetListItem, PresetSort } from '@waveform/preset-schema';
 import { usePresets } from '../modules/presets';
 import { useDebounced } from '../hooks/use-debounced';
-import { getTopPresets, listPresets } from '../services';
+import { listPresets } from '../services';
 import { PresetList } from './preset-list';
 
 const SEARCH_DEBOUNCE_MS = 300;
@@ -29,8 +29,10 @@ interface Props {
 }
 
 export const PresetBrowser = ({ open, onClose }: Props) => {
-  const [{ $current }, { loadById, setList }] = usePresets();
+  const [{ $current, $top, $topLoading }, { loadById, loadTop, setList }] = usePresets();
   const current = useBehaviorSubject($current);
+  const top = useBehaviorSubject($top);
+  const topLoading = useBehaviorSubject($topLoading);
   const [tab, setTab] = React.useState<'popular' | 'all'>('popular');
   const [search, setSearch] = React.useState('');
   const [sort, setSort] = React.useState<PresetSort>('new');
@@ -40,12 +42,10 @@ export const PresetBrowser = ({ open, onClose }: Props) => {
     if (q) setTab('all');
   }, [q]);
 
-  const top = useQuery({
-    queryKey: ['presets', 'top'],
-    queryFn: getTopPresets,
-    enabled: open,
-    staleTime: 60 * 1000,
-  });
+  // popular presets are loaded by the model on start, retried here if that failed
+  React.useEffect(() => {
+    if (open && !$top.value) loadTop();
+  }, [open, $top, loadTop]);
 
   const all = useInfiniteQuery({
     queryKey: ['presets', 'list', q, sort],
@@ -104,10 +104,10 @@ export const PresetBrowser = ({ open, onClose }: Props) => {
               label: 'Popular',
               children: (
                 <PresetList
-                  items={top.data ?? []}
+                  items={top ?? []}
                   currentId={current?.id}
-                  loading={top.isLoading}
-                  onSelect={select(top.data ?? [])}
+                  loading={topLoading}
+                  onSelect={select(top ?? [])}
                 />
               ),
             },

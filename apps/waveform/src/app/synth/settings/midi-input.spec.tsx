@@ -5,7 +5,7 @@ import { MidiInput } from './midi-input';
 const mockMidiInputs = new BehaviorSubject<WebMidi.MIDIInput[]>([]);
 const mockSelectedInputId = new BehaviorSubject<string | null>(null);
 
-jest.mock('../../common/modules', () => ({
+jest.mock('../common/modules', () => ({
   useMidiController: () => [
     { $midiInputs: mockMidiInputs, $selectedInputId: mockSelectedInputId },
     { selectMidiInput: jest.fn() },

@@ -1,9 +1,9 @@
-import { BehaviorSubject, debounceTime, filter, of } from 'rxjs';
+import { BehaviorSubject, debounceTime, defer, filter, of } from 'rxjs';
 import toast from 'react-hot-toast';
 import { PrimitiveBS, rxModel, rxModelReact } from '@waveform/rxjs-react';
 import { normalizePreset, presetHash, Preset, PresetListItem } from '@waveform/preset-schema';
 import { applySnapshot, getSnapshot, $snapshotChanges } from '../../app';
-import { getPreset, getUrlPresetId, setUrlPresetId } from '../services';
+import { getPreset, getTopPresets, getUrlPresetId, setUrlPresetId } from '../services';
 
 export interface CurrentPreset {
   id: string;
@@ -24,9 +24,12 @@ export const presets = () =>
     const $loadedHash = new BehaviorSubject<string | null>(null);
     const $dirty = new PrimitiveBS<boolean>(false); // params were changed after the preset was loaded
     const $list = new BehaviorSubject<PresetListItem[]>([]); // list for ◀ ▶ (popular or the last search)
-    return { $current, $loadedHash, $dirty, $list };
+    // popular presets, loaded once on start for ◀ ▶ and the Popular tab; null until loaded
+    const $top = new BehaviorSubject<PresetListItem[] | null>(null);
+    const $topLoading = new PrimitiveBS<boolean>(false);
+    return { $current, $loadedHash, $dirty, $list, $top, $topLoading };
   })
-    .actions(({ $current, $loadedHash, $dirty, $list }) => {
+    .actions(({ $current, $loadedHash, $dirty, $list, $top, $topLoading }) => {
       const applyPreset = (preset: Preset) => {
         const data = normalizePreset(preset.data);
         applySnapshot(data);
@@ -48,16 +51,52 @@ export const presets = () =>
         }
       };
 
-      const step = (direction: 1 | -1) => {
+      // parallel calls share one request; on failure $top stays null and the next call retries
+      let topRequest: Promise<PresetListItem[] | null> | null = null;
+      const loadTop = ({ silent = false } = {}) => {
+        if (!topRequest) {
+          $topLoading.next(true);
+          topRequest = getTopPresets()
+            .then((list) => {
+              $top.next(list);
+              return list;
+            })
+            .catch((e) => {
+              if (!silent) toast.error(e instanceof Error ? e.message : 'Presets loading failed');
+              return null;
+            })
+            .finally(() => {
+              topRequest = null;
+              $topLoading.next(false);
+            });
+        }
+        return topRequest;
+      };
+
+      const step = async (direction: 1 | -1) => {
+        // without a list (Init, a preset from the link) ◀ ▶ walk the popular presets
+        if ($list.value.length === 0) {
+          // clicks while loading are dropped
+          if (topRequest) return;
+          const top = $top.value ?? (await loadTop());
+          if (top) $list.next(top);
+        }
         const list = $list.value;
         if (list.length === 0) return;
         const index = list.findIndex(({ id }) => id === $current.value?.id);
-        const next = index === -1 ? 0 : (index + direction + list.length) % list.length;
-        loadById(list[next].id);
+        // not in the list: ▶ starts from the first (most popular), ◀ from the last
+        const next =
+          index === -1
+            ? direction === 1
+              ? 0
+              : list.length - 1
+            : (index + direction + list.length) % list.length;
+        await loadById(list[next].id);
       };
 
       return {
         loadById,
+        loadTop,
         next: () => step(1),
         prev: () => step(-1),
         setList: (list: PresetListItem[]) => $list.next(list),
@@ -70,7 +109,8 @@ export const presets = () =>
         },
       };
     })
-    .subscriptions(({ $loadedHash, $dirty }, { loadById }) => [
+    .subscriptions(({ $loadedHash, $dirty }, { loadById, loadTop }) => [
+      defer(() => loadTop({ silent: true })).subscribe(),
       $snapshotChanges
         .pipe(debounceTime(200))
         .subscribe(() => $dirty.next($loadedHash.value !== null && currentHash() !== $loadedHash.value)),

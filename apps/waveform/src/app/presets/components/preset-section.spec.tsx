@@ -4,7 +4,7 @@ import { userEvent } from '@testing-library/user-event';
 import toast from 'react-hot-toast';
 import { fakePreset } from '../../../test-utils/presets-fixtures';
 import { renderWithPresets } from '../../../test-utils/presets-wrapper';
-import { getPreset, sharePreset } from '../services';
+import { getPreset, getTopPresets, sharePreset } from '../services';
 import { PresetSection } from './preset-section';
 
 jest.mock('../services', () => ({
@@ -16,6 +16,7 @@ jest.mock('../services', () => ({
 }));
 
 const getPresetMock = jest.mocked(getPreset);
+const getTopPresetsMock = jest.mocked(getTopPresets);
 
 const list = [
   { id: 'a', name: 'A', uniqueUsers: 0 },
@@ -49,20 +50,19 @@ describe('PresetSection', () => {
     expect(name).toHaveTextContent(/^Bright pad \*$/);
   });
 
-  it('disables ◀ ▶ without a list and steps through it otherwise', async () => {
+  it('steps through the popular presets loaded on start from Init', async () => {
+    getTopPresetsMock.mockResolvedValueOnce(list);
     const { user, prev, next, name, presets } = setupSection();
-    expect(prev).toBeDisabled();
-    expect(next).toBeDisabled();
-
-    act(() => presets[1].setList(list));
     expect(prev).toBeEnabled();
     expect(next).toBeEnabled();
+    await waitFor(() => expect(presets[0].$top.value).toEqual(list));
 
     await user.click(next);
     await waitFor(() => expect(presets[0].$current.value?.id).toBe('a'));
     await user.click(prev);
     await waitFor(() => expect(presets[0].$current.value?.id).toBe('c'));
     expect(name).toHaveTextContent('Preset c');
+    expect(getTopPresetsMock).toHaveBeenCalledTimes(1);
   });
 
   it('opens the preset browser by the name', async () => {

@@ -1,7 +1,8 @@
 import React from 'react';
 import styled from 'styled-components';
+import { distinctUntilChanged, map } from 'rxjs';
 import { FxType } from '@waveform/preset-schema';
-import { useBehaviorSubject } from '@waveform/rxjs-react';
+import { useObservable } from '@waveform/rxjs-react';
 import { Section, theme } from '@waveform/ui-kit';
 import { useSynthCore } from '../../common/modules';
 import { useFx } from '../modules';
@@ -26,7 +27,17 @@ const Out = styled(ControlsGroup)`
 export const FxPanel = ({ type }: { type: FxType }) => {
   const [{ audioCtx }] = useSynthCore();
   const [{ $effects }, { setOn, setMix, setParam, applyPreset }] = useFx();
-  const { on, mix, params } = useBehaviorSubject($effects)[type];
+  // only this effect's state (update() keeps the other effects' objects), so a knob of one panel doesn't
+  // re-render the others
+  const $effect = React.useMemo(
+    () =>
+      $effects.pipe(
+        map((effects) => effects[type]),
+        distinctUntilChanged()
+      ),
+    [$effects, type]
+  );
+  const { on, mix, params } = useObservable($effect, $effects.value[type]);
   const EffectControls = FX_CONTROLS[type];
   return (
     <Section

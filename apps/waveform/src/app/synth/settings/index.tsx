@@ -1,1 +1,0 @@
-export { MidiInput } from './components';

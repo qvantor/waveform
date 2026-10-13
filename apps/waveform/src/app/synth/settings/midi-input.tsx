@@ -4,7 +4,7 @@ import { Label, Select, PanelButton } from '@waveform/ui-kit';
 import { useState } from 'react';
 import { Popover } from 'antd';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
-import { useMidiController } from '../../common/modules';
+import { useMidiController } from '../common/modules';
 
 const Content = styled.div`
   min-width: 300px;

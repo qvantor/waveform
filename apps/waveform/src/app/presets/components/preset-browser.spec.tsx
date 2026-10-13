@@ -51,6 +51,19 @@ describe('PresetBrowser', () => {
     expect(screen.getByText('12')).toBeInTheDocument();
     // the full list is loaded only when its tab is opened
     expect(listPresetsMock).not.toHaveBeenCalled();
+    // the popular list comes from the model's request on start
+    expect(getTopPresetsMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries the popular presets on open after a failed load on start', async () => {
+    getTopPresetsMock.mockRejectedValueOnce(new Error('Server down'));
+    const { rerender, presets } = renderWithPresets(<PresetBrowser open={false} onClose={jest.fn()} />);
+    await waitFor(() => expect(presets[0].$topLoading.value).toBe(false));
+    expect(presets[0].$top.value).toBeNull();
+
+    rerender(<PresetBrowser open onClose={jest.fn()} />);
+    expect(await screen.findByText('Top one')).toBeInTheDocument();
+    expect(getTopPresetsMock).toHaveBeenCalledTimes(2);
   });
 
   it('shows an empty state', async () => {

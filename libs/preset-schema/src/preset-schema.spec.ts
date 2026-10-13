@@ -2,6 +2,7 @@ import { normalizePreset } from './normalize';
 import { presetHash } from './hash';
 import { isProfane } from './profanity';
 import {
+  fxSnapSchema,
   listPresetsQuerySchema,
   nameKey,
   presetDataSchema,
@@ -213,5 +214,35 @@ describe('isProfane', () => {
     'Glass bells',
   ])('allows %s', (name) => {
     expect(isProfane(name)).toBe(false);
+  });
+});
+
+describe('fxSnapSchema', () => {
+  const defaults = { a: false, on: true, mix: 0.3, time: 0.2, fb: 0.5, mode: 0, pan: 0, freq: 1000, q: 0.01 };
+
+  it.each([undefined, null, 'x', [], {}])('falls back to the defaults for %p', (snap) => {
+    expect(fxSnapSchema.parse(snap)).toEqual({ o: ['delay'], delay: defaults });
+  });
+
+  it('keeps valid values, falsy ones included', () => {
+    const delay = { a: true, on: false, mix: 0, time: 0.5, fb: 0, mode: 1, pan: 0, freq: 50, q: 3 };
+    expect(fxSnapSchema.parse({ o: ['delay'], delay })).toEqual({ o: ['delay'], delay });
+  });
+
+  it('replaces wrong types with defaults, clamps numbers and rounds int params', () => {
+    const delay = { a: 'yes', on: 1, mix: Infinity, time: -1, fb: 1.5, mode: 0.6, pan: '0', q: 5, freq: NaN };
+    expect(fxSnapSchema.parse({ o: 'delay', delay: { ...delay, extra: 1 } })).toEqual({
+      o: ['delay'],
+      delay: { ...defaults, time: 0.01, fb: 0.9, mode: 1, q: 3 },
+    });
+  });
+
+  it('accepts every value the preset schema accepts', () => {
+    const fx = presetDataSchema.shape.fx.parse({ delay: { a: true, mix: 1, time: 1, mode: 1, pan: -0.05 } });
+    expect(fxSnapSchema.parse(fx)).toEqual(fx);
+  });
+
+  it('a non-object effect falls back to its defaults', () => {
+    expect(fxSnapSchema.parse({ delay: 'on' }).delay).toEqual(defaults);
   });
 });

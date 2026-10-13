@@ -57,11 +57,24 @@ const range = (min: number, max: number) => z.number().finite().min(min).max(max
 const intRange = (min: number, max: number) => range(min, max).int();
 const paramRange = ({ min, max, default: value, int }: ParamRange) =>
   (int ? intRange(min, max) : range(min, max)).default(value);
-const paramRanges = <K extends string>(params: Record<K, ParamRange>) =>
+// legacy url params skip presetDataSchema: wrong types fall back to the default, numbers are clamped
+// (and rounded for int params, the strict schema rejects fractions)
+const lenientParamRange = ({ min, max, default: value, int }: ParamRange) =>
+  z
+    .number()
+    .finite()
+    .transform((num) => {
+      const clamped = Math.min(max, Math.max(min, num));
+      return int ? Math.round(clamped) : clamped;
+    })
+    .catch(value);
+const mapParams = <K extends string, T>(params: Record<K, ParamRange>, toSchema: (param: ParamRange) => T) =>
   (Object.keys(params) as K[]).reduce(
-    (acc, key) => ({ ...acc, [key]: paramRange(params[key]) }),
-    {} as Record<K, ReturnType<typeof paramRange>>
+    (acc, key) => ({ ...acc, [key]: toSchema(params[key]) }),
+    {} as Record<K, T>
   );
+const toObject = (value: unknown) =>
+  typeof value === 'object' && value !== null && !Array.isArray(value) ? value : {};
 
 const oscillatorSchema = (active: boolean) =>
   z
@@ -105,14 +118,17 @@ const voicingSchema = z
   })
   .default({});
 
-const delaySchema = z
-  .object({
-    a: z.boolean().default(false), // in the chain
-    on: z.boolean().default(true), // not bypassed
-    mix: paramRange(FX_MIX_PARAM),
-    ...paramRanges(FX_PARAMS.delay),
-  })
-  .default({});
+// one shape for presets and url snapshots, only the validation of a value differs
+const fxEffectShape = <K extends string, P, F>(
+  params: Record<K, ParamRange>,
+  param: (range: ParamRange) => P,
+  flag: (value: boolean) => F
+) => ({
+  a: flag(false), // in the chain
+  on: flag(true), // not bypassed
+  mix: param(FX_MIX_PARAM),
+  ...mapParams(params, param),
+});
 
 const fxSchema = z
   .object({
@@ -121,9 +137,26 @@ const fxSchema = z
       .max(32)
       .transform(normalizeFxOrder)
       .default([...FX_TYPES]),
-    delay: delaySchema,
+    delay: z
+      .object(fxEffectShape(FX_PARAMS.delay, paramRange, (value) => z.boolean().default(value)))
+      .default({}),
   })
   .default({});
+
+const lenientFxEffect = <K extends string>(params: Record<K, ParamRange>) =>
+  z.preprocess(
+    toObject,
+    z.object(fxEffectShape(params, lenientParamRange, (value) => z.boolean().catch(value)))
+  );
+
+// fx snapshot of the url: never fails, invalid values fall back to the defaults (see lenientParamRange)
+export const fxSnapSchema = z.preprocess(
+  toObject,
+  z.object({
+    o: z.array(z.unknown()).catch([]).transform(normalizeFxOrder),
+    delay: lenientFxEffect(FX_PARAMS.delay),
+  })
+);
 
 // keys match snapshot plugin model names (voicing is saved with the `v` prefix)
 export const presetDataSchema = z.object({

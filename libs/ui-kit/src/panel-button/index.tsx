@@ -22,6 +22,7 @@ const sunken = `
 const Root = styled.button`
   flex: 1 1 0;
   min-width: 0;
+  position: relative;
   height: 100%;
   display: flex;
   align-items: center;
@@ -70,6 +71,14 @@ const Root = styled.button`
 const Label = styled.span`
   overflow: hidden;
   text-overflow: ellipsis;
+
+  // only the icon is shown, the label stays for screen readers
+  &.hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    clip-path: inset(50%);
+  }
 `;
 
 const Indicator = styled.span`
@@ -81,13 +90,54 @@ const Indicator = styled.span`
   box-shadow: 0 0 4px 1px ${hexToRgba(theme.colors.accent, 0.6)};
 `;
 
+// true when the label doesn't fit next to the icon (phones); back to false once the button is wide enough
+const useLabelOverflow = (
+  rootRef: React.RefObject<HTMLButtonElement>,
+  labelRef: React.RefObject<HTMLSpanElement>,
+  enabled: boolean
+) => {
+  const [overflow, setOverflow] = React.useState(false);
+  React.useLayoutEffect(() => {
+    const root = rootRef.current;
+    const label = labelRef.current;
+    if (!enabled || !root || !label || typeof ResizeObserver === 'undefined') return;
+    let hidden = false;
+    let fitsAt = 0; // the button width at which the label fits again
+    const update = () => {
+      if (!hidden) {
+        const cut = label.scrollWidth - label.clientWidth;
+        if (cut <= 0) return;
+        fitsAt = root.clientWidth + cut;
+      } else if (root.clientWidth < fitsAt) return;
+      hidden = !hidden;
+      setOverflow(hidden);
+    };
+    const observer = new ResizeObserver(update);
+    observer.observe(root);
+    return () => {
+      observer.disconnect();
+      setOverflow(false);
+    };
+  }, [rootRef, labelRef, enabled]);
+  return overflow;
+};
+
 export const PanelButton = React.forwardRef<HTMLButtonElement, Props>(
-  ({ icon, active = false, indicator = false, className, children, ...rest }, ref) => (
-    <Root ref={ref} type='button' className={cls(className, { active })} {...rest}>
-      {icon}
-      <Label>{children}</Label>
-      {indicator && <Indicator data-testid='panel-button-indicator' />}
-    </Root>
-  )
+  ({ icon, active = false, indicator = false, className, children, ...rest }, ref) => {
+    const rootRef = React.useRef<HTMLButtonElement>(null);
+    const labelRef = React.useRef<HTMLSpanElement>(null);
+    React.useImperativeHandle(ref, () => rootRef.current as HTMLButtonElement);
+    // without an icon the label is all there is, it is cut with an ellipsis instead
+    const labelHidden = useLabelOverflow(rootRef, labelRef, Boolean(icon));
+    return (
+      <Root ref={rootRef} type='button' className={cls(className, { active })} {...rest}>
+        {icon}
+        <Label ref={labelRef} className={cls({ hidden: labelHidden })}>
+          {children}
+        </Label>
+        {indicator && <Indicator data-testid='panel-button-indicator' />}
+      </Root>
+    );
+  }
 );
 PanelButton.displayName = 'PanelButton';

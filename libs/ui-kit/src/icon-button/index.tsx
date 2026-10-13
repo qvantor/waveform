@@ -1,8 +1,7 @@
 import styled from 'styled-components';
-import { PropsWithChildren, ButtonHTMLAttributes } from 'react';
 import { theme } from '../common/constants';
 
-const Root = styled.button`
+export const IconButton = styled.button`
   border: 1px solid ${theme.colors.primaryDarkMediumContrast};
   border-radius: 3px;
   padding: 3px;
@@ -21,9 +20,3 @@ const Root = styled.button`
     font-size: 15px;
   }
 `;
-
-type Props = PropsWithChildren<ButtonHTMLAttributes<HTMLButtonElement>>;
-
-export const IconButton = ({ children, ...rest }: Props) => {
-  return <Root {...rest}>{children}</Root>;
-};

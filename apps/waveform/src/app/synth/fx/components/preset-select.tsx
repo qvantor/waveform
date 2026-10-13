@@ -6,7 +6,7 @@ import { FxType } from '@waveform/preset-schema';
 import { theme } from '@waveform/ui-kit';
 import { FX_REGISTRY, findFxPreset } from '../effects';
 
-// a compact copy of the synth preset panel (◀ name ▶), about the same share of the width
+// a compact ◀ name ▶ picker
 const Root = styled.div`
   flex: 0 1 36%;
   min-width: 200px;

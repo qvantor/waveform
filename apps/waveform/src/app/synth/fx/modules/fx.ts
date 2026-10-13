@@ -1,7 +1,6 @@
 import { distinctUntilChanged, map, combineLatest, shareReplay } from 'rxjs';
-import { isEqual, isPlainObject, mapValues } from 'lodash';
-import { FX_MIX_PARAM, FX_TYPES, FxType, normalizeFxOrder, ParamRange } from '@waveform/preset-schema';
-import { number } from '@waveform/math';
+import { isEqual, mapValues } from 'lodash';
+import { FX_MIX_PARAM, FX_TYPES, FxType, fxSnapSchema } from '@waveform/preset-schema';
 import { ArrayBS, ObjectBS, rxModel, rxModelReact } from '@waveform/rxjs-react';
 import { SynthCoreModule } from '../../common/modules/synth-core';
 import { urlSnapshotPlugin } from '../../../app';
@@ -33,15 +32,6 @@ const defaultEffects = () =>
 // the added effects in the chain order
 export const getChain = (order: FxType[], effects: Record<FxType, FxState>) =>
   order.filter((type) => effects[type].added);
-
-// legacy url params skip the preset schema: wrong types fall back to the default, numbers are clamped
-// (and rounded for int params, the schema rejects fractions)
-const bool = (value: unknown, fallback: boolean) => (typeof value === 'boolean' ? value : fallback);
-const num = (value: unknown, { min, max, default: fallback, int }: ParamRange) => {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
-  const clamped = number.thresholds(value, min, max);
-  return int ? Math.round(clamped) : clamped;
-};
 
 export const fx = ({ synthCore: [{ audioCtx, fxIn, fxOut }] }: Dependencies) =>
   rxModel(() => {
@@ -117,21 +107,10 @@ export const fx = ({ synthCore: [{ audioCtx, fxIn, fxOut }] }: Dependencies) =>
           ),
         }),
         applySnap: (snap, { $order, $effects }) => {
-          $order.next(normalizeFxOrder(Array.isArray(snap.o) ? snap.o : []));
+          const { o, ...effects } = fxSnapSchema.parse(snap);
+          $order.next(o);
           $effects.next(
-            Object.fromEntries(
-              FX_TYPES.map((type) => {
-                const defaults = defaultFxState(type);
-                const value = (isPlainObject(snap[type]) ? snap[type] : {}) as Partial<FxSnap>;
-                const state: FxState = {
-                  added: bool(value.a, defaults.added),
-                  on: bool(value.on, defaults.on),
-                  mix: num(value.mix, FX_MIX_PARAM),
-                  params: mapValues(FX_REGISTRY[type].params, (param, key) => num(value[key], param)),
-                };
-                return [type, state];
-              })
-            ) as Record<FxType, FxState>
+            mapValues(effects, ({ a, on, mix, ...params }): FxState => ({ added: a, on, mix, params }))
           );
         },
       })
