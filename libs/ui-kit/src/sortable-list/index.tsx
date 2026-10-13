@@ -35,6 +35,11 @@ const ItemRoot = styled.div`
   touch-action: none;
   cursor: grab;
 
+  &:focus,
+  &:focus-visible {
+    outline: none;
+  }
+
   &.dragging {
     z-index: 1;
     cursor: grabbing;

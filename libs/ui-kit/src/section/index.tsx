@@ -36,6 +36,11 @@ const Title = styled.div`
   display: flex;
   align-items: center;
   gap: 10px;
+
+  &:focus,
+  &:focus-visible {
+    outline: none;
+  }
 `;
 
 // takes the rest of the header, right-aligned; fills the header height, so a select doesn't make it taller

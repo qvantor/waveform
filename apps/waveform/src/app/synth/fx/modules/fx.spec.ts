@@ -45,17 +45,42 @@ describe('fx', () => {
     expect(synthCore.fxIn.disconnect).toHaveBeenCalledTimes(calls);
   });
 
-  it('passes the dry signal at full level, mix sets the wet level, bypass mutes it', () => {
+  it('keeps send and wet closed until the slot is set up', () => {
+    const synthCore = createSynthCore();
+    const createGain = jest.spyOn(synthCore[0].audioCtx, 'createGain');
+    const [model] = initModel(fx({ synthCore }), 'fx', undefined);
+    const gains = createGain.mock.results.map(({ value }) => value as GainNode);
+    const { send, wet } = model.slots.delay;
+    expect(gains).toContain(send);
+    [send, wet].forEach((node) => expect(node.gain.setValueAtTime).toHaveBeenCalledWith(0, 0));
+  });
+
+  it('keeps dry at full level up to mix 0.5 and wet from 0.5, bypass passes only the dry signal', () => {
     const { model, actions } = setup();
-    const { input, output, wet } = model.slots.delay;
-    expect(input.connect).toHaveBeenCalledWith(output);
+    const { input, output, dry, wet } = model.slots.delay;
+    expect(input.connect).toHaveBeenCalledWith(dry);
+    expect(dry.connect).toHaveBeenCalledWith(output);
+    const expectGains = (dryGain: number, wetGain: number) => {
+      expect(dry.gain.setTargetAtTime).toHaveBeenLastCalledWith(dryGain, 0, expect.any(Number));
+      expect(wet.gain.setTargetAtTime).toHaveBeenLastCalledWith(wetGain, 0, expect.any(Number));
+    };
 
     actions.setMix('delay', 0.25);
-    expect(wet.gain.setTargetAtTime).toHaveBeenLastCalledWith(0.25, 0, expect.any(Number));
+    expectGains(1, 0.5);
+    actions.setMix('delay', 0.5);
+    expectGains(1, 1);
+    actions.setMix('delay', 0.75);
+    expectGains(0.5, 1);
+    actions.setMix('delay', 0);
+    expectGains(1, 0);
+    actions.setMix('delay', 1);
+    expectGains(0, 1);
 
     actions.setOn('delay', false);
     expect(model.$effects.value.delay.on).toBe(false);
-    expect(wet.gain.setTargetAtTime).toHaveBeenLastCalledWith(0, 0, expect.any(Number));
+    expectGains(1, 0);
+    actions.setOn('delay', true);
+    expectGains(0, 1);
   });
 
   it('closes the send and kills the delay feedback while removed or bypassed', () => {
@@ -91,19 +116,22 @@ describe('fx', () => {
   it('applies only the changed values', () => {
     const { model, actions, delayNode, feedback } = setup();
     actions.setAdded('delay', true);
+    const dry = model.slots.delay.dry.gain.setTargetAtTime as jest.Mock;
     const wet = model.slots.delay.wet.gain.setTargetAtTime as jest.Mock;
     const send = model.slots.delay.send.gain.setTargetAtTime as jest.Mock;
     const time = delayNode.delayTime.setTargetAtTime as jest.Mock;
     const fb = feedback.gain.setTargetAtTime as jest.Mock;
-    [wet, send, time, fb].forEach((mock) => mock.mockClear());
+    [dry, wet, send, time, fb].forEach((mock) => mock.mockClear());
 
     actions.setParam('delay', 'time', 0.5);
     expect(time).toHaveBeenCalledTimes(1);
+    expect(dry).not.toHaveBeenCalled();
     expect(wet).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
     expect(fb).not.toHaveBeenCalled();
 
     actions.setMix('delay', 0.5);
+    expect(dry).toHaveBeenCalledTimes(1);
     expect(wet).toHaveBeenCalledTimes(1);
     expect(send).not.toHaveBeenCalled();
     expect(time).toHaveBeenCalledTimes(1);
@@ -146,7 +174,16 @@ describe('fx', () => {
         expect.any(Number)
       );
       expect(feedback.gain.setTargetAtTime).toHaveBeenLastCalledWith(params.fb, 0, expect.any(Number));
-      expect(model.slots.delay.wet.gain.setTargetAtTime).toHaveBeenLastCalledWith(mix, 0, expect.any(Number));
+      expect(model.slots.delay.wet.gain.setTargetAtTime).toHaveBeenLastCalledWith(
+        Math.min(1, 2 * mix),
+        0,
+        expect.any(Number)
+      );
+      expect(model.slots.delay.dry.gain.setTargetAtTime).toHaveBeenLastCalledWith(
+        Math.min(1, 2 * (1 - mix)),
+        0,
+        expect.any(Number)
+      );
     });
 
     it('does not share the params object with the preset', () => {

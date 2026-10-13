@@ -6,30 +6,39 @@ export const setSmooth = (audioCtx: BaseAudioContext, param: AudioParam, value: 
 
 export type FxSlot = ReturnType<typeof createFxSlot>;
 
-// input → output (dry, always at full level, so adding or bypassing an effect keeps the dry level)
+// input → dry → output (mix: dry at full level up to 0.5, wet at full level from 0.5; bypassed: only dry)
 // input → send → core → wet → output (send is closed while inactive, so the core gets no new signal)
 export const createFxSlot = (audioCtx: BaseAudioContext, core: FxCore) => {
   const input = audioCtx.createGain();
   const output = audioCtx.createGain();
+  const dry = audioCtx.createGain();
   const wet = audioCtx.createGain();
   const send = audioCtx.createGain();
 
-  input.connect(output);
+  input.connect(dry);
+  dry.connect(output);
   input.connect(send);
   send.connect(core.input);
   core.output.connect(wet);
   wet.connect(output);
+  // closed until the fx model activates the slot and sets the mix
+  send.gain.setValueAtTime(0, audioCtx.currentTime);
+  wet.gain.setValueAtTime(0, audioCtx.currentTime);
 
   const setGain = (node: GainNode, value: number) => setSmooth(audioCtx, node.gain, value);
 
   return {
     input,
     output,
+    dry,
     wet,
     send,
     setParam: core.setParam,
-    // mix is the wet level, bypassed: only the dry signal passes
-    setMix: (mix: number, on: boolean) => setGain(wet, on ? mix : 0),
+    // mix 0: only dry, 0.5: dry and wet both at full level, 1: only wet; bypassed: only the dry signal passes
+    setMix: (mix: number, on: boolean) => {
+      setGain(dry, on ? Math.min(1, 2 * (1 - mix)) : 1);
+      setGain(wet, on ? Math.min(1, 2 * mix) : 0);
+    },
     // active: in the chain and not bypassed
     setActive: (active: boolean) => {
       setGain(send, active ? 1 : 0);
@@ -37,7 +46,7 @@ export const createFxSlot = (audioCtx: BaseAudioContext, core: FxCore) => {
     },
     destroy: () => {
       core.destroy();
-      [input, output, wet, send].forEach((node) => node.disconnect());
+      [input, output, dry, wet, send].forEach((node) => node.disconnect());
     },
   };
 };

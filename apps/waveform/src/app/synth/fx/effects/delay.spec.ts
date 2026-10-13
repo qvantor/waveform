@@ -33,7 +33,14 @@ const setup = () => {
   };
 };
 
+// changes after create are smoothed, the initial values are set instantly
 const lastValue = (param: AudioParam) => (param.setTargetAtTime as jest.Mock).mock.lastCall?.[0];
+const initialValue = (param: AudioParam) => {
+  expect(param.setTargetAtTime).not.toHaveBeenCalled();
+  return (param.setValueAtTime as jest.Mock).mock.lastCall?.[0];
+};
+const initialGains = (nodes: Record<string, GainNode>) =>
+  Object.fromEntries(Object.entries(nodes).map(([key, node]) => [key, initialValue(node.gain)]));
 const gains = (nodes: Record<string, GainNode>) =>
   Object.fromEntries(Object.entries(nodes).map(([key, node]) => [key, lastValue(node.gain)]));
 
@@ -74,16 +81,27 @@ describe('delay', () => {
     filters.forEach((filter) => expect(filter.type).toBe('bandpass'));
   });
 
-  it('applies the defaults on create', () => {
+  it('sets the defaults instantly on create, so the feedback never ramps down from gain 1', () => {
     const { lines, filters, offsets, inputs, feedbacks } = setup();
-    lines.forEach((line) => expect(lastValue(line.delayTime)).toBe(0.2));
-    offsets.forEach((offset) => expect(lastValue(offset.delayTime)).toBe(0));
+    lines.forEach((line) => expect(initialValue(line.delayTime)).toBe(0.2));
+    offsets.forEach((offset) => expect(initialValue(offset.delayTime)).toBe(0));
     filters.forEach((filter) => {
-      expect(lastValue(filter.frequency)).toBe(1000);
-      expect(lastValue(filter.Q)).toBe(0.01);
+      expect(initialValue(filter.frequency)).toBe(1000);
+      expect(initialValue(filter.Q)).toBe(0.01);
     });
-    expect(gains(inputs)).toEqual({ l: 1, r: 1, x: 0 });
-    expect(gains(feedbacks)).toEqual({ ll: 0.5, rr: 0.5, lr: 0, rl: 0 });
+    expect(initialGains(inputs)).toEqual({ l: 1, r: 1, x: 0 });
+    expect(initialGains(feedbacks)).toEqual({ ll: 0.5, rr: 0.5, lr: 0, rl: 0 });
+    expect(feedbacks.ll.gain.setValueAtTime).toHaveBeenCalledWith(0.5, 0);
+  });
+
+  it('smooths changes after create', () => {
+    const { core, lines, feedbacks } = setup();
+    const created = (feedbacks.ll.gain.setValueAtTime as jest.Mock).mock.calls.length;
+    core.setParam('time', 0.3);
+    core.setActive(false);
+    lines.forEach((line) => expect(line.delayTime.setTargetAtTime).toHaveBeenLastCalledWith(0.3, 0, 0.01));
+    expect(feedbacks.ll.gain.setTargetAtTime).toHaveBeenLastCalledWith(0, 0, 0.01);
+    expect(feedbacks.ll.gain.setValueAtTime).toHaveBeenCalledTimes(created);
   });
 
   it('normal: each line feeds itself, ping-pong: the mono sum bounces between the lines', () => {
@@ -147,7 +165,7 @@ describe('delay', () => {
   it('ignores unknown params', () => {
     const { core, lines } = setup();
     core.setParam('unknown', 1);
-    lines.forEach((line) => expect(lastValue(line.delayTime)).toBe(0.2));
+    lines.forEach((line) => expect(initialValue(line.delayTime)).toBe(0.2));
   });
 
   it('destroy disconnects every node', () => {

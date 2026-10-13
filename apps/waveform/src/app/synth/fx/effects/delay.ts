@@ -106,8 +106,12 @@ export const delay: FxDefinition<DelayParam> = {
 
     const values: Record<DelayParam, number> = mapValues(FX_PARAMS.delay, (param) => param.default);
     let active = true;
+    // the initial values are set instantly: a ramp from the defaults (gain 1, delayTime 0)
+    // would briefly run the feedback loop above unity
+    let smooth = false;
 
-    const setValue = (param: AudioParam, value: number) => setSmooth(audioCtx, param, value);
+    const setValue = (param: AudioParam, value: number) =>
+      smooth ? setSmooth(audioCtx, param, value) : param.setValueAtTime(value, audioCtx.currentTime);
 
     // inactive: no feedback, so the lines drain within one delay time instead of ringing on
     const applyRouting = () => {
@@ -135,6 +139,7 @@ export const delay: FxDefinition<DelayParam> = {
     };
 
     (Object.keys(values) as DelayParam[]).forEach((key) => apply[key](values[key]));
+    smooth = true;
 
     return {
       input,
