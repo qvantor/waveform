@@ -1,37 +1,11 @@
 import React from 'react';
-import { render, screen, within } from '@testing-library/react';
+import { screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
-import { AppProvider } from '../../../app';
-import { SynthCoreProvider, useSynthCore } from '../../common/modules';
-import { FxProvider, useFx } from '../modules';
+import { renderWithFx } from '../../../../test-utils/fx-wrapper';
 import { FxPanel } from './fx-panel';
 
-type FxModule = ReturnType<typeof useFx>;
-
-const Capture = ({ onModel }: { onModel: (module: FxModule) => void }) => {
-  onModel(useFx());
-  return null;
-};
-
-const Fx = ({ children }: React.PropsWithChildren) => (
-  <FxProvider initial={{}} synthCore={useSynthCore()}>
-    {children}
-  </FxProvider>
-);
-
 const setup = () => {
-  let fx: FxModule | undefined;
-  render(
-    <AppProvider initial={{}}>
-      <SynthCoreProvider initial={undefined}>
-        <Fx>
-          <Capture onModel={(module) => (fx = module)} />
-          <FxPanel type='delay' />
-        </Fx>
-      </SynthCoreProvider>
-    </AppProvider>
-  );
-  if (!fx) throw new Error('fx model is not initialized');
+  const { fx } = renderWithFx(<FxPanel type='delay' />);
   return { fx, user: userEvent.setup() };
 };
 

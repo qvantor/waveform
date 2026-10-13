@@ -48,10 +48,20 @@ const ItemRoot = styled.div`
 `;
 
 const Item = ({ id, children }: React.PropsWithChildren<{ id: string }>) => {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } =
+    useSortable({ id });
+  // the item is also the activator: Enter/Space on the controls inside it don't start a keyboard drag
+  // (a stable ref, an inline one re-registers the node with dnd-kit on every render)
+  const ref = React.useCallback(
+    (node: HTMLDivElement | null) => {
+      setNodeRef(node);
+      setActivatorNodeRef(node);
+    },
+    [setNodeRef, setActivatorNodeRef]
+  );
   return (
     <ItemRoot
-      ref={setNodeRef}
+      ref={ref}
       className={cls({ dragging: isDragging })}
       style={{ transform: CSS.Transform.toString(transform), transition }}
       {...attributes}
