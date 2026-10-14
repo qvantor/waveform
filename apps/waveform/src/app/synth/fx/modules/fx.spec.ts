@@ -2,9 +2,10 @@ import { mapValues } from 'lodash';
 import { FX_MIX_PARAM, FX_PARAMS } from '@waveform/preset-schema';
 import { applySnapshot, getSnapshot } from '../../../app';
 import { createSynthCore, initModel } from '../../../../test-utils/models';
+import { withoutAudioWorklet } from '../../../../test-utils/no-audio-worklet';
 import { DELAY_PRESETS } from '../effects/delay-presets';
 import { REVERB_PRESETS } from '../effects/reverb-presets';
-import { findFxPreset } from '../effects';
+import { findFxPreset, FxStatus } from '../effects';
 import { fx, getChain } from './fx';
 
 const setup = () => {
@@ -23,6 +24,19 @@ const REVERB_DEFAULTS = mapValues(FX_PARAMS.reverb, (param) => param.default);
 const defaultReverb = () => ({ mix: FX_MIX_PARAM.default, params: REVERB_DEFAULTS });
 
 const lastGain = (node: GainNode) => (node.gain.setTargetAtTime as jest.Mock).mock.lastCall?.[0];
+
+// the reverb worklet module loads asynchronously: settled after the pending promises
+const flush = () => new Promise((resolve) => setTimeout(resolve));
+
+// the reverb module fails to load on the first try
+const setupFailing = () => {
+  const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+  const synthCore = createSynthCore();
+  const addModule = synthCore[0].audioCtx.audioWorklet.addModule as jest.Mock;
+  addModule.mockRejectedValueOnce(new Error('404'));
+  const [model, actions] = initModel(fx({ synthCore }), 'fx', undefined);
+  return { model, actions, synthCore: synthCore[0], addModule, error };
+};
 
 describe('fx', () => {
   it('passes fxIn straight to fxOut when no effect is added', () => {
@@ -254,8 +268,20 @@ describe('fx', () => {
   it('getChain keeps the order and only the added effects', () => {
     const { model, actions } = setup();
     actions.setAdded('delay', true);
-    expect(getChain(['delay'], model.$effects.value)).toEqual(['delay']);
-    expect(getChain([], model.$effects.value)).toEqual([]);
+    expect(getChain(['delay'], model.$effects.value, model.$status.value)).toEqual(['delay']);
+    expect(getChain([], model.$effects.value, model.$status.value)).toEqual([]);
+  });
+
+  it('getChain keeps loading and ready effects, leaves out unsupported and failed ones', () => {
+    const { model, actions } = setup();
+    actions.setAdded('delay', true);
+    actions.setAdded('reverb', true);
+    const chain = (reverb: FxStatus) =>
+      getChain(['reverb', 'delay'], model.$effects.value, { delay: 'ready', reverb });
+    expect(chain('loading')).toEqual(['reverb', 'delay']);
+    expect(chain('ready')).toEqual(['reverb', 'delay']);
+    expect(chain('unsupported')).toEqual(['delay']);
+    expect(chain('failed')).toEqual(['delay']);
   });
 
   it('move reorders the effects', () => {
@@ -307,6 +333,101 @@ describe('fx', () => {
       expect(model.$effects.value.reverb).toMatchObject({ mix: cathedral?.mix, params: cathedral?.params });
       expect(findFxPreset('reverb', model.$effects.value.reverb)).toBe(cathedral);
       expect(findFxPreset('reverb', defaultReverb())?.id).toBe('default');
+    });
+  });
+
+  describe('status', () => {
+    afterEach(() => jest.restoreAllMocks());
+
+    it('delay is always ready, the reverb is ready once its module has loaded', async () => {
+      const { model } = setup();
+      expect(model.$status.value).toEqual({ delay: 'ready', reverb: 'loading' });
+      await flush();
+      expect(model.$status.value).toEqual({ delay: 'ready', reverb: 'ready' });
+    });
+
+    it('a loading reverb is already in the chain, silent until its node exists', () => {
+      const { model, actions, synthCore } = setup();
+      actions.setAdded('reverb', true);
+      expect(model.$status.value.reverb).toBe('loading');
+      expect(synthCore.fxIn.connect).toHaveBeenLastCalledWith(model.slots.reverb.input);
+    });
+
+    it('without AudioWorklet the model starts, the reverb is unsupported, the delay works', () => {
+      withoutAudioWorklet();
+      const { model, actions, synthCore } = setup();
+      expect(model.$status.value).toEqual({ delay: 'ready', reverb: 'unsupported' });
+      actions.setAdded('delay', true);
+      expect(synthCore.fxIn.connect).toHaveBeenLastCalledWith(model.slots.delay.input);
+      expect(model.slots.delay.output.connect).toHaveBeenLastCalledWith(synthCore.fxOut);
+    });
+
+    it('an unsupported effect can not be added, removing it still works', () => {
+      withoutAudioWorklet();
+      const { model, actions } = setup();
+      const before = model.$effects.value;
+      actions.setAdded('reverb', true);
+      expect(model.$effects.value).toBe(before);
+      applySnapshot({ fx: { reverb: { a: true } } });
+      actions.setAdded('reverb', false);
+      expect(model.$effects.value.reverb.added).toBe(false);
+    });
+
+    it('an unsupported effect added by a snapshot stays out of the chain, the snapshot keeps it', () => {
+      withoutAudioWorklet();
+      const { model, synthCore } = setup();
+      applySnapshot({ fx: { o: ['reverb', 'delay'], reverb: { a: true, decay: 5 }, delay: { a: true } } });
+      expect(model.$effects.value.reverb).toMatchObject({ added: true, params: { decay: 5 } });
+      expect(synthCore.fxIn.connect).toHaveBeenLastCalledWith(model.slots.delay.input);
+      expect(model.slots.delay.output.connect).toHaveBeenLastCalledWith(synthCore.fxOut);
+      expect(model.slots.reverb.output.connect).not.toHaveBeenCalledWith(synthCore.fxOut);
+      expect(getSnapshot()['fx']).toMatchObject({ reverb: { a: true, decay: 5 }, delay: { a: true } });
+    });
+
+    it('a failed load reports the reverb as failed and drops it out of the chain', async () => {
+      const { model, actions, synthCore, error } = setupFailing();
+      actions.setAdded('reverb', true);
+      expect(synthCore.fxIn.connect).toHaveBeenLastCalledWith(model.slots.reverb.input);
+      await flush();
+      expect(model.$status.value.reverb).toBe('failed');
+      expect(error).toHaveBeenCalled();
+      expect(model.$effects.value.reverb.added).toBe(true);
+      expect(synthCore.fxIn.connect).toHaveBeenLastCalledWith(synthCore.fxOut);
+    });
+
+    it('adding a failed effect loads it again and puts it in the chain', async () => {
+      const { model, actions, synthCore, addModule } = setupFailing();
+      await flush();
+      expect(model.$status.value.reverb).toBe('failed');
+      expect(addModule).toHaveBeenCalledTimes(1);
+
+      actions.setAdded('reverb', true);
+      expect(addModule).toHaveBeenCalledTimes(2);
+      expect(model.$status.value.reverb).toBe('loading');
+      expect(model.$effects.value.reverb.added).toBe(true);
+      expect(synthCore.fxIn.connect).toHaveBeenLastCalledWith(model.slots.reverb.input);
+      await flush();
+      expect(model.$status.value.reverb).toBe('ready');
+      expect(synthCore.fxIn.connect).toHaveBeenLastCalledWith(model.slots.reverb.input);
+    });
+
+    it('a retry that fails again leaves the effect added but out of the chain', async () => {
+      const { model, actions, synthCore, addModule } = setupFailing();
+      await flush();
+      addModule.mockRejectedValueOnce(new Error('offline'));
+      actions.setAdded('reverb', true);
+      await flush();
+      expect(model.$status.value.reverb).toBe('failed');
+      expect(model.$effects.value.reverb.added).toBe(true);
+      expect(synthCore.fxIn.connect).toHaveBeenLastCalledWith(synthCore.fxOut);
+    });
+
+    it('removing a failed effect does not retry', async () => {
+      const { model, actions, addModule } = setupFailing();
+      await flush();
+      actions.setAdded('reverb', false);
+      expect(addModule).toHaveBeenCalledTimes(1);
+      expect(model.$status.value.reverb).toBe('failed');
     });
   });
 

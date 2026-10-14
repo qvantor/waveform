@@ -73,14 +73,17 @@ Object.assign(AudioContextMock.prototype, {
 });
 
 // the mock's audioWorklet is an empty object: one addModule per context, resolved
+// (withoutAudioWorklet removes it, restored after each test)
 const worklets = new WeakMap<AudioContextMock, { addModule: jest.Mock }>();
-Object.defineProperty(AudioContextMock.prototype, 'audioWorklet', {
+const audioWorklet: PropertyDescriptor = {
+  configurable: true,
   get(this: AudioContextMock) {
     const worklet = worklets.get(this) ?? { addModule: jest.fn(() => Promise.resolve()) };
     worklets.set(this, worklet);
     return worklet;
   },
-});
+};
+Object.defineProperty(AudioContextMock.prototype, 'audioWorklet', audioWorklet);
 
 // the mock's AudioWorkletNode takes the options of the other node mocks, not (context, name, options)
 class AudioWorkletNodeStub extends AudioWorkletNodeMock<AudioContextMock> {
@@ -139,6 +142,9 @@ Object.defineProperty(globalThis.crypto, 'randomUUID', {
 afterEach(() => {
   stopModels();
   Reflect.deleteProperty(document, 'visibilityState');
+  Object.defineProperty(AudioContextMock.prototype, 'audioWorklet', audioWorklet);
+  Object.assign(globalThis, { AudioWorkletNode: AudioWorkletNodeStub });
+  Reflect.deleteProperty(window, 'isSecureContext');
   localStorage.clear();
   window.history.replaceState(null, '', '/');
 });

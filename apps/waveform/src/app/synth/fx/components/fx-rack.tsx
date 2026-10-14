@@ -31,8 +31,8 @@ const Empty = styled.div`
 
 // the effects in the chain, in the chain order
 export const FxRack = () => {
-  const [{ $chain, $order, $effects }] = useFx();
-  const chain = useObservable($chain, getChain($order.value, $effects.value));
+  const [{ $chain, $order, $effects, $status }] = useFx();
+  const chain = useObservable($chain, getChain($order.value, $effects.value, $status.value));
   if (chain.length === 0) return <Empty>Turn on an effect in the list</Empty>;
   return (
     <Root>

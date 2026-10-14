@@ -1,4 +1,6 @@
-import { FxCore } from './types';
+import { BehaviorSubject } from 'rxjs';
+import { noop } from 'lodash';
+import { FxCore, FxStatus } from './types';
 
 // smooths param changes, so mix, bypass and effect params don't click
 export const setSmooth = (
@@ -45,6 +47,9 @@ export const createFxSlot = (audioCtx: BaseAudioContext, core: FxCore) => {
     send,
     drain,
     setParam: core.setParam,
+    // an effect without a status is always ready, it has nothing to retry
+    $status: core.$status ?? new BehaviorSubject<FxStatus>('ready'),
+    retry: core.retry ?? noop,
     // equal-power crossfade, so the level stays flat: mix 0: only dry, 0.5: both at -3 dB, 1: only wet;
     // bypassed: only the dry signal passes
     setMix: (mix: number, on: boolean) => {

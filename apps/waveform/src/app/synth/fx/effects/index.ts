@@ -24,3 +24,5 @@ export const findFxPreset = (type: FxType, { mix, params }: Pick<FxPreset, 'mix'
 
 export { createFxSlot } from './create-fx-slot';
 export type { FxSlot } from './create-fx-slot';
+export { isFxUsable } from './types';
+export type { FxStatus } from './types';

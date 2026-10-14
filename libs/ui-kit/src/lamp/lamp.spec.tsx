@@ -25,6 +25,15 @@ describe('Lamp', () => {
     expect(lamp.classList.contains('m')).toBe(true);
   });
 
+  it('points at the element that describes it', () => {
+    const { rerender } = render(<Lamp on={false} label='Power' aria-describedby='why' />);
+    const lamp = screen.getByRole('button', { name: 'Power' });
+    expect(lamp.getAttribute('aria-describedby')).toBe('why');
+
+    rerender(<Lamp on={false} label='Power' />);
+    expect(lamp.hasAttribute('aria-describedby')).toBe(false);
+  });
+
   it('calls onChange with the opposite state', async () => {
     const onChange = jest.fn();
     const user = userEvent.setup();

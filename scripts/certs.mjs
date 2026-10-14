@@ -4,20 +4,25 @@
 import { execFileSync } from 'node:child_process';
 import { mkdirSync } from 'node:fs';
 import { networkInterfaces } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// Repo root, not the cwd: netlify.toml reads the certificates from there.
+const certsDir = fileURLToPath(new URL('../.certs', import.meta.url));
 
 const lanIps = Object.values(networkInterfaces())
   .flat()
   .filter((net) => net && net.family === 'IPv4' && !net.internal)
   .map((net) => net.address);
 
-mkdirSync('.certs', { recursive: true });
+mkdirSync(certsDir, { recursive: true });
 execFileSync(
   'mkcert',
   [
     '-cert-file',
-    '.certs/cert.pem',
+    join(certsDir, 'cert.pem'),
     '-key-file',
-    '.certs/key.pem',
+    join(certsDir, 'key.pem'),
     'localhost',
     '127.0.0.1',
     '::1',

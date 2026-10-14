@@ -13,6 +13,8 @@ interface Props {
   // the light, blue by default
   color?: string;
   className?: string;
+  // the id of the element that explains the state (e.g. why it can't be turned on)
+  'aria-describedby'?: string;
 }
 
 // a metal rim around the glass
@@ -86,6 +88,7 @@ export const Lamp = ({
   size = 's',
   color = theme.colors.secondAccent,
   className,
+  'aria-describedby': describedBy,
 }: Props) => (
   <Root
     type='button'
@@ -93,6 +96,7 @@ export const Lamp = ({
     $color={color}
     aria-pressed={on}
     aria-label={label}
+    aria-describedby={describedBy}
     onClick={() => onChange?.(!on)}
   />
 );
