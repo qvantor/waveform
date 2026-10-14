@@ -17,33 +17,50 @@ const resumeOnGesture = (audioCtx: AudioContext) =>
     audioCtx.resume().catch(() => undefined);
   });
 
+// the last stage, after the master volume: a hard knee keeps the peaks below 0 dBFS. The compressor overshoots
+// its curve on the onset of dense unison chords struck at once (in Chrome ~2.5 dB at a 5 ms attack, ~4 dB at
+// attack 0); at master 100% and a 5 ms attack -4 still stays under 0 dBFS (-3.5 doesn't). The first ms of such
+// a chord can go over at master above 100% (+0.2 dB) or at attack 0 (up to +1.8 dB). The release is long enough
+// not to follow the wave (a short one moves the gain every cycle: grit)
+export const LIMITER = { threshold: -4, knee: 0, ratio: 20, attack: 0.001, release: 0.25 };
+
+// the makeup gain a DynamicsCompressorNode adds by spec: (1 / curve(1))^0.6, for a hard knee
+// curve(1) is threshold · (1 - 1/ratio) dB
+export const limiterMakeupGain = ({ threshold, ratio }: { threshold: number; ratio: number }) =>
+  10 ** ((-0.6 * threshold * (1 - 1 / ratio)) / 20);
+
 export const synthCore = () =>
   rxModel(() => {
     const audioCtx = new AudioContext();
     const preGain = audioCtx.createGain();
-    const masterLimiter = audioCtx.createDynamicsCompressor();
     const masterGain = audioCtx.createGain();
+    const masterLimiter = audioCtx.createDynamicsCompressor();
+    // takes back the makeup gain of the limiter, so below its threshold the sound passes at unity;
+    // the analysers tap it, they show what is played
+    const output = audioCtx.createGain();
     // the fx chain is wired between these two by the fx model, after the mid nodes (filter)
     const fxIn = audioCtx.createGain();
     const fxOut = audioCtx.createGain();
 
     preGain.gain.setValueAtTime(1, audioCtx.currentTime);
 
-    masterLimiter.threshold.setValueAtTime(-16.0, audioCtx.currentTime);
-    masterLimiter.ratio.setValueAtTime(20, audioCtx.currentTime);
-    masterLimiter.attack.setValueAtTime(0.001, audioCtx.currentTime);
-    masterLimiter.release.setValueAtTime(0.01, audioCtx.currentTime);
+    masterLimiter.threshold.setValueAtTime(LIMITER.threshold, audioCtx.currentTime);
+    masterLimiter.knee.setValueAtTime(LIMITER.knee, audioCtx.currentTime);
+    masterLimiter.ratio.setValueAtTime(LIMITER.ratio, audioCtx.currentTime);
+    masterLimiter.attack.setValueAtTime(LIMITER.attack, audioCtx.currentTime);
+    masterLimiter.release.setValueAtTime(LIMITER.release, audioCtx.currentTime);
+    output.gain.setValueAtTime(1 / limiterMakeupGain(LIMITER), audioCtx.currentTime);
 
     fxIn.connect(fxOut);
-    fxOut.connect(masterLimiter);
-    masterLimiter.connect(masterGain);
-    masterGain.connect(audioCtx.destination);
+    fxOut.connect(masterGain);
+    masterGain.connect(masterLimiter);
+    masterLimiter.connect(output);
+    output.connect(audioCtx.destination);
 
-    const $masterGain = new PrimitiveBS<number>(0.8);
-    const $limiter = new PrimitiveBS<boolean>(false);
+    const $masterGain = new PrimitiveBS<number>(1);
     const $midNodes = new ArrayBS<AudioNode[]>([]); // nodes to connect between preGain and fxIn
 
-    return { audioCtx, preGain, fxIn, fxOut, masterLimiter, masterGain, $midNodes, $masterGain, $limiter };
+    return { audioCtx, preGain, fxIn, fxOut, masterLimiter, masterGain, output, $midNodes, $masterGain };
   })
     .actions(({ $masterGain, $midNodes }) => ({
       setMasterGain: (value: number) => $masterGain.next(value),
