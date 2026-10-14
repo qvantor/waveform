@@ -111,6 +111,27 @@ const Warning = styled.span`
   }
 `;
 
+// a text button in the warning of a failed effect
+const Retry = styled.button`
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-weight: bold;
+  color: ${theme.colors.secondAccent};
+  text-decoration: underline;
+  cursor: pointer;
+
+  &:focus {
+    outline: none;
+  }
+
+  &:focus-visible {
+    outline: 1px solid ${theme.colors.secondAccent};
+    outline-offset: 2px;
+  }
+`;
+
 const Grip = styled(MdDragIndicator)`
   flex: 0 0 auto;
   opacity: 0.7;
@@ -120,11 +141,12 @@ const Grip = styled(MdDragIndicator)`
 const addedFlags = (effects: Record<FxType, { added: boolean }>) =>
   mapValues(effects, (effect) => effect.added);
 
-// every effect: a click on the row adds it to the chain, drag & drop sets the chain order
-// (dnd-kit swallows the click that ends a drag). An unavailable effect shows why under its name and its lamp
-// stays off: an unsupported one can't be added, a click on a failed one loads it again
+// every effect: a click on the row adds it to the chain or removes it, drag & drop sets the chain order
+// (dnd-kit swallows the click that ends a drag). The lamp shows the added state (what a preset saves), an
+// unavailable effect fades and shows why under its name: an unsupported one can't be added but can be
+// removed, a failed one loads again when it is added or on Retry
 export const FxList = () => {
-  const [{ $order, $effects, $status }, { setAdded, move }] = useFx();
+  const [{ $order, $effects, $status }, { setAdded, retry, move }] = useFx();
   const order = useBehaviorSubject($order);
   // only the added flags, so dragging a knob doesn't re-render the list
   const $added = React.useMemo(
@@ -144,12 +166,17 @@ export const FxList = () => {
           const Icon = FX_ICONS[type];
           const color = FX_COLORS[type];
           const usable = isFxUsable(status[type]);
-          const on = added[type] && usable;
+          const on = added[type];
           const warning = fxStatusMessage(status[type]);
           const warningId = `fx-warning-${type}`;
           return (
             <Row
-              className={cls({ on, unavailable: !usable, unsupported: status[type] === 'unsupported' })}
+              className={cls({
+                on,
+                unavailable: !usable,
+                // the click does nothing: it can't be added
+                unsupported: status[type] === 'unsupported' && !on,
+              })}
               style={{ '--fx-color': color } as React.CSSProperties}
               title={warning}
               onClick={() => setAdded(type, !on)}
@@ -168,9 +195,22 @@ export const FxList = () => {
               <Name>
                 {label}
                 {warning && (
-                  <Warning id={warningId}>
+                  <Warning>
                     <MdWarningAmber aria-hidden />
-                    {warning}
+                    <span id={warningId}>{warning}</span>
+                    {status[type] === 'failed' && (
+                      <Retry
+                        type='button'
+                        aria-label={`Retry ${label}`}
+                        // not a toggle of the row
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          retry(type);
+                        }}
+                      >
+                        Retry
+                      </Retry>
+                    )}
                   </Warning>
                 )}
               </Name>

@@ -60,12 +60,14 @@ export const fx = ({ synthCore: [{ audioCtx, fxIn, fxOut }] }: Dependencies) =>
         $effects.next({ ...$effects.value, [type]: { ...$effects.value[type], ...value } });
       return {
         // an unsupported effect can't be added, a failed one loads again and is added (in the chain while it
-        // loads, left out again if it fails)
+        // loads, left out again if it fails); removing works whatever the status
         setAdded: (type: FxType, added: boolean) => {
           if (added && $status.value[type] === 'unsupported') return;
           if (added && $status.value[type] === 'failed') slots[type].retry();
           update(type, { added });
         },
+        // loads a failed effect again, added or not (nothing to do in any other status)
+        retry: (type: FxType) => slots[type].retry(),
         setOn: (type: FxType, on: boolean) => update(type, { on }),
         setMix: (type: FxType, mix: number) => update(type, { mix }),
         setParam: (type: FxType, key: string, value: number) =>
@@ -97,23 +99,31 @@ export const fx = ({ synthCore: [{ audioCtx, fxIn, fxOut }] }: Dependencies) =>
         for (let i = 0; i < nodes.length; i += 2) nodes[i].connect(nodes[i + 1]);
       }),
       // update() replaces only the changed effect's object, so the other slots are not touched,
-      // and only the changed values are applied (a knob drag sets one param per tick)
+      // and only the changed values are applied (a knob drag sets one param per tick).
+      // An effect that is not ready (loading, failed, unsupported) has no wet signal: its slot passes the dry
+      // signal like a bypassed one and is inactive, so a loading effect isn't silent at mix 1 and an
+      // unavailable one doesn't keep a tail
       ...FX_TYPES.map((type) => {
-        let prev: FxState | undefined;
-        return $effects
-          .pipe(
+        let prev: { mix: number; live: boolean; active: boolean; params: Record<string, number> } | undefined;
+        return combineLatest([
+          $effects.pipe(
             map((effects) => effects[type]),
             distinctUntilChanged()
-          )
-          .subscribe((state) => {
-            const { added, mix, on, params } = state;
-            if (prev?.mix !== mix || prev?.on !== on) slots[type].setMix(mix, on);
-            if (!prev || (prev.added && prev.on) !== (added && on)) slots[type].setActive(added && on);
-            Object.entries(params).forEach(([key, value]) => {
-              if (prev?.params[key] !== value) slots[type].setParam(key, value);
-            });
-            prev = state;
+          ),
+          $status.pipe(
+            map((status) => status[type] === 'ready'),
+            distinctUntilChanged()
+          ),
+        ]).subscribe(([{ added, mix, on, params }, ready]) => {
+          const live = on && ready;
+          const active = added && live;
+          if (prev?.mix !== mix || prev?.live !== live) slots[type].setMix(mix, live);
+          if (prev?.active !== active) slots[type].setActive(active);
+          Object.entries(params).forEach(([key, value]) => {
+            if (prev?.params[key] !== value) slots[type].setParam(key, value);
           });
+          prev = { mix, live, active, params };
+        });
       }),
     ])
     .plugins(

@@ -119,6 +119,31 @@ describe('createWorkletFx', () => {
     expect(worklet.input.connect).toHaveBeenLastCalledWith(node(1));
   });
 
+  it('a processor error of a node dropped before does not fail the current one', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { worklet, node, statuses } = setup();
+    // the first node is created, joining it throws: dropped, failed
+    (worklet.input.connect as jest.Mock).mockImplementationOnce(() => {
+      throw new Error('InvalidAccessError');
+    });
+    await flush();
+    const dropped = node();
+    expect(statuses).toEqual(['loading', 'failed']);
+
+    worklet.retry();
+    await flush();
+    const current = node(1);
+    expect(statuses).toEqual(['loading', 'failed', 'loading', 'ready']);
+    const disconnects = (worklet.input.disconnect as jest.Mock).mock.calls.length;
+
+    dropped?.onprocessorerror?.call(dropped, new Event('processorerror'));
+    expect(statuses).toEqual(['loading', 'failed', 'loading', 'ready']);
+    expect(worklet.input.disconnect).toHaveBeenCalledTimes(disconnects);
+    expect(current?.disconnect).not.toHaveBeenCalled();
+    worklet.post({ a: 1 });
+    expect(current?.port.postMessage).toHaveBeenCalledWith({ a: 1 });
+  });
+
   it('destroyed before the module loads: no node, the status completes', async () => {
     const { worklet, createNode } = setup();
     const complete = jest.fn();

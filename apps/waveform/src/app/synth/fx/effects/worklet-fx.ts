@@ -37,10 +37,14 @@ export const createWorkletFx = (
     loadWorklet(audioCtx, name)
       .then(() => {
         if (destroyed) return;
-        node = createNode();
-        // the processor threw: it outputs silence from now on, a retry creates a new one
-        node.onprocessorerror = fail;
-        input.connect(node).connect(output);
+        const current = createNode();
+        node = current;
+        // the processor threw: it outputs silence from now on, a retry creates a new one; a node dropped
+        // earlier (failed, then retried) must not fail the current one
+        current.onprocessorerror = (event) => {
+          if (node === current) fail(event);
+        };
+        input.connect(current).connect(output);
         $status.next('ready');
       })
       .catch(fail);

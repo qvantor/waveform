@@ -7,7 +7,7 @@ export const fxStatusMessage = (status: FxStatus) => {
     case 'unsupported':
       return window.isSecureContext === false ? 'Needs HTTPS or localhost' : 'Not supported by this browser';
     case 'failed':
-      return 'Failed to load, click to retry';
+      return 'Failed to load';
     default:
       return undefined;
   }

@@ -15,7 +15,8 @@ export type FxParamDef = Pick<HandleProps, 'mode' | 'precision' | 'formatValue' 
 // (old Safari, http on a LAN IP); failed: the module or the node failed, retry() loads it again
 export type FxStatus = 'loading' | 'ready' | 'unsupported' | 'failed';
 
-// a loading effect is already in the chain (silent until its node exists), an unavailable one is not
+// a loading effect is already in the chain (it passes the dry signal until its node exists), an unavailable
+// one is not
 export const isFxUsable = (status: FxStatus) => status === 'loading' || status === 'ready';
 
 // the effect itself (the wet signal), mix and bypass are added around it by createFxSlot

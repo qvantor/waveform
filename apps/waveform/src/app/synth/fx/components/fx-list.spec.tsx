@@ -149,13 +149,23 @@ describe('FxList', () => {
       expect(getRowOf('Reverb')).toHaveTextContent('Needs HTTPS or localhost');
     });
 
-    it('a reverb added by a preset stays off while unsupported', () => {
+    it('a reverb added by a preset shows as added but unavailable, a click removes it for good', async () => {
       withoutAudioWorklet();
-      const { fx } = setup();
+      const { fx, user } = setup();
       act(() => applySnapshot({ fx: { reverb: { a: true } } }));
       expect(fx[0].$effects.value.reverb.added).toBe(true);
+      expect(getLampOf('Reverb')).toHaveAttribute('aria-pressed', 'true');
+      expect(getRowOf('Reverb')).toHaveClass('on', 'unavailable');
+      // it can be clicked: no not-allowed cursor
+      expect(getRowOf('Reverb')).not.toHaveClass('unsupported');
+
+      await user.click(getRowOf('Reverb'));
+      expect(fx[0].$effects.value.reverb.added).toBe(false);
       expect(getLampOf('Reverb')).toHaveAttribute('aria-pressed', 'false');
-      expect(getRowOf('Reverb')).not.toHaveClass('on');
+      expect(getRowOf('Reverb')).toHaveClass('unsupported');
+
+      await user.click(getRowOf('Reverb'));
+      expect(fx[0].$effects.value.reverb.added).toBe(false);
     });
 
     it('the fx screen works without AudioWorklet, the rack shows only the usable effects', () => {
@@ -167,12 +177,13 @@ describe('FxList', () => {
       expect(screen.getAllByText('Reverb')).toHaveLength(1);
     });
 
-    it('a failed load says click to retry, the click loads it again and turns it on', async () => {
+    it('a failed load says so, a click on the row loads it again and turns it on', async () => {
       const addModule = failFirstWorkletLoad();
       const { fx, user } = setup();
       await flush();
       const row = getRowOf('Reverb');
-      expect(row).toHaveTextContent('Failed to load, click to retry');
+      expect(row).toHaveTextContent('Failed to load');
+      expect(getLampOf('Reverb')).toHaveAccessibleDescription('Failed to load');
       expect(row).toHaveClass('unavailable');
       expect(row).not.toHaveClass('unsupported');
 
@@ -184,6 +195,49 @@ describe('FxList', () => {
       expect(getRowOf('Reverb')).not.toHaveTextContent('Failed to load');
       expect(getRowOf('Reverb')).toHaveClass('on');
       expect(getLampOf('Reverb')).toHaveAttribute('aria-pressed', 'true');
+    });
+
+    it('a failed effect that is added: Retry loads it again and keeps it added', async () => {
+      const addModule = failFirstWorkletLoad();
+      const { fx, user } = setup();
+      act(() => applySnapshot({ fx: { reverb: { a: true } } }));
+      await flush();
+      expect(fx[0].$status.value.reverb).toBe('failed');
+      expect(getLampOf('Reverb')).toHaveAttribute('aria-pressed', 'true');
+      expect(getRowOf('Reverb')).toHaveClass('on', 'unavailable');
+
+      await user.click(screen.getByRole('button', { name: 'Retry Reverb' }));
+      expect(addModule).toHaveBeenCalledTimes(2);
+      expect(fx[0].$effects.value.reverb.added).toBe(true);
+      await flush();
+      expect(fx[0].$status.value.reverb).toBe('ready');
+      expect(getRowOf('Reverb')).toHaveClass('on');
+      expect(getRowOf('Reverb')).not.toHaveClass('unavailable');
+      expect(screen.queryByRole('button', { name: 'Retry Reverb' })).not.toBeInTheDocument();
+    });
+
+    it('a failed effect that is added: a click on the row removes it without loading it again', async () => {
+      const addModule = failFirstWorkletLoad();
+      const { fx, user } = setup();
+      act(() => applySnapshot({ fx: { reverb: { a: true } } }));
+      await flush();
+      await user.click(getRowOf('Reverb'));
+      expect(fx[0].$effects.value.reverb.added).toBe(false);
+      expect(fx[0].$status.value.reverb).toBe('failed');
+      expect(addModule).toHaveBeenCalledTimes(1);
+      expect(getLampOf('Reverb')).toHaveAttribute('aria-pressed', 'false');
+    });
+
+    it('Retry works from the keyboard and does not toggle the row', async () => {
+      const addModule = failFirstWorkletLoad();
+      const { fx, user } = setup();
+      await flush();
+      screen.getByRole('button', { name: 'Retry Reverb' }).focus();
+      await user.keyboard('{Enter}');
+      expect(addModule).toHaveBeenCalledTimes(2);
+      await flush();
+      expect(fx[0].$status.value.reverb).toBe('ready');
+      expect(fx[0].$effects.value.reverb.added).toBe(false);
     });
   });
 });
