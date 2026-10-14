@@ -2,8 +2,9 @@ import { FX_MIX_PARAM, FxType } from '@waveform/preset-schema';
 import { number } from '@waveform/math';
 import { FxDefinition, FxParamDef, FxPreset } from './types';
 import { delay } from './delay';
+import { reverb } from './reverb';
 
-export const FX_REGISTRY: Record<FxType, FxDefinition> = { delay };
+export const FX_REGISTRY: Record<FxType, FxDefinition> = { delay, reverb };
 
 // common for every effect, applied by createFxSlot
 export const MIX_PARAM: FxParamDef = {
@@ -23,3 +24,5 @@ export const findFxPreset = (type: FxType, { mix, params }: Pick<FxPreset, 'mix'
 
 export { createFxSlot } from './create-fx-slot';
 export type { FxSlot } from './create-fx-slot';
+export { isFxUsable } from './types';
+export type { FxStatus } from './types';

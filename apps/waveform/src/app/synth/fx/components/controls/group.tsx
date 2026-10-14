@@ -31,10 +31,11 @@ const Caption = styled.div`
   }
 `;
 
+// bottom aligned: the labels of knobs and of the taller faders sit on one line, the charts stand on it
 const Content = styled.div`
   flex: 1 1;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   gap: 10px;
 `;
 

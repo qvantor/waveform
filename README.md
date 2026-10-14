@@ -34,6 +34,8 @@ Built with TypeScript, RxJS and the Web Audio API. Nothing to install and no acc
 - Effects chain with drag-and-drop ordering, per-effect dry/wet mix and bypass
 - **Delay** with normal and ping-pong modes, Haas stereo panning and a bandpass filter in the feedback loop
 - Built-in delay presets: Slapback, Stereo widener, Digital echo, Ping-pong 250ms, Echo 375ms, Echo 500ms, Wide ping-pong, Tape echo, Dub, Ambient wash, Lo-fi, Metallic comb
+- **Reverb** modelled on FL Studio Fruity Reverb 2: an algorithmic 16-line feedback delay network running in an AudioWorklet, with input low cut, predelay, room size, decay with hi damping and a bass multiplier, tail modulation depth (every line has its own LFO), stereo separation and early reflections level (damped like the tail; the wet level is the common mix), plus a decay-over-frequency display. An **Era** switch colors the input like vintage units: Now (full band), 80s (clean, converter-like bandwidth limit and a little low-mid body) and 70s (darker, with a touch of asymmetric tube saturation)
+- Built-in reverb presets: Small room, Medium room, Bright room, Dark chamber, Plate, Vintage plate, Vocal plate, Large hall, Cathedral, Lush modulated, Ambient wash
 
 ### 🌊 Wavetables
 
@@ -73,6 +75,7 @@ Notes are ignored while a text field has focus.
 ### Prerequisites
 
 - Node.js (the version is in [`.nvmrc`](.nvmrc)) and npm
+- [mkcert](https://github.com/FiloSottile/mkcert) (`brew install mkcert` on macOS) for the local HTTPS certificate of `netlify dev`
 - For wavetables and presets: an S3 bucket with wavetable `.wav` files and a Postgres database (Neon, Supabase or any other)
 
 ### Installation
@@ -82,6 +85,8 @@ git clone https://github.com/qvantor/waveform.git
 cd waveform
 npm ci
 cp .env.example .env   # then fill in the values
+mkcert -install        # once per machine: trusts the mkcert CA
+npm run certs          # certificate for localhost and your LAN IPs in .certs/
 ```
 
 Apply the database migrations in order:
@@ -96,7 +101,7 @@ for f in db/migrations/*.sql; do psql "$DATABASE_URL" -f "$f"; done
 npm start
 ```
 
-This starts `netlify dev` (functions on `:8888`) and the dev server on [http://localhost:4200](http://localhost:4200). The dev server proxies `/api/*` and `/.netlify/*` to the functions.
+This starts `netlify dev` (functions on `https://localhost:8888`) and the dev server on [http://localhost:4200](http://localhost:4200). The dev server proxies `/api/*` and `/.netlify/*` to the functions. `netlify dev` doesn't start without the certificate from `npm run certs`; rerun it when your LAN IP changes.
 
 To run only the frontend use `npm run client:start`. Wavetables and presets won't load in that mode.
 
@@ -120,6 +125,7 @@ To run only the frontend use `npm run client:start`. Wavetables and presets won'
 | ------------------------ | -------------------------------------------------------- |
 | `npm start`              | Functions and dev server together                        |
 | `npm run client:start`   | Frontend only                                            |
+| `npm run certs`          | Local HTTPS certificate for `netlify dev` (needs mkcert) |
 | `npm run build`          | Production build to `dist/apps/waveform`                 |
 | `npm run test:all`       | All Jest tests (`npx nx test <project>` for one project) |
 | `npm run lint`           | ESLint for all projects                                  |
@@ -147,7 +153,7 @@ netlify/
   functions/            presets API, usage stats, wavetables, scheduled jobs
   tests/                function specs
 db/migrations/          Postgres schema
-scripts/                maintenance scripts (rate limit checks)
+scripts/                maintenance scripts (rate limit checks, local certificates)
 ```
 
 ## Architecture

@@ -1,3 +1,4 @@
+import { wave } from '@waveform/math';
 import { createOscillator, initModel } from '../../../../../test-utils/models';
 import { manualWavetable } from './manual-wavetable';
 
@@ -46,8 +47,10 @@ describe('manualWavetable', () => {
     const { oscillator, actions } = setup();
     actions.setRate(2);
     actions.updateCurrentWave([0, 1]);
-    expect((oscillator.$periodicWave.value as PeriodicWave & { real: number[] }).real.slice(0, 4)).toEqual([
-      1, 1, 1, 1,
-    ]);
+    const { real, imag } = oscillator.$periodicWave.value as PeriodicWave & {
+      real: number[];
+      imag: number[];
+    };
+    expect([real, imag]).toEqual(wave.realWithImag([1, 1, 1, 1, ...new Array(12).fill(0)]));
   });
 });

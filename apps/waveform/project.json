@@ -16,7 +16,11 @@
         "main": "apps/waveform/src/main.tsx",
         "polyfills": "apps/waveform/src/polyfills.ts",
         "tsConfig": "apps/waveform/tsconfig.app.json",
-        "assets": ["apps/waveform/src/favicon.ico", "apps/waveform/src/assets"],
+        "assets": [
+          "apps/waveform/src/favicon.ico",
+          "apps/waveform/src/assets",
+          { "input": "tmp/worklets", "glob": "*.js", "output": "assets/worklets" }
+        ],
         "styles": [],
         "scripts": [],
         "webpackConfig": "@nrwl/react/plugins/webpack"

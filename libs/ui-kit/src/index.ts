@@ -1,5 +1,6 @@
 export { LineChart, Line, SquareDots, XAxis, YAxis, useLineChartContext } from './line-chart';
 export { Handle } from './handle';
+export { Fader } from './fader';
 export { Tooltip } from './tooltip';
 export { WaveDrawer } from './wave-drawer';
 export { Label } from './label';
@@ -12,7 +13,7 @@ export { Modal } from './modal';
 export { Section } from './section';
 export { VolumeAnalyser } from './volume-analyser';
 export { FqAnalyser } from './fq-analyser';
-export { Filter, FilterResponse } from './filter';
+export { Filter, FilterResponse, frequencyResponseDb } from './filter';
 export { Select, CascadeSelect } from './select';
 export { DraggableNumber } from './draggable-number';
 export { Checkbox } from './checkbox';

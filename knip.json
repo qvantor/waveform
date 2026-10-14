@@ -3,6 +3,7 @@
   "entry": [
     "apps/waveform/src/main.tsx",
     "apps/waveform/src/polyfills.ts",
+    "apps/waveform/src/**/*.worklet.ts",
     "libs/*/src/index.ts",
     "netlify/functions/*.{ts,mts}",
     "scripts/*.mjs",
@@ -30,5 +31,6 @@
     "eslint-plugin-react",
     "eslint-plugin-react-hooks"
   ],
+  "ignoreBinaries": ["mkcert"],
   "ignoreExportsUsedInFile": true
 }

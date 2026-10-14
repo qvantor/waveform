@@ -7,7 +7,8 @@ import { FxRack } from './fx-rack';
 
 const Root = styled.div`
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 3fr);
+  // the list never gets narrower than its rows (lamp, icon, name, grip)
+  grid-template-columns: minmax(min-content, 1fr) minmax(0, 4fr);
   gap: 1px;
   min-height: 0;
   background: ${theme.colors.primaryLowContrast};

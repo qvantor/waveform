@@ -4,7 +4,7 @@ import { FX_MIX_PARAM, FX_TYPES, FxType, fxSnapSchema } from '@waveform/preset-s
 import { ArrayBS, ObjectBS, rxModel, rxModelReact } from '@waveform/rxjs-react';
 import { SynthCoreModule } from '../../common/modules/synth-core';
 import { urlSnapshotPlugin } from '../../../app';
-import { createFxSlot, FX_REGISTRY, FxSlot } from '../effects';
+import { createFxSlot, FX_REGISTRY, FxSlot, FxStatus, isFxUsable } from '../effects';
 
 interface Dependencies {
   synthCore: SynthCoreModule;
@@ -29,9 +29,13 @@ const defaultFxState = (type: FxType): FxState => ({
 const defaultEffects = () =>
   Object.fromEntries(FX_TYPES.map((type) => [type, defaultFxState(type)])) as Record<FxType, FxState>;
 
-// the added effects in the chain order
-export const getChain = (order: FxType[], effects: Record<FxType, FxState>) =>
-  order.filter((type) => effects[type].added);
+// the added effects in the chain order; an unavailable one (unsupported or failed) stays added in the state,
+// so a preset keeps it, but is left out of the chain
+export const getChain = (
+  order: FxType[],
+  effects: Record<FxType, FxState>,
+  status: Record<FxType, FxStatus>
+) => order.filter((type) => effects[type].added && isFxUsable(status[type]));
 
 export const fx = ({ synthCore: [{ audioCtx, fxIn, fxOut }] }: Dependencies) =>
   rxModel(() => {
@@ -40,18 +44,30 @@ export const fx = ({ synthCore: [{ audioCtx, fxIn, fxOut }] }: Dependencies) =>
     const slots = Object.fromEntries(
       FX_TYPES.map((type) => [type, createFxSlot(audioCtx, FX_REGISTRY[type].create(audioCtx))])
     ) as Record<FxType, FxSlot>;
-    const $chain = combineLatest([$order, $effects]).pipe(
-      map(([order, effects]) => getChain(order, effects)),
+    // mirrors the slot statuses (see the subscriptions)
+    const $status = new ObjectBS<Record<FxType, FxStatus>>(
+      mapValues(slots, (slot) => slot.$status.value) as Record<FxType, FxStatus>
+    );
+    const $chain = combineLatest([$order, $effects, $status]).pipe(
+      map(([order, effects, status]) => getChain(order, effects, status)),
       distinctUntilChanged<FxType[]>(isEqual),
       shareReplay({ bufferSize: 1, refCount: true })
     );
-    return { $order, $effects, $chain, slots };
+    return { $order, $effects, $status, $chain, slots };
   })
-    .actions(({ $order, $effects }) => {
+    .actions(({ $order, $effects, $status, slots }) => {
       const update = (type: FxType, value: Partial<FxState>) =>
         $effects.next({ ...$effects.value, [type]: { ...$effects.value[type], ...value } });
       return {
-        setAdded: (type: FxType, added: boolean) => update(type, { added }),
+        // an unsupported effect can't be added, a failed one loads again and is added (in the chain while it
+        // loads, left out again if it fails); removing works whatever the status
+        setAdded: (type: FxType, added: boolean) => {
+          if (added && $status.value[type] === 'unsupported') return;
+          if (added && $status.value[type] === 'failed') slots[type].retry();
+          update(type, { added });
+        },
+        // loads a failed effect again, added or not (nothing to do in any other status)
+        retry: (type: FxType) => slots[type].retry(),
         setOn: (type: FxType, on: boolean) => update(type, { on }),
         setMix: (type: FxType, mix: number) => update(type, { mix }),
         setParam: (type: FxType, key: string, value: number) =>
@@ -69,7 +85,12 @@ export const fx = ({ synthCore: [{ audioCtx, fxIn, fxOut }] }: Dependencies) =>
         },
       };
     })
-    .subscriptions(({ $effects, $chain, slots }) => [
+    .subscriptions(({ $effects, $status, $chain, slots }) => [
+      ...FX_TYPES.map((type) =>
+        slots[type].$status.subscribe((status) => {
+          if ($status.value[type] !== status) $status.next({ ...$status.value, [type]: status });
+        })
+      ),
       // fxIn → added effects in order → fxOut
       $chain.subscribe((chain) => {
         fxIn.disconnect();
@@ -78,23 +99,31 @@ export const fx = ({ synthCore: [{ audioCtx, fxIn, fxOut }] }: Dependencies) =>
         for (let i = 0; i < nodes.length; i += 2) nodes[i].connect(nodes[i + 1]);
       }),
       // update() replaces only the changed effect's object, so the other slots are not touched,
-      // and only the changed values are applied (a knob drag sets one param per tick)
+      // and only the changed values are applied (a knob drag sets one param per tick).
+      // An effect that is not ready (loading, failed, unsupported) has no wet signal: its slot passes the dry
+      // signal like a bypassed one and is inactive, so a loading effect isn't silent at mix 1 and an
+      // unavailable one doesn't keep a tail
       ...FX_TYPES.map((type) => {
-        let prev: FxState | undefined;
-        return $effects
-          .pipe(
+        let prev: { mix: number; live: boolean; active: boolean; params: Record<string, number> } | undefined;
+        return combineLatest([
+          $effects.pipe(
             map((effects) => effects[type]),
             distinctUntilChanged()
-          )
-          .subscribe((state) => {
-            const { added, mix, on, params } = state;
-            if (prev?.mix !== mix || prev?.on !== on) slots[type].setMix(mix, on);
-            if (!prev || (prev.added && prev.on) !== (added && on)) slots[type].setActive(added && on);
-            Object.entries(params).forEach(([key, value]) => {
-              if (prev?.params[key] !== value) slots[type].setParam(key, value);
-            });
-            prev = state;
+          ),
+          $status.pipe(
+            map((status) => status[type] === 'ready'),
+            distinctUntilChanged()
+          ),
+        ]).subscribe(([{ added, mix, on, params }, ready]) => {
+          const live = on && ready;
+          const active = added && live;
+          if (prev?.mix !== mix || prev?.live !== live) slots[type].setMix(mix, live);
+          if (prev?.active !== active) slots[type].setActive(active);
+          Object.entries(params).forEach(([key, value]) => {
+            if (prev?.params[key] !== value) slots[type].setParam(key, value);
           });
+          prev = { mix, live, active, params };
+        });
       }),
     ])
     .plugins(

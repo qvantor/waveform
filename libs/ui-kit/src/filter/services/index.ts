@@ -1,8 +1,9 @@
+import { biquad } from '@waveform/math';
 import { FilterProps } from '../types';
 
 type ChartArray = [number, number][];
 
-type Coefficients = [b0: number, b1: number, b2: number, a1: number, a2: number];
+type Coefficients = biquad.Coefficients;
 
 export const MIN_FREQ = 10;
 export const MAX_FREQ = 20000;
@@ -32,89 +33,14 @@ const getGrid = (sampleRate: number) => {
   return grid;
 };
 
-const constant = (value: number): Coefficients => [value, 0, 0, 0, 0];
-
-const normalize = (b0: number, b1: number, b2: number, a0: number, a1: number, a2: number): Coefficients => [
-  b0 / a0,
-  b1 / a0,
-  b2 / a0,
-  a1 / a0,
-  a2 / a0,
-];
-
-// BiquadFilterNode coefficients as defined by the Web Audio API spec (Audio EQ Cookbook),
-// including the edge cases browsers use at 0 Hz, at nyquist and for Q <= 0.
-// BiquadFilterNode.getFrequencyResponse() isn't used: it reads the params' computed values, which
-// change only when the audio thread renders, so the chart would lag (or freeze while the context
-// is suspended, e.g. before the first user gesture) after setValueAtTime
+// the chart reads the coefficients instead of BiquadFilterNode.getFrequencyResponse(): that reads the
+// params' computed values, which change only when the audio thread renders, so the chart would lag (or
+// freeze while the context is suspended, e.g. before the first user gesture) after setValueAtTime
 const biquadCoefficients = (
   type: BiquadFilterType,
-  { cutoff, resonance: Q, gain }: FilterProps,
+  { cutoff, resonance, gain }: FilterProps,
   sampleRate: number
-): Coefficients => {
-  const f = cutoff / (sampleRate / 2);
-  const A = Math.pow(10, gain / 40);
-  const inside = f > 0 && f < 1;
-  const w0 = Math.PI * f;
-  const cos = Math.cos(w0);
-  const sin = Math.sin(w0);
-  const alpha = sin / (2 * Q);
-  // Q of lowpass and highpass is in dB
-  const alphaDb = sin / (2 * Math.pow(10, Q / 20));
-  // shelf slope S = 1, Q is not used
-  const k = 2 * Math.sqrt(A) * (sin / Math.SQRT2);
-
-  switch (type) {
-    case 'lowpass':
-      if (f >= 1) return constant(1);
-      if (f <= 0) return constant(0);
-      return normalize((1 - cos) / 2, 1 - cos, (1 - cos) / 2, 1 + alphaDb, -2 * cos, 1 - alphaDb);
-    case 'highpass':
-      if (f >= 1) return constant(0);
-      if (f <= 0) return constant(1);
-      return normalize((1 + cos) / 2, -(1 + cos), (1 + cos) / 2, 1 + alphaDb, -2 * cos, 1 - alphaDb);
-    case 'bandpass':
-      if (!inside) return constant(0);
-      if (Q <= 0) return constant(1);
-      return normalize(alpha, 0, -alpha, 1 + alpha, -2 * cos, 1 - alpha);
-    case 'notch':
-      if (!inside) return constant(1);
-      if (Q <= 0) return constant(0);
-      return normalize(1, -2 * cos, 1, 1 + alpha, -2 * cos, 1 - alpha);
-    case 'allpass':
-      if (!inside) return constant(1);
-      if (Q <= 0) return constant(-1);
-      return normalize(1 - alpha, -2 * cos, 1 + alpha, 1 + alpha, -2 * cos, 1 - alpha);
-    case 'peaking':
-      if (!inside) return constant(1);
-      if (Q <= 0) return constant(A * A);
-      return normalize(1 + alpha * A, -2 * cos, 1 - alpha * A, 1 + alpha / A, -2 * cos, 1 - alpha / A);
-    case 'lowshelf':
-      if (f >= 1) return constant(A * A);
-      if (f <= 0) return constant(1);
-      return normalize(
-        A * (A + 1 - (A - 1) * cos + k),
-        2 * A * (A - 1 - (A + 1) * cos),
-        A * (A + 1 - (A - 1) * cos - k),
-        A + 1 + (A - 1) * cos + k,
-        -2 * (A - 1 + (A + 1) * cos),
-        A + 1 + (A - 1) * cos - k
-      );
-    case 'highshelf':
-      if (f >= 1) return constant(1);
-      if (f <= 0) return constant(A * A);
-      return normalize(
-        A * (A + 1 + (A - 1) * cos + k),
-        -2 * A * (A - 1 + (A + 1) * cos),
-        A * (A + 1 + (A - 1) * cos - k),
-        A + 1 - (A - 1) * cos + k,
-        2 * (A - 1 - (A + 1) * cos),
-        A + 1 - (A - 1) * cos - k
-      );
-    default:
-      return constant(1);
-  }
-};
+): Coefficients => biquad.coefficients(type, { frequency: cutoff, Q: resonance, gain }, sampleRate);
 
 const magnitudeDb = ([b0, b1, b2, a1, a2]: Coefficients, { cos1, sin1, cos2, sin2 }: Point) => {
   // H(z) at z = e^{jw}: (b0 + b1 z^-1 + b2 z^-2) / (1 + a1 z^-1 + a2 z^-2)

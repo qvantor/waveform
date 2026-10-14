@@ -1,3 +1,4 @@
+import type { BehaviorSubject } from 'rxjs';
 import type { HandleProps } from '@waveform/ui-kit';
 import type { ParamRange } from '@waveform/preset-schema';
 
@@ -6,7 +7,17 @@ export type FxParamDef = Pick<HandleProps, 'mode' | 'precision' | 'formatValue' 
     label: string;
     // a switch instead of a knob, the value is the index of the option
     options?: { id: string; label: string }[];
+    // a vertical fader instead of a knob
+    control?: 'fader';
   };
+
+// loading: the worklet module is being added; unsupported: no AudioWorklet in this browser or context
+// (old Safari, http on a LAN IP); failed: the module or the node failed, retry() loads it again
+export type FxStatus = 'loading' | 'ready' | 'unsupported' | 'failed';
+
+// a loading effect is already in the chain (it passes the dry signal until its node exists), an unavailable
+// one is not
+export const isFxUsable = (status: FxStatus) => status === 'loading' || status === 'ready';
 
 // the effect itself (the wet signal), mix and bypass are added around it by createFxSlot
 export interface FxCore {
@@ -16,6 +27,10 @@ export interface FxCore {
   // removed from the chain or bypassed: internal loops must die out, so a stale tail doesn't come back
   setActive: (active: boolean) => void;
   destroy: () => void;
+  // effects loaded asynchronously (audio worklets, see createWorkletFx), absent: always ready
+  $status?: BehaviorSubject<FxStatus>;
+  // loads a failed effect again
+  retry?: () => void;
 }
 
 // a built-in preset of the effect: sets mix and every param, added/on/order are not touched

@@ -2,12 +2,14 @@ import { TextEncoder } from 'util';
 import '@testing-library/jest-dom';
 import {
   AudioContext as AudioContextMock,
+  AudioWorkletNode as AudioWorkletNodeMock,
   ChannelMergerNode as ChannelMergerNodeMock,
   ChannelSplitterNode as ChannelSplitterNodeMock,
   DelayNode as DelayNodeMock,
   PeriodicWave as PeriodicWaveMock,
   registrar,
   setMockingImplementation,
+  WaveShaperNode as WaveShaperNodeMock,
 } from 'standardized-audio-context-mock';
 import { stopModels } from './test-utils/model-registry';
 
@@ -53,12 +55,54 @@ Object.assign(AudioContextMock.prototype, {
     // the mock has no delayTime and doesn't export AudioParamMock, a gain param is the same mock
     return Object.assign(node, { delayTime: this.createGain().gain });
   },
+  createWaveShaper(this: AudioContextMock) {
+    const node = new WaveShaperNodeMock({
+      context: this,
+      channelCount: 2,
+      channelCountMode: 'max',
+      channelInterpretation: 'speakers',
+      numberOfInputs: 1,
+      numberOfOutputs: 1,
+    } as never);
+    registrar.addAudioNode(this, 'WaveShaperNode' as never, node as never);
+    return Object.assign(node, { curve: null, oversample: 'none' });
+  },
   createPeriodicWave(real: Iterable<number>, imag: Iterable<number>) {
     return Object.assign(new PeriodicWaveMock(), { real: [...real], imag: [...imag] });
   },
 });
 
-Object.assign(globalThis, { AudioContext: AudioContextMock });
+// the mock's audioWorklet is an empty object: one addModule per context, resolved
+// (withoutAudioWorklet removes it, restored after each test)
+const worklets = new WeakMap<AudioContextMock, { addModule: jest.Mock }>();
+const audioWorklet: PropertyDescriptor = {
+  configurable: true,
+  get(this: AudioContextMock) {
+    const worklet = worklets.get(this) ?? { addModule: jest.fn(() => Promise.resolve()) };
+    worklets.set(this, worklet);
+    return worklet;
+  },
+};
+Object.defineProperty(AudioContextMock.prototype, 'audioWorklet', audioWorklet);
+
+// the mock's AudioWorkletNode takes the options of the other node mocks, not (context, name, options)
+class AudioWorkletNodeStub extends AudioWorkletNodeMock<AudioContextMock> {
+  port = { postMessage: jest.fn() };
+
+  constructor(context: AudioContextMock, readonly name: string, readonly options: AudioWorkletNodeOptions) {
+    super({
+      context,
+      channelCount: options.channelCount ?? 2,
+      channelCountMode: options.channelCountMode ?? 'max',
+      channelInterpretation: options.channelInterpretation ?? 'speakers',
+      numberOfInputs: options.numberOfInputs ?? 1,
+      numberOfOutputs: options.numberOfOutputs ?? 1,
+    } as never);
+    registrar.addAudioNode(context, 'AudioWorkletNode' as never, this as never);
+  }
+}
+
+Object.assign(globalThis, { AudioContext: AudioContextMock, AudioWorkletNode: AudioWorkletNodeStub });
 
 // jsdom has no TextEncoder, presetHash needs it
 Object.assign(globalThis, { TextEncoder });
@@ -98,6 +142,9 @@ Object.defineProperty(globalThis.crypto, 'randomUUID', {
 afterEach(() => {
   stopModels();
   Reflect.deleteProperty(document, 'visibilityState');
+  Object.defineProperty(AudioContextMock.prototype, 'audioWorklet', audioWorklet);
+  Object.assign(globalThis, { AudioWorkletNode: AudioWorkletNodeStub });
+  Reflect.deleteProperty(window, 'isSecureContext');
   localStorage.clear();
   window.history.replaceState(null, '', '/');
 });

@@ -26,5 +26,15 @@ const DelayIcon = () => (
   </Icon>
 );
 
+// a sound source and its reflections spreading into the room, fading with the distance
+const ReverbIcon = () => (
+  <Icon>
+    <circle cx='5' cy='12' r='1.5' fill='currentColor' stroke='none' />
+    <path d='M9 7.5 A6.5 6.5 0 0 1 9 16.5' />
+    <path d='M12.5 4.5 A10.5 10.5 0 0 1 12.5 19.5' opacity='0.6' />
+    <path d='M16 2 A14 14 0 0 1 16 22' opacity='0.35' />
+  </Icon>
+);
+
 // shown in the effects list
-export const FX_ICONS: Record<FxType, React.ComponentType> = { delay: DelayIcon };
+export const FX_ICONS: Record<FxType, React.ComponentType> = { delay: DelayIcon, reverb: ReverbIcon };

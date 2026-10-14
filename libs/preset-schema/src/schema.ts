@@ -18,7 +18,7 @@ export const FILTER_TYPES = [
 ] as const;
 
 // effects of the fx rack, the order is the default chain order
-export const FX_TYPES = ['delay'] as const;
+export const FX_TYPES = ['delay', 'reverb'] as const;
 export type FxType = typeof FX_TYPES[number];
 
 // known types only, no duplicates, the missing ones are appended
@@ -50,6 +50,29 @@ export const FX_PARAMS = {
     // bandpass in the feedback loop
     freq: { min: 50, max: 17000, default: 1000 },
     q: { min: 0.01, max: 3, default: 0.01 },
+  },
+  // algorithmic reverb, the controls follow FL Studio Fruity Reverb 2
+  reverb: {
+    // input highpass, 20 Hz is effectively off
+    lowcut: { min: 20, max: 1000, default: 20 },
+    // seconds before the early reflections and the tail
+    pre: { min: 0, max: 0.3, default: 0.02 },
+    // room size: lengths of the reflections and the feedback lines
+    size: { min: 0, max: 1, default: 0.5 },
+    // RT60 in seconds of the mid frequencies
+    decay: { min: 0.1, max: 20, default: 2 },
+    // the high frequencies decay faster above this frequency
+    damp: { min: 500, max: 20000, default: 6000 },
+    // decay multiplier of the low frequencies (below 300 Hz)
+    bass: { min: 0.25, max: 4, default: 1 },
+    // modulation depth of the feedback lines (chorus of the tail)
+    depth: { min: 0, max: 1, default: 0.2 },
+    // stereo separation: 0 mono, 1 natural, 2 extra wide
+    sep: { min: 0, max: 2, default: 1 },
+    // level of the early reflections against the tail (the wet level is the common mix)
+    er: { min: 0, max: 1, default: 0.5 },
+    // vintage color of the input stage: 0 now (clean), 1 80s, 2 70s (tube drive, narrower bandwidth, more body)
+    era: { min: 0, max: 2, default: 1, int: true },
   },
 };
 
@@ -140,6 +163,9 @@ const fxSchema = z
     delay: z
       .object(fxEffectShape(FX_PARAMS.delay, paramRange, (value) => z.boolean().default(value)))
       .default({}),
+    reverb: z
+      .object(fxEffectShape(FX_PARAMS.reverb, paramRange, (value) => z.boolean().default(value)))
+      .default({}),
   })
   .default({});
 
@@ -155,6 +181,7 @@ export const fxSnapSchema = z.preprocess(
   z.object({
     o: z.array(z.unknown()).catch([]).transform(normalizeFxOrder),
     delay: lenientFxEffect(FX_PARAMS.delay),
+    reverb: lenientFxEffect(FX_PARAMS.reverb),
   })
 );
 

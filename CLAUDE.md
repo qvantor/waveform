@@ -9,8 +9,10 @@ Waveform is an experimental browser wavetable synth (TypeScript + Web Audio API,
 ## Commands
 
 - `npm start` — runs `netlify dev` (functions on :8888) and the Nx dev server (:4200) together. The dev server proxies `/.netlify/*` and `/api/*` to :8888 (`proxy.conf.json`), so wavetables and presets only work when both run.
+- `npm run certs` — generates `.certs/` (gitignored) with mkcert for localhost and the current LAN IPs. `netlify dev` serves HTTPS with it (`[dev.https]` in `netlify.toml`) and fails to start without it; run `mkcert -install` once to trust the local CA.
 - `npm run client:start` — frontend only (`nx serve`); wavetable list/download requests will fail.
 - `npm run build` — production build to `dist/apps/waveform`.
+- `npm run worklets` — bundles the audio worklet modules with esbuild into `tmp/worklets/` (served as `assets/worklets/` via the `assets` of `apps/waveform/project.json`). `build` runs it with `--minify`, `client:start` runs it once and then in watch mode next to `nx serve`.
 - `npx nx test <project>` — Jest for one project (`waveform`, `math`, `rxjs-react`, `ui-kit`, `preset-schema`, `netlify`). Single file: `npx nx test rxjs-react --testFile=rx-model.spec.tsx`.
 - `npx nx lint <project>` — ESLint (`import/order` is an error).
 - `npm run prettier:check` / `npm run prettier:fix` — Prettier over apps, libs, netlify and scripts (single quotes, JSX single quotes, print width 110).
@@ -49,6 +51,8 @@ export const { ModelProvider: FooProvider, useModel: useFoo } = rxModelReact('fo
 
 - `synth-core.ts` owns the single `AudioContext`: `preGain → [$midNodes, e.g. filter] → fxIn → [fx chain] → fxOut → masterLimiter (compressor) → masterGain → destination`. Other modules insert processing nodes through `addMidNode`.
 - The `fx` model (`synth/fx/`) wires the FX rack between `fxIn` and `fxOut`. Effects are defined in `FX_REGISTRY` (`fx/effects/`, params and ranges from `FX_PARAMS` in `libs/preset-schema`). `createFxSlot` wraps each one: `mix` is an equal-power crossfade (0 only dry, 0.5 both at −3 dB, 1 only wet), bypass passes only the dry signal at full level. The chain is the added effects in `$order`; adding an effect type means a registry entry plus its preset schema.
+- The reverb runs in an AudioWorklet: `reverb-dsp.ts` is the pure signal processing (16-line FDN, tested offline with impulse responses), `reverb.worklet.ts` the processor, `reverb.ts` creates the `AudioWorkletNode` once `loadWorklet` has added the module and posts param changes to it. A worklet module must not import `@waveform/ui-kit`, `@waveform/preset-schema` (zod) or anything touching `window`/`document`.
+- A worklet effect builds on `createWorkletFx` (`fx/effects/worklet-fx.ts`: loading, input → node → output, `$status`, `retry`). Without AudioWorklet (http on a LAN IP, old Safari) or when its module fails, the app still works: the fx model keeps the effect out of the chain (it stays `added` in the snapshot), and the Effects list shows why under its name. An unsupported effect can't be added, an added one that can't be used can still be removed, a failed one loads again on Retry or when it is added. Until an effect is `ready` (also while it loads) its slot passes only the dry signal and is inactive.
 - `oscillator.ts` holds a wavetable (`$waveTable`: an array of single-cycle waves), the selected frame, and unison/detune/octave settings. It converts the current wave to a `PeriodicWave` through `wave.realWithImag` (FFT, in `libs/math`).
 - `synth.ts` handles voices: on input-controller note events it builds per-note unison oscillators plus an ADSR gain envelope. Polyphony, portamento and legato also live here.
 - `input-controller.ts` is the shared note-on/off bus. The on-screen piano, `keyboard-controller.ts` (QWERTY) and `midi-controller.ts` (WebMIDI) all feed into it.
@@ -73,7 +77,7 @@ export const { ModelProvider: FooProvider, useModel: useFoo } = rxModelReact('fo
 
 ### Wavetables
 
-- The Netlify functions (`netlify/functions/get-wavetables-list.ts`, `get-wavetable.ts`) list the wavetable files in an S3 bucket as a folder tree and serve them. The client fetches them with react-query (`synth/oscillator/hooks/use-wavetable(s).ts`).
+- The Netlify functions (`netlify/functions/get-wavetables-list.ts`, `get-wavetable.ts`) list the wavetable files in an S3 bucket as a folder tree and serve them. The client fetches the list with react-query (`synth/oscillator/hooks/use-wavetables.ts`). The table itself is loaded by the oscillator model from `$waveTablePath` (last path element = S3 key, `synth/services/wavetable.ts`, cached per session, 2 retries), so it follows presets whatever screen is shown; `WaveSelector` only shows `$waveTableLoading`.
 - The wavetable editor (`synth/wave-table-editor/`) also builds tables from manual drawing or from an uploaded audio file.
 
 ### Libs
