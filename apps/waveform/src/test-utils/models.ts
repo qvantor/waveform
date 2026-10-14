@@ -3,6 +3,7 @@ import { inputController } from '../app/synth/common/modules/input-controller';
 import { oscillator } from '../app/synth/common/modules/oscillator';
 import { synth } from '../app/synth/common/modules/synth';
 import { synthCore } from '../app/synth/common/modules/synth-core';
+import type { LoadWavetable } from '../app/synth/services';
 import { initModel } from './model-registry';
 
 export { initModel, stopModels } from './model-registry';
@@ -11,11 +12,13 @@ export const createSynthCore = () => initModel(synthCore(), 'synthCore', undefin
 
 export const createInputController = () => initModel(inputController(), 'inputController', undefined);
 
+// the wavetable never loads by default: specs set tables themselves and there is no fetch in jsdom
 export const createOscillator = (
   synthCoreModule = createSynthCore(),
   name = 'osc1',
-  initial = { active: true, initialWavePath: ['default'] }
-) => initModel(oscillator({ synthCore: synthCoreModule }), name, initial);
+  initial = { active: true, initialWavePath: ['default'] },
+  loadWavetable: LoadWavetable = () => new Promise(() => undefined)
+) => initModel(oscillator({ synthCore: synthCoreModule, loadWavetable }), name, initial);
 
 export const createAdsrEnvelope = () => initModel(adsrEnvelope(), 'adsr', undefined);
 

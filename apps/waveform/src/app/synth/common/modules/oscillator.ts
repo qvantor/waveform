@@ -1,15 +1,31 @@
-import { map, mergeMap, mergeWith, BehaviorSubject } from 'rxjs';
+import {
+  map,
+  mergeMap,
+  mergeWith,
+  BehaviorSubject,
+  filter,
+  switchMap,
+  defer,
+  retry,
+  catchError,
+  of,
+} from 'rxjs';
 import { ObjectBS, rxModel, rxModelReact, PrimitiveBS, ArrayBS } from '@waveform/rxjs-react';
 import { generateId, Vector2D, wave } from '@waveform/math';
 import { urlSnapshotPlugin } from '../../../app';
+import { loadWavetable, LoadWavetable, wavetableId } from '../../services';
 import { SynthCoreModule } from './synth-core';
 
 interface Dependencies {
   synthCore: SynthCoreModule;
+  loadWavetable?: LoadWavetable;
 }
 
 // @todo AudioContext should be used as dep
-export const oscillator = ({ synthCore: [{ audioCtx }] }: Dependencies) =>
+export const oscillator = ({
+  synthCore: [{ audioCtx }],
+  loadWavetable: load = loadWavetable,
+}: Dependencies) =>
   rxModel(({ active, initialWavePath }: { active: boolean; initialWavePath: string[] }) => {
     const id = generateId();
     const gainNode = audioCtx.createGain();
@@ -35,6 +51,7 @@ export const oscillator = ({ synthCore: [{ audioCtx }] }: Dependencies) =>
       mergeMap(() => $waveTable.value[$current.value] ?? new BehaviorSubject([0, 1]))
     );
     const $gain = new PrimitiveBS<number>(0.5);
+    const $waveTableLoading = new PrimitiveBS<boolean>(false);
 
     return {
       id,
@@ -48,6 +65,7 @@ export const oscillator = ({ synthCore: [{ audioCtx }] }: Dependencies) =>
       $periodicWave,
       $gain,
       $waveTablePath,
+      $waveTableLoading,
     };
   })
     .actions(({ $osc, $current, $active, $gain, $waveTable, $waveTablePath }) => ({
@@ -74,6 +92,33 @@ export const oscillator = ({ synthCore: [{ audioCtx }] }: Dependencies) =>
         .subscribe($periodicWave),
       $gain.subscribe((value) => gainNode.gain.setValueAtTime(value, audioCtx.currentTime)),
     ])
+    // the table follows the path (also from presets) whatever screen is shown
+    .subscriptions(({ $waveTablePath, $waveTableLoading }, { setWaveTable }) => {
+      // the table loaded or loading: the same path again keeps edited waves; cleared on a failure to load it again
+      let tableId = '';
+      return $waveTablePath
+        .pipe(
+          map(wavetableId),
+          filter((id) => id !== '' && id !== tableId),
+          // a newer path cancels the pending load, so a slower response can't overwrite its table
+          switchMap((id) => {
+            tableId = id;
+            $waveTableLoading.next(true);
+            return defer(() => load(audioCtx, id)).pipe(
+              retry({ count: 2, delay: 1000 }),
+              catchError((error) => {
+                console.error(`Failed to load the wavetable ${id}`, error);
+                tableId = '';
+                return of(null);
+              })
+            );
+          })
+        )
+        .subscribe((wavetable) => {
+          if (wavetable) setWaveTable(wavetable);
+          $waveTableLoading.next(false);
+        });
+    })
     .plugins(
       urlSnapshotPlugin({
         modelToSnap: (model) => {

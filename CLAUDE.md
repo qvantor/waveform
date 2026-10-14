@@ -77,7 +77,7 @@ export const { ModelProvider: FooProvider, useModel: useFoo } = rxModelReact('fo
 
 ### Wavetables
 
-- The Netlify functions (`netlify/functions/get-wavetables-list.ts`, `get-wavetable.ts`) list the wavetable files in an S3 bucket as a folder tree and serve them. The client fetches them with react-query (`synth/oscillator/hooks/use-wavetable(s).ts`).
+- The Netlify functions (`netlify/functions/get-wavetables-list.ts`, `get-wavetable.ts`) list the wavetable files in an S3 bucket as a folder tree and serve them. The client fetches the list with react-query (`synth/oscillator/hooks/use-wavetables.ts`). The table itself is loaded by the oscillator model from `$waveTablePath` (last path element = S3 key, `synth/services/wavetable.ts`, cached per session, 2 retries), so it follows presets whatever screen is shown; `WaveSelector` only shows `$waveTableLoading`.
 - The wavetable editor (`synth/wave-table-editor/`) also builds tables from manual drawing or from an uploaded audio file.
 
 ### Libs
