@@ -16,6 +16,9 @@ import { urlSnapshotPlugin } from '../../../app';
 import { loadWavetable, LoadWavetable, wavetableId } from '../../services';
 import { SynthCoreModule } from './synth-core';
 
+// one sine cycle, played until a table loads (a wave of 2 samples has no harmonics)
+const PLACEHOLDER_WAVE = [0, 1, 0, -1];
+
 interface Dependencies {
   synthCore: SynthCoreModule;
   loadWavetable?: LoadWavetable;
@@ -43,12 +46,14 @@ export const oscillator = ({
       octave: 0,
     });
     const $waveTablePath = new ArrayBS<(string | number)[]>(initialWavePath);
-    const $waveTable = new BehaviorSubject<BehaviorSubject<number[]>[]>([new BehaviorSubject([0, 1])]);
+    const $waveTable = new BehaviorSubject<BehaviorSubject<number[]>[]>([
+      new BehaviorSubject(PLACEHOLDER_WAVE),
+    ]);
     const $current = new PrimitiveBS<number>(0);
     const $periodicWave = new BehaviorSubject<PeriodicWave>(audioCtx.createPeriodicWave([0, 1], [0, 1]));
     const $wave = $current.pipe(
       mergeWith($waveTable),
-      mergeMap(() => $waveTable.value[$current.value] ?? new BehaviorSubject([0, 1]))
+      mergeMap(() => $waveTable.value[$current.value] ?? new BehaviorSubject(PLACEHOLDER_WAVE))
     );
     const $gain = new PrimitiveBS<number>(0.5);
     const $waveTableLoading = new PrimitiveBS<boolean>(false);

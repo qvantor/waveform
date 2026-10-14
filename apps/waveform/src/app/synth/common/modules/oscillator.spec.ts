@@ -1,11 +1,16 @@
+import { wave } from '@waveform/math';
 import { applySnapshot, getSnapshot } from '../../../app';
 import { createOscillator, createSynthCore, stopModels } from '../../../../test-utils/models';
 
 type WaveMock = PeriodicWave & { real: number[]; imag: number[] };
-const real = (wave: PeriodicWave) => (wave as WaveMock).real;
+const periodic = (value: PeriodicWave) => [(value as WaveMock).real, (value as WaveMock).imag];
+// the periodic wave is the spectrum of the current wave, the math is tested in libs/math
+const spectrum = (samples: number[]) => wave.realWithImag(samples);
 
 const saw = [-1, -0.5, 0, 0.5];
 const square = [1, 1, -1, -1];
+// one sine cycle, played until a table loads
+const placeholder = [0, 1, 0, -1];
 
 const flush = () => new Promise((resolve) => setTimeout(resolve));
 
@@ -46,7 +51,16 @@ describe('oscillator', () => {
     expect(model.$active.value).toBe(false);
     expect(model.$waveTablePath.value).toEqual(['folder', 'file.wav']);
     expect(model.$osc.value).toEqual({ unison: 2, detune: 5, randPhase: 0, octave: 0 });
-    expect(real(model.$periodicWave.value)).toEqual([0, 1]);
+    expect(model.$waveTable.value.map(({ value }) => value)).toEqual([placeholder]);
+    expect(periodic(model.$periodicWave.value)).toEqual(spectrum(placeholder));
+  });
+
+  it('plays a sine until a table loads', () => {
+    const [model] = createOscillator();
+    const [real, imag] = periodic(model.$periodicWave.value);
+    real.forEach((value) => expect(value).toBeCloseTo(0));
+    expect(imag[0]).toBeCloseTo(0);
+    expect(imag[1]).toBeCloseTo(1);
   });
 
   it('builds the periodic wave from the current wave of the table', () => {
@@ -55,12 +69,14 @@ describe('oscillator', () => {
     const [{ $periodicWave }, { setWaveTable, setCurrent }] = createOscillator(synthCore);
 
     setWaveTable([saw, square]);
-    expect(real($periodicWave.value)).toEqual(saw);
-    // createPeriodicWave needs real and imag of the same length
-    expect((createPeriodicWave.mock.calls.at(-1)?.[1] as number[]).length).toBe(saw.length);
+    expect(periodic($periodicWave.value)).toEqual(spectrum(saw));
+    // createPeriodicWave needs real and imag of the same length, at least 2
+    const [realArg, imagArg] = createPeriodicWave.mock.calls.at(-1) as unknown as [number[], number[]];
+    expect(realArg).toHaveLength(imagArg.length);
+    expect(realArg.length).toBeGreaterThanOrEqual(2);
 
     setCurrent(1);
-    expect(real($periodicWave.value)).toEqual(square);
+    expect(periodic($periodicWave.value)).toEqual(spectrum(square));
   });
 
   it('rebuilds the periodic wave when the current wave is edited', () => {
@@ -69,7 +85,7 @@ describe('oscillator', () => {
 
     $waveTable.value[0].next(square);
 
-    expect(real($periodicWave.value)).toEqual(square);
+    expect(periodic($periodicWave.value)).toEqual(spectrum(square));
   });
 
   it('clamps the current wave index when a shorter table is set', () => {
@@ -80,14 +96,14 @@ describe('oscillator', () => {
     setWaveTable([square, saw]);
 
     expect($current.value).toBe(1);
-    expect(real($periodicWave.value)).toEqual(saw);
+    expect(periodic($periodicWave.value)).toEqual(spectrum(saw));
   });
 
   it('falls back to a default wave when the index is out of the table', () => {
     const [{ $periodicWave }, { setWaveTable, setCurrent }] = createOscillator();
     setWaveTable([saw]);
     setCurrent(5);
-    expect(real($periodicWave.value)).toEqual([0, 1]);
+    expect(periodic($periodicWave.value)).toEqual(spectrum(placeholder));
   });
 
   it('applies the gain to the gain node', () => {
@@ -128,7 +144,7 @@ describe('oscillator', () => {
       await resolve('a.wav', [saw, square]);
 
       expect(table()).toEqual([saw, square]);
-      expect(real(model.$periodicWave.value)).toEqual(saw);
+      expect(periodic(model.$periodicWave.value)).toEqual(spectrum(saw));
       expect(model.$waveTableLoading.value).toBe(false);
     });
 
@@ -143,7 +159,7 @@ describe('oscillator', () => {
       await resolve('b.wav', [saw, square]);
       expect(table()).toEqual([saw, square]);
       expect(model.$current.value).toBe(1);
-      expect(real(model.$periodicWave.value)).toEqual(square);
+      expect(periodic(model.$periodicWave.value)).toEqual(spectrum(square));
       expect(model.$waveTableLoading.value).toBe(false);
     });
 
@@ -173,7 +189,7 @@ describe('oscillator', () => {
       actions.setWaveTablePath(['folder', 'b.wav']);
 
       await resolve('a.wav', [saw]);
-      expect(table()).toEqual([[0, 1]]);
+      expect(table()).toEqual([placeholder]);
       expect(model.$waveTableLoading.value).toBe(true);
 
       await resolve('b.wav', [square]);
@@ -225,7 +241,7 @@ describe('oscillator', () => {
       stopModels();
       await resolve('a.wav', [saw]);
       expect(load).toHaveBeenCalledTimes(1);
-      expect(table()).toEqual([[0, 1]]);
+      expect(table()).toEqual([placeholder]);
     });
   });
 
