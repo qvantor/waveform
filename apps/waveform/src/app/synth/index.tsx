@@ -175,16 +175,16 @@ const OscillatorInternal = ({ children }: React.PropsWithChildren) => {
 };
 
 const HeaderInternal = ({ screen, onScreenChange }: ScreenProps) => {
-  const [{ audioCtx, masterGain }] = useSynthCore();
+  const [{ audioCtx, output }] = useSynthCore();
   return (
     <Header>
-      <HeaderEq audioCtx={audioCtx} master={masterGain} />
+      <HeaderEq audioCtx={audioCtx} master={output} />
       <HeaderRight>
         <TapeSwitch options={SYNTH_SCREENS} value={screen} onChange={onScreenChange} />
         <PresetSection actions={<MidiInput />} />
         <MasterSection>
           <MasterHandle />
-          <VolumeAnalyser audioCtx={audioCtx} master={masterGain} />
+          <VolumeAnalyser audioCtx={audioCtx} master={output} />
         </MasterSection>
       </HeaderRight>
     </Header>

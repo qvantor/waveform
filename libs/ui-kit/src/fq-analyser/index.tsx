@@ -29,6 +29,9 @@ const Tick = styled.div`
 
 const MIN_FQ = 20;
 const TICKS = [100, 1000, 10000];
+// a full scale sine reads about -13.5 dB (blackman window), so only partials near 0 dBFS reach the top
+// (the default top, -30 dB, is a sine at about -16 dBFS); the bottom stays at the default -100 dB
+const MAX_DB = -10;
 
 const formatFq = (fq: number) => (fq >= 1000 ? `${fq / 1000}k` : `${fq}`);
 
@@ -62,6 +65,7 @@ export const FqAnalyser = ({ fftSize = 12, master, audioCtx, className }: Props)
     let idleCallback = requestIdleCallback(draw);
     const analyser = audioCtx.createAnalyser();
     analyser.fftSize = number.powerOfTwo(fftSize);
+    analyser.maxDecibels = MAX_DB;
     master.connect(analyser);
 
     const ctx = ref.current.getContext('2d') as CanvasRenderingContext2D;

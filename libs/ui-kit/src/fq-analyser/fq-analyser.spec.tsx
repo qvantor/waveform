@@ -29,6 +29,7 @@ const setup = () => {
 
   const analyser = {
     fftSize: 0,
+    maxDecibels: -30,
     frequencyBinCount: BINS,
     getByteFrequencyData: (data: Uint8Array) => data.fill(255),
   };
@@ -74,6 +75,12 @@ describe('FqAnalyser', () => {
     expect(xs.every((x) => x >= 0 && Number.isFinite(x))).toBe(true);
     const [x, , w] = fillRect.mock.calls[BINS - 2];
     expect(x + w).toBeCloseTo(WIDTH);
+  });
+
+  // the default top (-30 dB) is reached by a sine at about -16 dBFS, any loud partial looked clipped
+  it('shows up to -10 dB, only partials near full scale reach the top', () => {
+    const { analyser } = setup();
+    expect(analyser.maxDecibels).toBe(-10);
   });
 
   it('connects the analyser to master and disconnects it on unmount', () => {
