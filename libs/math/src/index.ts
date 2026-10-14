@@ -3,3 +3,4 @@ export * from './number';
 export * from './series';
 export * from './string';
 export * from './polyfill';
+export * from './filter';

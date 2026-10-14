@@ -1,0 +1,76 @@
+import { createReverbDsp, REVERB_PROCESSOR, ReverbMessage, ReverbOptions } from './reverb-dsp';
+
+jest.mock('./reverb-dsp', () => ({
+  ...jest.requireActual('./reverb-dsp'),
+  createReverbDsp: jest.fn(() => ({ set: jest.fn(), setActive: jest.fn(), process: jest.fn() })),
+}));
+
+interface Processor {
+  port: { onmessage: (event: { data: ReverbMessage }) => void };
+  process: (inputs: Float32Array[][], outputs: Float32Array[][]) => boolean;
+}
+
+// the AudioWorkletGlobalScope of the module
+const processors: Record<string, new (options: AudioWorkletNodeOptions) => Processor> = {};
+Object.assign(globalThis, {
+  sampleRate: 48000,
+  AudioWorkletProcessor: class {
+    port = { onmessage: null };
+  },
+  registerProcessor: (name: string, processor: new (options: AudioWorkletNodeOptions) => Processor) => {
+    processors[name] = processor;
+  },
+});
+
+const OPTIONS = { params: { decay: 2 }, active: false } as unknown as ReverbOptions;
+
+const setup = () => {
+  const processor = new processors[REVERB_PROCESSOR]({ processorOptions: OPTIONS });
+  const dsp = (createReverbDsp as jest.Mock).mock.results.at(-1)?.value;
+  const outputs = [[new Float32Array(128), new Float32Array(128)]];
+  return { processor, dsp, outputs };
+};
+
+describe('reverb worklet', () => {
+  beforeAll(() => import('./reverb.worklet'));
+
+  it('registers the reverb processor, its dsp starts with the node options at the context rate', () => {
+    expect(processors[REVERB_PROCESSOR]).toBeDefined();
+    setup();
+    expect(createReverbDsp).toHaveBeenLastCalledWith(48000, OPTIONS);
+  });
+
+  it('renders both input channels into both outputs and keeps running', () => {
+    const { processor, dsp, outputs } = setup();
+    const [inL, inR] = [new Float32Array(128), new Float32Array(128)];
+    expect(processor.process([[inL, inR]], outputs)).toBe(true);
+    expect(dsp.process).toHaveBeenCalledWith(inL, inR, ...outputs[0]);
+  });
+
+  it('a mono input feeds both sides, a disconnected one is silence', () => {
+    const { processor, dsp, outputs } = setup();
+    const mono = new Float32Array(128);
+    processor.process([[mono]], outputs);
+    expect(dsp.process).toHaveBeenLastCalledWith(mono, mono, ...outputs[0]);
+    processor.process([[]], outputs);
+    const [silence, right] = dsp.process.mock.lastCall;
+    expect(right).toBe(silence);
+    expect(silence).toEqual(new Float32Array(128));
+  });
+
+  it('applies the posted params and the active flag', () => {
+    const { processor, dsp } = setup();
+    processor.port.onmessage({ data: { params: { decay: 5 } } });
+    processor.port.onmessage({ data: { active: true } });
+    processor.port.onmessage({ data: { params: { size: 1 }, active: false } });
+    expect(dsp.set.mock.calls).toEqual([[{ decay: 5 }], [{ size: 1 }]]);
+    expect(dsp.setActive.mock.calls).toEqual([[true], [false]]);
+  });
+
+  it('stops after the effect is destroyed', () => {
+    const { processor, dsp, outputs } = setup();
+    processor.port.onmessage({ data: { stop: true } });
+    expect(processor.process([[]], outputs)).toBe(false);
+    expect(dsp.process).not.toHaveBeenCalled();
+  });
+});

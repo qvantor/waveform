@@ -25,20 +25,19 @@ export const eraIndex = (value: number) => number.thresholds(Math.round(value), 
 export const BODY_FREQ = 300;
 export const BODY_Q = 0.7;
 
-// the curve covers the input ±TUBE_RANGE (the input is scaled down by it), louder peaks are clipped
+// the tube takes the input up to ±TUBE_RANGE, louder peaks are clipped
 export const TUBE_RANGE = 8;
-// odd: an input of 0 hits the middle point exactly, so silence stays silent
-export const TUBE_CURVE_LENGTH = 8193;
 // operating point on the tanh: the curve is asymmetric, it adds even harmonics like a single-ended triode
 const TUBE_BIAS = 0.3;
+const TUBE_OFFSET = Math.tanh(TUBE_BIAS);
+// below this drive the curve is a straight line within float precision
+const MIN_DRIVE = 1e-4;
 
 // the slope at 0 is 1 for every drive: quiet signals pass unchanged, louder ones get the 2nd and then
-// the 3rd harmonic and are softly compressed; drive 0 is a straight line
-export const tubeCurve = (drive: number) => {
-  const offset = Math.tanh(TUBE_BIAS);
-  const slope = drive * (1 - offset ** 2);
-  return Float32Array.from({ length: TUBE_CURVE_LENGTH }, (_, i) => {
-    const x = ((i * 2) / (TUBE_CURVE_LENGTH - 1) - 1) * TUBE_RANGE;
-    return drive ? (Math.tanh(drive * x + TUBE_BIAS) - offset) / slope : x;
-  });
+// the 3rd harmonic and are softly compressed; drive 0 is a straight line, and the curve bends into it
+// continuously, so a gliding drive doesn't click
+export const tube = (input: number, drive: number) => {
+  const x = Math.max(-TUBE_RANGE, Math.min(TUBE_RANGE, input));
+  if (drive < MIN_DRIVE) return x;
+  return (Math.tanh(drive * x + TUBE_BIAS) - TUBE_OFFSET) / (drive * (1 - TUBE_OFFSET ** 2));
 };

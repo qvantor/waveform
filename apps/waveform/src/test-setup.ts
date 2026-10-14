@@ -2,6 +2,7 @@ import { TextEncoder } from 'util';
 import '@testing-library/jest-dom';
 import {
   AudioContext as AudioContextMock,
+  AudioWorkletNode as AudioWorkletNodeMock,
   ChannelMergerNode as ChannelMergerNodeMock,
   ChannelSplitterNode as ChannelSplitterNodeMock,
   DelayNode as DelayNodeMock,
@@ -71,7 +72,34 @@ Object.assign(AudioContextMock.prototype, {
   },
 });
 
-Object.assign(globalThis, { AudioContext: AudioContextMock });
+// the mock's audioWorklet is an empty object: one addModule per context, resolved
+const worklets = new WeakMap<AudioContextMock, { addModule: jest.Mock }>();
+Object.defineProperty(AudioContextMock.prototype, 'audioWorklet', {
+  get(this: AudioContextMock) {
+    const worklet = worklets.get(this) ?? { addModule: jest.fn(() => Promise.resolve()) };
+    worklets.set(this, worklet);
+    return worklet;
+  },
+});
+
+// the mock's AudioWorkletNode takes the options of the other node mocks, not (context, name, options)
+class AudioWorkletNodeStub extends AudioWorkletNodeMock<AudioContextMock> {
+  port = { postMessage: jest.fn() };
+
+  constructor(context: AudioContextMock, readonly name: string, readonly options: AudioWorkletNodeOptions) {
+    super({
+      context,
+      channelCount: options.channelCount ?? 2,
+      channelCountMode: options.channelCountMode ?? 'max',
+      channelInterpretation: options.channelInterpretation ?? 'speakers',
+      numberOfInputs: options.numberOfInputs ?? 1,
+      numberOfOutputs: options.numberOfOutputs ?? 1,
+    } as never);
+    registrar.addAudioNode(context, 'AudioWorkletNode' as never, this as never);
+  }
+}
+
+Object.assign(globalThis, { AudioContext: AudioContextMock, AudioWorkletNode: AudioWorkletNodeStub });
 
 // jsdom has no TextEncoder, presetHash needs it
 Object.assign(globalThis, { TextEncoder });

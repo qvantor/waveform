@@ -1,18 +1,9 @@
-import { eraIndex, REVERB_ERAS, tubeCurve, TUBE_CURVE_LENGTH, TUBE_RANGE } from './reverb-era';
+import { eraIndex, REVERB_ERAS, tube, TUBE_RANGE } from './reverb-era';
 
-const MIDDLE = (TUBE_CURVE_LENGTH - 1) / 2;
-
-// the waveshaper: the input is scaled to -1..1 of the curve and interpolated linearly
-const shape = (curve: Float32Array, x: number) => {
-  const pos = ((x / TUBE_RANGE + 1) * (curve.length - 1)) / 2;
-  const i = Math.min(curve.length - 2, Math.max(0, Math.floor(pos)));
-  return curve[i] + (curve[i + 1] - curve[i]) * (pos - i);
-};
-
-// amplitudes of the first harmonics of a sine through the curve
-const harmonics = (curve: Float32Array, amplitude: number, count = 3) => {
+// amplitudes of the first harmonics of a sine through the tube
+const harmonics = (drive: number, amplitude: number, count = 3) => {
   const n = 1024;
-  const out = Array.from({ length: n }, (_, i) => shape(curve, amplitude * Math.sin((2 * Math.PI * i) / n)));
+  const out = Array.from({ length: n }, (_, i) => tube(amplitude * Math.sin((2 * Math.PI * i) / n), drive));
   return Array.from({ length: count }, (_, h) => {
     const [re, im] = out.reduce(
       ([sumRe, sumIm], y, i) => {
@@ -57,57 +48,58 @@ describe('reverb eras', () => {
   });
 });
 
-describe('tubeCurve', () => {
-  it('without drive is a straight line over the whole range', () => {
-    const curve = tubeCurve(0);
-    expect(curve).toHaveLength(TUBE_CURVE_LENGTH);
-    expect(curve[0]).toBe(-TUBE_RANGE);
-    expect(curve[MIDDLE]).toBe(0);
-    expect(curve[TUBE_CURVE_LENGTH - 1]).toBe(TUBE_RANGE);
-    [0.001, 0.3, -2.5, 7].forEach((x) => expect(shape(curve, x)).toBeCloseTo(x, 5));
+describe('tube', () => {
+  it('without drive passes the input unchanged, clipped to its range', () => {
+    [0, 0.001, 0.3, -2.5, 7].forEach((x) => expect(tube(x, 0)).toBe(x));
+    expect(tube(9, 0)).toBe(TUBE_RANGE);
+    expect(tube(-20, 0)).toBe(-TUBE_RANGE);
   });
 
-  it.each([0.15, 1, 3])(
-    'drive %p: silence stays silent, quiet signals pass unchanged, the curve rises',
-    (drive) => {
-      const curve = tubeCurve(drive);
-      expect(TUBE_CURVE_LENGTH % 2).toBe(1);
-      expect(curve[MIDDLE]).toBe(0);
-      // unity slope at 0: the level doesn't jump with the era
-      expect(shape(curve, 0.001) / 0.001).toBeCloseTo(1, 2);
-      expect(shape(curve, -0.001) / -0.001).toBeCloseTo(1, 2);
-      // never falls, rises over the working range (far out the tanh is flat in float32)
-      curve.slice(1).forEach((value, i) => expect(value).toBeGreaterThanOrEqual(curve[i]));
-      [-2, -1, 0, 1, 2].forEach((x) => expect(shape(curve, x + 0.01)).toBeGreaterThan(shape(curve, x)));
+  it.each([0.15, 1, 3])('drive %p: silence stays silent, quiet signals pass unchanged, it rises', (drive) => {
+    expect(tube(0, drive)).toBe(0);
+    // unity slope at 0: the level doesn't jump with the era
+    expect(tube(0.001, drive) / 0.001).toBeCloseTo(1, 2);
+    expect(tube(-0.001, drive) / -0.001).toBeCloseTo(1, 2);
+    // never falls, rises over the working range (far out the tanh is flat in double precision)
+    for (let x = -TUBE_RANGE; x < TUBE_RANGE; x += 0.25) {
+      expect(tube(x + 0.25, drive)).toBeGreaterThanOrEqual(tube(x, drive));
     }
-  );
+    [-2, -1, 0, 1, 2].forEach((x) => expect(tube(x + 0.01, drive)).toBeGreaterThan(tube(x, drive)));
+  });
+
+  // the era glides the drive: the curve has to bend into the straight line without a jump
+  it('a vanishing drive becomes the straight line continuously', () => {
+    [-3, -0.5, 0.5, 3].forEach((x) => {
+      expect(tube(x, 1e-3)).toBeCloseTo(x, 2);
+      expect(Math.abs(tube(x, 1e-4) - tube(x, 0))).toBeLessThan(5e-3);
+    });
+  });
 
   it('is asymmetric: the positive half is compressed more', () => {
-    const curve = tubeCurve(REVERB_ERAS[2].drive);
-    expect(shape(curve, 2)).toBeLessThan(-shape(curve, -2));
+    expect(tube(2, REVERB_ERAS[2].drive)).toBeLessThan(-tube(-2, REVERB_ERAS[2].drive));
   });
 
   // synth chords peak at 1..3: a hint of 2nd harmonic there, almost nothing on quiet tails,
   // so chords don't turn into intermodulation whistles
   it('70s: a subtle 2nd harmonic at synth levels, the level stays', () => {
-    const curve = tubeCurve(REVERB_ERAS[2].drive);
-    const [fundamental, second, third] = harmonics(curve, 1.5);
+    const { drive } = REVERB_ERAS[2];
+    const [fundamental, second, third] = harmonics(drive, 1.5);
     expect(db(fundamental / 1.5)).toBeGreaterThan(-0.5);
     expect(db(second / fundamental)).toBeGreaterThan(-36);
     expect(db(second / fundamental)).toBeLessThan(-26);
     expect(db(third / fundamental)).toBeLessThan(-45);
-    const [quiet, quietSecond] = harmonics(curve, 0.2);
+    const [quiet, quietSecond] = harmonics(drive, 0.2);
     expect(db(quietSecond / quiet)).toBeLessThan(-45);
   });
 
   it('more drive gives more harmonics', () => {
-    const [, light] = harmonics(tubeCurve(0.15), 1.5);
-    const [, heavy] = harmonics(tubeCurve(1), 1.5);
+    const [, light] = harmonics(0.15, 1.5);
+    const [, heavy] = harmonics(1, 1.5);
     expect(heavy).toBeGreaterThan(light * 2);
   });
 
   it('now adds no harmonics', () => {
-    const [fundamental, second, third] = harmonics(tubeCurve(0), 0.5);
+    const [fundamental, second, third] = harmonics(0, 0.5);
     expect(fundamental).toBeCloseTo(0.5, 5);
     expect(second).toBeLessThan(1e-6);
     expect(third).toBeLessThan(1e-6);

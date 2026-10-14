@@ -3,6 +3,7 @@
   "entry": [
     "apps/waveform/src/main.tsx",
     "apps/waveform/src/polyfills.ts",
+    "apps/waveform/src/**/*.worklet.ts",
     "libs/*/src/index.ts",
     "netlify/functions/*.{ts,mts}",
     "scripts/*.mjs",
