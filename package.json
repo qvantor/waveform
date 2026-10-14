@@ -14,6 +14,7 @@
     "prettier:fix": "prettier --write './apps/**/*.{ts,tsx}' './libs/**/*.{ts,tsx}' './netlify/**/*.{ts,mts}' './scripts/*.mjs'",
     "typecheck": "tsc -p apps/waveform/tsconfig.app.json --noEmit && tsc -p apps/waveform/tsconfig.spec.json --noEmit && tsc -p libs/math/tsconfig.lib.json --noEmit && tsc -p libs/math/tsconfig.spec.json --noEmit && tsc -p libs/preset-schema/tsconfig.lib.json --noEmit && tsc -p libs/preset-schema/tsconfig.spec.json --noEmit && tsc -p libs/rxjs-react/tsconfig.lib.json --noEmit && tsc -p libs/rxjs-react/tsconfig.spec.json --noEmit && tsc -p libs/ui-kit/tsconfig.lib.json --noEmit && tsc -p libs/ui-kit/tsconfig.spec.json --noEmit && tsc -p netlify/tsconfig.json --noEmit && tsc -p netlify/tsconfig.spec.json --noEmit",
     "knip": "knip",
+    "certs": "node scripts/certs.mjs",
     "precheck": "npm run prettier:check && npm run typecheck && npm run lint && npm run knip && npm run test:all"
   },
   "private": true,

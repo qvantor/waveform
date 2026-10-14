@@ -43,3 +43,6 @@ Thumbs.db
 
 # Local env
 .env
+
+# Local HTTPS certificates (`npm run certs`)
+/.certs

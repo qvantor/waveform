@@ -1,10 +1,10 @@
 {
   "/.netlify": {
-    "target": "http://localhost:8888/",
+    "target": "https://localhost:8888/",
     "secure": false
   },
   "/api": {
-    "target": "http://localhost:8888/",
+    "target": "https://localhost:8888/",
     "secure": false
   }
 }

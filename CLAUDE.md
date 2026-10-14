@@ -9,6 +9,7 @@ Waveform is an experimental browser wavetable synth (TypeScript + Web Audio API,
 ## Commands
 
 - `npm start` — runs `netlify dev` (functions on :8888) and the Nx dev server (:4200) together. The dev server proxies `/.netlify/*` and `/api/*` to :8888 (`proxy.conf.json`), so wavetables and presets only work when both run.
+- `npm run certs` — generates `.certs/` (gitignored) with mkcert for localhost and the current LAN IPs. `netlify dev` serves HTTPS with it (`[dev.https]` in `netlify.toml`) and fails to start without it; run `mkcert -install` once to trust the local CA.
 - `npm run client:start` — frontend only (`nx serve`); wavetable list/download requests will fail.
 - `npm run build` — production build to `dist/apps/waveform`.
 - `npm run worklets` — bundles the audio worklet modules with esbuild into `tmp/worklets/` (served as `assets/worklets/` via the `assets` of `apps/waveform/project.json`). `build` runs it with `--minify`, `client:start` runs it once and then in watch mode next to `nx serve`.

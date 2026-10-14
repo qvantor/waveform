@@ -31,5 +31,6 @@
     "eslint-plugin-react",
     "eslint-plugin-react-hooks"
   ],
+  "ignoreBinaries": ["mkcert"],
   "ignoreExportsUsedInFile": true
 }
