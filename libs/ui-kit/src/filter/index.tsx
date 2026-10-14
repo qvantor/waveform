@@ -7,6 +7,7 @@ import { FilterResponse } from './components/filter-response';
 
 export type { FilterNumerics, FilterParams, FilterRange, FilterRanges };
 export { FilterResponse };
+export { frequencyResponseDb } from './services';
 
 const types: BiquadFilterType[] = [
   'lowpass',

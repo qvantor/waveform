@@ -41,4 +41,14 @@ describe('FxPanel', () => {
     expect(fx[0].$effects.value.delay).toMatchObject({ mix: 0.35, params: { mode: 1, time: 0.5 } });
     expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('dub');
   });
+
+  it('shows the reverb with its controls and presets', async () => {
+    const { fx } = renderWithFx(<FxPanel type='reverb' />);
+    const user = userEvent.setup();
+    expect(screen.getByRole('button', { name: 'Reverb' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Decay' })).toBeInTheDocument();
+    await user.selectOptions(screen.getByRole('combobox'), 'Large hall');
+    expect(fx[0].$effects.value.reverb).toMatchObject({ mix: 0.3, params: { decay: 3.5, size: 0.8 } });
+    expect(fx[0].$effects.value.delay.params['time']).toBe(0.2);
+  });
 });

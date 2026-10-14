@@ -1,15 +1,11 @@
-import { mapValues } from 'lodash';
 import { FX_PARAMS } from '@waveform/preset-schema';
 import { number } from '@waveform/math';
 import { FxDefinition } from './types';
 import { DelayParam, DELAY_PRESETS } from './delay-presets';
-import { setSmooth } from './create-fx-slot';
+import { createFxParams } from './fx-params';
+import { formatHz, formatMs } from './format';
 
 const { time, fb, mode, pan, freq, q } = FX_PARAMS.delay;
-
-const formatMs = (value: number) => `${Math.round(value * 1000)}ms`;
-const formatHz = (value: number) =>
-  value >= 1000 ? `${(value / 1000).toFixed(1)}kHz` : `${Math.round(value)}Hz`;
 
 const isPingPong = (value: number) => value >= 0.5;
 
@@ -108,16 +104,8 @@ export const delay: FxDefinition<DelayParam> = {
     filters.l.connect(offsets.l).connect(merger, 0, 0);
     filters.r.connect(offsets.r).connect(merger, 0, 1);
 
-    const values: Record<DelayParam, number> = mapValues(FX_PARAMS.delay, (param) => param.default);
+    const { values, setValue, bind } = createFxParams(audioCtx, FX_PARAMS.delay);
     let active = true;
-    // the initial values are set instantly: a ramp from the defaults (gain 1, delayTime 0)
-    // would briefly run the feedback loop above unity
-    let smooth = false;
-
-    const setValue = (param: AudioParam, value: number, timeConstant?: number) =>
-      smooth
-        ? setSmooth(audioCtx, param, value, timeConstant)
-        : param.setValueAtTime(value, audioCtx.currentTime);
 
     // inactive: no feedback, so the lines drain within one delay time instead of ringing on
     const applyRouting = () => {
@@ -145,17 +133,12 @@ export const delay: FxDefinition<DelayParam> = {
       q: (value) => [filters.l, filters.r].forEach((node) => setValue(node.Q, value)),
     };
 
-    (Object.keys(values) as DelayParam[]).forEach((key) => apply[key](values[key]));
-    smooth = true;
+    const setParam = bind(apply);
 
     return {
       input,
       output: merger,
-      setParam: (key, value) => {
-        if (!(key in apply)) return;
-        values[key as DelayParam] = value;
-        apply[key as DelayParam](value);
-      },
+      setParam,
       setActive: (value) => {
         active = value;
         applyRouting();

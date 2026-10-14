@@ -6,6 +6,8 @@ export type FxParamDef = Pick<HandleProps, 'mode' | 'precision' | 'formatValue' 
     label: string;
     // a switch instead of a knob, the value is the index of the option
     options?: { id: string; label: string }[];
+    // a vertical fader instead of a knob
+    control?: 'fader';
   };
 
 // the effect itself (the wet signal), mix and bypass are added around it by createFxSlot

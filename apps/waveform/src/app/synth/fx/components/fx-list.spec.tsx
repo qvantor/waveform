@@ -61,6 +61,17 @@ describe('FxList', () => {
     expect(row).not.toHaveClass('on');
   });
 
+  it('lists delay and reverb in the chain order, each row toggles only its effect', async () => {
+    const { fx, user } = setup();
+    const delay = screen.getByText('Delay');
+    const reverb = screen.getByText('Reverb');
+    expect(delay.compareDocumentPosition(reverb)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+
+    await user.click(reverb);
+    expect(fx[0].$effects.value.reverb.added).toBe(true);
+    expect(fx[0].$effects.value.delay.added).toBe(false);
+  });
+
   it('every effect has its icon and the big lamp', () => {
     setup();
     FX_TYPES.forEach((type) => {

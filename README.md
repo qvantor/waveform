@@ -34,6 +34,8 @@ Built with TypeScript, RxJS and the Web Audio API. Nothing to install and no acc
 - Effects chain with drag-and-drop ordering, per-effect dry/wet mix and bypass
 - **Delay** with normal and ping-pong modes, Haas stereo panning and a bandpass filter in the feedback loop
 - Built-in delay presets: Slapback, Stereo widener, Digital echo, Ping-pong 250ms, Echo 375ms, Echo 500ms, Wide ping-pong, Tape echo, Dub, Ambient wash, Lo-fi, Metallic comb
+- **Reverb** modelled on FL Studio Fruity Reverb 2: an algorithmic 8-line feedback delay network with input low cut, predelay, room size, decay with hi damping and a bass multiplier, tail modulation depth (every line has its own LFO), stereo separation and early reflections level (damped like the tail; the wet level is the common mix), plus a decay-over-frequency display. An **Era** switch colors the input like vintage units: Now (full band), 80s (clean, converter-like bandwidth limit and a little low-mid body) and 70s (darker, with a touch of asymmetric tube saturation)
+- Built-in reverb presets: Small room, Medium room, Bright room, Dark chamber, Plate, Vintage plate, Vocal plate, Large hall, Cathedral, Lush modulated, Ambient wash
 
 ### 🌊 Wavetables
 

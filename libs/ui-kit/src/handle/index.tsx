@@ -2,13 +2,13 @@ import React from 'react';
 import styled from 'styled-components';
 import { arc } from 'd3-shape';
 import cls from 'classnames';
-import hexToRgba from 'hex-to-rgba';
 import { number, vector2d } from '@waveform/math';
 import { scaleLinear, scaleLog } from 'd3-scale';
 import { theme } from '../common/constants';
-import { absoluteCenterXY, textLight14 } from '../common/styles';
+import { absoluteCenterXY } from '../common/styles';
 import { singlePointerTracker } from '../common/utils';
 import { Tooltip } from '../tooltip';
+import { ValueTooltipContent } from '../tooltip/value-tooltip';
 import { Label } from '../label';
 
 type Size = 'm' | 'l';
@@ -134,15 +134,6 @@ const Svg = styled.svg<StyledProps>`
   z-index: 1;
 `;
 
-const TooltipContent = styled.div`
-  ${textLight14};
-  padding: 3px 8px;
-  background: ${hexToRgba(theme.colors.primaryDarkMediumContrast, 0.8)};
-  color: ${theme.colors.white};
-  border-radius: ${theme.borderRadius.m};
-  white-space: nowrap;
-`;
-
 export const Handle = ({
   min = 0,
   max = 100,
@@ -221,7 +212,7 @@ export const Handle = ({
   );
 
   return (
-    <Tooltip content={<TooltipContent>{formatValue?.(value) ?? value}</TooltipContent>}>
+    <Tooltip content={<ValueTooltipContent>{formatValue?.(value) ?? value}</ValueTooltipContent>}>
       <Root onPointerDown={onPointerDown} className={cls({ disabled: disabled })}>
         <HandleContainer size={size}>
           <HandleCircle style={{ transform: `rotate(${rotateRad}rad)` }} size={size}>

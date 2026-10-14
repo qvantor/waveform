@@ -1,6 +1,9 @@
+import { mapValues } from 'lodash';
+import { FX_MIX_PARAM, FX_PARAMS } from '@waveform/preset-schema';
 import { applySnapshot, getSnapshot } from '../../../app';
 import { createSynthCore, initModel } from '../../../../test-utils/models';
 import { DELAY_PRESETS } from '../effects/delay-presets';
+import { REVERB_PRESETS } from '../effects/reverb-presets';
 import { findFxPreset } from '../effects';
 import { fx, getChain } from './fx';
 
@@ -15,6 +18,9 @@ const setup = () => {
   const feedback = (filterNode.connect as jest.Mock).mock.calls[0][0] as GainNode;
   return { model, actions, synthCore: synthCore[0], delayNode, feedback };
 };
+
+const REVERB_DEFAULTS = mapValues(FX_PARAMS.reverb, (param) => param.default);
+const defaultReverb = () => ({ mix: FX_MIX_PARAM.default, params: REVERB_DEFAULTS });
 
 const lastGain = (node: GainNode) => (node.gain.setTargetAtTime as jest.Mock).mock.lastCall?.[0];
 
@@ -255,7 +261,53 @@ describe('fx', () => {
   it('move reorders the effects', () => {
     const { model, actions } = setup();
     actions.move(0, 0);
-    expect(model.$order.value).toEqual(['delay']);
+    expect(model.$order.value).toEqual(['delay', 'reverb']);
+    actions.move(1, 0);
+    expect(model.$order.value).toEqual(['reverb', 'delay']);
+  });
+
+  describe('two effects', () => {
+    it('wires the added effects in the chain order', () => {
+      const { model, actions, synthCore } = setup();
+      const { delay, reverb } = model.slots;
+      actions.setAdded('delay', true);
+      actions.setAdded('reverb', true);
+      expect(synthCore.fxIn.connect).toHaveBeenLastCalledWith(delay.input);
+      expect(delay.output.connect).toHaveBeenLastCalledWith(reverb.input);
+      expect(reverb.output.connect).toHaveBeenLastCalledWith(synthCore.fxOut);
+
+      actions.move(1, 0);
+      expect(synthCore.fxIn.connect).toHaveBeenLastCalledWith(reverb.input);
+      expect(reverb.output.connect).toHaveBeenLastCalledWith(delay.input);
+      expect(delay.output.connect).toHaveBeenLastCalledWith(synthCore.fxOut);
+
+      actions.setAdded('delay', false);
+      expect(synthCore.fxIn.connect).toHaveBeenLastCalledWith(reverb.input);
+      expect(reverb.output.connect).toHaveBeenLastCalledWith(synthCore.fxOut);
+    });
+
+    it('changes only the effect it is called for', () => {
+      const { model, actions } = setup();
+      const delayBefore = model.$effects.value.delay;
+      const delaySend = model.slots.delay.send.gain.setTargetAtTime as jest.Mock;
+      delaySend.mockClear();
+      actions.setAdded('reverb', true);
+      actions.setParam('reverb', 'decay', 5);
+      actions.setMix('reverb', 0.6);
+      expect(model.$effects.value.delay).toBe(delayBefore);
+      expect(model.$effects.value.reverb).toMatchObject({ added: true, mix: 0.6, params: { decay: 5 } });
+      expect(model.slots.reverb.send.gain.setTargetAtTime).toHaveBeenLastCalledWith(1, 0, expect.any(Number));
+      expect(delaySend).not.toHaveBeenCalled();
+    });
+
+    it('applies a reverb preset and finds it back', () => {
+      const { model, actions } = setup();
+      actions.applyPreset('reverb', 'cathedral');
+      const cathedral = REVERB_PRESETS.find(({ id }) => id === 'cathedral');
+      expect(model.$effects.value.reverb).toMatchObject({ mix: cathedral?.mix, params: cathedral?.params });
+      expect(findFxPreset('reverb', model.$effects.value.reverb)).toBe(cathedral);
+      expect(findFxPreset('reverb', defaultReverb())?.id).toBe('default');
+    });
   });
 
   describe('snapshot', () => {
@@ -265,8 +317,44 @@ describe('fx', () => {
       actions.setMix('delay', 0.5);
       actions.setParam('delay', 'fb', 0.2);
       expect(getSnapshot()['fx']).toEqual({
-        o: ['delay'],
+        o: ['delay', 'reverb'],
         delay: { a: true, on: true, mix: 0.5, mode: 0, pan: 0, time: 0.2, fb: 0.2, freq: 1000, q: 0.01 },
+        reverb: { a: false, on: true, mix: 0.3, ...REVERB_DEFAULTS },
+      });
+    });
+
+    it('round-trips the reverb, falsy values included, missing keys are defaults', () => {
+      const { model, actions } = setup();
+      actions.move(1, 0);
+      actions.setAdded('reverb', true);
+      actions.setOn('reverb', false);
+      actions.setMix('reverb', 0);
+      ['pre', 'size', 'depth', 'sep', 'er', 'era'].forEach((key) => actions.setParam('reverb', key, 0));
+      actions.setParam('reverb', 'decay', 12);
+      const snapshot = getSnapshot();
+      expect(snapshot['fx']).toMatchObject({
+        o: ['reverb', 'delay'],
+        reverb: { a: true, on: false, mix: 0 },
+      });
+
+      actions.applyPreset('reverb', 'plate');
+      actions.setOn('reverb', true);
+      actions.move(1, 0);
+      applySnapshot(snapshot);
+      expect(model.$order.value).toEqual(['reverb', 'delay']);
+      expect(model.$effects.value.reverb).toEqual({
+        added: true,
+        on: false,
+        mix: 0,
+        params: { ...REVERB_DEFAULTS, pre: 0, size: 0, depth: 0, sep: 0, er: 0, era: 0, decay: 12 },
+      });
+
+      applySnapshot({ fx: { reverb: { a: true, decay: 0.5 } } });
+      expect(model.$effects.value.reverb).toEqual({
+        added: true,
+        on: true,
+        mix: 0.3,
+        params: { ...REVERB_DEFAULTS, decay: 0.5 },
       });
     });
 
@@ -328,10 +416,12 @@ describe('fx', () => {
 
     it('drops unknown and duplicate effects from the order and appends the missing ones', () => {
       const { model } = setup();
-      applySnapshot({ fx: { o: ['chorus', 'delay', 'delay'] } });
-      expect(model.$order.value).toEqual(['delay']);
+      applySnapshot({ fx: { o: ['chorus', 'reverb', 'delay', 'delay'] } });
+      expect(model.$order.value).toEqual(['reverb', 'delay']);
+      applySnapshot({ fx: { o: ['delay'] } });
+      expect(model.$order.value).toEqual(['delay', 'reverb']);
       applySnapshot({ fx: { o: [] } });
-      expect(model.$order.value).toEqual(['delay']);
+      expect(model.$order.value).toEqual(['delay', 'reverb']);
     });
   });
 });

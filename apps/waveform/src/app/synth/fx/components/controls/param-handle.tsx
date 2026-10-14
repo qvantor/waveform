@@ -1,5 +1,5 @@
 import React from 'react';
-import { Handle } from '@waveform/ui-kit';
+import { Fader, Handle } from '@waveform/ui-kit';
 import { FxParamDef } from '../../effects/types';
 
 interface Props {
@@ -9,18 +9,22 @@ interface Props {
   disabled: boolean;
 }
 
+// a knob, or a fader when the param asks for one
 export const ParamHandle = ({
-  def: { label, min, max, mode, precision, formatValue, fillFrom },
+  def: { label, min, max, mode, precision, formatValue, fillFrom, control },
   ...props
-}: Props) => (
-  <Handle
-    label={label}
-    min={min}
-    max={max}
-    mode={mode}
-    precision={precision}
-    formatValue={formatValue}
-    fillFrom={fillFrom}
-    {...props}
-  />
-);
+}: Props) => {
+  const Control = control === 'fader' ? Fader : Handle;
+  return (
+    <Control
+      label={label}
+      min={min}
+      max={max}
+      mode={mode}
+      precision={precision}
+      formatValue={formatValue}
+      fillFrom={fillFrom}
+      {...props}
+    />
+  );
+};
