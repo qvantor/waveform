@@ -1,6 +1,6 @@
 import React from 'react';
 import cls from 'classnames';
-import styled from 'styled-components';
+import styled, { css } from 'styled-components';
 import hexToRgba from 'hex-to-rgba';
 import { theme } from '../common/constants';
 
@@ -10,13 +10,22 @@ interface Props {
   label?: string;
   // s: 14px, m: 18px
   size?: 's' | 'm';
+  // the light, blue by default
+  color?: string;
   className?: string;
 }
 
 // a metal rim around the glass
 const rim = `0 0 0 2px ${theme.colors.primaryLowContrast}`;
 
-const Root = styled.button`
+// the glass lit from inside: almost white in the middle, the glow around
+const lit = (color: string) => css`
+  border-color: ${color};
+  background: radial-gradient(circle at 35% 35%, ${hexToRgba(color, 0.1)}, ${color} 65%) ${theme.colors.white};
+  box-shadow: ${rim}, 0 0 6px 3px ${hexToRgba(color, 0.6)}, 0 0 14px 6px ${hexToRgba(color, 0.3)};
+`;
+
+const Root = styled.button<{ $color: string }>`
   position: relative;
   flex: 0 0 auto;
   width: 14px;
@@ -62,10 +71,7 @@ const Root = styled.button`
   }
 
   &.on {
-    border-color: ${theme.colors.secondAccent};
-    background: radial-gradient(circle at 35% 35%, #eaf6ff, ${theme.colors.secondAccent} 65%);
-    box-shadow: ${rim}, 0 0 6px 3px ${hexToRgba(theme.colors.secondAccent, 0.6)},
-      0 0 14px 6px ${hexToRgba(theme.colors.secondAccent, 0.3)};
+    ${({ $color }) => lit($color)}
 
     &::after {
       background: rgb(255 255 255 / 80%);
@@ -73,10 +79,18 @@ const Root = styled.button`
   }
 `;
 
-export const Lamp = ({ on, onChange, label, size = 's', className }: Props) => (
+export const Lamp = ({
+  on,
+  onChange,
+  label,
+  size = 's',
+  color = theme.colors.secondAccent,
+  className,
+}: Props) => (
   <Root
     type='button'
     className={cls(className, { on, m: size === 'm' })}
+    $color={color}
     aria-pressed={on}
     aria-label={label}
     onClick={() => onChange?.(!on)}

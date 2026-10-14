@@ -10,6 +10,7 @@ import { Lamp, SortableList, textBold12, theme } from '@waveform/ui-kit';
 import { useFx } from '../modules';
 import { FX_REGISTRY } from '../effects';
 import { FX_ICONS } from './fx-icons';
+import { FX_COLORS } from './fx-colors';
 
 const Root = styled.div`
   padding: 10px;
@@ -31,7 +32,7 @@ const Row = styled.div`
   align-items: center;
   gap: 10px;
   margin-bottom: 5px;
-  /* the left border is always there, so the content doesn't jump when it turns blue */
+  /* the left border is always there, so the content doesn't jump when it gets the effect color */
   padding: 7px 10px 7px 9px;
   ${textBold12};
   background: ${theme.colors.primaryLowContrast};
@@ -49,7 +50,7 @@ const Row = styled.div`
   &.on {
     background: ${theme.colors.white};
     color: ${theme.colors.primaryDarkMediumContrast};
-    border-left-color: ${theme.colors.secondAccent};
+    border-left-color: var(--fx-color);
   }
 `;
 
@@ -67,7 +68,7 @@ const IconBadge = styled.div`
   transition: background 150ms, color 150ms;
 
   .on > & {
-    background: ${theme.colors.secondAccent};
+    background: var(--fx-color);
     color: ${theme.colors.white};
   }
 `;
@@ -105,10 +106,15 @@ export const FxList = () => {
         renderItem={(type) => {
           const { label } = FX_REGISTRY[type];
           const Icon = FX_ICONS[type];
+          const color = FX_COLORS[type];
           return (
-            <Row className={cls({ on: added[type] })} onClick={() => setAdded(type, !added[type])}>
+            <Row
+              className={cls({ on: added[type] })}
+              style={{ '--fx-color': color } as React.CSSProperties}
+              onClick={() => setAdded(type, !added[type])}
+            >
               {/* no onChange: its click bubbles to the row, so it toggles once (keyboard too) */}
-              <Lamp on={added[type]} label={label} size='m' />
+              <Lamp on={added[type]} label={label} size='m' color={color} />
               <IconBadge>
                 <Icon />
               </IconBadge>
