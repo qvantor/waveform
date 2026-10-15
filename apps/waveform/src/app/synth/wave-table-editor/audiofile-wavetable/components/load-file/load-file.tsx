@@ -2,7 +2,7 @@ import React from 'react';
 import toast from 'react-hot-toast';
 import styled from 'styled-components';
 import { FileDrop, textLight14, theme } from '@waveform/ui-kit';
-import { useSynthCore } from '../../../../common/modules';
+import { readAudioFile } from '../../../../services/audio-file';
 import { Examples } from './examples';
 
 const DropText = styled.div`
@@ -31,15 +31,13 @@ interface Props {
 
 // @todo add here input with file select on click
 export const LoadFile = ({ onLoad }: Props) => {
-  const [{ audioCtx }] = useSynthCore();
   const bufferToAudio = async (buffer: ArrayBuffer, name?: string) => {
-    const audioBuffer = await audioCtx.decodeAudioData(buffer);
-    if (audioBuffer.duration > 12) {
+    const { sampleRate, samples } = await readAudioFile(buffer);
+    if (samples.length / sampleRate > 12) {
       toast.error(`${name ?? 'File'} duration is bigger than 12 seconds`);
       return;
     }
-    const data = audioBuffer.getChannelData(0);
-    onLoad(data);
+    onLoad(samples);
   };
   const onFileDrop = async (file: File) => {
     const buffer = await file.arrayBuffer();

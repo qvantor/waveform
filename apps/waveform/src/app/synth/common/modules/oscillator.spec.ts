@@ -18,8 +18,7 @@ const flush = () => new Promise((resolve) => setTimeout(resolve));
 const createLoading = (initialWavePath = ['folder', 'a.wav']) => {
   const loads = new Map<string, { resolve: (table: number[][]) => void; reject: (error: Error) => void }>();
   const load = jest.fn(
-    (_audioCtx: unknown, id: string) =>
-      new Promise<number[][]>((resolve, reject) => loads.set(id, { resolve, reject }))
+    (id: string) => new Promise<number[][]>((resolve, reject) => loads.set(id, { resolve, reject }))
   );
   const synthCore = createSynthCore();
   const [model, actions] = createOscillator(synthCore, 'osc1', { active: true, initialWavePath }, load);
@@ -39,7 +38,7 @@ const createLoading = (initialWavePath = ['folder', 'a.wav']) => {
     }
   };
   const table = () => model.$waveTable.value.map(({ value }) => value);
-  return { model, actions, load, resolve, reject, fail, table, audioCtx: synthCore[0].audioCtx };
+  return { model, actions, load, resolve, reject, fail, table };
 };
 
 describe('oscillator', () => {
@@ -137,8 +136,8 @@ describe('oscillator', () => {
     afterEach(() => jest.useRealTimers());
 
     it('loads the table of the initial path', async () => {
-      const { model, load, resolve, table, audioCtx } = createLoading(['folder', 'a.wav']);
-      expect(load).toHaveBeenCalledWith(audioCtx, 'a.wav');
+      const { model, load, resolve, table } = createLoading(['folder', 'a.wav']);
+      expect(load).toHaveBeenCalledWith('a.wav');
       expect(model.$waveTableLoading.value).toBe(true);
 
       await resolve('a.wav', [saw, square]);
@@ -154,7 +153,7 @@ describe('oscillator', () => {
 
       applySnapshot({ osc1: { p: ['folder', 'b.wav'], w: 1 } });
 
-      expect(load).toHaveBeenLastCalledWith(expect.anything(), 'b.wav');
+      expect(load).toHaveBeenLastCalledWith('b.wav');
       expect(model.$waveTableLoading.value).toBe(true);
       await resolve('b.wav', [saw, square]);
       expect(table()).toEqual([saw, square]);
@@ -166,7 +165,7 @@ describe('oscillator', () => {
     it('loads the table of a selected path', async () => {
       const { actions, load, resolve, table } = createLoading();
       actions.setWaveTablePath(['folder', 'b.wav']);
-      expect(load).toHaveBeenLastCalledWith(expect.anything(), 'b.wav');
+      expect(load).toHaveBeenLastCalledWith('b.wav');
       await resolve('b.wav', [square]);
       expect(table()).toEqual([square]);
     });

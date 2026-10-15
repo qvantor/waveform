@@ -79,7 +79,8 @@ export const { ModelProvider: FooProvider, useModel: useFoo } = rxModelReact('fo
 ### Wavetables
 
 - The Netlify functions (`netlify/functions/get-wavetables-list.ts`, `get-wavetable.ts`) list the wavetable files in an S3 bucket as a folder tree and serve them. The client fetches the list with react-query (`synth/oscillator/hooks/use-wavetables.ts`). The table itself is loaded by the oscillator model from `$waveTablePath` (last path element = S3 key, `synth/services/wavetable.ts`, cached per session, 2 retries), so it follows presets whatever screen is shown; `WaveSelector` only shows `$waveTableLoading`.
-- The wavetable editor (`synth/wave-table-editor/`) also builds tables from manual drawing or from an uploaded audio file.
+- The files are Serum wavetables (mono 32-bit float WAV, 44.1 kHz, 2048-sample waves). `synth/services/wav.ts` reads their samples from the bytes; not `decodeAudioData`, which resamples to the context rate (at 48 kHz a 2048-sample slice is 1.09 cycles and a table has ~278 waves instead of 256).
+- The wavetable editor (`synth/wave-table-editor/`) also builds tables from manual drawing or from an uploaded audio file. `synth/services/audio-file.ts` reads that file at its own rate, never at the context's: a WAV through `wav.ts`, other formats decoded by an `OfflineAudioContext` at 44.1 kHz (their rate is unknown before decoding).
 
 ### Libs
 
