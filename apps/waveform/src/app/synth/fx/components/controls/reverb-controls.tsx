@@ -26,7 +26,7 @@ const Chart = styled(ReverbDecayChart)`
 
 const { params: defs } = reverb;
 
-// the era (color of the input stage), then the sections of Fruity Reverb 2, left to right:
+// the era (color of the input stage), then the sections, left to right:
 // input | time | decay (chart) | levels (faders: er, sep, mod); the wet level is the common mix of FxPanel
 export const ReverbControls = ({ params, setParam, on, sampleRate }: FxControlsProps) => {
   const handle = (key: Exclude<ReverbParam, 'era'>) => (

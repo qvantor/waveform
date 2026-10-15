@@ -1,4 +1,4 @@
-import { wavetablesToOptions } from './use-wavetables';
+import { skipSingleFolders, wavetablesToOptions } from './use-wavetables';
 
 describe('wavetablesToOptions', () => {
   it('maps the folder tree to cascade options with file names and sizes', () => {
@@ -32,5 +32,52 @@ describe('wavetablesToOptions', () => {
 
   it('returns an empty list for no data', () => {
     expect(wavetablesToOptions([])).toEqual([]);
+  });
+});
+
+describe('skipSingleFolders', () => {
+  const files = [
+    { value: 'ESW/Analog/Saw.wav', label: 'Saw' },
+    { value: 'ESW/Analog/Square.wav', label: 'Square' },
+  ];
+  const categories = [
+    { value: 'Analog', label: 'Analog', children: files },
+    { value: 'Basics', label: 'Basics', children: [{ value: 'ESW/Basics/Sine.wav', label: 'Sine' }] },
+  ];
+
+  it('starts inside the only top folder', () => {
+    expect(skipSingleFolders([{ value: 'ESW', label: 'ESW', children: categories }])).toEqual({
+      prefix: ['ESW'],
+      options: categories,
+    });
+  });
+
+  it('skips nested single folders too', () => {
+    expect(
+      skipSingleFolders([
+        { value: 'ESW', label: 'ESW', children: [{ value: 'Core', label: 'Core', children: categories }] },
+      ])
+    ).toEqual({ prefix: ['ESW', 'Core'], options: categories });
+  });
+
+  it('keeps several top folders', () => {
+    expect(skipSingleFolders(categories)).toEqual({ prefix: [], options: categories });
+  });
+
+  it('keeps a single file', () => {
+    const single = [{ value: 'Sine.wav', label: 'Sine' }];
+    expect(skipSingleFolders(single)).toEqual({ prefix: [], options: single });
+  });
+
+  it('stops at a file', () => {
+    const single = [{ value: 'Sine.wav', label: 'Sine' }];
+    expect(skipSingleFolders([{ value: 'ESW', label: 'ESW', children: single }])).toEqual({
+      prefix: ['ESW'],
+      options: single,
+    });
+  });
+
+  it('returns an empty list for no data', () => {
+    expect(skipSingleFolders([])).toEqual({ prefix: [], options: [] });
   });
 });

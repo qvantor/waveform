@@ -11,7 +11,7 @@ export interface ReverbEra {
   body: number;
 }
 
-// the era param is an index into this list, like the color modes of Valhalla VintageVerb;
+// the era param is an index into this list;
 // the 80s units were clean but band-limited, the 70s ones darker with a touch of tube.
 // The drive is set for synth levels (chord peaks 1..3): more turns chords into intermodulation whistles
 export const REVERB_ERAS: ReverbEra[] = [

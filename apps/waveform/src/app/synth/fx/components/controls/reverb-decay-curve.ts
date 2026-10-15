@@ -11,7 +11,7 @@ export interface DecayParams {
 
 export const DECAY_CHART_FREQS = Array.from({ length: 64 }, (_, i) => 20 * 1000 ** (i / 63));
 
-// RT60 (s) over frequency, as the Fruity Reverb 2 display: a line of the average loop length through the
+// RT60 (s) over frequency, for the decay chart: a line of the average loop length through the
 // same shelves as the feedback lines (their magnitudes at the frequency are added to the per pass loss)
 export const decayCurve = (
   { size, decay, damp, bass }: DecayParams,

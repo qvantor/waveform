@@ -51,7 +51,7 @@ export const FX_PARAMS = {
     freq: { min: 50, max: 17000, default: 1000 },
     q: { min: 0.01, max: 3, default: 0.01 },
   },
-  // algorithmic reverb, the controls follow FL Studio Fruity Reverb 2
+  // algorithmic reverb
   reverb: {
     // input highpass, 20 Hz is effectively off
     lowcut: { min: 20, max: 1000, default: 20 },
