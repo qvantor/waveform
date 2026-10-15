@@ -27,7 +27,7 @@ Built with TypeScript, RxJS and the Web Audio API. Nothing to install and no acc
 - **Polyphony** up to 12 voices, with portamento and legato
 - **AHDSR envelope**: attack, hold, decay, sustain, release
 - **8 filter types**: lowpass, highpass, bandpass, lowshelf, highshelf, peaking, notch and allpass, with a chart of the real frequency response
-- **Master section** with a limiter, master gain, a volume meter and a spectrum analyser
+- **Master section** with the master volume in dB (up to +12 dB of drive), a transparent true peak limiter running in an AudioWorklet (−0.5 dBTP ceiling, 2 ms lookahead, program-dependent release: louder without clipping), a volume meter and a spectrum analyser
 
 ### ✨ FX rack
 
@@ -166,7 +166,7 @@ The audio graph:
 flowchart LR
   OSC1[Oscillator 1] --> V[Voices<br/>unison + AHDSR]
   OSC2[Oscillator 2] --> V
-  V --> PRE[Pre gain] --> F[Filter] --> FX[FX rack] --> L[Limiter] --> M[Master gain] --> OUT((Output))
+  V --> PRE[Pre gain] --> F[Filter] --> FX[FX rack] --> M[Master gain] --> L[Limiter] --> OUT((Output))
 ```
 
 Note input from the on-screen piano, QWERTY and MIDI goes through one shared input controller. Synth state is serialized into presets through a snapshot plugin and validated by the shared zod schema.

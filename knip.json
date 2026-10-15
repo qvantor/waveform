@@ -32,5 +32,6 @@
     "eslint-plugin-react-hooks"
   ],
   "ignoreBinaries": ["mkcert"],
+  "ignoreUnresolved": ["^\\w+=apps/waveform/src/.+\\.worklet\\.ts$"],
   "ignoreExportsUsedInFile": true
 }
