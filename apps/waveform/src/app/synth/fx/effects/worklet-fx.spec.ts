@@ -164,10 +164,11 @@ describe('createWorkletFx', () => {
     expect(error).not.toHaveBeenCalled();
   });
 
-  it('destroy disconnects the node', async () => {
+  it('destroy stops the processor and disconnects the node', async () => {
     const { worklet, node } = setup();
     await flush();
     worklet.destroy();
+    expect(node()?.port.postMessage).toHaveBeenCalledWith({ stop: true });
     [worklet.input, worklet.output, node()].forEach((item) => expect(item?.disconnect).toHaveBeenCalled());
   });
 });

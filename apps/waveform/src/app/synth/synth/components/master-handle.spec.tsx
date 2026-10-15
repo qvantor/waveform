@@ -2,14 +2,13 @@ import React from 'react';
 import { act, render } from '@testing-library/react';
 import { Handle, HandleProps } from '@waveform/ui-kit';
 import { SynthCoreProvider, useSynthCore } from '../../common/modules';
+import { SynthCoreModule } from '../../common/modules/synth-core';
 import { dbToGain, formatDb, gainToDb, MASTER_DB, MasterHandle } from './master-handle';
 
 jest.mock('@waveform/ui-kit', () => ({
   ...jest.requireActual('@waveform/ui-kit'),
   Handle: jest.fn(() => null),
 }));
-
-type SynthCoreModule = ReturnType<typeof useSynthCore>;
 
 const Capture = ({ onModel }: { onModel: (module: SynthCoreModule) => void }) => {
   onModel(useSynthCore());

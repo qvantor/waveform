@@ -1,5 +1,5 @@
-import { createWorkletFx } from '../../fx/effects/worklet-fx';
-import { LIMITER_PROCESSOR, LimiterMessage } from './limiter-dsp';
+import { createWorkletFx, STEREO_WORKLET_OPTIONS } from '../../fx/effects/worklet-fx';
+import { LIMITER_PROCESSOR } from './limiter-dsp';
 
 // the fallback without the worklet: a DynamicsCompressor with a hard knee keeps the peaks below 0 dBFS. It
 // overshoots its curve on the onset of dense unison chords struck at once (in Chrome ~2.5 dB at a 5 ms
@@ -22,19 +22,10 @@ export const createMasterLimiter = (audioCtx: BaseAudioContext) => {
   const compressor = audioCtx.createDynamicsCompressor();
   // takes back the makeup gain of the compressor, so below its threshold the sound passes at unity
   const compensation = audioCtx.createGain();
-  // mono input is upmixed to both channels
   const worklet = createWorkletFx(
     audioCtx,
     'limiter',
-    () =>
-      new AudioWorkletNode(audioCtx, LIMITER_PROCESSOR, {
-        numberOfInputs: 1,
-        numberOfOutputs: 1,
-        outputChannelCount: [2],
-        channelCount: 2,
-        channelCountMode: 'explicit',
-        channelInterpretation: 'speakers',
-      })
+    () => new AudioWorkletNode(audioCtx, LIMITER_PROCESSOR, STEREO_WORKLET_OPTIONS)
   );
 
   const { threshold, knee, ratio, attack, release } = FALLBACK_LIMITER;
@@ -61,8 +52,6 @@ export const createMasterLimiter = (audioCtx: BaseAudioContext) => {
     $status: worklet.$status,
     destroy: () => {
       subscription.unsubscribe();
-      const stop: LimiterMessage = { stop: true };
-      worklet.post(stop);
       worklet.destroy();
       [input, compressor, compensation, output].forEach((node) => node.disconnect());
     },

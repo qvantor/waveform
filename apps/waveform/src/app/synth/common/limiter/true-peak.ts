@@ -25,14 +25,13 @@ const besselI0 = (x: number) => {
 const sinc = (x: number) => (x === 0 ? 1 : Math.sin(Math.PI * x) / (Math.PI * x));
 
 // phase p interpolates the point p/4 of a sample after the center: tap j weighs the sample written j steps
-// ago, which is j - DELAY + p/4 samples before that point. Every phase sums to 1, so DC reads exactly
+// ago, which is j - DELAY + p/4 samples before that point (within the window: |x| < DELAY for p = 1..3).
+// Every phase sums to 1, so DC reads exactly
 const createPhase = (phase: number) => {
   const taps = Float64Array.from({ length: TRUE_PEAK_TAPS }, (_, j) => {
     const x = j - TRUE_PEAK_DELAY + phase / OVERSAMPLING;
     const r = x / TRUE_PEAK_DELAY;
-    return Math.abs(r) >= 1
-      ? 0
-      : (sinc(x) * besselI0(KAISER_BETA * Math.sqrt(1 - r * r))) / besselI0(KAISER_BETA);
+    return (sinc(x) * besselI0(KAISER_BETA * Math.sqrt(1 - r * r))) / besselI0(KAISER_BETA);
   });
   const sum = taps.reduce((a, b) => a + b);
   return taps.map((tap) => tap / sum);
@@ -40,6 +39,7 @@ const createPhase = (phase: number) => {
 
 // phase 0 is the center sample itself
 const PHASES = Array.from({ length: OVERSAMPLING - 1 }, (_, i) => createPhase(i + 1));
+const [PHASE1, PHASE2, PHASE3] = PHASES;
 
 // a point between the samples is a weighted sum of the last TAPS of them: it is at most this many times
 // the loudest of them (+8.1 dB, the sum of the absolute taps of the half sample phase)
@@ -62,17 +62,20 @@ export const createTruePeak = (threshold = 0) => {
     pos = pos === 0 ? TRUE_PEAK_TAPS - 1 : pos - 1;
     history[pos] = x;
     history[pos + TRUE_PEAK_TAPS] = x;
-    let peak = Math.abs(history[pos + TRUE_PEAK_DELAY]);
+    const peak = Math.abs(history[pos + TRUE_PEAK_DELAY]);
     if (x >= quiet || -x >= quiet) loud = TRUE_PEAK_TAPS;
     else if (loud > 0) loud--;
     if (loud === 0) return peak;
-    for (let p = 0; p < PHASES.length; p++) {
-      const taps = PHASES[p];
-      let y = 0;
-      for (let j = 0; j < TRUE_PEAK_TAPS; j++) y += history[pos + j] * taps[j];
-      if (y < 0) y = -y;
-      if (y > peak) peak = y;
+    // the 3 phases in one pass over the history, each summed in the same order as alone
+    let y1 = 0;
+    let y2 = 0;
+    let y3 = 0;
+    for (let j = 0; j < TRUE_PEAK_TAPS; j++) {
+      const h = history[pos + j];
+      y1 += h * PHASE1[j];
+      y2 += h * PHASE2[j];
+      y3 += h * PHASE3[j];
     }
-    return peak;
+    return Math.max(peak, Math.abs(y1), Math.abs(y2), Math.abs(y3));
   };
 };

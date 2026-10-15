@@ -1,9 +1,6 @@
 import { createSynthCore, stopModels } from '../../../../test-utils/models';
 import { setVisibility } from '../../../../test-utils/visibility';
 
-// the limiter worklet module loads asynchronously: settled after the pending promises
-const flush = () => new Promise((resolve) => setTimeout(resolve));
-
 describe('synthCore', () => {
   it('connects preGain → fxIn → fxOut → masterGain → limiter → destination', () => {
     const [{ audioCtx, preGain, fxIn, fxOut, masterLimiter, masterGain, output }] = createSynthCore();
@@ -27,15 +24,11 @@ describe('synthCore', () => {
     expect($masterGain.value).toBe(1);
   });
 
-  it('stops the limiter worklet when it stops', async () => {
+  it('destroys the limiter when it stops', () => {
     const [{ masterLimiter }] = createSynthCore();
-    await flush();
-    expect(masterLimiter.$status.value).toBe('ready');
-    const workletInput = (masterLimiter.input.connect as jest.Mock).mock.lastCall?.[0] as AudioNode;
-    const node = (workletInput.connect as jest.Mock).mock.lastCall?.[0] as AudioWorkletNode;
+    const destroy = jest.spyOn(masterLimiter, 'destroy');
     stopModels();
-    expect(node.port.postMessage).toHaveBeenCalledWith({ stop: true });
-    expect(masterLimiter.$status.isStopped).toBe(true);
+    expect(destroy).toHaveBeenCalled();
   });
 
   it('setMasterGain updates the master gain', () => {
