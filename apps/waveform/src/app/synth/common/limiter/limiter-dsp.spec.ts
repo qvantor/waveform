@@ -223,21 +223,23 @@ describe('createLimiterDsp', () => {
   });
 
   describe('release', () => {
-    // a quiet tone with a 100 Hz burst 12 dB over in it; the gain at times after the burst has passed
-    const after = (burst: number, times: number[]) => {
-      const start = frame(0.1);
-      const end = start + frame(burst);
+    // a quiet tone with a 100 Hz sine 12 dB over in it on the frames that are `loud`; the gain at times
+    // after `end` (s)
+    const gainsAfter = (loud: (n: number) => boolean, end: number, times: number[]) => {
       const tone = sine(440, 0.25);
       const { gain, latency } = render(
-        (n, channel) => tone(n, channel) + (n >= start && n < end ? 4 * Math.sin(n / 76.4) : 0),
-        0.1 + burst + Math.max(...times) + 0.05
+        (n, channel) => tone(n, channel) + (loud(n) ? 4 * Math.sin(n / 76.4) : 0),
+        end + Math.max(...times) + 0.05
       );
       // the loudest gain in the cycle of the tone at that time
       return times.map((time) => {
-        const at = end + latency + frame(time);
+        const at = frame(end + time) + latency;
         return db(Math.max(...Array.from({ length: 120 }, (_, i) => gain(at + i)).filter((g) => g > 0)));
       });
     };
+    // a burst from 0.1 s, the gain after it has passed
+    const after = (burst: number, times: number[]) =>
+      gainsAfter((n) => n >= frame(0.1) && n < frame(0.1 + burst), 0.1 + burst, times);
 
     it('lets a short peak go fast', () => {
       const [at200ms, at1s] = after(0.005, [0.2, 1]);
@@ -245,21 +247,42 @@ describe('createLimiterDsp', () => {
       expect(at1s).toBeGreaterThan(-0.2);
     });
 
-    it('lets a long loud part go slowly, so a dense part does not pump between its peaks', () => {
-      const [short] = after(0.005, [0.2]);
-      const [long, longer] = after(1.5, [0.2, 1]);
+    it('holds the gain through the short gaps of a dense part, so it does not pump between its peaks', () => {
+      // 100 ms bursts every 200 ms for 1.5 s, the last one ends at 1.5 s
+      const dense = (n: number) =>
+        n >= frame(0.1) && n < frame(1.6) && (n - frame(0.1)) % frame(0.2) < frame(0.1);
+      const [inGap] = gainsAfter(dense, 1.5, [0.09]);
+      const [alone] = after(0.1, [0.09]);
+      expect(inGap).toBeLessThan(-6);
+      expect(inGap).toBeLessThan(alone - 3);
+      // the end of a long loud part is a gap as well, until it is longer than one
+      const [long] = after(1.5, [0.2]);
       expect(long).toBeLessThan(-6);
-      expect(long).toBeLessThan(short - 5);
-      expect(longer).toBeGreaterThan(long + 3);
+    });
+
+    it('lets a long loud part go fast once it is over', () => {
+      const [at400ms, at500ms] = after(1.5, [0.4, 0.5]);
+      expect(at400ms).toBeGreaterThan(-1);
+      expect(at500ms).toBeGreaterThan(-0.2);
+    });
+
+    it('lets a long loud part go down to what a quieter part over the ceiling needs, not below', () => {
+      // 12 dB over, then 2.9 dB
+      const end = frame(1.6);
+      const { L, gain } = render((n) => (n < end ? 4 : 1.4 * CEILING) * Math.sin(n / 76.4), 2.6);
+      const { min, max } = gainRange(gain, 2, 2.6);
+      expect(max - min).toBeLessThan(0.001);
+      expect(max).toBeCloseTo(-db(1.4), 2);
+      expect(samplePeak(L)).toBeLessThanOrEqual(MAX_SAMPLE);
     });
 
     it('comes back to bit for bit once released', () => {
-      const end = frame(0.15);
+      const end = frame(1.5);
       const { L, inputs, latency } = render(
         (n) => (n < end ? 4 * Math.sin(n / 7.64) : 0.5 * Math.sin(n / 7.64)),
-        8
+        3
       );
-      const from = frame(7.5);
+      const from = frame(2.5);
       expect(L.subarray(from)).toEqual(inputs[0].subarray(from - latency, L.length - latency));
     });
   });

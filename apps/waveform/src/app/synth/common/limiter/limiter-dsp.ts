@@ -17,6 +17,10 @@ const HOLD = 0.02;
 // with the same
 const FAST_RELEASE = 0.05;
 const SLOW = 0.5;
+// once the sound has needed less than the slow envelope for this long (s), the loud part is over: the slow
+// envelope lets go like the fast one, down to what the sound still needs. Longer than the gaps between the
+// notes of a dense part (an eighth note at 120 bpm)
+const RECENT = 0.25;
 // an envelope this close to 0 dB is 0, the gain is exactly 1 again
 const RELEASED_DB = 1e-4;
 
@@ -76,12 +80,12 @@ const finite = (value: number) => (Number.isFinite(value) ? value : 0);
 // a stereo linked, true peak, lookahead brickwall limiter. Per frame:
 // input (NaN and infinities are silence, they would stay in the sums forever) → the true peak of both
 // channels → its max over the hold window (lookahead + HOLD) → the attenuation it needs (dB)
-// → envelopes: fast (instant attack, FAST_RELEASE) and slow (SLOW up and down), the larger one
-// → gain → 2 moving averages over the lookahead (an S-shaped attack, no click) → × the input delayed by
-// the lookahead and the detector delay.
+// → envelopes: fast (instant attack, FAST_RELEASE) and slow (SLOW up and down, FAST_RELEASE down to the
+// most the last RECENT needed), the larger one → gain → 2 moving averages over the lookahead (an S-shaped
+// attack, no click) → × the input delayed by the lookahead and the detector delay.
 // The averages see only gains held for the peak at the frame they land on, so the gain there is at most
-// the one the peak needs: nothing goes over the ceiling. Below it the gain is exactly 1: the delayed
-// input comes out bit for bit
+// the one the peak needs: nothing goes over the ceiling. Below it, once released, the gain is exactly 1:
+// the delayed input comes out bit for bit
 export const createLimiterDsp = (sampleRate: number) => {
   const lookahead = Math.round(LOOKAHEAD * sampleRate);
   // the averages together span lookahead + 1 gains
@@ -93,6 +97,8 @@ export const createLimiterDsp = (sampleRate: number) => {
   const peakL = createTruePeak(CEILING);
   const peakR = createTruePeak(CEILING);
   const held = createSlidingMax(lookahead + 1 + Math.round(HOLD * sampleRate));
+  // the most attenuation (dB) the last RECENT needed
+  const recent = createSlidingMax(Math.round(RECENT * sampleRate));
   const smooth1 = createBoxcar(average1);
   const smooth2 = createBoxcar(average2);
   const delayL = createDelay(latency);
@@ -119,8 +125,10 @@ export const createLimiterDsp = (sampleRate: number) => {
         lastOver = peak > CEILING ? 20 * Math.log10(peak / CEILING) : 0;
       }
       const over = lastOver;
+      const recentOver = recent(over);
       fast = Math.max(over, fast * fastRelease);
-      slow += (over - slow) * slowCoefficient;
+      slow =
+        slow > recentOver ? Math.max(recentOver, slow * fastRelease) : slow + (over - slow) * slowCoefficient;
       if (fast < RELEASED_DB) fast = 0;
       if (slow < RELEASED_DB) slow = 0;
       const attenuation = Math.max(fast, slow);
