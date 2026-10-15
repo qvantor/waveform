@@ -1,3 +1,4 @@
+import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { CascadeOption } from '@waveform/ui-kit';
 import prettyBytes from 'pretty-bytes';
@@ -30,5 +31,5 @@ export const useWavetables = () => {
     queryFn: () => fetch('/.netlify/functions/get-wavetables-list').then((res) => res.json()),
     staleTime: 24 * 60 * 60 * 1000,
   });
-  return wavetablesToOptions(data ?? []);
+  return React.useMemo(() => wavetablesToOptions(data ?? []), [data]);
 };

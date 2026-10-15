@@ -5,6 +5,7 @@ import { FX_TYPES } from '@waveform/preset-schema';
 import { theme } from '@waveform/ui-kit';
 import { renderWithFx } from '../../../../test-utils/fx-wrapper';
 import { withoutAudioWorklet } from '../../../../test-utils/no-audio-worklet';
+import { workletLoads } from '../../../../test-utils/worklet-loads';
 import { applySnapshot } from '../../../app';
 import { FX_REGISTRY } from '../effects';
 import { FxList } from './fx-list';
@@ -19,10 +20,16 @@ const setup = (ui = <FxList />) => {
 // the reverb module loads asynchronously
 const flush = () => act(() => new Promise((resolve) => setTimeout(resolve)));
 
-// the first worklet module load fails (404, offline), the next ones succeed; test-setup restores the mock
+// the first load of the reverb module fails (404, offline), the next ones and the limiter module succeed;
+// test-setup restores the mock
 const failFirstWorkletLoad = () => {
   jest.spyOn(console, 'error').mockImplementation(() => undefined);
-  const addModule = jest.fn().mockRejectedValueOnce(new Error('404')).mockResolvedValue(undefined);
+  let failed = false;
+  const addModule = jest.fn((url: string) => {
+    if (failed || !url.endsWith('/reverb.js')) return Promise.resolve();
+    failed = true;
+    return Promise.reject(new Error('404'));
+  });
   Object.defineProperty(AudioContext.prototype, 'audioWorklet', {
     configurable: true,
     get: () => ({ addModule }),
@@ -188,7 +195,7 @@ describe('FxList', () => {
       expect(row).not.toHaveClass('unsupported');
 
       await user.click(row);
-      expect(addModule).toHaveBeenCalledTimes(2);
+      expect(workletLoads(addModule, 'reverb')).toBe(2);
       expect(fx[0].$effects.value.reverb.added).toBe(true);
       await flush();
       expect(fx[0].$status.value.reverb).toBe('ready');
@@ -207,7 +214,7 @@ describe('FxList', () => {
       expect(getRowOf('Reverb')).toHaveClass('on', 'unavailable');
 
       await user.click(screen.getByRole('button', { name: 'Retry Reverb' }));
-      expect(addModule).toHaveBeenCalledTimes(2);
+      expect(workletLoads(addModule, 'reverb')).toBe(2);
       expect(fx[0].$effects.value.reverb.added).toBe(true);
       await flush();
       expect(fx[0].$status.value.reverb).toBe('ready');
@@ -224,7 +231,7 @@ describe('FxList', () => {
       await user.click(getRowOf('Reverb'));
       expect(fx[0].$effects.value.reverb.added).toBe(false);
       expect(fx[0].$status.value.reverb).toBe('failed');
-      expect(addModule).toHaveBeenCalledTimes(1);
+      expect(workletLoads(addModule, 'reverb')).toBe(1);
       expect(getLampOf('Reverb')).toHaveAttribute('aria-pressed', 'false');
     });
 
@@ -234,7 +241,7 @@ describe('FxList', () => {
       await flush();
       screen.getByRole('button', { name: 'Retry Reverb' }).focus();
       await user.keyboard('{Enter}');
-      expect(addModule).toHaveBeenCalledTimes(2);
+      expect(workletLoads(addModule, 'reverb')).toBe(2);
       await flush();
       expect(fx[0].$status.value.reverb).toBe('ready');
       expect(fx[0].$effects.value.reverb.added).toBe(false);

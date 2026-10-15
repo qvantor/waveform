@@ -29,7 +29,9 @@ const MiniSynth = styled(Scaled)`
   ${miniPanel}
 `;
 
-const MiniFx = styled(FxScreen)`
+// the whole fx screen at a fixed width (the list above the rack in portrait), scaled down to fit the panel
+// like the mini synth: every effect on one or two lines
+const MiniFx = styled(Scaled)`
   flex: 0 0 40%;
   ${miniPanel}
 `;
@@ -61,7 +63,9 @@ export const KeysView = ({ portrait, screen }: { portrait: boolean; screen: Synt
   return (
     <Root>
       {screen === 'fx' ? (
-        <MiniFx className={panelClassName} />
+        <MiniFx className={panelClassName} width={portrait ? 760 : 1400}>
+          <FxScreen layout={portrait ? 'column' : 'row'} />
+        </MiniFx>
       ) : (
         <MiniSynth className={panelClassName} width={portrait ? 900 : 1600} fitHeight={!portrait}>
           <SynthSections layout={portrait ? 'grid' : 'row'} />

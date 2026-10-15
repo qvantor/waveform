@@ -1,6 +1,7 @@
 import React from 'react';
 import { screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
+import { FX_TYPES } from '@waveform/preset-schema';
 import { renderWithFx } from '../../../../test-utils/fx-wrapper';
 import { FxPanel } from './fx-panel';
 
@@ -40,6 +41,23 @@ describe('FxPanel', () => {
     await user.selectOptions(screen.getByRole('combobox'), 'Dub');
     expect(fx[0].$effects.value.delay).toMatchObject({ mix: 0.35, params: { mode: 1, time: 0.5 } });
     expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('dub');
+  });
+
+  // every effect: a new one that doesn't put out after its last group loses its mix
+  it.each(FX_TYPES)('%s: Out ends the flow of the groups, together with the last one', (type) => {
+    renderWithFx(<FxPanel type={type} />);
+    const out = screen.getByRole('group', { name: 'Out' });
+    // they wrap to a new line together
+    const pair = out.parentElement as HTMLElement;
+    expect(pair.children).toHaveLength(2);
+    expect(pair.firstElementChild).toHaveAttribute('role', 'group');
+    expect(pair.lastElementChild).toBe(out);
+    // one wrapping flow: the first group, ..., the pair
+    const flow = pair.parentElement as HTMLElement;
+    expect(flow.lastElementChild).toBe(pair);
+    Array.from(flow.children)
+      .slice(0, -1)
+      .forEach((group) => expect(group).toHaveAttribute('role', 'group'));
   });
 
   it('shows the reverb with its controls and presets', async () => {

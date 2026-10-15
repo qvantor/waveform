@@ -26,7 +26,7 @@ const labelsIn = (group: HTMLElement) => {
 };
 
 describe('ReverbControls', () => {
-  it('puts the era first, then the Fruity Reverb 2 sections, left to right', () => {
+  it('puts the era first, then the sections, left to right', () => {
     setup();
     const groups = screen.getAllByRole('group');
     expect(groups.map((group) => group.getAttribute('aria-label'))).toEqual([

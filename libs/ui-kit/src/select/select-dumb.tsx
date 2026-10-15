@@ -61,10 +61,10 @@ export const SelectDumb = ({ prev, next, children, className }: React.PropsWithC
   return (
     <SelectContainer className={className}>
       <ArrowIcons>
-        <button onClick={prev}>
+        <button type='button' aria-label='Previous' onClick={prev}>
           <LeftOutlined />
         </button>
-        <button onClick={next}>
+        <button type='button' aria-label='Next' onClick={next}>
           <RightOutlined />
         </button>
       </ArrowIcons>

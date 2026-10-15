@@ -6,7 +6,7 @@ import { ReverbParam, REVERB_PRESETS } from './reverb-presets';
 import { formatHz, formatMs, formatSeconds } from './format';
 import { eraIndex, REVERB_ERAS } from './reverb-era';
 import { REVERB_PROCESSOR, ReverbDspParams, ReverbMessage, ReverbOptions } from './reverb-dsp';
-import { createWorkletFx } from './worklet-fx';
+import { createWorkletFx, STEREO_WORKLET_OPTIONS } from './worklet-fx';
 
 const { lowcut, pre, size, decay, damp, bass, depth, sep, er, era } = FX_PARAMS.reverb;
 
@@ -50,14 +50,8 @@ export const reverb: FxDefinition<ReverbParam> = {
     const worklet = createWorkletFx(audioCtx, 'reverb', () => {
       const params: ReverbDspParams = { ...omit(values, 'era'), ...eraParams(values.era) };
       const processorOptions: ReverbOptions = { params, active };
-      // mono input is upmixed to both channels
       return new AudioWorkletNode(audioCtx, REVERB_PROCESSOR, {
-        numberOfInputs: 1,
-        numberOfOutputs: 1,
-        outputChannelCount: [2],
-        channelCount: 2,
-        channelCountMode: 'explicit',
-        channelInterpretation: 'speakers',
+        ...STEREO_WORKLET_OPTIONS,
         processorOptions,
       });
     });
@@ -79,10 +73,7 @@ export const reverb: FxDefinition<ReverbParam> = {
         active = value;
         post({ active });
       },
-      destroy: () => {
-        post({ stop: true });
-        worklet.destroy();
-      },
+      destroy: worklet.destroy,
     };
   },
 };

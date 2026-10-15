@@ -109,7 +109,7 @@ export const oscillator = ({
           switchMap((id) => {
             tableId = id;
             $waveTableLoading.next(true);
-            return defer(() => load(audioCtx, id)).pipe(
+            return defer(() => load(id)).pipe(
               retry({ count: 2, delay: 1000 }),
               catchError((error) => {
                 console.error(`Failed to load the wavetable ${id}`, error);

@@ -4,11 +4,12 @@ import { DelayControls } from './delay-controls';
 import { ReverbControls } from './reverb-controls';
 import { FxControlsProps } from './types';
 
-// effect-specific layout of the params, mix and the on/off switch are added by FxPanel
+// effect-specific layout of the params; the on/off switch is added by FxPanel, its Out (mix) group is put
+// after the last group of the effect
 export const FX_CONTROLS: Record<FxType, React.ComponentType<FxControlsProps>> = {
   delay: DelayControls,
   reverb: ReverbControls,
 };
 
 export { ParamHandle } from './param-handle';
-export { ControlsGroup } from './group';
+export { ControlsFlow, ControlsGroup } from './group';

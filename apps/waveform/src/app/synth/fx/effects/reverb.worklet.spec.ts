@@ -1,26 +1,12 @@
-import { createReverbDsp, REVERB_PROCESSOR, ReverbMessage, ReverbOptions } from './reverb-dsp';
+import { installWorkletScope } from '../../../../test-utils/worklet-scope';
+import { createReverbDsp, REVERB_PROCESSOR, ReverbOptions } from './reverb-dsp';
 
 jest.mock('./reverb-dsp', () => ({
   ...jest.requireActual('./reverb-dsp'),
   createReverbDsp: jest.fn(() => ({ set: jest.fn(), setActive: jest.fn(), process: jest.fn() })),
 }));
 
-interface Processor {
-  port: { onmessage: (event: { data: ReverbMessage }) => void };
-  process: (inputs: Float32Array[][], outputs: Float32Array[][]) => boolean;
-}
-
-// the AudioWorkletGlobalScope of the module
-const processors: Record<string, new (options: AudioWorkletNodeOptions) => Processor> = {};
-Object.assign(globalThis, {
-  sampleRate: 48000,
-  AudioWorkletProcessor: class {
-    port = { onmessage: null };
-  },
-  registerProcessor: (name: string, processor: new (options: AudioWorkletNodeOptions) => Processor) => {
-    processors[name] = processor;
-  },
-});
+const processors = installWorkletScope(48000);
 
 const OPTIONS = { params: { decay: 2 }, active: false } as unknown as ReverbOptions;
 
@@ -40,22 +26,11 @@ describe('reverb worklet', () => {
     expect(createReverbDsp).toHaveBeenLastCalledWith(48000, OPTIONS);
   });
 
-  it('renders both input channels into both outputs and keeps running', () => {
+  it('renders both input channels into both outputs', () => {
     const { processor, dsp, outputs } = setup();
     const [inL, inR] = [new Float32Array(128), new Float32Array(128)];
     expect(processor.process([[inL, inR]], outputs)).toBe(true);
     expect(dsp.process).toHaveBeenCalledWith(inL, inR, ...outputs[0]);
-  });
-
-  it('a mono input feeds both sides, a disconnected one is silence', () => {
-    const { processor, dsp, outputs } = setup();
-    const mono = new Float32Array(128);
-    processor.process([[mono]], outputs);
-    expect(dsp.process).toHaveBeenLastCalledWith(mono, mono, ...outputs[0]);
-    processor.process([[]], outputs);
-    const [silence, right] = dsp.process.mock.lastCall;
-    expect(right).toBe(silence);
-    expect(silence).toEqual(new Float32Array(128));
   });
 
   it('applies the posted params and the active flag', () => {
@@ -72,5 +47,7 @@ describe('reverb worklet', () => {
     processor.port.onmessage({ data: { stop: true } });
     expect(processor.process([[]], outputs)).toBe(false);
     expect(dsp.process).not.toHaveBeenCalled();
+    expect(dsp.set).not.toHaveBeenCalled();
+    expect(dsp.setActive).not.toHaveBeenCalled();
   });
 });

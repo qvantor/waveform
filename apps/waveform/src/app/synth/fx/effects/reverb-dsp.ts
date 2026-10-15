@@ -44,12 +44,10 @@ export interface ReverbOptions {
   active: boolean;
 }
 
-// main thread → worklet: changed params, the active flag; stop: the effect is destroyed, the processor
-// ends, so the node can be collected
+// main thread → worklet: changed params, the active flag
 export interface ReverbMessage {
   params?: Partial<ReverbDspParams>;
   active?: boolean;
-  stop?: boolean;
 }
 
 // the ranges the buffers are allocated for (FX_PARAMS.reverb, not imported: it would bundle zod)

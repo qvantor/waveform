@@ -58,7 +58,7 @@ type Props = DecayParams & {
   className?: string;
 };
 
-// decay time over frequency, like the Fruity Reverb 2 display: Bass lifts the lows,
+// decay time over frequency: Bass lifts the lows,
 // the highs above Hi damp fall off
 export const ReverbDecayChart = ({ size, decay, damp, bass, sampleRate, active, className }: Props) => {
   const data = React.useMemo(

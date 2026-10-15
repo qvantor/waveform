@@ -3,6 +3,7 @@ import { FX_MIX_PARAM, FX_PARAMS } from '@waveform/preset-schema';
 import { applySnapshot, getSnapshot } from '../../../app';
 import { createSynthCore, initModel } from '../../../../test-utils/models';
 import { withoutAudioWorklet } from '../../../../test-utils/no-audio-worklet';
+import { workletLoads } from '../../../../test-utils/worklet-loads';
 import { DELAY_PRESETS } from '../effects/delay-presets';
 import { REVERB_PRESETS } from '../effects/reverb-presets';
 import { findFxPreset, FxStatus } from '../effects';
@@ -428,10 +429,10 @@ describe('fx', () => {
       const { model, actions, synthCore, addModule } = setupFailing();
       await flush();
       expect(model.$status.value.reverb).toBe('failed');
-      expect(addModule).toHaveBeenCalledTimes(1);
+      expect(workletLoads(addModule, 'reverb')).toBe(1);
 
       actions.setAdded('reverb', true);
-      expect(addModule).toHaveBeenCalledTimes(2);
+      expect(workletLoads(addModule, 'reverb')).toBe(2);
       expect(model.$status.value.reverb).toBe('loading');
       expect(model.$effects.value.reverb.added).toBe(true);
       expect(synthCore.fxIn.connect).toHaveBeenLastCalledWith(model.slots.reverb.input);
@@ -455,7 +456,7 @@ describe('fx', () => {
       const { model, actions, addModule } = setupFailing();
       await flush();
       actions.setAdded('reverb', false);
-      expect(addModule).toHaveBeenCalledTimes(1);
+      expect(workletLoads(addModule, 'reverb')).toBe(1);
       expect(model.$status.value.reverb).toBe('failed');
     });
 
@@ -463,14 +464,14 @@ describe('fx', () => {
       const { model, actions, synthCore, addModule } = setupFailing();
       await flush();
       actions.retry('reverb');
-      expect(addModule).toHaveBeenCalledTimes(2);
+      expect(workletLoads(addModule, 'reverb')).toBe(2);
       expect(model.$status.value.reverb).toBe('loading');
       await flush();
       expect(model.$status.value.reverb).toBe('ready');
       expect(model.$effects.value.reverb.added).toBe(false);
       expect(synthCore.fxIn.connect).toHaveBeenLastCalledWith(synthCore.fxOut);
       actions.retry('reverb');
-      expect(addModule).toHaveBeenCalledTimes(2);
+      expect(workletLoads(addModule, 'reverb')).toBe(2);
     });
 
     it('a failed effect is inactive and passes the dry signal, retry activates it once ready', async () => {
