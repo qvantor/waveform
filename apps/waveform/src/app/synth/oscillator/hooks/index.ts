@@ -1,2 +1,2 @@
 export { useOscillatorContext, OscillatorContext } from './use-oscillator-context';
-export { useWavetables, skipSingleFolders } from './use-wavetables';
+export { useWavetables } from './use-wavetables';

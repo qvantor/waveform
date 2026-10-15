@@ -3,17 +3,13 @@ import styled from 'styled-components';
 import { FilterResponse } from '@waveform/ui-kit';
 import { delay } from '../../effects/delay';
 import { NormalIcon, PingPongIcon } from './delay-mode-icons';
-import { ControlsGroup, LastGroups } from './group';
+import { ControlsGroup, groupChart, LastGroups } from './group';
 import { ParamHandle } from './param-handle';
 import { ParamSwitch } from './param-switch';
 import { FxControlsProps } from './types';
 
-// narrower on phones (--fx-chart-width), shrinks when the group doesn't fit the panel
 const Chart = styled(FilterResponse)`
-  flex-shrink: 1;
-  width: var(--fx-chart-width, 160px);
-  min-width: 96px;
-  height: 80px;
+  ${groupChart}
 `;
 
 const { params: defs } = delay;

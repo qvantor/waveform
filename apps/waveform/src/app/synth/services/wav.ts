@@ -2,9 +2,8 @@ const PCM = 1;
 const FLOAT = 3;
 const EXTENSIBLE = 0xfffe;
 
-interface Wav {
+export interface Wav {
   sampleRate: number;
-  channels: number;
   // the first channel, as stored in the file (no resampling)
   samples: Float32Array;
 }
@@ -70,5 +69,5 @@ export const parseWav = (buffer: ArrayBuffer): Wav => {
     throw new Error(`Invalid WAV block align ${blockAlign}`);
   const samples = new Float32Array(Math.floor(data.size / blockAlign));
   for (let i = 0; i < samples.length; i++) samples[i] = read(view, data.offset + i * blockAlign);
-  return { sampleRate: fmt.sampleRate, channels: fmt.channels, samples };
+  return { sampleRate: fmt.sampleRate, samples };
 };

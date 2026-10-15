@@ -1,16 +1,19 @@
 import React from 'react';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
-import { CascadeOption, CascadeSelect } from '@waveform/ui-kit';
+import { Cascader } from 'antd';
+import { CascadeOption } from '@waveform/ui-kit';
 import { createOscillator } from '../../../../test-utils/models';
 import { OscillatorContext } from '../hooks';
 import { useWavetables } from '../hooks/use-wavetables';
 import { WaveSelector } from './wave-selector';
 
-// the real cascade (its arrows are clicked), its props are inspected; the antd popup is tested by antd
-jest.mock('@waveform/ui-kit', () => {
-  const actual = jest.requireActual('@waveform/ui-kit');
-  return { ...actual, CascadeSelect: jest.fn(actual.CascadeSelect) };
+// the real cascade select (its arrows are clicked), the props of the antd cascader are inspected; its popup
+// is tested by antd
+jest.mock('antd', () => {
+  const actual = jest.requireActual('antd');
+  const { createElement } = jest.requireActual('react');
+  return { ...actual, Cascader: jest.fn((props: object) => createElement(actual.Cascader, props)) };
 });
 
 jest.mock('../hooks/use-wavetables', () => ({
@@ -18,7 +21,11 @@ jest.mock('../hooks/use-wavetables', () => ({
   useWavetables: jest.fn(),
 }));
 
-type CascadeProps = React.ComponentProps<typeof CascadeSelect>;
+interface CascaderProps {
+  options: CascadeOption[];
+  value: (string | number)[];
+  onChange: (value: (string | number)[]) => void;
+}
 
 const files = [
   { value: 'ESW/Analog/Saw.wav', label: 'Saw' },
@@ -47,7 +54,7 @@ const setup = async (initialWavePath = ['ESW', 'Analog', 'ESW/Analog/Square.wav'
       <WaveSelector />
     </OscillatorContext.Provider>
   );
-  const props = () => (CascadeSelect as jest.Mock).mock.lastCall?.[0] as CascadeProps;
+  const props = () => (Cascader as unknown as jest.Mock).mock.lastCall?.[0] as CascaderProps;
   const click = (element: Element) => act(() => user.click(element));
   const path = () => model.$waveTablePath.value;
   return { click, props, path, model };
@@ -57,22 +64,22 @@ const next = () => screen.getByRole('button', { name: 'Next' });
 const previous = () => screen.getByRole('button', { name: 'Previous' });
 
 describe('WaveSelector', () => {
-  afterEach(() => (CascadeSelect as jest.Mock).mockClear());
+  afterEach(() => (Cascader as unknown as jest.Mock).mockClear());
 
   it('shows the name of the current wavetable', async () => {
     await setup();
     expect(screen.getByText('Square')).toBeInTheDocument();
   });
 
-  it('the only pack is not a column: the cascade shows its folders and files', async () => {
+  it('the only pack is not a column: the cascader shows its folders and files', async () => {
     const { props } = await setup();
     expect(props().options).toBe(categories);
     expect(props().value).toEqual(['Analog', 'ESW/Analog/Square.wav']);
   });
 
-  it('a file chosen in the cascade sets the whole path, the pack included', async () => {
+  it('a file chosen in the cascader sets the whole path, the pack included', async () => {
     const { props, path } = await setup();
-    await act(async () => props().setValue(['Basics', 'ESW/Basics/Sine.wav']));
+    await act(async () => props().onChange(['Basics', 'ESW/Basics/Sine.wav']));
     expect(path()).toEqual(['ESW', 'Basics', 'ESW/Basics/Sine.wav']);
     expect(props().value).toEqual(['Basics', 'ESW/Basics/Sine.wav']);
     expect(screen.getByText('Sine')).toBeInTheDocument();
@@ -93,6 +100,13 @@ describe('WaveSelector', () => {
     const { click, path } = await setup(['ESW', 'Analog', 'ESW/Analog/Saw.wav']);
     await click(previous());
     expect(path()).toEqual(['ESW', 'Basics', 'ESW/Basics/Sine.wav']);
+    expect(screen.getByText('Sine')).toBeInTheDocument();
+  });
+
+  it('next from a path without the pack goes to the next wavetable', async () => {
+    const { click, path } = await setup(['Analog', 'ESW/Analog/Saw.wav']);
+    await click(next());
+    expect(path()).toEqual(['ESW', 'Analog', 'ESW/Analog/Square.wav']);
   });
 
   it('with several packs the pack is a column', async () => {
@@ -105,10 +119,5 @@ describe('WaveSelector', () => {
     expect(props().value).toEqual(['ESW', 'Basics', 'ESW/Basics/Sine.wav']);
     await click(next());
     expect(path()).toEqual(['Other', 'Other/Pulse.wav']);
-  });
-
-  it('a path outside the pack is passed as it is', async () => {
-    const { props } = await setup(['Old', 'Old/Saw.wav']);
-    expect(props().value).toEqual(['Old', 'Old/Saw.wav']);
   });
 });

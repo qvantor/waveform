@@ -2,19 +2,15 @@ import React from 'react';
 import styled from 'styled-components';
 import { reverb } from '../../effects/reverb';
 import { ReverbParam } from '../../effects/reverb-presets';
-import { ControlsGroup, LastGroups } from './group';
+import { ControlsGroup, groupChart, LastGroups } from './group';
 import { ParamHandle } from './param-handle';
 import { ParamSwitch } from './param-switch';
 import { ReverbDecayChart } from './reverb-decay-chart';
 import { ERA_ICONS } from './reverb-era-icons';
 import { FxControlsProps } from './types';
 
-// narrower on phones (--fx-chart-width), shrinks when the group doesn't fit the panel
 const Chart = styled(ReverbDecayChart)`
-  flex-shrink: 1;
-  width: var(--fx-chart-width, 160px);
-  min-width: 96px;
-  height: 80px;
+  ${groupChart}
 `;
 
 const { params: defs } = reverb;

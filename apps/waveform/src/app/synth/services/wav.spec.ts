@@ -17,7 +17,7 @@ describe('parseWav', () => {
   it('reads a Serum wavetable (JUNK, fmt, clm, data) as stored', () => {
     const samples = floats(0, 0.25, -0.5, 1, -1, 0.125);
 
-    expect(parseWav(wavetableFile(samples))).toEqual({ sampleRate: 44100, channels: 1, samples });
+    expect(parseWav(wavetableFile(samples))).toEqual({ sampleRate: 44100, samples });
   });
 
   it('does not resample: the same samples at any sample rate', () => {
@@ -59,7 +59,6 @@ describe('parseWav', () => {
   it('keeps the first channel', () => {
     const wav = parseWav(riff(fmt({ channels: 2 }), data([0.5, -1, 0.25, -1, -0.5, -1])));
 
-    expect(wav.channels).toBe(2);
     expect(wav.samples).toEqual(floats(0.5, 0.25, -0.5));
   });
 

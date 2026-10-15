@@ -1,19 +1,13 @@
 import React from 'react';
 import { CascadeOption, CascadeSelect } from '@waveform/ui-kit';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
-import { useWavetables, useOscillatorContext, skipSingleFolders } from '../hooks';
+import { useWavetables, useOscillatorContext } from '../hooks';
 
 export const WaveSelector = () => {
   const wavetables = useWavetables();
   const [{ $waveTablePath, $waveTableLoading }, { setWaveTablePath }] = useOscillatorContext();
   const waveTablePath = useBehaviorSubject($waveTablePath);
   const loading = useBehaviorSubject($waveTableLoading);
-  // the only pack (ESW Core Tables) is not a column: folders, then files
-  const { prefix, options } = React.useMemo(() => skipSingleFolders(wavetables), [wavetables]);
-  const value = prefix.every((key, i) => waveTablePath[i] === key)
-    ? waveTablePath.slice(prefix.length)
-    : waveTablePath;
-  const setValue = (path: (string | number)[]) => setWaveTablePath([...prefix, ...path]);
   const label = React.useMemo(() => {
     const { values } = waveTablePath.reduce<{ options?: CascadeOption[]; values: CascadeOption[] }>(
       (sum, key) => {
@@ -35,7 +29,7 @@ export const WaveSelector = () => {
   }, [waveTablePath, wavetables]);
 
   return (
-    <CascadeSelect options={options} value={value} setValue={setValue} loading={loading}>
+    <CascadeSelect options={wavetables} value={waveTablePath} setValue={setWaveTablePath} loading={loading}>
       {label}
     </CascadeSelect>
   );

@@ -7,26 +7,15 @@ import { Section } from '@waveform/ui-kit';
 import { useSynthCore } from '../../common/modules';
 import { useFx } from '../modules';
 import { FX_REGISTRY, MIX_PARAM } from '../effects';
-import { ControlsGroup, FX_CONTROLS, ParamHandle } from './controls';
+import { ControlsFlow, ControlsGroup, FX_CONTROLS, ParamHandle } from './controls';
 import { PresetSelect } from './preset-select';
 
-// cuts off what Controls puts out of the panel on the left; reaches the edges of the panel (its 10px padding)
-// and the header (its 5px margin), so the shadows of the knobs aren't cut short
+// cuts off what ControlsFlow puts out of the panel on the left; reaches the edges of the panel (its 10px
+// padding) and the header (its 5px margin), so the shadows of the knobs aren't cut short
 const Clip = styled.div`
   overflow: hidden;
   padding: 5px 10px 10px;
   margin: -5px -10px -10px;
-`;
-
-// the groups of the effect (Out goes with its last one) in one flow, wrapped into lines on narrow screens;
-// out of the clip on the left: the line and the padding of the first group of a line (16px), on the right:
-// the padding of the last one (15px)
-const Controls = styled.div`
-  display: flex;
-  flex-wrap: wrap;
-  align-items: stretch;
-  row-gap: 10px;
-  margin: 0 -15px 0 -16px;
 `;
 
 // the same for every effect, set apart on the right of its line
@@ -58,7 +47,7 @@ export const FxPanel = ({ type }: { type: FxType }) => {
       extra={<PresetSelect type={type} mix={mix} params={params} onSelect={(id) => applyPreset(type, id)} />}
     >
       <Clip>
-        <Controls>
+        <ControlsFlow>
           <EffectControls
             params={params}
             setParam={(key, value) => setParam(type, key, value)}
@@ -75,7 +64,7 @@ export const FxPanel = ({ type }: { type: FxType }) => {
               </Out>
             }
           />
-        </Controls>
+        </ControlsFlow>
       </Clip>
     </Section>
   );
