@@ -2,33 +2,27 @@ import React from 'react';
 import styled from 'styled-components';
 import { reverb } from '../../effects/reverb';
 import { ReverbParam } from '../../effects/reverb-presets';
-import { ControlsGroup } from './group';
+import { ControlsGroup, LastGroups } from './group';
 import { ParamHandle } from './param-handle';
 import { ParamSwitch } from './param-switch';
 import { ReverbDecayChart } from './reverb-decay-chart';
 import { ERA_ICONS } from './reverb-era-icons';
 import { FxControlsProps } from './types';
 
-// many knobs: the groups wrap on narrow screens
-const Root = styled.div`
-  flex: 1 1 auto;
-  min-width: 0;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: stretch;
-  row-gap: 10px;
-`;
-
+// narrower on phones (--fx-chart-width), shrinks when the group doesn't fit the panel
 const Chart = styled(ReverbDecayChart)`
-  width: 160px;
+  flex-shrink: 1;
+  width: var(--fx-chart-width, 160px);
+  min-width: 96px;
   height: 80px;
 `;
 
 const { params: defs } = reverb;
 
 // the era (color of the input stage), then the sections, left to right:
-// input | time | decay (chart) | levels (faders: er, sep, mod); the wet level is the common mix of FxPanel
-export const ReverbControls = ({ params, setParam, on, sampleRate }: FxControlsProps) => {
+// input | time | decay (chart) | levels (faders: er, sep, mod); the wet level is the common mix of FxPanel,
+// which also lays the groups out (many knobs: they wrap on narrow screens)
+export const ReverbControls = ({ params, setParam, on, sampleRate, out }: FxControlsProps) => {
   const handle = (key: Exclude<ReverbParam, 'era'>) => (
     <ParamHandle
       def={defs[key]}
@@ -38,7 +32,7 @@ export const ReverbControls = ({ params, setParam, on, sampleRate }: FxControlsP
     />
   );
   return (
-    <Root>
+    <>
       <ControlsGroup caption='Era' disabled={!on}>
         <ParamSwitch
           def={defs.era}
@@ -68,11 +62,14 @@ export const ReverbControls = ({ params, setParam, on, sampleRate }: FxControlsP
         {handle('damp')}
         {handle('bass')}
       </ControlsGroup>
-      <ControlsGroup caption='Levels' disabled={!on}>
-        {handle('er')}
-        {handle('sep')}
-        {handle('depth')}
-      </ControlsGroup>
-    </Root>
+      <LastGroups>
+        <ControlsGroup caption='Levels' disabled={!on}>
+          {handle('er')}
+          {handle('sep')}
+          {handle('depth')}
+        </ControlsGroup>
+        {out}
+      </LastGroups>
+    </>
   );
 };

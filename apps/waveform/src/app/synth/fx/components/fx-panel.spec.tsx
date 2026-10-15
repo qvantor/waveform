@@ -42,6 +42,22 @@ describe('FxPanel', () => {
     expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('dub');
   });
 
+  it.each([
+    ['delay', 'Mode', 'Filter'],
+    ['reverb', 'Era', 'Levels'],
+  ] as const)('%s: Out ends the flow of the groups, together with the last one', (type, first, last) => {
+    renderWithFx(<FxPanel type={type} />);
+    const out = screen.getByRole('group', { name: 'Out' });
+    // they wrap to a new line together
+    const pair = out.parentElement as HTMLElement;
+    expect(screen.getByRole('group', { name: last }).parentElement).toBe(pair);
+    expect(pair.lastElementChild).toBe(out);
+    // one wrapping flow: the first group, ..., the pair
+    const flow = pair.parentElement as HTMLElement;
+    expect(screen.getByRole('group', { name: first }).parentElement).toBe(flow);
+    expect(flow.lastElementChild).toBe(pair);
+  });
+
   it('shows the reverb with its controls and presets', async () => {
     const { fx } = renderWithFx(<FxPanel type='reverb' />);
     const user = userEvent.setup();

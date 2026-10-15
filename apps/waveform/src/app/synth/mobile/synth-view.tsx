@@ -10,8 +10,10 @@ const Root = styled.div`
   -webkit-overflow-scrolling: touch;
 `;
 
+// narrower charts: on a phone (360px and up) the filter or the decay group shares its line with the next one
 const Fx = styled(FxScreen)`
   height: 100%;
+  --fx-chart-width: 128px;
 `;
 
 export const SynthView = ({ portrait, screen }: { portrait: boolean; screen: SynthScreen }) => (

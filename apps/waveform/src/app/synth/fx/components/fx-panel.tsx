@@ -3,24 +3,35 @@ import styled from 'styled-components';
 import { distinctUntilChanged, map } from 'rxjs';
 import { FxType } from '@waveform/preset-schema';
 import { useObservable } from '@waveform/rxjs-react';
-import { Section, theme } from '@waveform/ui-kit';
+import { Section } from '@waveform/ui-kit';
 import { useSynthCore } from '../../common/modules';
 import { useFx } from '../modules';
 import { FX_REGISTRY, MIX_PARAM } from '../effects';
 import { ControlsGroup, FX_CONTROLS, ParamHandle } from './controls';
 import { PresetSelect } from './preset-select';
 
-const Controls = styled.div`
-  display: flex;
-  align-items: stretch;
-  height: 100%;
+// cuts off what Controls puts out of the panel on the left; reaches the edges of the panel (its 10px padding)
+// and the header (its 5px margin), so the shadows of the knobs aren't cut short
+const Clip = styled.div`
+  overflow: hidden;
+  padding: 5px 10px 10px;
+  margin: -5px -10px -10px;
 `;
 
-// the same for every effect, set apart on the right
+// the groups of the effect (Out goes with its last one) in one flow, wrapped into lines on narrow screens;
+// out of the clip on the left: the line and the padding of the first group of a line (16px), on the right:
+// the padding of the last one (15px)
+const Controls = styled.div`
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  row-gap: 10px;
+  margin: 0 -15px 0 -16px;
+`;
+
+// the same for every effect, set apart on the right of its line
 const Out = styled(ControlsGroup)`
   margin-left: auto;
-  padding-right: 0;
-  border-left: 1px solid ${theme.colors.primaryLowContrast};
 `;
 
 // presets in the header, the controls come from the effect, mix and the on/off switch are common for every effect
@@ -46,17 +57,26 @@ export const FxPanel = ({ type }: { type: FxType }) => {
       onClick={() => setOn(type, !on)}
       extra={<PresetSelect type={type} mix={mix} params={params} onSelect={(id) => applyPreset(type, id)} />}
     >
-      <Controls>
-        <EffectControls
-          params={params}
-          setParam={(key, value) => setParam(type, key, value)}
-          on={on}
-          sampleRate={audioCtx.sampleRate}
-        />
-        <Out caption='Out' disabled={!on}>
-          <ParamHandle def={MIX_PARAM} value={mix} onChange={(value) => setMix(type, value)} disabled={!on} />
-        </Out>
-      </Controls>
+      <Clip>
+        <Controls>
+          <EffectControls
+            params={params}
+            setParam={(key, value) => setParam(type, key, value)}
+            on={on}
+            sampleRate={audioCtx.sampleRate}
+            out={
+              <Out caption='Out' disabled={!on}>
+                <ParamHandle
+                  def={MIX_PARAM}
+                  value={mix}
+                  onChange={(value) => setMix(type, value)}
+                  disabled={!on}
+                />
+              </Out>
+            }
+          />
+        </Controls>
+      </Clip>
     </Section>
   );
 };
