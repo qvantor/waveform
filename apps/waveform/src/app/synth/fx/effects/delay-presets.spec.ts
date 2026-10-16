@@ -1,4 +1,4 @@
-import { FX_MIX_PARAM, FX_PARAMS, normalizePreset } from '@waveform/preset-schema';
+import { FX_MIX_PARAMS, FX_PARAMS, normalizePreset } from '@waveform/preset-schema';
 import { mapValues } from 'lodash';
 import { DELAY_PRESETS } from './delay-presets';
 import { findFxPreset } from '.';
@@ -20,7 +20,7 @@ describe('delay presets', () => {
 
   it('the default preset is the schema defaults, the state of a freshly added delay', () => {
     const preset = DELAY_PRESETS.find((item) => item.id === 'default');
-    expect(preset?.mix).toBe(FX_MIX_PARAM.default);
+    expect(preset?.mix).toBe(FX_MIX_PARAMS.delay.default);
     expect(preset?.params).toEqual(mapValues(FX_PARAMS.delay, (param) => param.default));
   });
 

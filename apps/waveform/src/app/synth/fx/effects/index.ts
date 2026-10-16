@@ -1,12 +1,13 @@
 import { FX_MIX_PARAM, FxType } from '@waveform/preset-schema';
 import { number } from '@waveform/math';
 import { FxDefinition, FxParamDef, FxPreset } from './types';
+import { distortion } from './distortion';
 import { delay } from './delay';
 import { reverb } from './reverb';
 
-export const FX_REGISTRY: Record<FxType, FxDefinition> = { delay, reverb };
+export const FX_REGISTRY: Record<FxType, FxDefinition> = { distortion, delay, reverb };
 
-// common for every effect, applied by createFxSlot
+// common for every effect (the range, its default is the one of each effect), applied by createFxSlot
 export const MIX_PARAM: FxParamDef = {
   ...FX_MIX_PARAM,
   label: 'Mix',

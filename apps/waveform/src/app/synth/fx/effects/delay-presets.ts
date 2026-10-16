@@ -1,5 +1,5 @@
 import { mapValues } from 'lodash';
-import { FX_MIX_PARAM, FX_PARAMS } from '@waveform/preset-schema';
+import { FX_MIX_PARAMS, FX_PARAMS } from '@waveform/preset-schema';
 import { FxPreset } from './types';
 
 export type DelayParam = keyof typeof FX_PARAMS.delay;
@@ -12,7 +12,7 @@ export const DELAY_PRESETS: FxPreset<DelayParam>[] = [
   {
     id: 'default',
     name: 'Default',
-    mix: FX_MIX_PARAM.default,
+    mix: FX_MIX_PARAMS.delay.default,
     params: mapValues(FX_PARAMS.delay, (param) => param.default),
   },
   {

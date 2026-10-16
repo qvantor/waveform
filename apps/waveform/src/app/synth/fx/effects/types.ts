@@ -31,6 +31,9 @@ export interface FxCore {
   $status?: BehaviorSubject<FxStatus>;
   // loads a failed effect again
   retry?: () => void;
+  // seconds the output lags the input (linear phase oversampling), createFxSlot delays the dry signal as
+  // much, so the mix doesn't comb filter; absent: no latency
+  latency?: number;
 }
 
 // a built-in preset of the effect: sets mix and every param, added/on/order are not touched

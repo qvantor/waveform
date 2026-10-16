@@ -88,15 +88,22 @@ describe('FxList', () => {
     expect(row).not.toHaveClass('on');
   });
 
-  it('lists delay and reverb in the chain order, each row toggles only its effect', async () => {
+  it('lists distortion, delay and reverb in the chain order, each row toggles only its effect', async () => {
     const { fx, user } = setup();
+    const distortion = screen.getByText('Distortion');
     const delay = screen.getByText('Delay');
     const reverb = screen.getByText('Reverb');
+    expect(distortion.compareDocumentPosition(delay)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(delay.compareDocumentPosition(reverb)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
 
     await user.click(reverb);
     expect(fx[0].$effects.value.reverb.added).toBe(true);
     expect(fx[0].$effects.value.delay.added).toBe(false);
+    expect(fx[0].$effects.value.distortion.added).toBe(false);
+
+    await user.click(distortion);
+    expect(fx[0].$effects.value.distortion.added).toBe(true);
+    expect(fx[0].$effects.value.reverb.added).toBe(true);
   });
 
   it('every effect has its icon and the big lamp', () => {
@@ -109,9 +116,10 @@ describe('FxList', () => {
     });
   });
 
-  it('every effect has its own color: reverb is green, delay stays blue', () => {
+  it('every effect has its own color: reverb is green, delay stays blue, distortion is red', () => {
     expect(FX_COLORS.reverb).toBe(theme.colors.accent);
     expect(FX_COLORS.delay).toBe(theme.colors.secondAccent);
+    expect(FX_COLORS.distortion).toBe(theme.colors.red);
     expect(new Set(FX_TYPES.map((type) => FX_COLORS[type])).size).toBe(FX_TYPES.length);
   });
 

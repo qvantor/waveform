@@ -65,25 +65,39 @@ export const createFixedAllpass = (delay: number) => {
   };
 };
 
-// transposed direct form II, the coefficients are the BiquadFilterNode ones (biquad.coefficients)
+// butterworth: Q of highpass and lowpass is in dB
+export const BUTTERWORTH_Q = -3.01;
+
+// transposed direct form II, the coefficients are the BiquadFilterNode ones (biquad.coefficients); the state
+// is in a typed array, so writing it boxes no number
 export const createBiquad = () => {
   let [b0, b1, b2, a1, a2] = [1, 0, 0, 0, 0];
-  let z1 = 0;
-  let z2 = 0;
+  const z = new Float64Array(2);
   return {
     set: (type: BiquadFilterType, params: biquad.BiquadParams, sampleRate: number) => {
       [b0, b1, b2, a1, a2] = biquad.coefficients(type, params, sampleRate);
     },
     process: (input: number) => {
-      const output = b0 * input + z1;
-      z1 = b1 * input - a1 * output + z2;
-      z2 = b2 * input - a2 * output;
+      const output = b0 * input + z[0];
+      z[0] = b1 * input - a1 * output + z[1];
+      z[1] = b2 * input - a2 * output;
       return output;
     },
-    clear: () => {
-      z1 = 0;
-      z2 = 0;
+    // a block: output[s] of input[s] for s < frames, the same as process() sample by sample
+    processBlock: (input: Float64Array, output: Float64Array, frames: number) => {
+      let z1 = z[0];
+      let z2 = z[1];
+      for (let s = 0; s < frames; s++) {
+        const x = input[s];
+        const y = b0 * x + z1;
+        z1 = b1 * x - a1 * y + z2;
+        z2 = b2 * x - a2 * y;
+        output[s] = y;
+      }
+      z[0] = z1;
+      z[1] = z2;
     },
+    clear: () => z.fill(0),
   };
 };
 
@@ -120,4 +134,11 @@ export const stepAll = (values: Smoothed[], frames: number) => {
   let gliding = false;
   for (let i = 0; i < values.length; i++) gliding = values[i].step(frames) || gliding;
   return gliding;
+};
+
+// the loudest sample of a block
+export const peak = (data: Float32Array) => {
+  let max = 0;
+  for (let i = 0; i < data.length; i++) max = Math.max(max, Math.abs(data[i]));
+  return max;
 };

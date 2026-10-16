@@ -32,6 +32,8 @@ Built with TypeScript, RxJS and the Web Audio API. Nothing to install and no acc
 ### ✨ FX rack
 
 - Effects chain with drag-and-drop ordering, per-effect dry/wet mix and bypass
+- **Distortion**: a waveshaper running in an AudioWorklet (all wet by default), 4× oversampled with linear phase filters (no inharmonic aliases on high notes; the dry signal is delayed as much, so the mix stays clean), with Soft clip (tanh) and Hard clip modes, drive with an automatic makeup gain (a note keeps its loudness at any drive, the curve only changes its color), a tone lowpass after the curve, an output level trim and a transfer curve display
+- Built-in distortion presets: Warm, Overdrive, Crunch, Fuzz, Parallel grit, Lo-fi
 - **Delay** with normal and ping-pong modes, Haas stereo panning and a bandpass filter in the feedback loop
 - Built-in delay presets: Slapback, Stereo widener, Digital echo, Ping-pong 250ms, Echo 375ms, Echo 500ms, Wide ping-pong, Tape echo, Dub, Ambient wash, Lo-fi, Metallic comb
 - **Reverb**: an algorithmic 16-line feedback delay network running in an AudioWorklet, with input low cut, predelay, room size, decay with hi damping and a bass multiplier, tail modulation depth (every line has its own LFO), stereo separation and early reflections level (damped like the tail; the wet level is the common mix), plus a decay-over-frequency display. An **Era** switch colors the input like vintage units: Now (full band), 80s (clean, converter-like bandwidth limit and a little low-mid body) and 70s (darker, with a touch of asymmetric tube saturation)

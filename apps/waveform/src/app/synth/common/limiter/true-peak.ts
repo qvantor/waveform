@@ -1,3 +1,5 @@
+import { fir } from '@waveform/math';
+
 // true peak detection (ITU-R BS.1770): a DAC reconstructs the wave between the samples, and there it can
 // go over full scale although no sample does. The input is oversampled 4× by a polyphase windowed sinc
 // cut exactly at the nyquist of the input, so its phase 0 is the input itself: the true peak is never
@@ -11,34 +13,11 @@ const KAISER_BETA = 5;
 // before x up to the next one
 export const TRUE_PEAK_DELAY = TRUE_PEAK_TAPS / 2;
 
-// the modified Bessel function of the first kind, order 0 (the Kaiser window)
-const besselI0 = (x: number) => {
-  let sum = 1;
-  let term = 1;
-  for (let k = 1; term > sum * 1e-16; k++) {
-    term *= (x / (2 * k)) ** 2;
-    sum += term;
-  }
-  return sum;
-};
-
-const sinc = (x: number) => (x === 0 ? 1 : Math.sin(Math.PI * x) / (Math.PI * x));
-
-// phase p interpolates the point p/4 of a sample after the center: tap j weighs the sample written j steps
-// ago, which is j - DELAY + p/4 samples before that point (within the window: |x| < DELAY for p = 1..3).
-// Every phase sums to 1, so DC reads exactly
-const createPhase = (phase: number) => {
-  const taps = Float64Array.from({ length: TRUE_PEAK_TAPS }, (_, j) => {
-    const x = j - TRUE_PEAK_DELAY + phase / OVERSAMPLING;
-    const r = x / TRUE_PEAK_DELAY;
-    return (sinc(x) * besselI0(KAISER_BETA * Math.sqrt(1 - r * r))) / besselI0(KAISER_BETA);
-  });
-  const sum = taps.reduce((a, b) => a + b);
-  return taps.map((tap) => tap / sum);
-};
-
-// phase 0 is the center sample itself
-const PHASES = Array.from({ length: OVERSAMPLING - 1 }, (_, i) => createPhase(i + 1));
+// phase p interpolates the point p/4 of a sample after the center (the sample written DELAY steps ago);
+// every phase sums to 1, so DC reads exactly. Phase 0 is the center sample itself
+const PHASES = Array.from({ length: OVERSAMPLING - 1 }, (_, i) =>
+  fir.sincPhase(i + 1, OVERSAMPLING, TRUE_PEAK_TAPS, KAISER_BETA)
+);
 const [PHASE1, PHASE2, PHASE3] = PHASES;
 
 // a point between the samples is a weighted sum of the last TAPS of them: it is at most this many times

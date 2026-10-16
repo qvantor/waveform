@@ -18,16 +18,21 @@ export const FILTER_TYPES = [
 ] as const;
 
 // effects of the fx rack, the order is the default chain order
-export const FX_TYPES = ['delay', 'reverb'] as const;
+export const FX_TYPES = ['distortion', 'delay', 'reverb'] as const;
 export type FxType = typeof FX_TYPES[number];
 
-// known types only, no duplicates, the missing ones are appended
-// (presets from a newer client may contain effect types this one doesn't know)
+// known types only, no duplicates (presets from a newer client may contain effect types this one doesn't
+// know); a missing type (saved before it existed) takes its default place: before the first effect that
+// comes after it in FX_TYPES, at the end if none does
 export const normalizeFxOrder = (order: readonly unknown[]): FxType[] => {
   const known = order.filter(
     (type, i): type is FxType => FX_TYPES.includes(type as FxType) && order.indexOf(type) === i
   );
-  return [...known, ...FX_TYPES.filter((type) => !known.includes(type))];
+  return FX_TYPES.reduce<FxType[]>((result, type, index) => {
+    if (result.includes(type)) return result;
+    const next = result.findIndex((item) => FX_TYPES.indexOf(item) > index);
+    return next === -1 ? [...result, type] : [...result.slice(0, next), type, ...result.slice(next)];
+  }, known);
 };
 
 export interface ParamRange {
@@ -38,8 +43,28 @@ export interface ParamRange {
 }
 
 // numeric fx params: knob ranges in the app, validation and defaults of presets
+// the dry/wet mix of an effect (0: dry, 1: wet); delay and reverb are mixed into the dry sound
 export const FX_MIX_PARAM: ParamRange = { min: 0, max: 1, default: 0.3 };
+// the mix of each effect, the default is the one of a freshly added effect: the distortion replaces the dry
+// sound
+export const FX_MIX_PARAMS: Record<FxType, ParamRange> = {
+  distortion: { ...FX_MIX_PARAM, default: 1 },
+  delay: FX_MIX_PARAM,
+  reverb: FX_MIX_PARAM,
+};
 export const FX_PARAMS = {
+  // waveshaper, 4× oversampled
+  distortion: {
+    // the curve, an index into DISTORTION_MODES of the app (0: soft clip, 1: hard clip); new modes are
+    // appended, so the saved indexes keep their meaning
+    mode: { min: 0, max: 1, default: 0, int: true },
+    // dB of gain into the curve; a makeup gain takes back the loudness it adds to a note
+    drive: { min: 0, max: 24, default: 12 },
+    // lowpass after the curve, 20 kHz is open
+    tone: { min: 500, max: 20000, default: 20000 },
+    // dB of the output on top of the makeup gain (0: a note is about as loud as the dry one)
+    level: { min: -24, max: 12, default: 0 },
+  },
   delay: {
     time: { min: 0.01, max: 1, default: 0.2 },
     fb: { min: 0, max: 0.9, default: 0.5 },
@@ -144,12 +169,13 @@ const voicingSchema = z
 // one shape for presets and url snapshots, only the validation of a value differs
 const fxEffectShape = <K extends string, P, F>(
   params: Record<K, ParamRange>,
+  mix: ParamRange,
   param: (range: ParamRange) => P,
   flag: (value: boolean) => F
 ) => ({
   a: flag(false), // in the chain
   on: flag(true), // not bypassed
-  mix: param(FX_MIX_PARAM),
+  mix: param(mix),
   ...mapParams(params, param),
 });
 
@@ -160,19 +186,32 @@ const fxSchema = z
       .max(32)
       .transform(normalizeFxOrder)
       .default([...FX_TYPES]),
+    distortion: z
+      .object(
+        fxEffectShape(FX_PARAMS.distortion, FX_MIX_PARAMS.distortion, paramRange, (value) =>
+          z.boolean().default(value)
+        )
+      )
+      .default({}),
     delay: z
-      .object(fxEffectShape(FX_PARAMS.delay, paramRange, (value) => z.boolean().default(value)))
+      .object(
+        fxEffectShape(FX_PARAMS.delay, FX_MIX_PARAMS.delay, paramRange, (value) => z.boolean().default(value))
+      )
       .default({}),
     reverb: z
-      .object(fxEffectShape(FX_PARAMS.reverb, paramRange, (value) => z.boolean().default(value)))
+      .object(
+        fxEffectShape(FX_PARAMS.reverb, FX_MIX_PARAMS.reverb, paramRange, (value) =>
+          z.boolean().default(value)
+        )
+      )
       .default({}),
   })
   .default({});
 
-const lenientFxEffect = <K extends string>(params: Record<K, ParamRange>) =>
+const lenientFxEffect = <K extends string>(params: Record<K, ParamRange>, mix: ParamRange) =>
   z.preprocess(
     toObject,
-    z.object(fxEffectShape(params, lenientParamRange, (value) => z.boolean().catch(value)))
+    z.object(fxEffectShape(params, mix, lenientParamRange, (value) => z.boolean().catch(value)))
   );
 
 // fx snapshot of the url: never fails, invalid values fall back to the defaults (see lenientParamRange)
@@ -180,8 +219,9 @@ export const fxSnapSchema = z.preprocess(
   toObject,
   z.object({
     o: z.array(z.unknown()).catch([]).transform(normalizeFxOrder),
-    delay: lenientFxEffect(FX_PARAMS.delay),
-    reverb: lenientFxEffect(FX_PARAMS.reverb),
+    distortion: lenientFxEffect(FX_PARAMS.distortion, FX_MIX_PARAMS.distortion),
+    delay: lenientFxEffect(FX_PARAMS.delay, FX_MIX_PARAMS.delay),
+    reverb: lenientFxEffect(FX_PARAMS.reverb, FX_MIX_PARAMS.reverb),
   })
 );
 

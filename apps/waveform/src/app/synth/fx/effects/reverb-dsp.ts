@@ -1,9 +1,11 @@
 import {
+  BUTTERWORTH_Q,
   createAllpass,
   createBiquad,
   createDelayLine,
   createFixedAllpass,
   createSmoothed,
+  peak,
   Smoothed,
   stepAll,
 } from './dsp';
@@ -86,8 +88,6 @@ export const MOD_RATES = [
 // (8 node-based lines tapped before the decay gain), so the saved presets keep their balance
 export const TAIL_LEVEL = 0.48;
 export const LINE_INPUT = 0.5 * Math.sqrt(8 / LINE_TIMES.length);
-// butterworth: Q of highpass and lowpass is in dB
-const BUTTERWORTH_Q = -3.01;
 // size and predelay changes glide like tape, so a knob drag bends the tail once instead of chirping per step
 export const SIZE_GLIDE = 0.1;
 // the other params glide like setSmooth
@@ -101,12 +101,6 @@ export const linePolarity = (i: number) => (i % 4 < 2 ? 1 : -1);
 
 export const allpassGain = (delay: number, decay: number, gain: number) =>
   Math.min(gain, 10 ** ((-3 * delay) / (decay * ALLPASS_RING)));
-
-const peak = (data: Float32Array) => {
-  let max = 0;
-  for (let i = 0; i < data.length; i++) max = Math.max(max, Math.abs(data[i]));
-  return max;
-};
 
 // input → 2 bandwidth lowpasses (era) → tube (era) → lowcut (highpass, also removes the DC of the
 // asymmetric tube) → body (peaking, era) → predelay; the tube gets the band-limited signal, so the

@@ -145,6 +145,31 @@ describe('createBiquad', () => {
     filter.clear();
     expect(filter.process(0)).toBe(0);
   });
+
+  it('processBlock is process() sample by sample, its state carries on to the next block and to process()', () => {
+    const input = Float64Array.from({ length: 300 }, (_, n) => Math.sin(n * 0.3) + (n % 5) / 10);
+    const one = createBiquad();
+    const block = createBiquad();
+    [one, block].forEach((filter) =>
+      filter.set('lowpass', { frequency: 2000, Q: -3.01, gain: 0 }, SAMPLE_RATE)
+    );
+    const expected = Array.from(input, (x) => one.process(x));
+    const output = new Float64Array(300);
+    block.processBlock(input, output, 128);
+    block.processBlock(input.subarray(128), output.subarray(128), 128);
+    for (let n = 256; n < 300; n++) output[n] = block.process(input[n]);
+    expect(Array.from(output)).toEqual(expected);
+  });
+
+  it('clear resets the state of processBlock too', () => {
+    const filter = createBiquad();
+    filter.set('lowpass', { frequency: 100, Q: 0, gain: 0 }, SAMPLE_RATE);
+    const output = new Float64Array(4);
+    filter.processBlock(Float64Array.of(1, 1, 1, 1), output, 4);
+    filter.clear();
+    filter.processBlock(new Float64Array(4), output, 4);
+    expect(Array.from(output)).toEqual([0, 0, 0, 0]);
+  });
 });
 
 describe('createSmoothed', () => {

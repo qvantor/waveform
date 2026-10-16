@@ -1,10 +1,11 @@
 import { mapValues } from 'lodash';
-import { FX_MIX_PARAM, FX_PARAMS } from '@waveform/preset-schema';
+import { FX_MIX_PARAM, FX_PARAMS, FX_TYPES } from '@waveform/preset-schema';
 import { applySnapshot, getSnapshot } from '../../../app';
 import { createSynthCore, initModel } from '../../../../test-utils/models';
 import { withoutAudioWorklet } from '../../../../test-utils/no-audio-worklet';
 import { workletLoads } from '../../../../test-utils/worklet-loads';
 import { DELAY_PRESETS } from '../effects/delay-presets';
+import { DISTORTION_LATENCY } from '../effects/distortion-dsp';
 import { REVERB_PRESETS } from '../effects/reverb-presets';
 import { findFxPreset, FxStatus } from '../effects';
 import { fx, getChain } from './fx';
@@ -14,14 +15,17 @@ const setup = () => {
   const createDelay = jest.spyOn(synthCore[0].audioCtx, 'createDelay');
   const createBiquadFilter = jest.spyOn(synthCore[0].audioCtx, 'createBiquadFilter');
   const [model, actions] = initModel(fx({ synthCore }), 'fx', undefined);
-  // the left delay line and its bandpass, the bandpass feeds the line back through the feedback gain
-  const delayNode = createDelay.mock.results[0].value as DelayNode;
+  // the left delay line (the first one as long as the longest time) and its bandpass, the bandpass feeds the
+  // line back through the feedback gain
+  const line = createDelay.mock.calls.findIndex(([max]) => max === FX_PARAMS.delay.time.max);
+  const delayNode = createDelay.mock.results[line].value as DelayNode;
   const filterNode = createBiquadFilter.mock.results[0].value as BiquadFilterNode;
   const feedback = (filterNode.connect as jest.Mock).mock.calls[0][0] as GainNode;
   return { model, actions, synthCore: synthCore[0], delayNode, feedback };
 };
 
 const REVERB_DEFAULTS = mapValues(FX_PARAMS.reverb, (param) => param.default);
+const DISTORTION_DEFAULTS = mapValues(FX_PARAMS.distortion, (param) => param.default);
 const defaultReverb = () => ({ mix: FX_MIX_PARAM.default, params: REVERB_DEFAULTS });
 
 const lastGain = (node: GainNode) => (node.gain.setTargetAtTime as jest.Mock).mock.lastCall?.[0];
@@ -29,12 +33,17 @@ const lastGain = (node: GainNode) => (node.gain.setTargetAtTime as jest.Mock).mo
 // the reverb worklet module loads asynchronously: settled after the pending promises
 const flush = () => new Promise((resolve) => setTimeout(resolve));
 
-// the reverb module fails to load on the first try
+// the reverb module fails to load on the first try, the other modules load
 const setupFailing = () => {
   const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
   const synthCore = createSynthCore();
   const addModule = synthCore[0].audioCtx.audioWorklet.addModule as jest.Mock;
-  addModule.mockRejectedValueOnce(new Error('404'));
+  let failed = false;
+  addModule.mockImplementation((url: string) => {
+    if (failed || !url.endsWith('/reverb.js')) return Promise.resolve();
+    failed = true;
+    return Promise.reject(new Error('404'));
+  });
   const [model, actions] = initModel(fx({ synthCore }), 'fx', undefined);
   return { model, actions, synthCore: synthCore[0], addModule, error };
 };
@@ -278,7 +287,7 @@ describe('fx', () => {
     actions.setAdded('delay', true);
     actions.setAdded('reverb', true);
     const chain = (reverb: FxStatus) =>
-      getChain(['reverb', 'delay'], model.$effects.value, { delay: 'ready', reverb });
+      getChain(['reverb', 'delay'], model.$effects.value, { distortion: 'ready', delay: 'ready', reverb });
     expect(chain('loading')).toEqual(['reverb', 'delay']);
     expect(chain('ready')).toEqual(['reverb', 'delay']);
     expect(chain('unsupported')).toEqual(['delay']);
@@ -288,9 +297,57 @@ describe('fx', () => {
   it('move reorders the effects', () => {
     const { model, actions } = setup();
     actions.move(0, 0);
-    expect(model.$order.value).toEqual(['delay', 'reverb']);
-    actions.move(1, 0);
-    expect(model.$order.value).toEqual(['reverb', 'delay']);
+    expect(model.$order.value).toEqual(['distortion', 'delay', 'reverb']);
+    actions.move(2, 0);
+    expect(model.$order.value).toEqual(['reverb', 'distortion', 'delay']);
+    actions.move(1, 2);
+    expect(model.$order.value).toEqual(['reverb', 'delay', 'distortion']);
+  });
+
+  describe('distortion', () => {
+    it('is first in the chain by default', async () => {
+      const { model, actions, synthCore } = setup();
+      const { distortion, delay, reverb } = model.slots;
+      expect(model.$order.value).toEqual(['distortion', 'delay', 'reverb']);
+      FX_TYPES.forEach((type) => actions.setAdded(type, true));
+      await flush();
+      expect(synthCore.fxIn.connect).toHaveBeenLastCalledWith(distortion.input);
+      expect(distortion.output.connect).toHaveBeenLastCalledWith(delay.input);
+      expect(delay.output.connect).toHaveBeenLastCalledWith(reverb.input);
+      expect(reverb.output.connect).toHaveBeenLastCalledWith(synthCore.fxOut);
+    });
+
+    it('its slot delays the dry signal by the latency of the worklet, the others have none', () => {
+      const { model, synthCore } = setup();
+      const { dryDelay } = model.slots.distortion;
+      expect(dryDelay?.delayTime.setValueAtTime).toHaveBeenCalledWith(
+        DISTORTION_LATENCY / synthCore.audioCtx.sampleRate,
+        0
+      );
+      expect(model.slots.distortion.input.connect).toHaveBeenCalledWith(dryDelay);
+      expect(dryDelay?.connect).toHaveBeenCalledWith(model.slots.distortion.dry);
+      expect(model.slots.delay.dryDelay).toBeUndefined();
+      expect(model.slots.reverb.dryDelay).toBeUndefined();
+    });
+
+    it('passes the changed params to the effect, activates it once ready', async () => {
+      const { model, actions } = setup();
+      const setParam = jest.spyOn(model.slots.distortion, 'setParam');
+      const { send } = model.slots.distortion;
+      actions.setAdded('distortion', true);
+      actions.setParam('distortion', 'drive', 20);
+      expect(setParam.mock.calls).toEqual([['drive', 20]]);
+      expect(lastGain(send)).toBe(0);
+      await flush();
+      expect(lastGain(send)).toBe(1);
+    });
+
+    it('a fresh distortion matches the default preset, its presets are found back', () => {
+      const { model, actions } = setup();
+      expect(findFxPreset('distortion', model.$effects.value.distortion)?.id).toBe('default');
+      actions.applyPreset('distortion', 'crunch');
+      expect(findFxPreset('distortion', model.$effects.value.distortion)?.id).toBe('crunch');
+    });
   });
 
   describe('two effects', () => {
@@ -303,7 +360,7 @@ describe('fx', () => {
       expect(delay.output.connect).toHaveBeenLastCalledWith(reverb.input);
       expect(reverb.output.connect).toHaveBeenLastCalledWith(synthCore.fxOut);
 
-      actions.move(1, 0);
+      actions.move(2, 0);
       expect(synthCore.fxIn.connect).toHaveBeenLastCalledWith(reverb.input);
       expect(reverb.output.connect).toHaveBeenLastCalledWith(delay.input);
       expect(delay.output.connect).toHaveBeenLastCalledWith(synthCore.fxOut);
@@ -342,11 +399,14 @@ describe('fx', () => {
   describe('status', () => {
     afterEach(() => jest.restoreAllMocks());
 
-    it('delay is always ready, the reverb is ready once its module has loaded', async () => {
-      const { model } = setup();
-      expect(model.$status.value).toEqual({ delay: 'ready', reverb: 'loading' });
+    it('delay is always ready, the worklet effects are ready once their modules have loaded', async () => {
+      const { model, synthCore } = setup();
+      expect(model.$status.value).toEqual({ distortion: 'loading', delay: 'ready', reverb: 'loading' });
       await flush();
-      expect(model.$status.value).toEqual({ delay: 'ready', reverb: 'ready' });
+      expect(model.$status.value).toEqual({ distortion: 'ready', delay: 'ready', reverb: 'ready' });
+      const addModule = synthCore.audioCtx.audioWorklet.addModule as jest.Mock;
+      expect(workletLoads(addModule, 'distortion')).toBe(1);
+      expect(workletLoads(addModule, 'reverb')).toBe(1);
     });
 
     it('a loading reverb is already in the chain and passes the dry signal until its node exists', async () => {
@@ -383,10 +443,14 @@ describe('fx', () => {
       expect(lastGain(send)).toBe(0);
     });
 
-    it('without AudioWorklet the model starts, the reverb is unsupported, the delay works', () => {
+    it('without AudioWorklet the model starts, the worklet effects are unsupported, the delay works', () => {
       withoutAudioWorklet();
       const { model, actions, synthCore } = setup();
-      expect(model.$status.value).toEqual({ delay: 'ready', reverb: 'unsupported' });
+      expect(model.$status.value).toEqual({
+        distortion: 'unsupported',
+        delay: 'ready',
+        reverb: 'unsupported',
+      });
       actions.setAdded('delay', true);
       expect(synthCore.fxIn.connect).toHaveBeenLastCalledWith(model.slots.delay.input);
       expect(model.slots.delay.output.connect).toHaveBeenLastCalledWith(synthCore.fxOut);
@@ -536,7 +600,8 @@ describe('fx', () => {
       actions.setMix('delay', 0.5);
       actions.setParam('delay', 'fb', 0.2);
       expect(getSnapshot()['fx']).toEqual({
-        o: ['delay', 'reverb'],
+        o: ['distortion', 'delay', 'reverb'],
+        distortion: { a: false, on: true, mix: 1, ...DISTORTION_DEFAULTS },
         delay: { a: true, on: true, mix: 0.5, mode: 0, pan: 0, time: 0.2, fb: 0.2, freq: 1000, q: 0.01 },
         reverb: { a: false, on: true, mix: 0.3, ...REVERB_DEFAULTS },
       });
@@ -544,7 +609,7 @@ describe('fx', () => {
 
     it('round-trips the reverb, falsy values included, missing keys are defaults', () => {
       const { model, actions } = setup();
-      actions.move(1, 0);
+      actions.move(2, 0);
       actions.setAdded('reverb', true);
       actions.setOn('reverb', false);
       actions.setMix('reverb', 0);
@@ -552,7 +617,7 @@ describe('fx', () => {
       actions.setParam('reverb', 'decay', 12);
       const snapshot = getSnapshot();
       expect(snapshot['fx']).toMatchObject({
-        o: ['reverb', 'delay'],
+        o: ['reverb', 'distortion', 'delay'],
         reverb: { a: true, on: false, mix: 0 },
       });
 
@@ -560,7 +625,7 @@ describe('fx', () => {
       actions.setOn('reverb', true);
       actions.move(1, 0);
       applySnapshot(snapshot);
-      expect(model.$order.value).toEqual(['reverb', 'delay']);
+      expect(model.$order.value).toEqual(['reverb', 'distortion', 'delay']);
       expect(model.$effects.value.reverb).toEqual({
         added: true,
         on: false,
@@ -633,14 +698,53 @@ describe('fx', () => {
       });
     });
 
-    it('drops unknown and duplicate effects from the order and appends the missing ones', () => {
+    it('drops unknown and duplicate effects from the order, a missing one takes its default place', () => {
       const { model } = setup();
       applySnapshot({ fx: { o: ['chorus', 'reverb', 'delay', 'delay'] } });
-      expect(model.$order.value).toEqual(['reverb', 'delay']);
+      expect(model.$order.value).toEqual(['distortion', 'reverb', 'delay']);
+      // a snapshot from before the distortion: it goes first, in front of the delay
+      applySnapshot({ fx: { o: ['delay', 'reverb'] } });
+      expect(model.$order.value).toEqual(['distortion', 'delay', 'reverb']);
       applySnapshot({ fx: { o: ['delay'] } });
-      expect(model.$order.value).toEqual(['delay', 'reverb']);
+      expect(model.$order.value).toEqual(['distortion', 'delay', 'reverb']);
       applySnapshot({ fx: { o: [] } });
-      expect(model.$order.value).toEqual(['delay', 'reverb']);
+      expect(model.$order.value).toEqual([...FX_TYPES]);
+    });
+
+    it('round-trips the distortion, falsy values included, missing keys are defaults', () => {
+      const { model, actions } = setup();
+      actions.setAdded('distortion', true);
+      actions.setOn('distortion', false);
+      actions.setMix('distortion', 0);
+      actions.setParam('distortion', 'mode', 1);
+      actions.setParam('distortion', 'mode', 0);
+      actions.setParam('distortion', 'drive', 0);
+      actions.setParam('distortion', 'level', 0);
+      actions.setParam('distortion', 'tone', 500);
+      const snapshot = getSnapshot();
+      expect(snapshot['fx']).toMatchObject({
+        distortion: { a: true, on: false, mix: 0, mode: 0, drive: 0, tone: 500, level: 0 },
+      });
+
+      actions.applyPreset('distortion', 'fuzz');
+      actions.setOn('distortion', true);
+      applySnapshot(snapshot);
+      expect(model.$effects.value.distortion).toEqual({
+        added: true,
+        on: false,
+        mix: 0,
+        params: { mode: 0, drive: 0, tone: 500, level: 0 },
+      });
+
+      // all wet by default, unlike the delay and the reverb
+      applySnapshot({ fx: { distortion: { a: true, drive: 20 } } });
+      expect(model.$effects.value.distortion).toEqual({
+        added: true,
+        on: true,
+        mix: 1,
+        params: { ...DISTORTION_DEFAULTS, drive: 20 },
+      });
+      expect(model.$effects.value.delay.mix).toBe(0.3);
     });
   });
 });

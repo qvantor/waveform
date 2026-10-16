@@ -6,7 +6,7 @@
     "start": "concurrently -k -p \"[{name}]\" -n \"api,client\" -c  \"yellow.bold,green.bold\" \"netlify dev\" \"npm run client:start\"",
     "client:start": "npm run worklets && concurrently -k -n worklets,serve \"npm run worklets -- --watch=forever\" \"nx serve\"",
     "build": "npm run worklets -- --minify && nx build",
-    "worklets": "esbuild reverb=apps/waveform/src/app/synth/fx/effects/reverb.worklet.ts limiter=apps/waveform/src/app/synth/common/limiter/limiter.worklet.ts --bundle --format=esm --log-level=warning --outdir=tmp/worklets",
+    "worklets": "esbuild reverb=apps/waveform/src/app/synth/fx/effects/reverb.worklet.ts limiter=apps/waveform/src/app/synth/common/limiter/limiter.worklet.ts distortion=apps/waveform/src/app/synth/fx/effects/distortion.worklet.ts --bundle --format=esm --log-level=warning --outdir=tmp/worklets",
     "test": "nx test",
     "test:all": "nx run-many --target=test --all",
     "lint": "nx run-many --target=lint --all",
