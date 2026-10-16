@@ -1,4 +1,4 @@
-import { BUTTERWORTH_Q, createBiquad, createSmoothed, peak, stepAll } from './dsp';
+import { BUTTERWORTH_Q, createBiquad, createDcBlocker, createSmoothed, peak, stepAll } from './dsp';
 import { makeupGain } from './distortion-makeup';
 import { DISTORTION_MODES, modeIndex } from './distortion-modes';
 import { createOversampler, OVERSAMPLER_LATENCY, OVERSAMPLING } from './oversampler';
@@ -36,6 +36,8 @@ export const TONE_OPEN = 20000;
 
 // the params glide like setSmooth, a new mode crossfades the curves just as fast
 const GLIDE = 0.01;
+// Hz of the dc blocker, the last stage
+export const DC_CUTOFF = 5;
 // below this level (-200 dB) the distortion is silent: the state is cleared and the blocks are skipped
 const SILENCE = 1e-10;
 
@@ -45,11 +47,15 @@ const dbToGain = (db: number) => 10 ** (db / 20);
 const BLOCK = 128;
 
 // input × drive → 4× oversampler (up) → curve of the mode × its makeup gain (distortion-makeup.ts) →
-// oversampler (down) → tone (lowpass, faded out while open) × level, each channel on its own. The curves are
-// odd: no DC, no even harmonics. A new mode fades from the old curve into it, both run meanwhile, each with
-// its own makeup. There are no loops: once the input has been silent for longer than the filters ring, the
-// state is cleared and the blocks are skipped (the fx slot keeps a removed effect rendered, its closed send
-// makes it silent), so an unused distortion costs nothing.
+// oversampler (down) → tone (lowpass, faded out while open) × level → dc blocker, each channel on its own.
+// The curves are odd: a symmetric wave gets no DC and no even harmonics, but an asymmetric one does (a
+// narrow pulse with no DC of its own: its wide side is clipped, its narrow one hardly), and that DC would
+// follow the notes (thumps on note on and off) and eat into the headroom of the master limiter. A new mode
+// fades from the old curve into it, both run meanwhile, each with its own makeup. There are no loops: once
+// the input has been silent for longer than the oversampler rings (FIR) only the tails of the dc blocker and
+// the tone are rendered, once they have died out the state is cleared and the blocks are skipped (the fx
+// slot keeps a removed effect rendered, its closed send makes it silent), so an unused distortion costs
+// nothing.
 // Each stage runs over the whole block in typed arrays, after the gains of every sample are worked out: a
 // chain of calls per sample would box the numbers they return, garbage for the audio thread to collect
 export const createDistortionDsp = (sampleRate: number, { params }: DistortionOptions) => {
@@ -67,11 +73,15 @@ export const createDistortionDsp = (sampleRate: number, { params }: DistortionOp
   let modeTo = modeFrom;
   let morphing = false;
 
-  const channels = [0, 1].map(() => ({ oversampler: createOversampler(), tone: createBiquad() }));
+  const channels = [0, 1].map(() => ({
+    oversampler: createOversampler(),
+    dcBlocker: createDcBlocker(DC_CUTOFF, sampleRate),
+    tone: createBiquad(),
+  }));
   const [left, right] = channels;
 
   // per sample of a block: the drive, the level and the open share of the tone; the input × drive, back at
-  // the input rate and through the tone lowpass
+  // the input rate and through the tone lowpass (then the output before it is written)
   let drives = new Float64Array(BLOCK);
   let levels = new Float64Array(BLOCK);
   let opens = new Float64Array(BLOCK);
@@ -96,6 +106,8 @@ export const createDistortionDsp = (sampleRate: number, { params }: DistortionOp
   let idle = true;
   // input frames since the last sound
   let quietFrames = 0;
+  // the input has been silent for longer than the oversampler rings: its output is 0, it is skipped
+  let rungOut = false;
 
   const updateTone = () =>
     channels.forEach((channel) =>
@@ -107,26 +119,33 @@ export const createDistortionDsp = (sampleRate: number, { params }: DistortionOp
   // on the points, so the decimator never mixes points with and without them when a fade starts or ends.
   // The tone lowpass runs also while open, so it has the current state when it fades in
   const render = (
-    { oversampler, tone: lowpass }: typeof left,
+    { oversampler, dcBlocker, tone: lowpass }: typeof left,
     input: Float32Array,
     output: Float32Array,
     frames: number
   ) => {
-    for (let s = 0; s < frames; s++) driven[s] = input[s] * drives[s];
-    oversampler.up(driven, frames, points);
-    const length = OVERSAMPLING * frames;
-    if (morphing) {
-      DISTORTION_MODES[modeFrom].shapeBlock(points, gainsFrom, length, shaped, false);
-      DISTORTION_MODES[modeTo].shapeBlock(points, gainsTo, length, shaped, true);
-    } else DISTORTION_MODES[modeTo].shapeBlock(points, gainsTo, length, shaped, false);
-    oversampler.down(shaped, frames, decimated);
+    if (rungOut) decimated.fill(0, 0, frames);
+    else {
+      for (let s = 0; s < frames; s++) driven[s] = input[s] * drives[s];
+      oversampler.up(driven, frames, points);
+      const length = OVERSAMPLING * frames;
+      if (morphing) {
+        DISTORTION_MODES[modeFrom].shapeBlock(points, gainsFrom, length, shaped, false);
+        DISTORTION_MODES[modeTo].shapeBlock(points, gainsTo, length, shaped, true);
+      } else DISTORTION_MODES[modeTo].shapeBlock(points, gainsTo, length, shaped, false);
+      oversampler.down(shaped, frames, decimated);
+    }
     lowpass.processBlock(decimated, filtered, frames);
-    let loudest = 0;
     for (let s = 0; s < frames; s++) {
       const x = decimated[s];
       const y = filtered[s];
       const o = opens[s];
-      const value = levels[s] * (o === 1 ? x : y + (x - y) * o);
+      filtered[s] = levels[s] * (o === 1 ? x : y + (x - y) * o);
+    }
+    dcBlocker.processBlock(filtered, frames);
+    let loudest = 0;
+    for (let s = 0; s < frames; s++) {
+      const value = filtered[s];
       output[s] = value;
       loudest = Math.max(loudest, Math.abs(value));
     }
@@ -136,6 +155,7 @@ export const createDistortionDsp = (sampleRate: number, { params }: DistortionOp
   const clear = () =>
     channels.forEach((channel) => {
       channel.oversampler.clear();
+      channel.dcBlocker.clear();
       channel.tone.clear();
     });
 
@@ -149,9 +169,15 @@ export const createDistortionDsp = (sampleRate: number, { params }: DistortionOp
     if (changes.mode !== undefined) {
       const mode = modeIndex(changes.mode);
       if (mode === modeTo) return;
-      // a mode changed during a fade starts its own one from the curve faded into
-      [modeFrom, modeTo] = [modeTo, mode];
-      morph.set(0, true);
+      if (mode === modeFrom && morph.value !== 1) {
+        // back to the curve of a fade: it turns around where it is, the mix of the curves doesn't jump
+        [modeFrom, modeTo] = [modeTo, modeFrom];
+        morph.set(1 - morph.value, true);
+      } else {
+        // from the curve faded into (a third mode during a fade, once there are more than 2, jumps there)
+        [modeFrom, modeTo] = [modeTo, mode];
+        morph.set(0, true);
+      }
       morph.set(1, idle);
     }
   };
@@ -159,6 +185,8 @@ export const createDistortionDsp = (sampleRate: number, { params }: DistortionOp
   const process = (inL: Float32Array, inR: Float32Array, outL: Float32Array, outR: Float32Array) => {
     const frames = outL.length;
     quietFrames = Math.max(peak(inL), peak(inR)) < SILENCE ? quietFrames + frames : 0;
+    // silent before this block for longer than the oversampler rings
+    rungOut = quietFrames - frames > 2 * DISTORTION_LATENCY;
     if (idle) {
       if (quietFrames) {
         outL.fill(0);
@@ -203,8 +231,9 @@ export const createDistortionDsp = (sampleRate: number, { params }: DistortionOp
 
     const outputPeak = Math.max(render(left, inL, outL, frames), render(right, inR, outR, frames));
 
-    // the filters have rung out after the silence: forget their state, skip the next blocks
-    if (quietFrames > 2 * DISTORTION_LATENCY && outputPeak < SILENCE) {
+    // the tails of the dc blocker and the tone have died out after the silence: forget the state, skip the
+    // next blocks
+    if (rungOut && outputPeak < SILENCE) {
       clear();
       idle = true;
     }

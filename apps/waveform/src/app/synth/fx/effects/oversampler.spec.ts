@@ -59,17 +59,12 @@ describe('oversampler', () => {
     output.slice(2 * OVERSAMPLER_LATENCY).forEach((value) => expect(value).toBeCloseTo(0.7, 12));
   });
 
-  it('point 0 of up() is the sample written half the latency before', () => {
-    const input = sine(0.03, 100);
-    const points = upsample(input);
-    input.forEach((_, n) => expect(points[OVERSAMPLING * n]).toBe(n < HALF ? 0 : input[n - HALF]));
-  });
-
-  it('up() interpolates the quarter points between the samples', () => {
+  it('up() interpolates the points from the sample written half the latency before to the next one', () => {
     const f = 0.1;
     const points = upsample(sine(f, 200));
     for (let n = 2 * HALF; n < 200; n++) {
-      for (let q = 1; q < OVERSAMPLING; q++) {
+      // point 0 too: cut below the nyquist, it is filtered as well
+      for (let q = 0; q < OVERSAMPLING; q++) {
         const expected = Math.sin(2 * Math.PI * f * (n - HALF + q / OVERSAMPLING));
         expect(Math.abs(points[OVERSAMPLING * n + q] - expected)).toBeLessThan(0.0035);
       }
@@ -82,7 +77,7 @@ describe('oversampler', () => {
     [1, 37, 128].forEach((block) => expect(roundTrip(input, block)).toEqual(whole));
   });
 
-  it.each([0.01, 0.1, 0.2, 0.3, 0.4, 0.45])('passes a sine at %p·fs within 0.1 dB, delayed', (f) => {
+  it.each([0.01, 0.1, 0.2, 0.3, 0.4])('passes a sine at %p·fs within 0.1 dB, delayed', (f) => {
     const input = sine(f, 4000);
     const output = roundTrip(input);
     expect(Math.abs(db(amplitude(output, f, 2 * OVERSAMPLER_LATENCY)))).toBeLessThan(0.1);
@@ -92,6 +87,22 @@ describe('oversampler', () => {
       expect(Math.abs(output[n] - delayed[n])).toBeLessThan(0.012);
     }
   });
+
+  it('cuts the top of the band before the curve: 0.45·fs at -6 dB', () => {
+    const f = 0.45;
+    const output = roundTrip(sine(f, 4000));
+    expect(db(amplitude(output, f, 2 * OVERSAMPLER_LATENCY))).toBeCloseTo(-6, 0);
+  });
+
+  it.each([0.47, 0.49])(
+    'keeps the image of a sine at %p·fs out of the points: more than 50 dB down, it would pass the curve',
+    (f) => {
+      const frames = 4000;
+      const points = Array.from(upsample(sine(f, frames)));
+      // the image mirrors the sine at the nyquist: 1 - f cycles per sample, a quarter of it per point
+      expect(db(amplitude(points, (1 - f) / OVERSAMPLING, OVERSAMPLING * 2 * HALF))).toBeLessThan(-50);
+    }
+  );
 
   it.each([0.6, 0.8, 1.3, 1.7])(
     'suppresses points at %p·fs (over the nyquist) by more than 40 dB instead of folding them back',

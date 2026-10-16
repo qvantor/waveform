@@ -335,11 +335,27 @@ describe('fx', () => {
       const setParam = jest.spyOn(model.slots.distortion, 'setParam');
       const { send } = model.slots.distortion;
       actions.setAdded('distortion', true);
-      actions.setParam('distortion', 'drive', 20);
-      expect(setParam.mock.calls).toEqual([['drive', 20]]);
+      actions.setParam('distortion', 'drive', 15);
+      expect(setParam.mock.calls).toEqual([['drive', 15]]);
       expect(lastGain(send)).toBe(0);
       await flush();
       expect(lastGain(send)).toBe(1);
+    });
+
+    it('crossfades dry and wet linearly: the wet signal is the dry one reshaped, in time with it', async () => {
+      const { model, actions } = setup();
+      const { dry, wet } = model.slots.distortion;
+      actions.setAdded('distortion', true);
+      await flush();
+      actions.setMix('distortion', 0.5);
+      expect(lastGain(dry)).toBeCloseTo(0.5);
+      expect(lastGain(wet)).toBeCloseTo(0.5);
+      actions.setMix('distortion', 0.25);
+      expect(lastGain(dry)).toBeCloseTo(0.75);
+      expect(lastGain(wet)).toBeCloseTo(0.25);
+      actions.setOn('distortion', false);
+      expect(lastGain(dry)).toBe(1);
+      expect(lastGain(wet)).toBe(0);
     });
 
     it('a fresh distortion matches the default preset, its presets are found back', () => {
@@ -737,12 +753,12 @@ describe('fx', () => {
       });
 
       // all wet by default, unlike the delay and the reverb
-      applySnapshot({ fx: { distortion: { a: true, drive: 20 } } });
+      applySnapshot({ fx: { distortion: { a: true, drive: 15 } } });
       expect(model.$effects.value.distortion).toEqual({
         added: true,
         on: true,
         mix: 1,
-        params: { ...DISTORTION_DEFAULTS, drive: 20 },
+        params: { ...DISTORTION_DEFAULTS, drive: 15 },
       });
       expect(model.$effects.value.delay.mix).toBe(0.3);
     });

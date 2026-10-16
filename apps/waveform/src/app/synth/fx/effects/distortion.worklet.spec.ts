@@ -42,9 +42,9 @@ describe('distortion worklet', () => {
 
   it('applies the posted params', () => {
     const { processor, dsp } = setup();
-    processor.port.onmessage({ data: { params: { drive: 24 } } });
+    processor.port.onmessage({ data: { params: { drive: 18 } } });
     processor.port.onmessage({ data: { params: { mode: 0, tone: 500 } } });
-    expect(dsp.set.mock.calls).toEqual([[{ drive: 24 }], [{ mode: 0, tone: 500 }]]);
+    expect(dsp.set.mock.calls).toEqual([[{ drive: 18 }], [{ mode: 0, tone: 500 }]]);
   });
 
   it('stops after the effect is destroyed', () => {

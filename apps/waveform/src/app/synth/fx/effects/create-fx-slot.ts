@@ -12,7 +12,13 @@ export const setSmooth = (
 
 export type FxSlot = ReturnType<typeof createFxSlot>;
 
-// input → dry → output (mix: equal-power crossfade of dry and wet; bypassed: only dry)
+// [dry, wet] gains of the mix (0: only dry, 1: only wet). Equal power: both at -3 dB at 0.5, the level stays
+// flat when wet and dry are unrelated (echoes, reverb); linear: both at -6 dB, for a wet signal in time with
+// the dry one (FxCore.linearMix), where equal power would be 3 dB louder
+export const mixGains = (mix: number, linear = false): [number, number] =>
+  linear ? [1 - mix, mix] : [Math.cos((mix * Math.PI) / 2), Math.sin((mix * Math.PI) / 2)];
+
+// input → dry → output (mix: crossfade of dry and wet, mixGains; bypassed: only dry)
 // input → send → core → wet → output (send is closed while inactive, so the core gets no new signal)
 // a core with latency: input → dry delay (the latency) → dry, the same for bypass and mix, so the timing
 // doesn't jump and the mix doesn't comb filter
@@ -25,7 +31,7 @@ export const createFxSlot = (audioCtx: BaseAudioContext, core: FxCore) => {
   const wet = audioCtx.createGain();
   const send = audioCtx.createGain();
   const drain = audioCtx.createGain();
-  const { latency = 0 } = core;
+  const { latency = 0, linearMix = false } = core;
   const dryDelay = latency > 0 ? audioCtx.createDelay(latency) : undefined;
 
   dryDelay?.delayTime.setValueAtTime(latency, audioCtx.currentTime);
@@ -56,11 +62,12 @@ export const createFxSlot = (audioCtx: BaseAudioContext, core: FxCore) => {
     // an effect without a status is always ready, it has nothing to retry
     $status: core.$status ?? new BehaviorSubject<FxStatus>('ready'),
     retry: core.retry ?? noop,
-    // equal-power crossfade, so the level stays flat: mix 0: only dry, 0.5: both at -3 dB, 1: only wet;
-    // bypassed: only the dry signal passes
+    // the crossfade of mixGains (both gains glide alike, so a linear one keeps their sum); bypassed: only
+    // the dry signal passes
     setMix: (mix: number, on: boolean) => {
-      setGain(dry, on ? Math.cos((mix * Math.PI) / 2) : 1);
-      setGain(wet, on ? Math.sin((mix * Math.PI) / 2) : 0);
+      const [dryGain, wetGain] = on ? mixGains(mix, linearMix) : [1, 0];
+      setGain(dry, dryGain);
+      setGain(wet, wetGain);
     },
     // active: in the chain and not bypassed
     setActive: (active: boolean) => {

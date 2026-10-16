@@ -58,8 +58,9 @@ export const FX_PARAMS = {
     // the curve, an index into DISTORTION_MODES of the app (0: soft clip, 1: hard clip); new modes are
     // appended, so the saved indexes keep their meaning
     mode: { min: 0, max: 1, default: 0, int: true },
-    // dB of gain into the curve; a makeup gain takes back the loudness it adds to a note
-    drive: { min: 0, max: 24, default: 12 },
+    // dB of gain into the curve; a makeup gain takes back the loudness it adds to a note. Up to 18: more
+    // would fold back too much (4× oversampling) for the little it adds to a sound squared already
+    drive: { min: 0, max: 18, default: 12 },
     // lowpass after the curve, 20 kHz is open
     tone: { min: 500, max: 20000, default: 20000 },
     // dB of the output on top of the makeup gain (0: a note is about as loud as the dry one)

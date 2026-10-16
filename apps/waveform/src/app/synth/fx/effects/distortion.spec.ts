@@ -57,6 +57,10 @@ describe('distortion', () => {
     expect(core.latency).toBe(DISTORTION_LATENCY / audioCtx.sampleRate);
   });
 
+  it('is mixed linearly with the dry signal: it is the dry one reshaped, in time with it', () => {
+    expect(setup().core.linearMix).toBe(true);
+  });
+
   it('upmixes the input to stereo and outputs stereo', async () => {
     const { node } = setup();
     await flush();
@@ -151,14 +155,14 @@ describe('distortion', () => {
     await flush();
     expect(core.$status?.value).toBe('failed');
     expect(input.connect).not.toHaveBeenCalled();
-    core.setParam('drive', 20);
+    core.setParam('drive', 15);
     core.retry?.();
     expect(core.$status?.value).toBe('loading');
     await flush();
     expect(core.$status?.value).toBe('ready');
     const node = (input.connect as jest.Mock).mock.calls[0][0] as WorkletNodeStub;
     expect(node.connect).toHaveBeenCalledWith(output);
-    expect(node.options.processorOptions).toEqual({ params: { ...DEFAULTS, drive: 20 } });
+    expect(node.options.processorOptions).toEqual({ params: { ...DEFAULTS, drive: 15 } });
     error.mockRestore();
   });
 

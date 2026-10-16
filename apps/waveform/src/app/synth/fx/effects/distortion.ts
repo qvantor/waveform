@@ -18,7 +18,7 @@ const { mode, drive, tone, level } = FX_PARAMS.distortion;
 // the oversampled waveshaper runs in an audio worklet (distortion-dsp.ts, distortion.worklet.ts):
 // input → worklet node → output (createWorkletFx); the module loads asynchronously, until then the input
 // goes nowhere and the params are kept, the node starts with them. Its output lags by DISTORTION_LATENCY,
-// the fx slot delays the dry signal as much
+// the fx slot delays the dry signal as much and mixes them linearly (the wet signal is the dry one reshaped)
 export const distortion: FxDefinition<DistortionParam> = {
   label: 'Distortion',
   params: {
@@ -53,6 +53,7 @@ export const distortion: FxDefinition<DistortionParam> = {
       $status: worklet.$status,
       retry: worklet.retry,
       latency: DISTORTION_LATENCY / audioCtx.sampleRate,
+      linearMix: true,
       // unknown keys are ignored
       setParam: (key, value) => {
         if (!(key in values)) return;

@@ -34,6 +34,10 @@ export interface FxCore {
   // seconds the output lags the input (linear phase oversampling), createFxSlot delays the dry signal as
   // much, so the mix doesn't comb filter; absent: no latency
   latency?: number;
+  // the wet signal is the dry one reshaped, in time with it (a distortion): they add up like one sound, so
+  // the mix is linear, an equal-power crossfade would be up to 3 dB louder in between; absent: equal power
+  // (echoes and reverb add up like unrelated sounds)
+  linearMix?: boolean;
 }
 
 // a built-in preset of the effect: sets mix and every param, added/on/order are not touched

@@ -101,6 +101,30 @@ export const createBiquad = () => {
   };
 };
 
+// one pole highpass that takes the DC out: y = x - x[n-1] + r·y[n-1], r from the cutoff (Hz). Cut at a few
+// Hz it leaves the bass alone (5 Hz: -0.12 dB at 30 Hz), but its tail is long: τ = 1 / (2π·cutoff)
+export const createDcBlocker = (cutoff: number, sampleRate: number) => {
+  const r = Math.exp((-2 * Math.PI * cutoff) / sampleRate);
+  // the last input and output, in a typed array, so writing them boxes no number
+  const state = new Float64Array(2);
+  return {
+    // data[0..frames) in place
+    processBlock: (data: Float64Array, frames: number) => {
+      let x1 = state[0];
+      let y1 = state[1];
+      for (let s = 0; s < frames; s++) {
+        const x = data[s];
+        y1 = x - x1 + r * y1;
+        x1 = x;
+        data[s] = y1;
+      }
+      state[0] = x1;
+      state[1] = y1;
+    },
+    clear: () => state.fill(0),
+  };
+};
+
 export type Smoothed = ReturnType<typeof createSmoothed>;
 
 // a param that glides to its target with a time constant, stepped once per block; `from` is the value
