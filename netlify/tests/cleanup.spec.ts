@@ -12,12 +12,19 @@ it('runs daily', () => {
   expect(config.schedule).toBe('@daily');
 });
 
-it('removes old unqualified presets and old usage', async () => {
+it('removes unqualified presets not saved, edited or opened by their author for 90 days, old listeners and reports', async () => {
   await cleanup();
-  const [presets, usage] = mockSql.queries;
-  expect(mockSql.queries).toHaveLength(2);
+  const [presets, listens, reports] = mockSql.queries;
+  expect(mockSql.queries).toHaveLength(3);
   expect(presets.text).toBe(
-    "DELETE FROM presets WHERE created_at < now() - interval '90 days' AND qualified_at IS NULL AND NOT featured"
+    'DELETE FROM presets WHERE GREATEST(created_at, updated_at, author_opened_at) ' +
+      "< now() - interval '90 days' AND qualified_at IS NULL AND NOT featured"
   );
-  expect(usage.text).toBe('DELETE FROM usage_daily WHERE day < current_date - 60');
+  // stayed <= heard: the whole row is out of the 60 days of the scores
+  expect(listens.text).toBe('DELETE FROM listens WHERE heard < current_date - 60');
+  // reports of hidden presets and those older than half a year
+  expect(reports.text).toBe(
+    "DELETE FROM reports WHERE created_at < now() - interval '180 days' " +
+      'OR preset_id IN (SELECT id FROM presets WHERE hidden)'
+  );
 });

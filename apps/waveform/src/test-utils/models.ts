@@ -23,12 +23,12 @@ export const createOscillator = (
 export const createAdsrEnvelope = () => initModel(adsrEnvelope(), 'adsr', undefined);
 
 // the whole voice chain: synth core, input, envelope and both oscillators
-export const createSynth = () => {
+export const createSynth = (initialWavePath = ['default']) => {
   const synthCoreModule = createSynthCore();
   const inputControllerModule = createInputController();
   const adsrEnvelopeModule = createAdsrEnvelope();
-  const osc1 = createOscillator(synthCoreModule, 'osc1');
-  const osc2 = createOscillator(synthCoreModule, 'osc2', { active: false, initialWavePath: ['default'] });
+  const osc1 = createOscillator(synthCoreModule, 'osc1', { active: true, initialWavePath });
+  const osc2 = createOscillator(synthCoreModule, 'osc2', { active: false, initialWavePath });
   const synthModule = initModel(
     synth({
       synthCore: synthCoreModule,

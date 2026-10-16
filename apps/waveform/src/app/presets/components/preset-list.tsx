@@ -1,7 +1,7 @@
 import React from 'react';
 import styled from 'styled-components';
 import { Button, Empty, Popconfirm, Spin, Tooltip } from 'antd';
-import { AiOutlineFlag, AiOutlineLink, AiOutlineUser } from 'react-icons/ai';
+import { AiOutlineFire, AiOutlineFlag, AiOutlineLink } from 'react-icons/ai';
 import toast from 'react-hot-toast';
 import { theme } from '@waveform/ui-kit';
 import { PresetListItem } from '@waveform/preset-schema';
@@ -35,7 +35,7 @@ const Name = styled.div`
   white-space: nowrap;
 `;
 
-const Users = styled.span`
+const Popularity = styled.span`
   display: flex;
   align-items: center;
   gap: 2px;
@@ -88,12 +88,10 @@ export const PresetList = ({ items, currentId, loading, hasMore, onLoadMore, onS
         <Row key={item.id} active={item.id === currentId} onClick={() => onSelect(item)}>
           <Name>{item.name}</Name>
           {item.uniqueUsers > 0 && (
-            <Tooltip title='Users played it during the last 60 days'>
-              <Users>
-                <AiOutlineUser />
-                {item.uniqueUsers}
-              </Users>
-            </Tooltip>
+            <Popularity>
+              <AiOutlineFire />
+              {item.uniqueUsers}
+            </Popularity>
           )}
           <Tooltip title='Copy link'>
             <Button type='text' size='small' icon={<AiOutlineLink />} onClick={(e) => share(e, item.id)} />

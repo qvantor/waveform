@@ -26,6 +26,8 @@ const list = [
 
 beforeEach(() => {
   getPresetMock.mockImplementation(fakePreset);
+  // the preset opened on start is random: the first one
+  jest.spyOn(Math, 'random').mockReturnValue(0);
 });
 
 describe('PresetSection', () => {
@@ -34,7 +36,7 @@ describe('PresetSection', () => {
     const result = renderWithPresets(<PresetSection actions={actions} />);
     const prev = screen.getByRole('button', { name: 'Previous preset' });
     const next = screen.getByRole('button', { name: 'Next preset' });
-    // the name sits between ◀ and ▶
+    // the name follows ◀
     const name = prev.nextElementSibling as HTMLElement;
     return { ...result, user, prev, next, name };
   };
@@ -50,19 +52,37 @@ describe('PresetSection', () => {
     expect(name).toHaveTextContent(/^Bright pad \*$/);
   });
 
-  it('steps through the popular presets loaded on start from Init', async () => {
+  it('opens a popular preset on start and steps through the popular presets', async () => {
     getTopPresetsMock.mockResolvedValueOnce(list);
     const { user, prev, next, name, presets } = setupSection();
     expect(prev).toBeEnabled();
     expect(next).toBeEnabled();
-    await waitFor(() => expect(presets[0].$top.value).toEqual(list));
+    await waitFor(() => expect(name).toHaveTextContent(/^Preset a$/));
 
-    await user.click(next);
-    await waitFor(() => expect(presets[0].$current.value?.id).toBe('a'));
     await user.click(prev);
     await waitFor(() => expect(presets[0].$current.value?.id).toBe('c'));
-    expect(name).toHaveTextContent('Preset c');
+    await user.click(next);
+    await waitFor(() => expect(presets[0].$current.value?.id).toBe('a'));
+    await user.click(next);
+    await waitFor(() => expect(name).toHaveTextContent(/^Preset b$/));
     expect(getTopPresetsMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('Init between the name and ▶ leaves the preset and its changes', async () => {
+    const { user, name, next, presets } = setupSection();
+    const init = screen.getByRole('button', { name: 'Init preset' });
+    expect(name.nextElementSibling).toBe(init);
+    expect(init.nextElementSibling).toBe(next);
+
+    act(() => presets[1].setSaved({ id: 'a', name: 'Bright pad' }));
+    act(() => presets[0].$dirty.next(true));
+    expect(name).toHaveTextContent(/^Bright pad \*$/);
+    expect(window.location.search).toBe('?preset=a');
+
+    await user.click(init);
+    expect(name).toHaveTextContent(/^Init$/);
+    expect(presets[0].$current.value).toBeNull();
+    expect(window.location.search).toBe('');
   });
 
   it('opens the preset browser by the name', async () => {

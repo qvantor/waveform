@@ -25,10 +25,11 @@ const Q = {
   insert: /^INSERT INTO presets/,
   editable: /^SELECT edit_token_hash/,
   update: /^UPDATE presets SET name/,
+  opened: /^UPDATE presets SET author_opened_at/,
   get: /^SELECT id, name, data, created_at/,
   scored: /FROM preset_scores s JOIN presets/,
-  featured: /WHERE featured/,
-  list: /FROM presets p LEFT JOIN preset_scores/,
+  featured: /WHERE p\.featured/,
+  list: /AS "cursorKey" FROM presets p LEFT JOIN preset_scores/,
   exists: /^SELECT id FROM presets WHERE id/,
   insertReport: /^INSERT INTO reports/,
   hide: /^UPDATE presets SET hidden/,
@@ -80,6 +81,7 @@ describe('routing', () => {
     ['POST', `/api/presets/${ID}`],
     ['DELETE', `/api/presets/${ID}`],
     ['GET', `/api/presets/${ID}/report`],
+    ['GET', `/api/presets/${ID}/opened`],
   ])('405 for %s %s', async (method, path) => {
     const { status, body } = await call(method, path);
     expect(status).toBe(405);
@@ -313,6 +315,45 @@ describe('PUT /api/presets/:id', () => {
   });
 });
 
+describe('POST /api/presets/:id/opened', () => {
+  const open = (body: unknown = { editToken: EDIT_TOKEN }, id = ID) =>
+    call('POST', `/api/presets/${id}/opened`, body);
+
+  it('marks a visible preset with this edit token as opened by its author, once a day', async () => {
+    const { status, body } = await open();
+    expect(status).toBe(204);
+    expect(body).toBeUndefined();
+
+    expect(mockSql.queries).toHaveLength(1);
+    const [query] = mockSql.find(Q.opened);
+    expect(query.text).toBe(
+      'UPDATE presets SET author_opened_at = now() WHERE id = $1 AND edit_token_hash = $2 AND NOT hidden ' +
+        "AND (author_opened_at IS NULL OR author_opened_at < now() - interval '1 day')"
+    );
+    expect(query.values).toEqual([ID, sha256(EDIT_TOKEN)]);
+  });
+
+  it('returns 404 for an invalid id without a query', async () => {
+    expect((await open(undefined, 'not-a-uuid')).status).toBe(404);
+    expect(mockSql.queries).toHaveLength(0);
+  });
+
+  it.each([
+    ['invalid JSON', '{'],
+    ['a missing token', {}],
+    ['a short token', { editToken: 'short' }],
+  ])('rejects %s with 400 without a query', async (_, body) => {
+    const response = await open(body);
+    expect(response.status).toBe(400);
+    expect(mockSql.queries).toHaveLength(0);
+  });
+
+  it('fails with 500 on database errors', async () => {
+    mockSql.respond(Q.opened, new Error('connection refused'));
+    expect((await open()).status).toBe(500);
+  });
+});
+
 describe('GET /api/presets/:id', () => {
   it('returns a visible preset without caching', async () => {
     const preset = { id: ID, name: 'Pad', data, createdAt: '2026-01-01T00:00:00Z' };
@@ -391,6 +432,13 @@ describe('GET /api/presets/top', () => {
     expect(mockSql.find(Q.featured)).toHaveLength(0);
   });
 
+  it('takes only visible presets above the popular threshold, by score', async () => {
+    await call('GET', '/api/presets/top');
+    const [query] = mockSql.find(Q.scored);
+    expect(query.text).toContain('WHERE s.popular AND NOT p.hidden');
+    expect(query.text).toContain('ORDER BY s.score DESC, s.preset_id');
+  });
+
   it('fills the rest with featured presets', async () => {
     const scored = items(2);
     const featured = items(3, 100).map((item) => ({ ...item, uniqueUsers: 0 }));
@@ -401,7 +449,14 @@ describe('GET /api/presets/top', () => {
 
     const [query] = mockSql.find(Q.featured);
     expect(query.values).toEqual([[uuid(0), uuid(1)], 48]);
-    expect(query.text).toContain('NOT hidden');
+    expect(query.text).toContain('NOT p.hidden');
+  });
+
+  it('shows unique users of featured presets below the popular threshold', async () => {
+    await call('GET', '/api/presets/top');
+    const [query] = mockSql.find(Q.featured);
+    expect(query.text).toContain('COALESCE(s.unique_users, 0) AS "uniqueUsers"');
+    expect(query.text).toContain('FROM presets p LEFT JOIN preset_scores s ON s.preset_id = p.id');
   });
 
   it('returns featured presets on a cold start', async () => {

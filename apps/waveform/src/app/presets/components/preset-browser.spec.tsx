@@ -40,6 +40,8 @@ beforeEach(() => {
   getTopPresetsMock.mockResolvedValue(top);
   listPresetsMock.mockResolvedValue({ items: [item('a1', 'All one')], nextCursor: null });
   getPresetMock.mockImplementation(fakePreset);
+  // the preset opened on start is random: the first one
+  jest.spyOn(Math, 'random').mockReturnValue(0);
 });
 afterEach(() => jest.useRealTimers());
 
@@ -136,23 +138,24 @@ describe('PresetBrowser', () => {
 
   it('copies a preset link without loading it', async () => {
     const { user } = setup();
-    const [share] = await rowButtons('Top one');
+    const [share] = await rowButtons('Top two');
     await user.click(share);
 
-    expect(sharePreset).toHaveBeenCalledWith('t1');
-    expect(getPresetMock).not.toHaveBeenCalled();
+    expect(sharePreset).toHaveBeenCalledWith('t2');
+    // only the first one opened on start
+    expect(getPresetMock).not.toHaveBeenCalledWith('t2');
   });
 
   it('reports a preset after confirmation', async () => {
     jest.mocked(reportPreset).mockResolvedValue(undefined);
     const { user } = setup();
-    const [, report] = await rowButtons('Top one');
+    const [, report] = await rowButtons('Top two');
     await user.click(report);
     await user.click(await screen.findByRole('button', { name: 'Report' }));
 
-    expect(reportPreset).toHaveBeenCalledWith('t1');
+    expect(reportPreset).toHaveBeenCalledWith('t2');
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Thanks, the preset has been reported'));
-    expect(getPresetMock).not.toHaveBeenCalled();
+    expect(getPresetMock).not.toHaveBeenCalledWith('t2');
   });
 
   it('shows report errors', async () => {

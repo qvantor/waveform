@@ -1,6 +1,6 @@
 import type { Context } from '@netlify/functions';
 import { request } from '../tests/helpers';
-import { empty, errorResponse, getIpHash, HttpError, json, readJson, sha256 } from './http';
+import { empty, errorResponse, getIpHash, HttpError, ipKey, json, readJson, sha256 } from './http';
 
 const post = (body: string) => request('POST', '/', body);
 
@@ -58,6 +58,41 @@ describe('sha256', () => {
   });
 });
 
+describe('ipKey', () => {
+  it('keeps IPv4 addresses', () => {
+    expect(ipKey('1.2.3.4')).toBe('1.2.3.4');
+  });
+
+  it('takes the /64 of IPv6 addresses in any notation', () => {
+    const key = '2001:db8:85a3:42::/64';
+    expect(ipKey('2001:db8:85a3:42:1:2:3:4')).toBe(key);
+    expect(ipKey('2001:0DB8:85A3:0042:aaaa:bbbb:cccc:dddd')).toBe(key);
+    expect(ipKey('2001:db8:85a3:42::1')).toBe(key);
+    expect(ipKey('2001:db8:85a3:42:1::')).toBe(key);
+    expect(ipKey('2001:db8:85a3:42:1:2:3.4.5.6')).toBe(key);
+    expect(ipKey('2001:db8:85a3:43::1')).not.toBe(key);
+  });
+
+  it('expands :: inside the /64', () => {
+    expect(ipKey('2001:db8::1')).toBe('2001:db8:0:0::/64');
+    expect(ipKey('::1')).toBe('0:0:0:0::/64');
+    expect(ipKey('::')).toBe('0:0:0:0::/64');
+    expect(ipKey('64:ff9b::1.2.3.4')).toBe('64:ff9b:0:0::/64');
+  });
+
+  it('drops the zone id and maps IPv4-mapped addresses to IPv4', () => {
+    expect(ipKey('fe80::1%eth0')).toBe('fe80:0:0:0::/64');
+    expect(ipKey('::ffff:1.2.3.4')).toBe('1.2.3.4');
+    expect(ipKey('::FFFF:1.2.3.4')).toBe('1.2.3.4');
+    expect(ipKey('0:0:0:0:0:ffff:1.2.3.4')).toBe('1.2.3.4');
+    expect(ipKey('::ffff:102:304')).toBe('1.2.3.4');
+  });
+
+  it('keeps what is not an IP address', () => {
+    expect(ipKey('unknown')).toBe('unknown');
+  });
+});
+
 describe('getIpHash', () => {
   afterEach(() => {
     delete process.env.IP_HASH_SALT;
@@ -71,6 +106,14 @@ describe('getIpHash', () => {
     expect(getIpHash({ ip: '5.6.7.8' } as Context)).not.toBe(hash);
     process.env.IP_HASH_SALT = 'other';
     expect(getIpHash({ ip: '1.2.3.4' } as Context)).not.toBe(hash);
+  });
+
+  it('hashes the /64 of IPv6 addresses', () => {
+    process.env.IP_HASH_SALT = 'salt';
+    const hash = getIpHash({ ip: '2001:db8:1:2:aaaa::1' } as Context);
+    expect(hash).toBe(sha256('2001:db8:1:2::/64:salt'));
+    expect(getIpHash({ ip: '2001:db8:1:2:bbbb::2' } as Context)).toBe(hash);
+    expect(getIpHash({ ip: '2001:db8:1:3::1' } as Context)).not.toBe(hash);
   });
 
   it('throws without the salt', () => {

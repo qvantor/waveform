@@ -218,31 +218,31 @@ export const savePresetRequestSchema = z.object({
 });
 export type SavePresetRequest = z.input<typeof savePresetRequestSchema>;
 
+// the secret of the author (SavePresetResponse.editToken)
+const editTokenSchema = z.string().min(20).max(128);
+
 export const updatePresetRequestSchema = z.object({
   name: presetNameSchema,
   data: presetDataSchema,
-  editToken: z.string().min(20).max(128),
+  editToken: editTokenSchema,
 });
 export type UpdatePresetRequest = z.input<typeof updatePresetRequestSchema>;
 
-export const USAGE_MAX_ITEMS = 10;
-export const USAGE_MAX_SECONDS = 120;
+// the author opened the preset, it is kept from the cleanup
+export const presetOpenedRequestSchema = z.object({
+  editToken: editTokenSchema,
+});
+export type PresetOpenedRequest = z.input<typeof presetOpenedRequestSchema>;
 
+// a listen and a stay: a preset played this many seconds without switching to another one
+export const USAGE_LISTEN_SECONDS = 10;
+export const USAGE_STAY_SECONDS = 60;
+
+// a listen: USAGE_LISTEN_SECONDS reached on a chosen preset; a stay: USAGE_STAY_SECONDS; each is sent once a preset
+// is opened (see usePresetUsageTracker), the score is the share of listeners who stayed
 export const usageRequestSchema = z.object({
-  clientId: z.string().min(1).max(64),
-  items: z
-    .array(
-      z.object({
-        presetId: presetIdSchema,
-        seconds: z
-          .number()
-          .int()
-          .min(1)
-          .transform((value) => Math.min(value, USAGE_MAX_SECONDS)),
-      })
-    )
-    .min(1)
-    .max(USAGE_MAX_ITEMS),
+  presetId: presetIdSchema,
+  event: z.enum(['listen', 'stay']),
 });
 export type UsageRequest = z.input<typeof usageRequestSchema>;
 
