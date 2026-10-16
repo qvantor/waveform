@@ -12,8 +12,16 @@ export const setSmooth = (
 
 export type FxSlot = ReturnType<typeof createFxSlot>;
 
-// input → dry → output (mix: equal-power crossfade of dry and wet; bypassed: only dry)
+// [dry, wet] gains of the mix (0: only dry, 1: only wet). Equal power: both at -3 dB at 0.5, the level stays
+// flat when wet and dry are unrelated (echoes, reverb); linear: both at -6 dB, for a wet signal in time with
+// the dry one (FxCore.linearMix), where equal power would be 3 dB louder
+export const mixGains = (mix: number, linear = false): [number, number] =>
+  linear ? [1 - mix, mix] : [Math.cos((mix * Math.PI) / 2), Math.sin((mix * Math.PI) / 2)];
+
+// input → dry → output (mix: crossfade of dry and wet, mixGains; bypassed: only dry)
 // input → send → core → wet → output (send is closed while inactive, so the core gets no new signal)
+// a core with latency: input → dry delay (the latency) → dry, the same for bypass and mix, so the timing
+// doesn't jump and the mix doesn't comb filter
 // core → drain (muted) → destination: the core stays rendered while the slot is out of the chain, so its
 // loops drain (a disconnected delay freezes its buffer and replays the old tail when added back)
 export const createFxSlot = (audioCtx: BaseAudioContext, core: FxCore) => {
@@ -23,8 +31,11 @@ export const createFxSlot = (audioCtx: BaseAudioContext, core: FxCore) => {
   const wet = audioCtx.createGain();
   const send = audioCtx.createGain();
   const drain = audioCtx.createGain();
+  const { latency = 0, linearMix = false } = core;
+  const dryDelay = latency > 0 ? audioCtx.createDelay(latency) : undefined;
 
-  input.connect(dry);
+  dryDelay?.delayTime.setValueAtTime(latency, audioCtx.currentTime);
+  (dryDelay ? input.connect(dryDelay) : input).connect(dry);
   dry.connect(output);
   input.connect(send);
   send.connect(core.input);
@@ -43,6 +54,7 @@ export const createFxSlot = (audioCtx: BaseAudioContext, core: FxCore) => {
     input,
     output,
     dry,
+    dryDelay,
     wet,
     send,
     drain,
@@ -50,11 +62,12 @@ export const createFxSlot = (audioCtx: BaseAudioContext, core: FxCore) => {
     // an effect without a status is always ready, it has nothing to retry
     $status: core.$status ?? new BehaviorSubject<FxStatus>('ready'),
     retry: core.retry ?? noop,
-    // equal-power crossfade, so the level stays flat: mix 0: only dry, 0.5: both at -3 dB, 1: only wet;
-    // bypassed: only the dry signal passes
+    // the crossfade of mixGains (both gains glide alike, so a linear one keeps their sum); bypassed: only
+    // the dry signal passes
     setMix: (mix: number, on: boolean) => {
-      setGain(dry, on ? Math.cos((mix * Math.PI) / 2) : 1);
-      setGain(wet, on ? Math.sin((mix * Math.PI) / 2) : 0);
+      const [dryGain, wetGain] = on ? mixGains(mix, linearMix) : [1, 0];
+      setGain(dry, dryGain);
+      setGain(wet, wetGain);
     },
     // active: in the chain and not bypassed
     setActive: (active: boolean) => {
@@ -63,7 +76,7 @@ export const createFxSlot = (audioCtx: BaseAudioContext, core: FxCore) => {
     },
     destroy: () => {
       core.destroy();
-      [input, output, dry, wet, send, drain].forEach((node) => node.disconnect());
+      [input, output, dry, wet, send, drain, dryDelay].forEach((node) => node?.disconnect());
     },
   };
 };

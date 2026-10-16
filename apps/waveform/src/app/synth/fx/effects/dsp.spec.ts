@@ -2,6 +2,7 @@ import { biquad } from '@waveform/math';
 import {
   createAllpass,
   createBiquad,
+  createDcBlocker,
   createDelayLine,
   createFixedAllpass,
   createSmoothed,
@@ -144,6 +145,76 @@ describe('createBiquad', () => {
     filter.process(1);
     filter.clear();
     expect(filter.process(0)).toBe(0);
+  });
+
+  it('processBlock is process() sample by sample, its state carries on to the next block and to process()', () => {
+    const input = Float64Array.from({ length: 300 }, (_, n) => Math.sin(n * 0.3) + (n % 5) / 10);
+    const one = createBiquad();
+    const block = createBiquad();
+    [one, block].forEach((filter) =>
+      filter.set('lowpass', { frequency: 2000, Q: -3.01, gain: 0 }, SAMPLE_RATE)
+    );
+    const expected = Array.from(input, (x) => one.process(x));
+    const output = new Float64Array(300);
+    block.processBlock(input, output, 128);
+    block.processBlock(input.subarray(128), output.subarray(128), 128);
+    for (let n = 256; n < 300; n++) output[n] = block.process(input[n]);
+    expect(Array.from(output)).toEqual(expected);
+  });
+
+  it('clear resets the state of processBlock too', () => {
+    const filter = createBiquad();
+    filter.set('lowpass', { frequency: 100, Q: 0, gain: 0 }, SAMPLE_RATE);
+    const output = new Float64Array(4);
+    filter.processBlock(Float64Array.of(1, 1, 1, 1), output, 4);
+    filter.clear();
+    filter.processBlock(new Float64Array(4), output, 4);
+    expect(Array.from(output)).toEqual([0, 0, 0, 0]);
+  });
+});
+
+describe('createDcBlocker', () => {
+  // a sample at a time through processBlock
+  const processOf = (blocker: ReturnType<typeof createDcBlocker>) => (x: number) => {
+    const data = Float64Array.of(x);
+    blocker.processBlock(data, 1);
+    return data[0];
+  };
+
+  it('takes out the DC: a constant decays to 0', () => {
+    const blocker = createDcBlocker(5, SAMPLE_RATE);
+    const data = new Float64Array(SAMPLE_RATE).fill(0.5);
+    blocker.processBlock(data, data.length);
+    expect(data[0]).toBe(0.5);
+    expect(Math.abs(data[data.length - 1])).toBeLessThan(1e-6);
+  });
+
+  it('leaves the bass alone', () => {
+    expect(20 * Math.log10(sineGain(processOf(createDcBlocker(5, SAMPLE_RATE)), 30))).toBeGreaterThan(-0.15);
+    // above it lifts a hair: 2 / (1 + r) at the nyquist, +0.003 dB
+    expect(
+      Math.abs(20 * Math.log10(sineGain(processOf(createDcBlocker(5, SAMPLE_RATE)), 1000)))
+    ).toBeLessThan(0.01);
+  });
+
+  it('a block is the samples one by one, its state carries on to the next block', () => {
+    const input = Float64Array.from({ length: 300 }, (_, n) => Math.sin(n * 0.3) + 0.2);
+    const one = createDcBlocker(5, SAMPLE_RATE);
+    const expected = Array.from(input, processOf(one));
+    const block = createDcBlocker(5, SAMPLE_RATE);
+    const data = Float64Array.from(input);
+    block.processBlock(data, 128);
+    block.processBlock(data.subarray(128), 172);
+    expect(Array.from(data)).toEqual(expected);
+  });
+
+  it('clear resets its state', () => {
+    const blocker = createDcBlocker(5, SAMPLE_RATE);
+    blocker.processBlock(Float64Array.of(1, 1, 1, 1), 4);
+    blocker.clear();
+    const data = new Float64Array(4);
+    blocker.processBlock(data, 4);
+    expect(Array.from(data)).toEqual([0, 0, 0, 0]);
   });
 });
 

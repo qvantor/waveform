@@ -1,6 +1,6 @@
 import { distinctUntilChanged, map, combineLatest, shareReplay } from 'rxjs';
 import { isEqual, mapValues } from 'lodash';
-import { FX_MIX_PARAM, FX_TYPES, FxType, fxSnapSchema } from '@waveform/preset-schema';
+import { FX_MIX_PARAMS, FX_TYPES, FxType, fxSnapSchema } from '@waveform/preset-schema';
 import { ArrayBS, ObjectBS, rxModel, rxModelReact } from '@waveform/rxjs-react';
 import { SynthCoreModule } from '../../common/modules/synth-core';
 import { urlSnapshotPlugin } from '../../../app';
@@ -22,7 +22,7 @@ type FxSnap = { a: boolean; on: boolean; mix: number } & Record<string, number |
 const defaultFxState = (type: FxType): FxState => ({
   added: false,
   on: true,
-  mix: FX_MIX_PARAM.default,
+  mix: FX_MIX_PARAMS[type].default,
   params: mapValues(FX_REGISTRY[type].params, (param) => param.default),
 });
 

@@ -73,12 +73,13 @@ const IconBadge = styled.div`
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
+  /* the icon fills it, the traces are cut by its rounded edges */
+  overflow: hidden;
   border-radius: ${theme.borderRadius.m};
   background: ${theme.colors.primary};
   color: ${theme.colors.primaryHighContrast};
-  font-size: 16px;
   transition: background 150ms, color 150ms;
 
   .on > & {

@@ -65,25 +65,63 @@ export const createFixedAllpass = (delay: number) => {
   };
 };
 
-// transposed direct form II, the coefficients are the BiquadFilterNode ones (biquad.coefficients)
+// butterworth: Q of highpass and lowpass is in dB
+export const BUTTERWORTH_Q = -3.01;
+
+// transposed direct form II, the coefficients are the BiquadFilterNode ones (biquad.coefficients); the state
+// is in a typed array, so writing it boxes no number
 export const createBiquad = () => {
   let [b0, b1, b2, a1, a2] = [1, 0, 0, 0, 0];
-  let z1 = 0;
-  let z2 = 0;
+  const z = new Float64Array(2);
   return {
     set: (type: BiquadFilterType, params: biquad.BiquadParams, sampleRate: number) => {
       [b0, b1, b2, a1, a2] = biquad.coefficients(type, params, sampleRate);
     },
     process: (input: number) => {
-      const output = b0 * input + z1;
-      z1 = b1 * input - a1 * output + z2;
-      z2 = b2 * input - a2 * output;
+      const output = b0 * input + z[0];
+      z[0] = b1 * input - a1 * output + z[1];
+      z[1] = b2 * input - a2 * output;
       return output;
     },
-    clear: () => {
-      z1 = 0;
-      z2 = 0;
+    // a block: output[s] of input[s] for s < frames, the same as process() sample by sample
+    processBlock: (input: Float64Array, output: Float64Array, frames: number) => {
+      let z1 = z[0];
+      let z2 = z[1];
+      for (let s = 0; s < frames; s++) {
+        const x = input[s];
+        const y = b0 * x + z1;
+        z1 = b1 * x - a1 * y + z2;
+        z2 = b2 * x - a2 * y;
+        output[s] = y;
+      }
+      z[0] = z1;
+      z[1] = z2;
     },
+    clear: () => z.fill(0),
+  };
+};
+
+// one pole highpass that takes the DC out: y = x - x[n-1] + r·y[n-1], r from the cutoff (Hz). Cut at a few
+// Hz it leaves the bass alone (5 Hz: -0.12 dB at 30 Hz), but its tail is long: τ = 1 / (2π·cutoff)
+export const createDcBlocker = (cutoff: number, sampleRate: number) => {
+  const r = Math.exp((-2 * Math.PI * cutoff) / sampleRate);
+  // the last input and output, in a typed array, so writing them boxes no number
+  const state = new Float64Array(2);
+  return {
+    // data[0..frames) in place
+    processBlock: (data: Float64Array, frames: number) => {
+      let x1 = state[0];
+      let y1 = state[1];
+      for (let s = 0; s < frames; s++) {
+        const x = data[s];
+        y1 = x - x1 + r * y1;
+        x1 = x;
+        data[s] = y1;
+      }
+      state[0] = x1;
+      state[1] = y1;
+    },
+    clear: () => state.fill(0),
   };
 };
 
@@ -120,4 +158,11 @@ export const stepAll = (values: Smoothed[], frames: number) => {
   let gliding = false;
   for (let i = 0; i < values.length; i++) gliding = values[i].step(frames) || gliding;
   return gliding;
+};
+
+// the loudest sample of a block
+export const peak = (data: Float32Array) => {
+  let max = 0;
+  for (let i = 0; i < data.length; i++) max = Math.max(max, Math.abs(data[i]));
+  return max;
 };

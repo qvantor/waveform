@@ -1,5 +1,5 @@
 import { mapValues } from 'lodash';
-import { FX_MIX_PARAM, FX_PARAMS } from '@waveform/preset-schema';
+import { FX_MIX_PARAMS, FX_PARAMS } from '@waveform/preset-schema';
 import { FxPreset } from './types';
 
 export type ReverbParam = keyof typeof FX_PARAMS.reverb;
@@ -9,7 +9,7 @@ export const REVERB_PRESETS: FxPreset<ReverbParam>[] = [
   {
     id: 'default',
     name: 'Default',
-    mix: FX_MIX_PARAM.default,
+    mix: FX_MIX_PARAMS.reverb.default,
     params: mapValues(FX_PARAMS.reverb, (param) => param.default),
   },
   {

@@ -1,4 +1,4 @@
-import { FX_MIX_PARAM, FX_PARAMS, normalizePreset } from '@waveform/preset-schema';
+import { FX_MIX_PARAMS, FX_PARAMS, normalizePreset } from '@waveform/preset-schema';
 import { mapValues } from 'lodash';
 import { REVERB_PRESETS } from './reverb-presets';
 import { findFxPreset } from '.';
@@ -15,7 +15,7 @@ describe('reverb presets', () => {
 
   it('the default preset is the schema defaults, the state of a freshly added reverb', () => {
     const preset = REVERB_PRESETS.find((item) => item.id === 'default');
-    expect(preset?.mix).toBe(FX_MIX_PARAM.default);
+    expect(preset?.mix).toBe(FX_MIX_PARAMS.reverb.default);
     expect(preset?.params).toEqual(mapValues(FX_PARAMS.reverb, (param) => param.default));
   });
 
