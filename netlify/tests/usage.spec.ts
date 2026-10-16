@@ -1,16 +1,21 @@
 import handler, { config } from '../functions/usage.mjs';
+import { verifyTurnstile } from '../utils/turnstile';
 import { createFakeSql } from './fake-sql';
 import { context, ID as A, IP_HASH, IP_SALT, request } from './helpers';
 
 const mockSql = createFakeSql();
 jest.mock('../utils/db', () => ({ db: () => mockSql.sql }));
+jest.mock('../utils/turnstile', () => ({ verifyTurnstile: jest.fn() }));
+
+const verifyTurnstileMock = verifyTurnstile as jest.Mock;
 
 const send = (body: unknown, method = 'POST') => handler(request(method, '/api/usage', body), context);
-const listen = { presetId: A, event: 'listen' };
-const stay = { presetId: A, event: 'stay' };
+const listen = { presetId: A, event: 'listen', turnstileToken: 'turnstile' };
+const stay = { presetId: A, event: 'stay', turnstileToken: 'turnstile' };
 
 beforeEach(() => {
   mockSql.reset();
+  verifyTurnstileMock.mockReset().mockResolvedValue(true);
   process.env.IP_HASH_SALT = IP_SALT;
   jest.spyOn(console, 'error').mockImplementation(() => undefined);
 });
@@ -69,6 +74,27 @@ it.each([
   expect(mockSql.queries[0].text).toContain('WHERE id = $2 AND NOT hidden AND ip_hash <> $3 ON CONFLICT');
 });
 
+it.each([
+  ['listen', listen],
+  ['stay', stay],
+])('checks the captcha of every %s with the ip of the visitor', async (_, body) => {
+  await send(body);
+  await send(body);
+  expect(verifyTurnstileMock).toHaveBeenCalledTimes(2);
+  expect(verifyTurnstileMock).toHaveBeenCalledWith('turnstile', '1.2.3.4');
+});
+
+it.each([
+  ['listens', listen],
+  ['stays', stay],
+])('rejects %s with a failed captcha with 403, storing nothing', async (_, body) => {
+  verifyTurnstileMock.mockResolvedValue(false);
+  const response = await send(body);
+  expect(response.status).toBe(403);
+  expect(await response.json()).toEqual({ error: 'Captcha check failed' });
+  expect(mockSql.queries).toHaveLength(0);
+});
+
 it('hashes the ip', async () => {
   await send(stay);
   await handler(request('POST', '/api/usage', stay), { ...context, ip: '5.6.7.8' });
@@ -80,19 +106,23 @@ it('rejects other methods with 405', async () => {
   const response = await send(undefined, 'GET');
   expect(response.status).toBe(405);
   expect(mockSql.queries).toHaveLength(0);
+  expect(verifyTurnstileMock).not.toHaveBeenCalled();
 });
 
 it.each([
   ['invalid JSON', '{'],
   ['an empty body', {}],
-  ['an invalid preset id', { presetId: 'abc', event: 'stay' }],
-  ['a preset id without an event', { presetId: A }],
-  ['an unknown event', { presetId: A, event: 'open' }],
+  ['an invalid preset id', { ...stay, presetId: 'abc' }],
+  ['a preset id without an event', { presetId: A, turnstileToken: 'turnstile' }],
+  ['an unknown event', { ...stay, event: 'open' }],
+  ['a listen without a captcha token', { presetId: A, event: 'listen' }],
+  ['a stay with an empty captcha token', { ...stay, turnstileToken: '' }],
   ['the batch of seconds of older clients', { clientId: 'client', items: [{ presetId: A, seconds: 60 }] }],
-])('rejects %s with 400', async (_, body) => {
+])('rejects %s with 400 without checking the captcha', async (_, body) => {
   const response = await send(body);
   expect(response.status).toBe(400);
   expect(mockSql.queries).toHaveLength(0);
+  expect(verifyTurnstileMock).not.toHaveBeenCalled();
 });
 
 it('rejects bodies over 4 KB with 413', async () => {

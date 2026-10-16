@@ -168,24 +168,15 @@ const getPreset = async (id: string) => {
   return json(preset);
 };
 
+// every featured preset (curated) comes first, whatever its score, the rest are popular presets by score
 const getTop = async () => {
-  const sql = db();
-  const scored = await sql<PresetListItem[]>`
-    SELECT p.id, p.name, s.unique_users AS "uniqueUsers"
-    FROM preset_scores s JOIN presets p ON p.id = s.preset_id
-    WHERE s.popular AND NOT p.hidden
-    ORDER BY s.score DESC, s.preset_id
+  const top = await db()<PresetListItem[]>`
+    SELECT p.id, p.name, COALESCE(s.unique_users, 0) AS "uniqueUsers"
+    FROM presets p LEFT JOIN preset_scores s ON s.preset_id = p.id
+    WHERE (p.featured OR s.popular) AND NOT p.hidden
+    ORDER BY p.featured DESC, s.score DESC NULLS LAST, p.created_at DESC, p.id DESC
     LIMIT ${TOP_SIZE}`;
-  const featured =
-    scored.length < TOP_SIZE
-      ? await sql<PresetListItem[]>`
-        SELECT p.id, p.name, COALESCE(s.unique_users, 0) AS "uniqueUsers"
-        FROM presets p LEFT JOIN preset_scores s ON s.preset_id = p.id
-        WHERE p.featured AND NOT p.hidden AND NOT (p.id = ANY(${scored.map(({ id }) => id)}::uuid[]))
-        ORDER BY p.created_at DESC, p.id DESC
-        LIMIT ${TOP_SIZE - scored.length}`
-      : [];
-  return json([...scored, ...featured], 200, { 'Cache-Control': 'public, s-maxage=300' });
+  return json(top, 200, { 'Cache-Control': 'public, s-maxage=300' });
 };
 
 // keyset pagination, cursor is an opaque [sort key as text, id] pair

@@ -48,7 +48,7 @@ Built with TypeScript, RxJS and the Web Audio API. Nothing to install and no acc
 - **Browse and search** community presets; the **Popular** tab ranks them by the share of people who keep playing them for a minute instead of skipping on
 - Step through presets with ◀ ▶
 - **Edit your own presets** later; the edit token stays in your browser
-- Duplicate sounds are detected, names are unique, and spam is blocked with Cloudflare Turnstile and rate limits
+- Duplicate sounds are detected, names are unique, and spam is blocked with Cloudflare Turnstile and rate limits; listens behind Popular pass an invisible Turnstile check too
 - Report inappropriate presets
 
 ### 🎹 Play anywhere

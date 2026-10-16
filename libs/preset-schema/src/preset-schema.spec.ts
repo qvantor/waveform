@@ -252,14 +252,21 @@ describe('requests', () => {
     expect(presetOpenedRequestSchema.safeParse({}).success).toBe(false);
   });
 
-  it('takes a listen or a stay of a preset', () => {
+  it('takes a listen or a stay of a preset with a captcha token', () => {
     const presetId = '5b6a2f2e-4f7c-4c2a-9a39-6f1f3f0b2a11';
-    expect(usageRequestSchema.parse({ presetId, event: 'listen' })).toEqual({ presetId, event: 'listen' });
-    expect(usageRequestSchema.parse({ presetId, event: 'stay' })).toEqual({ presetId, event: 'stay' });
-    expect(usageRequestSchema.safeParse({ presetId: 'x', event: 'stay' }).success).toBe(false);
-    expect(usageRequestSchema.safeParse({ presetId, event: 'open' }).success).toBe(false);
-    expect(usageRequestSchema.safeParse({ presetId }).success).toBe(false);
+    const turnstileToken = 'token';
+    const listen = { presetId, event: 'listen', turnstileToken };
+    const stay = { presetId, event: 'stay', turnstileToken };
+    expect(usageRequestSchema.parse(listen)).toEqual(listen);
+    expect(usageRequestSchema.parse(stay)).toEqual(stay);
+    expect(usageRequestSchema.safeParse({ ...stay, presetId: 'x' }).success).toBe(false);
+    expect(usageRequestSchema.safeParse({ ...stay, event: 'open' }).success).toBe(false);
+    expect(usageRequestSchema.safeParse({ presetId, turnstileToken }).success).toBe(false);
     expect(usageRequestSchema.safeParse({}).success).toBe(false);
+    // without a captcha (older clients)
+    expect(usageRequestSchema.safeParse({ presetId, event: 'listen' }).success).toBe(false);
+    expect(usageRequestSchema.safeParse({ ...listen, turnstileToken: '' }).success).toBe(false);
+    expect(usageRequestSchema.safeParse({ ...listen, turnstileToken: 'x'.repeat(4097) }).success).toBe(false);
     // the batch of seconds of older clients
     expect(usageRequestSchema.safeParse({ clientId: 'c', items: [{ presetId, seconds: 60 }] }).success).toBe(
       false

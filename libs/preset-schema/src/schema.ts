@@ -211,10 +211,13 @@ export const nameKey = (name: string) => normalizeName(name).toLowerCase();
 
 export const presetIdSchema = z.string().uuid();
 
+// a Cloudflare Turnstile response, single use
+const turnstileTokenSchema = z.string().min(1).max(4096);
+
 export const savePresetRequestSchema = z.object({
   name: presetNameSchema,
   data: presetDataSchema,
-  turnstileToken: z.string().min(1).max(4096),
+  turnstileToken: turnstileTokenSchema,
 });
 export type SavePresetRequest = z.input<typeof savePresetRequestSchema>;
 
@@ -239,10 +242,11 @@ export const USAGE_LISTEN_SECONDS = 10;
 export const USAGE_STAY_SECONDS = 60;
 
 // a listen: USAGE_LISTEN_SECONDS reached on a chosen preset; a stay: USAGE_STAY_SECONDS; each is sent once a preset
-// is opened (see usePresetUsageTracker), the score is the share of listeners who stayed
+// is opened (see usePresetUsageTracker) with a captcha of its own, the score is the share of listeners who stayed
 export const usageRequestSchema = z.object({
   presetId: presetIdSchema,
   event: z.enum(['listen', 'stay']),
+  turnstileToken: turnstileTokenSchema,
 });
 export type UsageRequest = z.input<typeof usageRequestSchema>;
 

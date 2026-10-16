@@ -7,10 +7,10 @@ import { PanelButton, theme } from '@waveform/ui-kit';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
 import { useApp } from '../../app';
 import { usePresets } from '../modules/presets';
-import { usePresetUsageTracker } from '../hooks/use-preset-usage-tracker';
 import { sharePreset } from '../services';
 import { PresetBrowser } from './preset-browser';
 import { SaveDialog } from './save-dialog';
+import { UsageReporter } from './usage-reporter';
 
 const Dirty = styled.span`
   color: ${theme.colors.secondAccent};
@@ -77,8 +77,6 @@ export const PresetSection = ({ actions, className }: SectionProps) => {
   const [browserOpen, setBrowserOpen] = React.useState(false);
   const [saveOpen, setSaveOpen] = React.useState(false);
 
-  usePresetUsageTracker();
-
   // Cmd/Ctrl+S
   React.useEffect(() => {
     const subscription = $saveRequest.subscribe(() => setSaveOpen(true));
@@ -105,7 +103,7 @@ export const PresetSection = ({ actions, className }: SectionProps) => {
             {dirty && <Dirty> *</Dirty>}
           </SectionName>
         </Tooltip>
-        <Tooltip title='Init: reset to the default sound'>
+        <Tooltip title='Init preset'>
           <IconButton aria-label='Init preset' onClick={reset}>
             <AiOutlineReload />
           </IconButton>
@@ -129,6 +127,7 @@ export const PresetSection = ({ actions, className }: SectionProps) => {
       </Row>
       <PresetBrowser open={browserOpen} onClose={() => setBrowserOpen(false)} />
       <SaveDialog open={saveOpen} onClose={() => setSaveOpen(false)} />
+      <UsageReporter />
     </Section>
   );
 };

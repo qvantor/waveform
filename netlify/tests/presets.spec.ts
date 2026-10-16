@@ -27,8 +27,7 @@ const Q = {
   update: /^UPDATE presets SET name/,
   opened: /^UPDATE presets SET author_opened_at/,
   get: /^SELECT id, name, data, created_at/,
-  scored: /FROM preset_scores s JOIN presets/,
-  featured: /WHERE p\.featured/,
+  top: /WHERE \(p\.featured OR s\.popular\)/,
   list: /AS "cursorKey" FROM presets p LEFT JOIN preset_scores/,
   exists: /^SELECT id FROM presets WHERE id/,
   insertReport: /^INSERT INTO reports/,
@@ -422,47 +421,40 @@ describe('GET /api/presets/top', () => {
       uniqueUsers: 3,
     }));
 
-  it('returns 50 scored presets without featured ones', async () => {
-    mockSql.respond(Q.scored, items(50));
+  it('returns at most 50 presets in one query, cached for 5 minutes', async () => {
+    mockSql.respond(Q.top, items(50));
     const { status, body, headers } = await call('GET', '/api/presets/top');
     expect(status).toBe(200);
-    expect(body).toHaveLength(50);
+    expect(body).toEqual(items(50));
     expect(headers.get('Cache-Control')).toBe('public, s-maxage=300');
-    expect(mockSql.find(Q.scored)[0].values).toEqual([50]);
-    expect(mockSql.find(Q.featured)).toHaveLength(0);
+    expect(mockSql.queries).toHaveLength(1);
+    expect(mockSql.find(Q.top)[0].values).toEqual([50]);
   });
 
-  it('takes only visible presets above the popular threshold, by score', async () => {
+  it('takes every visible featured preset and the visible presets above the popular threshold', async () => {
     await call('GET', '/api/presets/top');
-    const [query] = mockSql.find(Q.scored);
-    expect(query.text).toContain('WHERE s.popular AND NOT p.hidden');
-    expect(query.text).toContain('ORDER BY s.score DESC, s.preset_id');
-  });
-
-  it('fills the rest with featured presets', async () => {
-    const scored = items(2);
-    const featured = items(3, 100).map((item) => ({ ...item, uniqueUsers: 0 }));
-    mockSql.respond(Q.scored, scored);
-    mockSql.respond(Q.featured, featured);
-    const { body } = await call('GET', '/api/presets/top');
-    expect(body).toEqual([...scored, ...featured]);
-
-    const [query] = mockSql.find(Q.featured);
-    expect(query.values).toEqual([[uuid(0), uuid(1)], 48]);
-    expect(query.text).toContain('NOT p.hidden');
-  });
-
-  it('shows unique users of featured presets below the popular threshold', async () => {
-    await call('GET', '/api/presets/top');
-    const [query] = mockSql.find(Q.featured);
-    expect(query.text).toContain('COALESCE(s.unique_users, 0) AS "uniqueUsers"');
+    const [query] = mockSql.find(Q.top);
     expect(query.text).toContain('FROM presets p LEFT JOIN preset_scores s ON s.preset_id = p.id');
+    expect(query.text).toContain('WHERE (p.featured OR s.popular) AND NOT p.hidden');
+  });
+
+  it('puts featured presets first whatever their score, the rest by score', async () => {
+    await call('GET', '/api/presets/top');
+    const [query] = mockSql.find(Q.top);
+    expect(query.text).toContain(
+      'ORDER BY p.featured DESC, s.score DESC NULLS LAST, p.created_at DESC, p.id DESC'
+    );
+  });
+
+  it('shows unique users of featured presets below the popular threshold, 0 without a score', async () => {
+    await call('GET', '/api/presets/top');
+    const [query] = mockSql.find(Q.top);
+    expect(query.text).toContain('COALESCE(s.unique_users, 0) AS "uniqueUsers"');
   });
 
   it('returns featured presets on a cold start', async () => {
-    mockSql.respond(Q.featured, items(1));
+    mockSql.respond(Q.top, items(1));
     expect((await call('GET', '/api/presets/top')).body).toEqual(items(1));
-    expect(mockSql.find(Q.featured)[0].values).toEqual([[], 50]);
   });
 });
 

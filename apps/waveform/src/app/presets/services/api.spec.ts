@@ -97,9 +97,9 @@ describe('api', () => {
     expect(fetchMock.mock.calls[1][0]).toBe('/api/presets?sort=new&q=pad&cursor=c1');
   });
 
-  it('POSTs a listen or a stay with keepalive', async () => {
+  it('POSTs a listen or a stay with its captcha token and keepalive', async () => {
     fetchMock.mockResolvedValue(response(204));
-    const body = { presetId: 'p', event: 'stay' as const };
+    const body = { presetId: 'p', event: 'stay' as const, turnstileToken: 'captcha-token' };
     await sendUsage(body);
     expect(fetchMock).toHaveBeenCalledWith('/api/usage', {
       method: 'POST',

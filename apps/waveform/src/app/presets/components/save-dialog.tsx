@@ -21,12 +21,11 @@ import {
   savePreset,
   setEditToken,
   sharePreset,
+  TURNSTILE_SITE_KEY,
   updatePreset,
 } from '../services';
 
 const NAME_CHECK_DEBOUNCE_MS = 300;
-
-const TURNSTILE_SITE_KEY = process.env['NX_TURNSTILE_SITE_KEY'] ?? '';
 
 // https://developers.cloudflare.com/turnstile/troubleshooting/client-side-errors/error-codes/
 const captchaErrorMessage = (code: string) => {

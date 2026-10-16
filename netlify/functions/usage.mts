@@ -2,18 +2,22 @@ import type { Config, Context } from '@netlify/functions';
 import { usageRequestSchema } from '../../libs/preset-schema/src';
 import { db } from '../utils/db';
 import { empty, errorResponse, getIpHash, HttpError, readJson } from '../utils/http';
+import { verifyTurnstile } from '../utils/turnstile';
 
 const MAX_BODY_BYTES = 4 * 1024;
 
 // a listen or a stay (played the preset for USAGE_LISTEN_SECONDS or USAGE_STAY_SECONDS without switching to another
 // one, see recompute-scores), the client sends each once a preset is opened. A listener and preset have one row with
 // the days of the last listen and stay, each written at most once a day; a stay is a listen too (the listen request
-// may have failed). Listens on hidden presets and on the author's own ones (the IP it was saved from) are not stored
+// may have failed). Listens on hidden presets and on the author's own ones (the IP it was saved from) are not stored.
+// Each one needs a captcha of its own: a listener is an IP (an IPv6 /64), a host with a /56 would be 256 of them
 export default async (req: Request, context: Context) => {
   try {
     if (req.method !== 'POST') throw new HttpError(405, 'Method not allowed');
     const parsed = usageRequestSchema.safeParse(await readJson(req, MAX_BODY_BYTES));
     if (!parsed.success) throw new HttpError(400, 'Invalid usage');
+    if (!(await verifyTurnstile(parsed.data.turnstileToken, context.ip)))
+      throw new HttpError(403, 'Captcha check failed');
 
     const sql = db();
     const ipHash = getIpHash(context);

@@ -63,9 +63,14 @@ if (!presetId) {
   console.log('no presets to check /usage, skipping');
 } else {
   const usage = (body) => api('/api/usage', { method: 'POST', body: JSON.stringify(body) });
-  check('usage listen is accepted', (await usage({ presetId, event: 'listen' })).status === 204);
-  check('usage stay is accepted', (await usage({ presetId, event: 'stay' })).status === 204);
-  check('usage without an event is 400', (await usage({ presetId })).status === 400);
+  const turnstileToken = TOKEN;
+  check(
+    'usage listen is accepted',
+    (await usage({ presetId, event: 'listen', turnstileToken })).status === 204
+  );
+  check('usage stay is accepted', (await usage({ presetId, event: 'stay', turnstileToken })).status === 204);
+  check('usage without an event is 400', (await usage({ presetId, turnstileToken })).status === 400);
+  check('usage without a captcha token is 400', (await usage({ presetId, event: 'stay' })).status === 400);
   check(
     'usage batch of seconds of older clients is 400',
     (await usage({ clientId: 'check-1', items: [{ presetId, seconds: 60 }] })).status === 400
