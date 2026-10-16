@@ -155,14 +155,14 @@ describe('distortion', () => {
     await flush();
     expect(core.$status?.value).toBe('failed');
     expect(input.connect).not.toHaveBeenCalled();
-    core.setParam('drive', 15);
+    core.setParam('drive', 9);
     core.retry?.();
     expect(core.$status?.value).toBe('loading');
     await flush();
     expect(core.$status?.value).toBe('ready');
     const node = (input.connect as jest.Mock).mock.calls[0][0] as WorkletNodeStub;
     expect(node.connect).toHaveBeenCalledWith(output);
-    expect(node.options.processorOptions).toEqual({ params: { ...DEFAULTS, drive: 15 } });
+    expect(node.options.processorOptions).toEqual({ params: { ...DEFAULTS, drive: 9 } });
     error.mockRestore();
   });
 

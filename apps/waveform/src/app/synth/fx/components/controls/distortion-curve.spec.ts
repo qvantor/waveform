@@ -30,7 +30,7 @@ describe('transferCurve', () => {
 
   it('stays within ±1 at every drive, so it always fits the chart', () => {
     [SOFT, HARD].forEach((mode) =>
-      [0, 6, 12, 18].forEach((drive) =>
+      [0, 6, 12].forEach((drive) =>
         transferCurve(mode, drive).forEach((y) => expect(Math.abs(y)).toBeLessThanOrEqual(1))
       )
     );
@@ -38,7 +38,7 @@ describe('transferCurve', () => {
 
   it('is odd and rises with the input', () => {
     [SOFT, HARD].forEach((mode) => {
-      const curve = transferCurve(mode, 18);
+      const curve = transferCurve(mode, 12);
       curve.forEach((y, i) => {
         expect(y).toBeCloseTo(-curve[CURVE_POINTS - 1 - i], 12);
         if (i > 0) expect(y).toBeGreaterThanOrEqual(curve[i - 1]);
@@ -48,7 +48,7 @@ describe('transferCurve', () => {
 
   it('more drive bends it earlier', () => {
     const quarter = (CURVE_POINTS - 1) * 0.625;
-    expect(transferCurve(SOFT, 18)[quarter]).toBeGreaterThan(transferCurve(SOFT, 6)[quarter]);
+    expect(transferCurve(SOFT, 12)[quarter]).toBeGreaterThan(transferCurve(SOFT, 6)[quarter]);
   });
 
   it('a mode out of range takes the nearest one', () => {

@@ -335,8 +335,8 @@ describe('fx', () => {
       const setParam = jest.spyOn(model.slots.distortion, 'setParam');
       const { send } = model.slots.distortion;
       actions.setAdded('distortion', true);
-      actions.setParam('distortion', 'drive', 15);
-      expect(setParam.mock.calls).toEqual([['drive', 15]]);
+      actions.setParam('distortion', 'drive', 9);
+      expect(setParam.mock.calls).toEqual([['drive', 9]]);
       expect(lastGain(send)).toBe(0);
       await flush();
       expect(lastGain(send)).toBe(1);
@@ -753,12 +753,12 @@ describe('fx', () => {
       });
 
       // all wet by default, unlike the delay and the reverb
-      applySnapshot({ fx: { distortion: { a: true, drive: 15 } } });
+      applySnapshot({ fx: { distortion: { a: true, drive: 9 } } });
       expect(model.$effects.value.distortion).toEqual({
         added: true,
         on: true,
         mix: 1,
-        params: { ...DISTORTION_DEFAULTS, drive: 15 },
+        params: { ...DISTORTION_DEFAULTS, drive: 9 },
       });
       expect(model.$effects.value.delay.mix).toBe(0.3);
     });

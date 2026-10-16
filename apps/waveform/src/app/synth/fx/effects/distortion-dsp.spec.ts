@@ -174,9 +174,9 @@ describe('distortion dsp', () => {
   });
 
   it('hard clip cuts the peaks of a loud sine at full scale, the makeup gain brings the plateaus down', () => {
-    const { L } = render({ drive: 18 }, 9600, sine(500, 0.5));
+    const { L } = render({ drive: 12 }, 9600, sine(500, 0.5));
     const from = 4 * DISTORTION_LATENCY;
-    const ceiling = makeupGain(HARD, 18);
+    const ceiling = makeupGain(HARD, 12);
     // band-limiting the square edges overshoots a little
     expect(peak(L, from)).toBeGreaterThan(ceiling);
     expect(peak(L, from)).toBeLessThan(1.2 * ceiling);
@@ -193,7 +193,7 @@ describe('distortion dsp', () => {
   ])('%s clip keeps the loudness of the reference at every drive', (_, mode) => {
     const k0 = 171;
     const input = sine(binFreq(k0), REFERENCE_PEAK);
-    [0, 6, 12, 18].forEach((drive) => {
+    [0, 6, 9, 12].forEach((drive) => {
       const { L } = render({ mode, drive }, 2 * N, input);
       // the harmonics above the nyquist are gone, a little of the loudness with them
       expect(Math.abs(20 * Math.log10(rms(L, N, 2 * N) / (REFERENCE_PEAK / Math.SQRT2)))).toBeLessThan(0.3);
@@ -203,17 +203,17 @@ describe('distortion dsp', () => {
   it('a louder sound comes out quieter than it went in, a quieter one louder', () => {
     const k0 = 171;
     const change = (amplitude: number) => {
-      const { L } = render({ drive: 18 }, 2 * N, sine(binFreq(k0), amplitude));
+      const { L } = render({ drive: 12 }, 2 * N, sine(binFreq(k0), amplitude));
       return 20 * Math.log10(rms(L, N, 2 * N) / (amplitude / Math.SQRT2));
     };
     expect(change(1)).toBeLessThan(-5);
-    expect(change(0.25)).toBeGreaterThan(5);
+    expect(change(0.25)).toBeGreaterThan(3);
   });
 
   it('soft clip: more drive, more of the 3rd harmonic, the peaks stay below full scale until it squares', () => {
     // 1 kHz on a bin: k0 cycles in N samples
     const k0 = 171;
-    const harmonics = [0, 6, 12, 18].map((drive) => {
+    const harmonics = [0, 4, 8, 12].map((drive) => {
       const { L } = render({ mode: SOFT, drive }, 2 * N, sine(binFreq(k0), 0.5));
       // a nearly square wave overshoots a little once band-limited
       expect(peak(L, N)).toBeLessThan((drive <= 12 ? 1 : 1.2) * makeupGain(SOFT, drive));
@@ -229,7 +229,7 @@ describe('distortion dsp', () => {
   ])('%s clip is symmetric: no DC and no even harmonics', (_, mode) => {
     const k0 = 171;
     // the dc blocker has settled after the start of the sine
-    const { L } = render({ mode, drive: 18 }, 3 * N, sine(binFreq(k0), 0.5));
+    const { L } = render({ mode, drive: 12 }, 3 * N, sine(binFreq(k0), 0.5));
     const power = spectrum(L, 2 * N);
     const fundamental = db(power[k0]);
     expect(db(power[0]) - fundamental).toBeLessThan(-100);
@@ -240,8 +240,8 @@ describe('distortion dsp', () => {
 
   it.each([
     // a high note hit hard: its harmonics above the nyquist would fold back as inharmonic tones
-    { name: 'hard clip of 7 kHz', mode: HARD, k0: 1195, drive: 18, better: 25, below: -40 },
-    { name: 'soft clip of 2 kHz', mode: SOFT, k0: 341, drive: 18, better: 30, below: -60 },
+    { name: 'hard clip of 7 kHz', mode: HARD, k0: 1195, drive: 12, better: 20, below: -45 },
+    { name: 'soft clip of 2 kHz', mode: SOFT, k0: 341, drive: 12, better: 25, below: -95 },
   ])('$name keeps the aliases far below the ones of a naive curve', ({ mode, k0, drive, better, below }) => {
     const input = sine(binFreq(k0), 0.5);
     const { L } = render({ mode, drive }, 2 * N, input);
@@ -264,8 +264,8 @@ describe('distortion dsp', () => {
   it('tone darkens the distortion: the harmonics above it fall, the fundamental stays', () => {
     const k0 = 171;
     const input = sine(binFreq(k0), 0.5);
-    const open = spectrum(render({ drive: 18 }, 2 * N, input).L, N);
-    const dark = spectrum(render({ drive: 18, tone: 1000 }, 2 * N, input).L, N);
+    const open = spectrum(render({ drive: 12 }, 2 * N, input).L, N);
+    const dark = spectrum(render({ drive: 12, tone: 1000 }, 2 * N, input).L, N);
     expect(db(dark[k0]) - db(open[k0])).toBeGreaterThan(-4);
     [7, 9, 11].forEach((n) => expect(db(dark[n * k0]) - db(open[n * k0])).toBeLessThan(-25));
   });
@@ -306,14 +306,14 @@ describe('distortion dsp', () => {
   it('a new mode and a new drive together glide too, each curve with its own makeup', () => {
     const at = 4096;
     const L = unblock(
-      render({ mode: SOFT, drive: 0 }, 12000, constant(0.2), {
-        changes: [{ at, params: { mode: HARD, drive: 18 } }],
+      render({ mode: SOFT, drive: 0 }, 12000, constant(0.3), {
+        changes: [{ at, params: { mode: HARD, drive: 12 } }],
       }).L
     );
-    expect(L[at - 1]).toBeCloseTo(Math.tanh(0.2) * makeupGain(SOFT, 0), 6);
+    expect(L[at - 1]).toBeCloseTo(Math.tanh(0.3) * makeupGain(SOFT, 0), 6);
     expect(maxStep(L, at - 1, at + 3000)).toBeLessThan(0.004);
-    // 0.2 × 18 dB is over the ceiling
-    expect(L[11000]).toBeCloseTo(makeupGain(HARD, 18), 5);
+    // 0.3 × 12 dB is over the ceiling
+    expect(L[11000]).toBeCloseTo(makeupGain(HARD, 12), 5);
   });
 
   it('a mode changed back during a fade turns the fade around where it is', () => {
@@ -376,9 +376,9 @@ describe('distortion dsp', () => {
       if (frame < loud) return sine(440, 0.8)(frame);
       return frame < loud + quiet ? 0 : impulse(0.5)(frame - loud - quiet);
     };
-    const { L } = render({ drive: 18, tone: 1000 }, loud + quiet + 512, input);
+    const { L } = render({ drive: 12, tone: 1000 }, loud + quiet + 512, input);
     L.subarray(loud + quiet - 8192, loud + quiet).forEach((value) => expect(value).toBe(0));
-    const fresh = render({ drive: 18, tone: 1000 }, 512, impulse(0.5)).L;
+    const fresh = render({ drive: 12, tone: 1000 }, 512, impulse(0.5)).L;
     expect(Array.from(L.subarray(loud + quiet))).toEqual(Array.from(fresh));
   });
 
@@ -387,19 +387,19 @@ describe('distortion dsp', () => {
     ['hard', HARD],
   ])('%s clip of an asymmetric wave: the dc blocker takes out the DC the curve adds', (_, mode) => {
     const length = 3 * N;
-    const { L } = render({ mode, drive: 18 }, length, pulse(0.5));
+    const { L } = render({ mode, drive: 12 }, length, pulse(0.5));
     // whole periods of the pulse, once the blocker has settled
     const from = length - N;
     const loudness = rms(L, from, length);
     expect(Math.abs(mean(L, from, length))).toBeLessThan(1e-3 * loudness);
-    // without it, a third of the output would be DC
-    expect(Math.abs(mean(unblock(L), from, length))).toBeGreaterThan(0.3 * loudness);
+    // without it, a fifth of the output would be DC
+    expect(Math.abs(mean(unblock(L), from, length))).toBeGreaterThan(0.2 * loudness);
   });
 
   it('after an asymmetric wave the tail of the dc blocker fades out without a step, then it idles', () => {
     const loud = N;
     const input: Input = (frame) => (frame < loud ? pulse(0.5)(frame) : 0);
-    const { L } = render({ drive: 18 }, loud + SAMPLE_RATE, input);
+    const { L } = render({ drive: 12 }, loud + SAMPLE_RATE, input);
     // the DC it held back while the wave played, given back slowly: no cut, no step
     const tail = loud + 4 * DISTORTION_LATENCY;
     expect(Math.abs(L[tail])).toBeGreaterThan(0.01);

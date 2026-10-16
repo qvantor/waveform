@@ -107,19 +107,19 @@ describe('DistortionControls', () => {
     const soft = path();
     rerender({ mode: 1 });
     const hard = path();
-    rerender({ mode: 1, drive: 18 });
-    const harder = path();
+    rerender({ mode: 1, drive: 6 });
+    const lighter = path();
     // the dry diagonal stays
-    expect(new Set([soft[0], hard[0], harder[0]]).size).toBe(1);
-    expect(new Set([soft[1], hard[1], harder[1]]).size).toBe(3);
+    expect(new Set([soft[0], hard[0], lighter[0]]).size).toBe(1);
+    expect(new Set([soft[1], hard[1], lighter[1]]).size).toBe(3);
     [-24, 12].forEach((level) => {
-      rerender({ mode: 1, drive: 18, level });
-      expect(path()).toEqual(harder);
+      rerender({ mode: 1, drive: 6, level });
+      expect(path()).toEqual(lighter);
     });
   });
 
   it('the curve spans the whole width of the chart and stays inside it', () => {
-    setup({ params: { ...params, mode: 1, drive: 18 } });
+    setup({ params: { ...params, mode: 1, drive: 12 } });
     const [, curve] = Array.from(screen.getByTestId('distortion-curve').querySelectorAll('path'));
     const points = (curve.getAttribute('d') ?? '').match(/-?[\d.]+,-?[\d.]+/g) ?? [];
     const xs = points.map((point) => Number(point.split(',')[0]));

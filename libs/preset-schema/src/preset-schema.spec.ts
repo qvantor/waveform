@@ -67,7 +67,7 @@ const REVERB_DEFAULTS = {
   era: 1,
 };
 // all wet, unlike the delay and the reverb
-const DISTORTION_DEFAULTS = { a: false, on: true, mix: 1, mode: 0, drive: 12, tone: 20000, level: 0 };
+const DISTORTION_DEFAULTS = { a: false, on: true, mix: 1, mode: 0, drive: 8, tone: 20000, level: 0 };
 
 const reversed = (value: Record<string, unknown>): Record<string, unknown> =>
   Object.fromEntries(
@@ -153,7 +153,7 @@ describe('normalizePreset', () => {
   it('keeps the distortion params and accepts their limits', () => {
     [
       { a: true, on: false, mix: 0, mode: 0, drive: 0, tone: 500, level: -24 },
-      { a: true, on: true, mix: 1, mode: 1, drive: 18, tone: 20000, level: 12 },
+      { a: true, on: true, mix: 1, mode: 1, drive: 12, tone: 20000, level: 12 },
     ].forEach((distortion) =>
       expect(normalizePreset({ ...preset, fx: { ...preset.fx, distortion } }).fx.distortion).toEqual(
         distortion
@@ -164,7 +164,7 @@ describe('normalizePreset', () => {
   it.each([
     ['a mode out of range', { mode: 2 }],
     ['a fractional mode', { mode: 0.5 }],
-    ['too much drive', { drive: 19 }],
+    ['too much drive', { drive: 13 }],
     ['a tone below its range', { tone: 400 }],
     ['a level above its range', { level: 13 }],
   ])('rejects %s', (_, distortion) => {
@@ -402,7 +402,7 @@ describe('fxSnapSchema', () => {
     const distortion = { mode: 0.6, drive: 100, tone: 'x', level: -30 };
     expect(fxSnapSchema.parse({ o: 'delay', distortion, delay: { ...delay, extra: 1 }, reverb })).toEqual({
       o: ['distortion', 'delay', 'reverb'],
-      distortion: { ...DISTORTION_DEFAULTS, mode: 1, drive: 18, level: -24 },
+      distortion: { ...DISTORTION_DEFAULTS, mode: 1, drive: 12, level: -24 },
       delay: { ...defaults, time: 0.01, fb: 0.9, mode: 1, q: 3 },
       reverb: { ...REVERB_DEFAULTS, decay: 20, bass: 0.25, sep: 0, era: 2 },
     });
@@ -415,7 +415,7 @@ describe('fxSnapSchema', () => {
     const fx = presetDataSchema.shape.fx.parse({
       delay: { a: true, mix: 1, time: 1, mode: 1, pan: -0.05 },
       reverb: { a: true, decay: 20, bass: 0.25, sep: 2, era: 0 },
-      distortion: { a: true, mode: 1, drive: 18, tone: 500, level: -24 },
+      distortion: { a: true, mode: 1, drive: 12, tone: 500, level: -24 },
     });
     expect(fxSnapSchema.parse(fx)).toEqual(fx);
   });

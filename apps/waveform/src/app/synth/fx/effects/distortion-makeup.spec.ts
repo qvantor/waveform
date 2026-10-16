@@ -18,7 +18,7 @@ const outputRms = (mode: number, drive: number, peak: number, points = 4096) => 
   return Math.sqrt(sum / points);
 };
 
-const DRIVES = [0, 1.3, 6, 6.1, 9.87, 12, 15.4, 18];
+const DRIVES = [0, 1.3, 6, 6.1, 9.87, 11.2, 12];
 
 describe('distortion makeup gain', () => {
   it('covers the drive range of the preset schema', () => {
@@ -47,9 +47,9 @@ describe('distortion makeup gain', () => {
   it('levels off once the reference is clipped: towards the RMS of a square of ±1', () => {
     const square = db(REFERENCE_PEAK / Math.SQRT2);
     [SOFT, HARD].forEach((mode) => {
-      expect(db(makeupGain(mode, MAX_DRIVE))).toBeGreaterThan(square - 0.01);
-      // at the top of the drive soft clip still rounds a little of the square off
-      expect(db(makeupGain(mode, MAX_DRIVE))).toBeLessThan(square + 1);
+      expect(db(makeupGain(mode, MAX_DRIVE))).toBeGreaterThan(square);
+      // the last 3 dB of drive take back less than half of it (1:1 while unclipped)
+      expect(db(makeupGain(mode, MAX_DRIVE - 3)) - db(makeupGain(mode, MAX_DRIVE))).toBeLessThan(1.5);
     });
   });
 
@@ -69,7 +69,7 @@ describe('distortion makeup gain', () => {
   it('louder sounds come out quieter, quieter ones louder: the curve compresses them', () => {
     const change = (peak: number) => db(outputRms(HARD, MAX_DRIVE, peak) / (peak / Math.SQRT2));
     expect(change(1)).toBeLessThan(-5);
-    expect(change(0.25)).toBeGreaterThan(5);
+    expect(change(0.25)).toBeGreaterThan(3);
   });
 
   it('clamps the drive to its range and the mode to the known ones', () => {

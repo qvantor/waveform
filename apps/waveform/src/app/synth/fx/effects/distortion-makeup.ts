@@ -5,12 +5,12 @@ import { DISTORTION_MODES, modeIndex } from './distortion-modes';
 // denser (towards a square of ±1), so the louder the more drive. The makeup gain takes it back for a
 // reference, a sine with the peak of a note at the fx input: its loudness (RMS) stays the same at every
 // drive. That is 1:1 with the drive while the reference passes the curve unclipped, then it levels off
-// (towards -9 dB, the RMS of a square of ±1 against the one of the reference: -8.3 dB at the top of the
-// drive). Louder sounds come out quieter
+// (towards -9 dB, the RMS of a square of ±1 against the one of the reference: -7.1 dB for soft clip and
+// -8 dB for hard clip at the top of the drive). Louder sounds come out quieter
 // than they went in, quieter ones louder: the curve compresses them, the level is the trim on top
 export const REFERENCE_PEAK = 0.5;
 // the drive range (FX_PARAMS.distortion.drive, not imported: it would bundle zod)
-export const MAX_DRIVE = 18;
+export const MAX_DRIVE = 12;
 // dB between the table points, the gains in between are interpolated
 const STEP = 0.25;
 // points over a period of the reference
