@@ -1,45 +1,37 @@
 import type { Config, Context } from '@netlify/functions';
-import { USAGE_MAX_SECONDS, usageRequestSchema } from '../../libs/preset-schema/src';
+import { usageRequestSchema } from '../../libs/preset-schema/src';
 import { db } from '../utils/db';
-import { empty, errorResponse, getIpHash, HttpError, readJson, sha256 } from '../utils/http';
+import { empty, errorResponse, getIpHash, HttpError, readJson } from '../utils/http';
+import { verifyTurnstile } from '../utils/turnstile';
 
 const MAX_BODY_BYTES = 4 * 1024;
-const MAX_CLIENTS_PER_IP = 3;
-const MAX_SECONDS_PER_DAY = 1800;
 
+// a listen or a stay (played the preset for USAGE_LISTEN_SECONDS or USAGE_STAY_SECONDS without switching to another
+// one, see recompute-scores), the client sends each once a preset is opened. A listener and preset have one row with
+// the days of the last listen and stay, each written at most once a day; a stay is a listen too (the listen request
+// may have failed). Listens on hidden presets and on the author's own ones (the IP it was saved from) are not stored.
+// Each one needs a captcha of its own: a listener is an IP (an IPv6 /64), a host with a /56 would be 256 of them
 export default async (req: Request, context: Context) => {
   try {
     if (req.method !== 'POST') throw new HttpError(405, 'Method not allowed');
     const parsed = usageRequestSchema.safeParse(await readJson(req, MAX_BODY_BYTES));
-    if (!parsed.success) throw new HttpError(400, 'Invalid usage batch');
+    if (!parsed.success) throw new HttpError(400, 'Invalid usage');
+    if (!(await verifyTurnstile(parsed.data.turnstileToken, context.ip)))
+      throw new HttpError(403, 'Captcha check failed');
 
-    const ipHash = getIpHash(context);
-    const clientHash = sha256(parsed.data.clientId + ipHash);
-
-    const seconds = new Map<string, number>();
-    for (const item of parsed.data.items)
-      seconds.set(
-        item.presetId,
-        Math.min((seconds.get(item.presetId) ?? 0) + item.seconds, USAGE_MAX_SECONDS)
-      );
-
-    // a new client is not counted if the preset already has MAX_CLIENTS_PER_IP clients from this IP today
     const sql = db();
+    const ipHash = getIpHash(context);
+    const stay = parsed.data.event === 'stay';
     await sql`
-      INSERT INTO usage_daily (preset_id, client_hash, ip_hash, day, seconds)
-      SELECT p.id, ${clientHash}, ${ipHash}, current_date, i.seconds
-      FROM unnest(${[...seconds.keys()]}::uuid[], ${[...seconds.values()]}::int[]) AS i(preset_id, seconds)
-      JOIN presets p ON p.id = i.preset_id AND NOT p.hidden
-      WHERE EXISTS (
-          SELECT 1 FROM usage_daily u
-          WHERE u.preset_id = p.id AND u.client_hash = ${clientHash} AND u.day = current_date
-        )
-        OR (
-          SELECT count(DISTINCT u.client_hash) FROM usage_daily u
-          WHERE u.preset_id = p.id AND u.ip_hash = ${ipHash} AND u.day = current_date
-        ) < ${MAX_CLIENTS_PER_IP}
-      ON CONFLICT (preset_id, client_hash, day)
-      DO UPDATE SET seconds = LEAST(usage_daily.seconds + EXCLUDED.seconds, ${MAX_SECONDS_PER_DAY})`;
+      INSERT INTO listens (preset_id, ip_hash, heard, stayed)
+      SELECT id, ${ipHash}, current_date, ${stay ? sql`current_date` : sql`NULL::date`} FROM presets
+      WHERE id = ${parsed.data.presetId} AND NOT hidden AND ip_hash <> ${ipHash}
+      ON CONFLICT (preset_id, ip_hash) DO UPDATE SET ${
+        stay
+          ? sql`heard = EXCLUDED.heard, stayed = EXCLUDED.stayed
+            WHERE listens.stayed IS NULL OR listens.stayed < EXCLUDED.stayed`
+          : sql`heard = EXCLUDED.heard WHERE listens.heard < EXCLUDED.heard`
+      }`;
     return empty();
   } catch (error) {
     return errorResponse(error);

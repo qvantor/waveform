@@ -1,22 +1,22 @@
 import React from 'react';
 import styled from 'styled-components';
 import { Tooltip } from 'antd';
-import { AiOutlineLeft, AiOutlineLink, AiOutlineRight, AiOutlineSave } from 'react-icons/ai';
+import { AiOutlineLeft, AiOutlineLink, AiOutlineReload, AiOutlineRight, AiOutlineSave } from 'react-icons/ai';
 import toast from 'react-hot-toast';
 import { PanelButton, theme } from '@waveform/ui-kit';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
 import { useApp } from '../../app';
 import { usePresets } from '../modules/presets';
-import { usePresetUsageTracker } from '../hooks/use-preset-usage-tracker';
 import { sharePreset } from '../services';
 import { PresetBrowser } from './preset-browser';
 import { SaveDialog } from './save-dialog';
+import { UsageReporter } from './usage-reporter';
 
 const Dirty = styled.span`
   color: ${theme.colors.secondAccent};
 `;
 
-// two rows of equal height: ◀ name ▶ on top, a strip of action keys below
+// two rows of equal height: ◀ name Init ▶ on top, a strip of action keys below
 const Section = styled.div`
   min-width: 0;
   display: grid;
@@ -43,7 +43,8 @@ const RowButton = styled.button`
   }
 `;
 
-const Arrow = styled(RowButton)`
+// a square key: ◀, ▶ and Init
+const IconButton = styled(RowButton)`
   flex: 0 0 40px;
   display: flex;
   align-items: center;
@@ -70,13 +71,11 @@ interface SectionProps {
 
 export const PresetSection = ({ actions, className }: SectionProps) => {
   const [{ $saveRequest }] = useApp();
-  const [{ $current, $dirty }, { next, prev }] = usePresets();
+  const [{ $current, $dirty }, { next, prev, reset }] = usePresets();
   const current = useBehaviorSubject($current);
   const dirty = useBehaviorSubject($dirty);
   const [browserOpen, setBrowserOpen] = React.useState(false);
   const [saveOpen, setSaveOpen] = React.useState(false);
-
-  usePresetUsageTracker();
 
   // Cmd/Ctrl+S
   React.useEffect(() => {
@@ -95,18 +94,23 @@ export const PresetSection = ({ actions, className }: SectionProps) => {
   return (
     <Section className={className}>
       <Row>
-        <Arrow aria-label='Previous preset' onClick={prev}>
+        <IconButton aria-label='Previous preset' onClick={prev}>
           <AiOutlineLeft />
-        </Arrow>
+        </IconButton>
         <Tooltip title='Browse presets'>
           <SectionName onClick={() => setBrowserOpen(true)}>
             {current?.name ?? 'Init'}
             {dirty && <Dirty> *</Dirty>}
           </SectionName>
         </Tooltip>
-        <Arrow aria-label='Next preset' onClick={next}>
+        <Tooltip title='Init preset'>
+          <IconButton aria-label='Init preset' onClick={reset}>
+            <AiOutlineReload />
+          </IconButton>
+        </Tooltip>
+        <IconButton aria-label='Next preset' onClick={next}>
           <AiOutlineRight />
-        </Arrow>
+        </IconButton>
       </Row>
       <Row>
         <Tooltip title='Save as a new preset (⌘S)'>
@@ -123,6 +127,7 @@ export const PresetSection = ({ actions, className }: SectionProps) => {
       </Row>
       <PresetBrowser open={browserOpen} onClose={() => setBrowserOpen(false)} />
       <SaveDialog open={saveOpen} onClose={() => setSaveOpen(false)} />
+      <UsageReporter />
     </Section>
   );
 };

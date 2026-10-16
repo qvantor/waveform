@@ -3,6 +3,7 @@ import type {
   NameAvailableResponse,
   Preset,
   PresetListItem,
+  PresetOpenedRequest,
   PresetSort,
   PresetsPage,
   SavePresetRequest,
@@ -61,13 +62,16 @@ export const updatePreset = (id: string, body: UpdatePresetRequest) =>
     body: JSON.stringify(body),
   });
 
+// the author opened own preset: it is kept from the cleanup
+export const markPresetOpened = (id: string, body: PresetOpenedRequest) =>
+  request<void>(`/api/presets/${encodeURIComponent(id)}/opened`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
 export const reportPreset = (id: string) =>
   request<void>(`/api/presets/${encodeURIComponent(id)}/report`, { method: 'POST' });
 
-// beacon survives page unload, regular fetch is used otherwise
-export const sendUsage = (body: UsageRequest, beacon = false) => {
-  const json = JSON.stringify(body);
-  if (beacon && navigator.sendBeacon?.('/api/usage', new Blob([json], { type: 'application/json' })))
-    return Promise.resolve();
-  return request<void>('/api/usage', { method: 'POST', body: json, keepalive: true });
-};
+// a listen or a stay of a preset; keepalive: the page may be closed right after it
+export const sendUsage = (body: UsageRequest) =>
+  request<void>('/api/usage', { method: 'POST', body: JSON.stringify(body), keepalive: true });

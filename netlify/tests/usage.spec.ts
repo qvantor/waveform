@@ -1,16 +1,21 @@
-import { USAGE_MAX_SECONDS } from '../../libs/preset-schema/src';
-import { sha256 } from '../utils/http';
 import handler, { config } from '../functions/usage.mjs';
+import { verifyTurnstile } from '../utils/turnstile';
 import { createFakeSql } from './fake-sql';
-import { context, ID as A, IP_HASH, IP_SALT, OTHER_ID as B, request } from './helpers';
+import { context, ID as A, IP_HASH, IP_SALT, request } from './helpers';
 
 const mockSql = createFakeSql();
 jest.mock('../utils/db', () => ({ db: () => mockSql.sql }));
+jest.mock('../utils/turnstile', () => ({ verifyTurnstile: jest.fn() }));
+
+const verifyTurnstileMock = verifyTurnstile as jest.Mock;
 
 const send = (body: unknown, method = 'POST') => handler(request(method, '/api/usage', body), context);
+const listen = { presetId: A, event: 'listen', turnstileToken: 'turnstile' };
+const stay = { presetId: A, event: 'stay', turnstileToken: 'turnstile' };
 
 beforeEach(() => {
   mockSql.reset();
+  verifyTurnstileMock.mockReset().mockResolvedValue(true);
   process.env.IP_HASH_SALT = IP_SALT;
   jest.spyOn(console, 'error').mockImplementation(() => undefined);
 });
@@ -23,52 +28,77 @@ it('is routed to /api/usage', () => {
   expect(config.path).toBe('/api/usage');
 });
 
-it('stores play time per preset for the client', async () => {
-  const response = await send({ clientId: 'client', items: [{ presetId: A, seconds: 30 }] });
+it('stores the listen of the IP on the preset today, without a stay', async () => {
+  const response = await send(listen);
   expect(response.status).toBe(204);
 
   expect(mockSql.queries).toHaveLength(1);
   const [{ text, values }] = mockSql.queries;
-  expect(text).toMatch(/^INSERT INTO usage_daily/);
-  const clientHash = sha256('client' + IP_HASH);
-  expect(values).toEqual([clientHash, IP_HASH, [A], [30], clientHash, IP_HASH, 3, 1800]);
-  expect(values).not.toContain('client');
+  expect(text).toMatch(
+    /^INSERT INTO listens \(preset_id, ip_hash, heard, stayed\) SELECT id, \$1, current_date, NULL::date FROM presets WHERE id = \$2/
+  );
+  expect(values).toEqual([IP_HASH, A, IP_HASH]);
   expect(values).not.toContain('1.2.3.4');
 });
 
-it('only counts visible presets and caps clients per IP and seconds per day', async () => {
-  await send({ clientId: 'client', items: [{ presetId: A, seconds: 30 }] });
-  const [{ text }] = mockSql.queries;
-  expect(text).toContain('JOIN presets p ON p.id = i.preset_id AND NOT p.hidden');
-  expect(text).toContain('count(DISTINCT u.client_hash)');
-  expect(text).toContain('ON CONFLICT (preset_id, client_hash, day)');
-  expect(text).toContain('LEAST(usage_daily.seconds + EXCLUDED.seconds, $8)');
+it('renews the day of a listen at most once a day, keeping the stay', async () => {
+  await send(listen);
+  expect(mockSql.queries[0].text).toMatch(
+    /ON CONFLICT \(preset_id, ip_hash\) DO UPDATE SET heard = EXCLUDED.heard WHERE listens.heard < EXCLUDED.heard$/
+  );
 });
 
-it('merges items of the same preset up to the per batch limit', async () => {
-  await send({
-    clientId: 'client',
-    items: [
-      { presetId: A, seconds: 10 },
-      { presetId: B, seconds: 20 },
-      { presetId: A, seconds: 15 },
-      { presetId: B, seconds: 500 },
-      { presetId: B, seconds: 50 },
-    ],
-  });
-  const [{ values }] = mockSql.queries;
-  expect(values[2]).toEqual([A, B]);
-  expect(values[3]).toEqual([25, USAGE_MAX_SECONDS]);
+it('stores a stay as a listen and a stay of today', async () => {
+  const response = await send(stay);
+  expect(response.status).toBe(204);
+
+  const [{ text, values }] = mockSql.queries;
+  expect(text).toMatch(
+    /^INSERT INTO listens \(preset_id, ip_hash, heard, stayed\) SELECT id, \$1, current_date, current_date FROM presets WHERE id = \$2/
+  );
+  expect(values).toEqual([IP_HASH, A, IP_HASH]);
 });
 
-it('hashes the client id with the ip', async () => {
-  await send({ clientId: 'client', items: [{ presetId: A, seconds: 1 }] });
-  await handler(request('POST', '/api/usage', { clientId: 'client', items: [{ presetId: A, seconds: 1 }] }), {
-    ...context,
-    ip: '5.6.7.8',
-  });
+it('renews the days of a stay at most once a day', async () => {
+  await send(stay);
+  expect(mockSql.queries[0].text).toMatch(
+    /ON CONFLICT \(preset_id, ip_hash\) DO UPDATE SET heard = EXCLUDED.heard, stayed = EXCLUDED.stayed WHERE listens.stayed IS NULL OR listens.stayed < EXCLUDED.stayed$/
+  );
+});
+
+it.each([
+  ['listens', listen],
+  ['stays', stay],
+])('does not store %s on hidden presets nor on the author’s own ones', async (_, body) => {
+  await send(body);
+  expect(mockSql.queries[0].text).toContain('WHERE id = $2 AND NOT hidden AND ip_hash <> $3 ON CONFLICT');
+});
+
+it.each([
+  ['listen', listen],
+  ['stay', stay],
+])('checks the captcha of every %s with the ip of the visitor', async (_, body) => {
+  await send(body);
+  await send(body);
+  expect(verifyTurnstileMock).toHaveBeenCalledTimes(2);
+  expect(verifyTurnstileMock).toHaveBeenCalledWith('turnstile', '1.2.3.4');
+});
+
+it.each([
+  ['listens', listen],
+  ['stays', stay],
+])('rejects %s with a failed captcha with 403, storing nothing', async (_, body) => {
+  verifyTurnstileMock.mockResolvedValue(false);
+  const response = await send(body);
+  expect(response.status).toBe(403);
+  expect(await response.json()).toEqual({ error: 'Captcha check failed' });
+  expect(mockSql.queries).toHaveLength(0);
+});
+
+it('hashes the ip', async () => {
+  await send(stay);
+  await handler(request('POST', '/api/usage', stay), { ...context, ip: '5.6.7.8' });
   const [first, second] = mockSql.queries.map(({ values }) => values);
-  expect(second[1]).not.toBe(first[1]);
   expect(second[0]).not.toBe(first[0]);
 });
 
@@ -76,28 +106,33 @@ it('rejects other methods with 405', async () => {
   const response = await send(undefined, 'GET');
   expect(response.status).toBe(405);
   expect(mockSql.queries).toHaveLength(0);
+  expect(verifyTurnstileMock).not.toHaveBeenCalled();
 });
 
 it.each([
   ['invalid JSON', '{'],
-  ['no items', { clientId: 'client', items: [] }],
-  ['an invalid preset id', { clientId: 'client', items: [{ presetId: 'abc', seconds: 1 }] }],
-  ['zero seconds', { clientId: 'client', items: [{ presetId: A, seconds: 0 }] }],
-  ['a missing client id', { items: [{ presetId: A, seconds: 1 }] }],
-])('rejects %s with 400', async (_, body) => {
+  ['an empty body', {}],
+  ['an invalid preset id', { ...stay, presetId: 'abc' }],
+  ['a preset id without an event', { presetId: A, turnstileToken: 'turnstile' }],
+  ['an unknown event', { ...stay, event: 'open' }],
+  ['a listen without a captcha token', { presetId: A, event: 'listen' }],
+  ['a stay with an empty captcha token', { ...stay, turnstileToken: '' }],
+  ['the batch of seconds of older clients', { clientId: 'client', items: [{ presetId: A, seconds: 60 }] }],
+])('rejects %s with 400 without checking the captcha', async (_, body) => {
   const response = await send(body);
   expect(response.status).toBe(400);
   expect(mockSql.queries).toHaveLength(0);
+  expect(verifyTurnstileMock).not.toHaveBeenCalled();
 });
 
 it('rejects bodies over 4 KB with 413', async () => {
-  const response = await send({ clientId: 'x'.repeat(4 * 1024), items: [{ presetId: A, seconds: 1 }] });
+  const response = await send({ ...stay, padding: 'x'.repeat(4 * 1024) });
   expect(response.status).toBe(413);
 });
 
 it('fails with 500 on database errors', async () => {
-  mockSql.respond(/usage_daily/, new Error('connection refused'));
-  const response = await send({ clientId: 'client', items: [{ presetId: A, seconds: 1 }] });
+  mockSql.respond(/INSERT INTO listens/, new Error('connection refused'));
+  const response = await send(stay);
   expect(response.status).toBe(500);
   expect(await response.json()).toEqual({ error: 'Internal error' });
 });

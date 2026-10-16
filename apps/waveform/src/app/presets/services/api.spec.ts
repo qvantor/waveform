@@ -4,6 +4,7 @@ import {
   getTopPresets,
   isNameAvailable,
   listPresets,
+  markPresetOpened,
   reportPreset,
   savePreset,
   sendUsage,
@@ -51,6 +52,16 @@ describe('api', () => {
     );
   });
 
+  it('POSTs the edit token of an opened preset', async () => {
+    fetchMock.mockResolvedValue(response(204));
+    await expect(markPresetOpened('a b', { editToken: 't' })).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledWith('/api/presets/a%20b/opened', {
+      method: 'POST',
+      body: JSON.stringify({ editToken: 't' }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+  });
+
   it('returns undefined on 204', async () => {
     fetchMock.mockResolvedValue(response(204));
     await expect(reportPreset('1')).resolves.toBeUndefined();
@@ -86,45 +97,15 @@ describe('api', () => {
     expect(fetchMock.mock.calls[1][0]).toBe('/api/presets?sort=new&q=pad&cursor=c1');
   });
 
-  describe('sendUsage', () => {
-    const body = { clientId: 'c', items: [{ presetId: 'p', seconds: 3 }] };
-
-    afterEach(() => {
-      Object.assign(navigator, { sendBeacon: undefined });
-    });
-
-    it('uses fetch with keepalive by default', async () => {
-      fetchMock.mockResolvedValue(response(204));
-      const sendBeacon = jest.fn(() => true);
-      Object.assign(navigator, { sendBeacon });
-      await sendUsage(body);
-      expect(sendBeacon).not.toHaveBeenCalled();
-      expect(fetchMock).toHaveBeenCalledWith('/api/usage', {
-        method: 'POST',
-        body: JSON.stringify(body),
-        keepalive: true,
-        headers: { 'Content-Type': 'application/json' },
-      });
-    });
-
-    it('uses a beacon with a JSON blob', async () => {
-      const sendBeacon = jest.fn((_: string, __: Blob) => true);
-      Object.assign(navigator, { sendBeacon });
-      await sendUsage(body, true);
-      expect(fetchMock).not.toHaveBeenCalled();
-      const [url, blob] = sendBeacon.mock.calls[0];
-      expect(url).toBe('/api/usage');
-      expect(blob.type).toBe('application/json');
-      expect(blob.size).toBe(JSON.stringify(body).length);
-    });
-
-    it('falls back to fetch when the beacon is rejected or missing', async () => {
-      fetchMock.mockResolvedValue(response(204));
-      Object.assign(navigator, { sendBeacon: jest.fn(() => false) });
-      await sendUsage(body, true);
-      Object.assign(navigator, { sendBeacon: undefined });
-      await sendUsage(body, true);
-      expect(fetchMock).toHaveBeenCalledTimes(2);
+  it('POSTs a listen or a stay with its captcha token and keepalive', async () => {
+    fetchMock.mockResolvedValue(response(204));
+    const body = { presetId: 'p', event: 'stay' as const, turnstileToken: 'captcha-token' };
+    await sendUsage(body);
+    expect(fetchMock).toHaveBeenCalledWith('/api/usage', {
+      method: 'POST',
+      body: JSON.stringify(body),
+      keepalive: true,
+      headers: { 'Content-Type': 'application/json' },
     });
   });
 });

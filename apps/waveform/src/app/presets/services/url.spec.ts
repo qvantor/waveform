@@ -1,5 +1,5 @@
 import toast from 'react-hot-toast';
-import { getUrlPresetId, presetUrl, setUrlPresetId, sharePreset } from './url';
+import { clearUrlPresetId, getUrlPresetId, presetUrl, setUrlPresetId, sharePreset } from './url';
 
 describe('url', () => {
   it('reads the preset id from the search params', () => {
@@ -18,6 +18,15 @@ describe('url', () => {
     const length = window.history.length;
     setUrlPresetId('xyz');
     expect(window.location.search).toBe('?preset=xyz');
+    expect(window.history.length).toBe(length);
+  });
+
+  it('clears the preset id and the legacy params', () => {
+    window.history.replaceState(null, '', '/synth?preset=xyz&osc1-u=3');
+    const length = window.history.length;
+    clearUrlPresetId();
+    expect(window.location.pathname).toBe('/synth');
+    expect(window.location.search).toBe('');
     expect(window.history.length).toBe(length);
   });
 

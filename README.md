@@ -11,9 +11,9 @@ Built with TypeScript, RxJS and the Web Audio API. Nothing to install and no acc
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
 ![React 18](https://img.shields.io/badge/React_18-20232A?logo=react&logoColor=61DAFB)
 ![Web Audio API](https://img.shields.io/badge/Web_Audio_API-FF6F00)
-[![Netlify](https://img.shields.io/badge/deployed_on-Netlify-00C7B7?logo=netlify&logoColor=white)](https://waveformaudio.netlify.app/)
+[![Netlify](https://img.shields.io/badge/deployed_on-Netlify-00C7B7?logo=netlify&logoColor=white)](https://waveform.qvantor.org/)
 
-[**▶ Live demo**](https://waveformaudio.netlify.app/) · [Features](#features) · [Getting started](#getting-started) · [Architecture](#architecture) · [Contributing](#contributing)
+[**▶ Live demo**](https://waveform.qvantor.org/) · [Features](#features) · [Getting started](#getting-started) · [Architecture](#architecture) · [Contributing](#contributing)
 
 ![Waveform playing the "neros" preset](screenshot.webp)
 
@@ -45,10 +45,10 @@ Built with TypeScript, RxJS and the Web Audio API. Nothing to install and no acc
 ### 💾 Presets
 
 - **Save and share** a sound as a link (`?preset=<id>`)
-- **Browse and search** community presets; the **Popular** tab ranks them by how long people actually play them
+- **Browse and search** community presets; the **Popular** tab ranks them by the share of people who keep playing them for a minute instead of skipping on
 - Step through presets with ◀ ▶
 - **Edit your own presets** later; the edit token stays in your browser
-- Duplicate sounds are detected, names are unique, and spam is blocked with Cloudflare Turnstile and rate limits
+- Duplicate sounds are detected, names are unique, and spam is blocked with Cloudflare Turnstile and rate limits; listens behind Popular pass an invisible Turnstile check too
 - Report inappropriate presets
 
 ### 🎹 Play anywhere
@@ -114,8 +114,10 @@ To run only the frontend use `npm run client:start`. Wavetables and presets won'
 | `NX_TURNSTILE_SITE_KEY`                        | Cloudflare Turnstile site key, inlined into the client at build time |
 | `TURNSTILE_SECRET`                             | Cloudflare Turnstile secret, used by functions                       |
 | `IP_HASH_SALT`                                 | Random string for hashing IPs (`openssl rand -hex 32`)               |
-| `MIN_UNIQUE_USERS`                             | Unique listeners a preset needs before it gets a popularity score    |
-| `REPORT_HIDE_THRESHOLD`                        | Number of reports after which a preset is hidden                     |
+| `MIN_UNIQUE_USERS`                             | Listeners who stayed a preset needs before it gets a score           |
+| `POPULAR_MIN_USERS`                            | Listeners who stayed a preset needs to be in Popular                 |
+| `SCORE_PRIOR_LISTENERS`                        | Listeners of the average share added to every preset's score         |
+| `REPORT_HIDE_THRESHOLD`                        | Reports (from different IPs, last 180 days) that hide a preset       |
 
 `.env.example` ships with Cloudflare test keys that always pass, which is handy for local development.
 

@@ -1,23 +1,51 @@
 import toast from 'react-hot-toast';
-import { presetHash, Preset, PresetListItem } from '@waveform/preset-schema';
-import { createAdsrEnvelope, initModel } from '../../../test-utils/models';
+import {
+  DEFAULT_WAVETABLE_PATH,
+  normalizePreset,
+  presetHash,
+  Preset,
+  PresetListItem,
+} from '@waveform/preset-schema';
+import { createAdsrEnvelope, createSynth, initModel } from '../../../test-utils/models';
 import { getSnapshot } from '../../app';
-import { getPreset, getTopPresets, getUrlPresetId, setUrlPresetId } from '../services';
+import { filter } from '../../synth/filter/modules/filter';
+import { fx } from '../../synth/fx/modules/fx';
+import {
+  clearUrlPresetId,
+  getEditToken,
+  getPreset,
+  getTopPresets,
+  getUrlPresetId,
+  markPresetOpened,
+  setUrlPresetId,
+} from '../services';
 import { presets } from './presets';
 
 jest.mock('../services', () => ({
+  clearUrlPresetId: jest.fn(),
+  getEditToken: jest.fn(),
   getPreset: jest.fn(),
   getTopPresets: jest.fn(),
   getUrlPresetId: jest.fn(() => null),
+  markPresetOpened: jest.fn(),
   setUrlPresetId: jest.fn(),
 }));
 
+const getEditTokenMock = jest.mocked(getEditToken);
+const markPresetOpenedMock = jest.mocked(markPresetOpened);
 const getPresetMock = getPreset as jest.MockedFunction<typeof getPreset>;
 const getTopPresetsMock = getTopPresets as jest.MockedFunction<typeof getTopPresets>;
 const getUrlPresetIdMock = getUrlPresetId as jest.MockedFunction<typeof getUrlPresetId>;
 
 const preset = (id: string, attack: number): Preset =>
   ({ id, name: `Preset ${id}`, data: { adsr: { attack } } } as unknown as Preset);
+
+// resolved by the test, for requests that must still be pending
+const deferred = <T>() => {
+  let resolve: (value: T) => void = () => undefined;
+  const promise = new Promise<T>((r) => (resolve = r));
+  return { promise, resolve };
+};
 
 const listItem = (id: string) => ({ id, name: id } as PresetListItem);
 
@@ -30,9 +58,24 @@ const setup = () => {
   return { adsr, model };
 };
 
+// the popular list is still loading on start; resolveTop delivers ['a']
+const setupPendingTop = () => {
+  const top = deferred<PresetListItem[]>();
+  getTopPresetsMock.mockReturnValue(top.promise);
+  const resolveTop = () => {
+    top.resolve(['a'].map(listItem));
+    return flush();
+  };
+  return { ...setup(), resolveTop };
+};
+
 beforeEach(() => {
   getUrlPresetIdMock.mockReturnValue(null);
   getTopPresetsMock.mockResolvedValue([]);
+  getEditTokenMock.mockReturnValue(undefined);
+  markPresetOpenedMock.mockResolvedValue(undefined);
+  // the preset opened on start is random, the first one unless a test picks another
+  jest.spyOn(Math, 'random').mockReturnValue(0);
 });
 afterEach(() => jest.useRealTimers());
 
@@ -59,14 +102,12 @@ describe('presets model', () => {
       adsr: [{ $envelope }],
       model: [{ $current }, { loadById }],
     } = setup();
-    let resolveFirst: (value: Preset) => void = () => undefined;
-    getPresetMock
-      .mockReturnValueOnce(new Promise((resolve) => (resolveFirst = resolve)))
-      .mockResolvedValueOnce(preset('p2', 0.2));
+    const p1 = deferred<Preset>();
+    getPresetMock.mockReturnValueOnce(p1.promise).mockResolvedValueOnce(preset('p2', 0.2));
 
     const first = loadById('p1');
     await loadById('p2');
-    resolveFirst(preset('p1', 0.9));
+    p1.resolve(preset('p1', 0.9));
     await first;
 
     expect($current.value?.id).toBe('p2');
@@ -134,55 +175,62 @@ describe('presets model', () => {
     expect(toast.error).not.toHaveBeenCalled();
     expect($top.value).toBeNull();
     expect($topLoading.value).toBe(false);
+    expect(getPresetMock).not.toHaveBeenCalled(); // stays in Init
   });
 
-  it('without a list walks the preloaded popular presets from the most popular', async () => {
+  it('without a list walks the preloaded popular presets from the one opened on start', async () => {
     getTopPresetsMock.mockResolvedValue(['a', 'b', 'c'].map(listItem));
     const {
       model: [{ $current, $list }, { next }],
     } = setup();
     getPresetMock.mockImplementation((id) => Promise.resolve(preset(id, 0.1)));
     await flush();
-
-    await next();
-    expect($list.value.map(({ id }) => id)).toEqual(['a', 'b', 'c']);
     expect($current.value?.id).toBe('a');
 
     await next();
-    expect($current.value?.id).toBe('b');
+    expect($list.value.map(({ id }) => id)).toEqual(['a', 'b', 'c']);
+    expect($current.value).toEqual({ id: 'b', name: 'Preset b' }); // chosen, not auto
+    expect(setUrlPresetId).toHaveBeenCalledWith('b');
     expect(getTopPresetsMock).toHaveBeenCalledTimes(1); // only the init request
   });
 
-  it('◀ without a current preset starts from the least popular', async () => {
+  it('◀ ▶ from Init start from the least and the most popular', async () => {
     getTopPresetsMock.mockResolvedValue(['a', 'b', 'c'].map(listItem));
     const {
-      model: [{ $current }, { prev }],
+      model: [{ $current }, { prev, next, reset }],
     } = setup();
     getPresetMock.mockImplementation((id) => Promise.resolve(preset(id, 0.1)));
     await flush();
 
+    reset();
     await prev();
     expect($current.value?.id).toBe('c');
+
+    reset();
+    await next();
+    expect($current.value?.id).toBe('a');
   });
 
   it('drops ◀ ▶ clicks while the popular presets are loading', async () => {
-    let resolveTop: (list: PresetListItem[]) => void = () => undefined;
-    getTopPresetsMock.mockReturnValue(new Promise((resolve) => (resolveTop = resolve)));
+    const top = deferred<PresetListItem[]>();
+    getTopPresetsMock.mockReturnValue(top.promise);
     const {
       model: [{ $current }, { next }],
     } = setup();
     getPresetMock.mockImplementation((id) => Promise.resolve(preset(id, 0.1)));
 
     await next();
-    resolveTop(['a', 'b'].map(listItem));
+    expect(getPresetMock).not.toHaveBeenCalled();
+    top.resolve(['a', 'b'].map(listItem));
     await flush();
 
+    // only the one opened on start
     expect(getTopPresetsMock).toHaveBeenCalledTimes(1);
-    expect(getPresetMock).not.toHaveBeenCalled();
-    expect($current.value).toBeNull();
+    expect(getPresetMock).toHaveBeenCalledTimes(1);
+    expect($current.value?.id).toBe('a');
 
     await next();
-    expect($current.value?.id).toBe('a');
+    expect($current.value?.id).toBe('b');
   });
 
   it('shares one request between parallel loadTop calls', async () => {
@@ -254,6 +302,232 @@ describe('presets model', () => {
     expect(getPresetMock).not.toHaveBeenCalled();
   });
 
+  it('opens a popular preset on start without a link', async () => {
+    getTopPresetsMock.mockResolvedValue(['a', 'b'].map(listItem));
+    getPresetMock.mockImplementation((id) => Promise.resolve(preset(id, 0.5)));
+    const {
+      adsr: [{ $envelope }],
+      model: [{ $current, $dirty, $loadedHash }],
+    } = setup();
+    await flush();
+
+    expect(getPresetMock).toHaveBeenCalledTimes(1);
+    expect(getPresetMock).toHaveBeenCalledWith('a');
+    expect($current.value).toEqual({ id: 'a', name: 'Preset a', auto: true });
+    expect($envelope.value.attack).toBe(0.5);
+    expect($loadedHash.value).toBe(presetHash(getSnapshot()));
+    expect($dirty.value).toBe(false);
+    // not in the url: a reload opens a random popular one again, not this one as chosen
+    expect(setUrlPresetId).not.toHaveBeenCalled();
+    expect(clearUrlPresetId).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    [0.5, 'b'],
+    [0.99, 'c'],
+  ])('opens a random one of the popular presets on start (%s: %s)', async (random, id) => {
+    getTopPresetsMock.mockResolvedValue(['a', 'b', 'c'].map(listItem));
+    getPresetMock.mockImplementation((id) => Promise.resolve(preset(id, 0.5)));
+    jest.mocked(Math.random).mockReturnValue(random);
+    const {
+      model: [{ $current }],
+    } = setup();
+    await flush();
+    expect(getPresetMock).toHaveBeenCalledTimes(1);
+    expect($current.value).toEqual({ id, name: `Preset ${id}`, auto: true });
+  });
+
+  it('▶ continues from the random preset opened on start', async () => {
+    getTopPresetsMock.mockResolvedValue(['a', 'b', 'c'].map(listItem));
+    getPresetMock.mockImplementation((id) => Promise.resolve(preset(id, 0.5)));
+    jest.mocked(Math.random).mockReturnValue(0.99);
+    const {
+      model: [{ $current }, { next }],
+    } = setup();
+    await flush();
+    expect($current.value?.id).toBe('c');
+
+    await next();
+    expect($current.value).toEqual({ id: 'a', name: 'Preset a' });
+  });
+
+  it('the preset opened on start becomes chosen and goes to the url when it is opened again', async () => {
+    getTopPresetsMock.mockResolvedValue(['a', 'b'].map(listItem));
+    getPresetMock.mockImplementation((id) => Promise.resolve(preset(id, 0.5)));
+    const {
+      model: [{ $current }, { loadById }],
+    } = setup();
+    await flush();
+    expect($current.value?.auto).toBe(true);
+
+    await loadById('a');
+    expect($current.value).toEqual({ id: 'a', name: 'Preset a' });
+    expect(setUrlPresetId).toHaveBeenCalledWith('a');
+  });
+
+  it('a failed load of the popular preset stays in Init without an error', async () => {
+    getTopPresetsMock.mockResolvedValue(['a'].map(listItem));
+    getPresetMock.mockRejectedValue(new Error('Not found'));
+    const {
+      model: [{ $current }],
+    } = setup();
+    await flush();
+
+    expect(getPresetMock).toHaveBeenCalledWith('a');
+    expect(toast.error).not.toHaveBeenCalled();
+    expect($current.value).toBeNull();
+  });
+
+  it('with a link opens only the preset of the link, even when it is not found', async () => {
+    getUrlPresetIdMock.mockReturnValue('from-url');
+    getTopPresetsMock.mockResolvedValue(['a'].map(listItem));
+    getPresetMock.mockRejectedValue(new Error('404'));
+    const {
+      model: [{ $current, $top }],
+    } = setup();
+    await flush();
+
+    expect($top.value?.map(({ id }) => id)).toEqual(['a']);
+    expect(getPresetMock).toHaveBeenCalledTimes(1);
+    expect(getPresetMock).toHaveBeenCalledWith('from-url');
+    expect($current.value).toBeNull();
+  });
+
+  it('does not open a popular preset when params were changed before the list arrived', async () => {
+    getPresetMock.mockImplementation((id) => Promise.resolve(preset(id, 0.5)));
+    const {
+      adsr: [{ $envelope }, { setEnvelopeValue }],
+      model: [{ $current }],
+      resolveTop,
+    } = setupPendingTop();
+
+    setEnvelopeValue('attack', 0.3);
+    await resolveTop();
+
+    expect(getPresetMock).not.toHaveBeenCalled();
+    expect($current.value).toBeNull();
+    expect($envelope.value.attack).toBe(0.3);
+  });
+
+  it('does not apply the popular preset when params were changed while it loaded', async () => {
+    getTopPresetsMock.mockResolvedValue(['a'].map(listItem));
+    const loading = deferred<Preset>();
+    getPresetMock.mockReturnValue(loading.promise);
+    const {
+      adsr: [{ $envelope }, { setEnvelopeValue }],
+      model: [{ $current }],
+    } = setup();
+    await flush();
+    expect(getPresetMock).toHaveBeenCalledWith('a');
+
+    setEnvelopeValue('attack', 0.3);
+    loading.resolve(preset('a', 0.5));
+    await flush();
+
+    expect($current.value).toBeNull();
+    expect($envelope.value.attack).toBe(0.3);
+    expect(setUrlPresetId).not.toHaveBeenCalled();
+  });
+
+  it('a preset chosen before the list arrived is kept', async () => {
+    getPresetMock.mockImplementation((id) => Promise.resolve(preset(id, 0.5)));
+    const {
+      model: [{ $current }, { loadById }],
+      resolveTop,
+    } = setupPendingTop();
+
+    await loadById('x');
+    await resolveTop();
+
+    expect(getPresetMock).toHaveBeenCalledTimes(1);
+    expect($current.value).toEqual({ id: 'x', name: 'Preset x' });
+  });
+
+  it('a preset saved before the list arrived is kept', async () => {
+    const {
+      model: [{ $current }, { setSaved }],
+      resolveTop,
+    } = setupPendingTop();
+
+    setSaved({ id: 's1', name: 'Saved' });
+    await resolveTop();
+
+    expect(getPresetMock).not.toHaveBeenCalled();
+    expect($current.value).toEqual({ id: 's1', name: 'Saved' });
+  });
+
+  it('Init before the list arrived keeps Init', async () => {
+    const {
+      model: [{ $current }, { reset }],
+      resolveTop,
+    } = setupPendingTop();
+
+    reset();
+    await resolveTop();
+
+    expect(getPresetMock).not.toHaveBeenCalled();
+    expect($current.value).toBeNull();
+  });
+
+  it('Init resets the sound to the defaults and leaves the preset', async () => {
+    jest.useFakeTimers();
+    const {
+      adsr: [{ $envelope }, { setEnvelopeValue }],
+      model: [{ $current, $loadedHash, $dirty }, { loadById, reset }],
+    } = setup();
+    // sustain 0 and decay 0 are falsy: the defaults come back, not the preset values
+    getPresetMock.mockResolvedValue({
+      id: 'p1',
+      name: 'Pluck',
+      data: { adsr: { attack: 0.5, hold: 0, decay: 0.3, sustain: 0, release: 0.2 } },
+    } as unknown as Preset);
+    await loadById('p1');
+    setEnvelopeValue('decay', 0);
+    jest.advanceTimersByTime(200);
+    expect($dirty.value).toBe(true);
+
+    reset();
+
+    expect($envelope.value).toEqual({ attack: 0.005, hold: 0.1, decay: 0, sustain: 1, release: 0.005 });
+    expect(presetHash(getSnapshot())).toBe(presetHash({}));
+    expect($current.value).toBeNull();
+    expect($loadedHash.value).toBeNull();
+    expect($dirty.value).toBe(false);
+    expect(clearUrlPresetId).toHaveBeenCalledTimes(1);
+
+    // changes on Init never make it dirty
+    jest.advanceTimersByTime(200);
+    setEnvelopeValue('attack', 0.3);
+    jest.advanceTimersByTime(200);
+    expect($dirty.value).toBe(false);
+  });
+
+  it('a preset still loading is not applied over Init', async () => {
+    const {
+      adsr: [{ $envelope }],
+      model: [{ $current }, { loadById, reset }],
+    } = setup();
+    const loading = deferred<Preset>();
+    getPresetMock.mockReturnValue(loading.promise);
+
+    const load = loadById('p1');
+    reset();
+    loading.resolve(preset('p1', 0.5));
+    await load;
+
+    expect($current.value).toBeNull();
+    expect($envelope.value.attack).toBe(0.005);
+  });
+
+  it('the start state of the synth is Init', () => {
+    const { synthCore } = createSynth(DEFAULT_WAVETABLE_PATH);
+    initModel(filter({ synthCore }), 'filter', undefined);
+    initModel(fx({ synthCore }), 'fx', undefined);
+
+    // every snapshot model is registered: nothing is filled in by the schema
+    expect(getSnapshot()).toEqual(normalizePreset({}));
+  });
+
   it('marks the preset dirty when params change and clean when they return', () => {
     jest.useFakeTimers();
     const {
@@ -293,5 +567,72 @@ describe('presets model', () => {
   it('does not load anything without a preset in the url', () => {
     setup();
     expect(getPresetMock).not.toHaveBeenCalled();
+  });
+
+  describe('own presets', () => {
+    // presets saved from this browser have edit tokens
+    const ownPresets = (...ids: string[]) =>
+      getEditTokenMock.mockImplementation((id) => (ids.includes(id) ? `token-${id}` : undefined));
+
+    beforeEach(() => {
+      getPresetMock.mockImplementation((id) => Promise.resolve(preset(id, 0.5)));
+    });
+
+    it('opening an own preset keeps it from the cleanup, once a session', async () => {
+      ownPresets('own');
+      const {
+        model: [, { loadById }],
+      } = setup();
+
+      await loadById('own');
+      await loadById('other');
+      await loadById('own');
+
+      expect(markPresetOpenedMock).toHaveBeenCalledTimes(1);
+      expect(markPresetOpenedMock).toHaveBeenCalledWith('own', { editToken: 'token-own' });
+    });
+
+    it('an own preset from the link and the one opened on start are kept too', async () => {
+      ownPresets('from-url', 'a');
+      getUrlPresetIdMock.mockReturnValue('from-url');
+      setup();
+      await flush();
+      expect(markPresetOpenedMock).toHaveBeenCalledWith('from-url', { editToken: 'token-from-url' });
+
+      getUrlPresetIdMock.mockReturnValue(null);
+      getTopPresetsMock.mockResolvedValue(['a'].map(listItem));
+      const {
+        model: [{ $current }],
+      } = setup();
+      await flush();
+      expect($current.value?.auto).toBe(true);
+      expect(markPresetOpenedMock).toHaveBeenLastCalledWith('a', { editToken: 'token-a' });
+    });
+
+    it('a failed request is sent again on the next opening, without an error', async () => {
+      ownPresets('own');
+      markPresetOpenedMock.mockRejectedValueOnce(new Error('offline'));
+      const {
+        model: [{ $current }, { loadById }],
+      } = setup();
+
+      await loadById('own');
+      await flush();
+      expect($current.value?.id).toBe('own');
+      expect(toast.error).not.toHaveBeenCalled();
+
+      await loadById('own');
+      await loadById('own');
+      expect(markPresetOpenedMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('saving does not send it: a saved or updated preset is kept by its own dates', () => {
+      ownPresets('s1');
+      const {
+        model: [, { setSaved }],
+      } = setup();
+      setSaved({ id: 's1', name: 'Saved' });
+      expect(markPresetOpenedMock).not.toHaveBeenCalled();
+    });
   });
 });

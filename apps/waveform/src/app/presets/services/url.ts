@@ -13,6 +13,9 @@ export const presetUrl = (id: string) => {
 // replaces legacy snapshot search params too, the preset id is the only state in url now
 export const setUrlPresetId = (id: string) => window.history.replaceState(null, '', presetUrl(id));
 
+// Init: no preset and no legacy snapshot params
+export const clearUrlPresetId = () => window.history.replaceState(null, '', window.location.pathname);
+
 export const sharePreset = (id: string) =>
   navigator.clipboard
     .writeText(presetUrl(id))

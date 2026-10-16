@@ -1,5 +1,5 @@
 // Checks presets API limits against a running deployment.
-// Run against a dev/staging database only: it creates presets and usage rows.
+// Run against a dev/staging database only: it creates presets and stays.
 //
 //   BASE_URL=http://localhost:8888 node scripts/check-limits.mjs [--reports]
 //
@@ -62,27 +62,21 @@ const presetId = created[0]?.body.id ?? (await api('/api/presets?sort=new')).bod
 if (!presetId) {
   console.log('no presets to check /usage, skipping');
 } else {
-  const usage = (items, clientId) =>
-    api('/api/usage', { method: 'POST', body: JSON.stringify({ clientId, items }) });
-  check('usage batch is accepted', (await usage([{ presetId, seconds: 60 }], 'check-1')).status === 204);
+  const usage = (body) => api('/api/usage', { method: 'POST', body: JSON.stringify(body) });
+  const turnstileToken = TOKEN;
   check(
-    'usage batch with 11 items is 400',
-    (
-      await usage(
-        Array.from({ length: 11 }, () => ({ presetId, seconds: 1 })),
-        'check-1'
-      )
-    ).status === 400
+    'usage listen is accepted',
+    (await usage({ presetId, event: 'listen', turnstileToken })).status === 204
   );
+  check('usage stay is accepted', (await usage({ presetId, event: 'stay', turnstileToken })).status === 204);
+  check('usage without an event is 400', (await usage({ presetId, turnstileToken })).status === 400);
+  check('usage without a captcha token is 400', (await usage({ presetId, event: 'stay' })).status === 400);
   check(
-    'usage seconds > 120 are capped, not rejected',
-    (await usage([{ presetId, seconds: 5000 }], 'check-1')).status === 204
+    'usage batch of seconds of older clients is 400',
+    (await usage({ clientId: 'check-1', items: [{ presetId, seconds: 60 }] })).status === 400
   );
-  for (let i = 0; i < 30; i++) await usage([{ presetId, seconds: 120 }], 'check-1');
-  for (const clientId of ['check-2', 'check-3', 'check-4'])
-    await usage([{ presetId, seconds: 60 }], clientId);
-  console.log(`     verify in the database, expected 3 rows and max seconds 1800:
-       SELECT client_hash, seconds FROM usage_daily WHERE preset_id = '${presetId}' AND day = current_date;`);
+  console.log(`     verify in the database, expected no row if this IP saved the preset, otherwise one heard and stayed today:
+       SELECT heard, stayed FROM listens WHERE preset_id = '${presetId}';`);
 }
 
 if (checkReports) {

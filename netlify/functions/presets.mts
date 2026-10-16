@@ -9,6 +9,7 @@ import {
   presetHash,
   presetIdSchema,
   presetNameSchema,
+  presetOpenedRequestSchema,
   savePresetRequestSchema,
   updatePresetRequestSchema,
 } from '../../libs/preset-schema/src';
@@ -139,6 +140,19 @@ const updatePreset = async (id: string, req: Request) => {
   return json({ id: presetId, name } as UpdatePresetResponse);
 };
 
+// the author opened the preset (the client sends the edit token it keeps): cleanup counts the 90 days of an
+// unqualified preset from then. At most one write a day; a wrong token, a missing or hidden preset change nothing
+const markOpened = async (id: string, req: Request) => {
+  const presetId = parseId(id);
+  const parsed = presetOpenedRequestSchema.safeParse(await readJson(req, MAX_BODY_BYTES));
+  if (!parsed.success) throw new HttpError(400, 'Invalid edit token');
+  await db()`
+    UPDATE presets SET author_opened_at = now()
+    WHERE id = ${presetId} AND edit_token_hash = ${sha256(parsed.data.editToken)} AND NOT hidden
+      AND (author_opened_at IS NULL OR author_opened_at < now() - interval '1 day')`;
+  return empty();
+};
+
 const getNameAvailable = async (url: URL) => {
   const parsed = presetNameSchema.safeParse(url.searchParams.get('name') ?? '');
   if (!parsed.success) throw new HttpError(400, 'Invalid name');
@@ -154,23 +168,15 @@ const getPreset = async (id: string) => {
   return json(preset);
 };
 
+// every featured preset (curated) comes first, whatever its score, the rest are popular presets by score
 const getTop = async () => {
-  const sql = db();
-  const scored = await sql<PresetListItem[]>`
-    SELECT p.id, p.name, s.unique_users AS "uniqueUsers"
-    FROM preset_scores s JOIN presets p ON p.id = s.preset_id
-    WHERE NOT p.hidden
-    ORDER BY s.score DESC, s.preset_id
+  const top = await db()<PresetListItem[]>`
+    SELECT p.id, p.name, COALESCE(s.unique_users, 0) AS "uniqueUsers"
+    FROM presets p LEFT JOIN preset_scores s ON s.preset_id = p.id
+    WHERE (p.featured OR s.popular) AND NOT p.hidden
+    ORDER BY p.featured DESC, s.score DESC NULLS LAST, p.created_at DESC, p.id DESC
     LIMIT ${TOP_SIZE}`;
-  const featured =
-    scored.length < TOP_SIZE
-      ? await sql<PresetListItem[]>`
-        SELECT id, name, 0 AS "uniqueUsers" FROM presets
-        WHERE featured AND NOT hidden AND NOT (id = ANY(${scored.map(({ id }) => id)}::uuid[]))
-        ORDER BY created_at DESC, id DESC
-        LIMIT ${TOP_SIZE - scored.length}`
-      : [];
-  return json([...scored, ...featured], 200, { 'Cache-Control': 'public, s-maxage=300' });
+  return json(top, 200, { 'Cache-Control': 'public, s-maxage=300' });
 };
 
 // keyset pagination, cursor is an opaque [sort key as text, id] pair
@@ -274,6 +280,8 @@ export default async (req: Request, context: Context) => {
       if (req.method === 'PUT') return await updatePreset(id, req);
     } else if (action === 'report') {
       if (req.method === 'POST') return await reportPreset(id, context);
+    } else if (action === 'opened') {
+      if (req.method === 'POST') return await markOpened(id, req);
     } else throw new HttpError(404, 'Not found');
     throw new HttpError(405, 'Method not allowed');
   } catch (error) {
