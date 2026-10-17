@@ -16,6 +16,7 @@ export { FqAnalyser } from './fq-analyser';
 export { Filter, FilterResponse, frequencyResponseDb } from './filter';
 export { Select, CascadeSelect } from './select';
 export { DraggableNumber } from './draggable-number';
+export { DragValue } from './drag-value';
 export { Checkbox } from './checkbox';
 export { IconButton } from './icon-button';
 export { TapeSwitch } from './tape-switch';

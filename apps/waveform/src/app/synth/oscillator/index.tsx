@@ -6,7 +6,7 @@ import { number } from '@waveform/math';
 import { OscillatorActions, OscillatorModel, useOscillator1 } from '../common/modules';
 import { RxHandle } from '../../common/components';
 import { OscillatorContext, useOscillatorContext } from './hooks';
-import { Wave, WaveSelector } from './components';
+import { formatWavePosition, Wave, WaveSelector } from './components';
 
 export { useOscillatorContext };
 
@@ -80,7 +80,7 @@ export const Oscillator = ({
             />
           </HandlesGroup>
           <HandlesGroup>
-            {/* steps by whole frames, the label is the frame from 1 (a fractional position of a preset with one decimal) */}
+            {/* steps by whole frames, the label is the frame from 1 */}
             <RxHandle
               min={0}
               max={Math.max(0, wavetable.length - 1)}
@@ -88,7 +88,7 @@ export const Oscillator = ({
               label='Wave'
               onChange={setPosition}
               precision={1}
-              formatValue={(value) => (Number.isInteger(value) ? `${value + 1}` : (value + 1).toFixed(1))}
+              formatValue={formatWavePosition}
             />
           </HandlesGroup>
           <HandlesGroup>
@@ -108,24 +108,6 @@ export const Oscillator = ({
               max={ranges.detune[1]}
               onChange={onChangeInternal('detune')}
               precision={1}
-            />
-            <Handle
-              label='Phase'
-              value={osc.phase}
-              min={ranges.phase[0]}
-              max={ranges.phase[1]}
-              precision={360}
-              formatValue={(value) => `${Math.round(value * 360)}°`}
-              onChange={onChangeInternal('phase')}
-            />
-            <Handle
-              label='Phase rand'
-              value={osc.phaseRand}
-              min={ranges.phaseRand[0]}
-              max={ranges.phaseRand[1]}
-              precision={100}
-              formatValue={(value) => number.percent(number.round(value, 100))}
-              onChange={onChangeInternal('phaseRand')}
             />
           </HandlesGroup>
         </Handles>

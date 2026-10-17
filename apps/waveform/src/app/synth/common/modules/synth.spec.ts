@@ -66,7 +66,7 @@ describe('synth', () => {
     expect(voices()).toHaveLength(1);
     // osc1 is active with unison 2, osc2 is inactive
     expect(voice.options.processorOptions).toEqual({
-      osc: [{ table: osc1[0].id, unison: 2, phase: 0, phaseRand: 1 }, null],
+      osc: [{ table: osc1[0].id, unison: 2, phase: 0.5, phaseRand: 1 }, null],
       start: 0,
     });
     expect(param(voice, 'frequency').value).toBeCloseTo(440);
@@ -95,8 +95,8 @@ describe('synth', () => {
 
     const [voice] = voices();
     expect((voice.options.processorOptions as { osc: unknown[] }).osc).toEqual([
-      { table: osc1[0].id, unison: 2, phase: 0, phaseRand: 1 },
-      { table: osc2[0].id, unison: 4, phase: 0, phaseRand: 1 },
+      { table: osc1[0].id, unison: 2, phase: 0.5, phaseRand: 1 },
+      { table: osc2[0].id, unison: 4, phase: 0.5, phaseRand: 1 },
     ]);
     // the octave in cents, the position as a share of the table
     expect(param(voice, 'detune2').value).toBe(-1200);

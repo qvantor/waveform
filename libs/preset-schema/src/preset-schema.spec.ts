@@ -122,14 +122,14 @@ describe('normalizePreset', () => {
     expect(normalizePreset({ ...preset, osc1: { ...preset.osc1, pr: 0.00012346 } }).osc1.pr).toBe(0.0001235);
   });
 
-  it('fills Phase with 0 and Phase rand with 1, keeps 0 and accepts 0..1', () => {
+  it('fills Phase with 0.5 (180°) and Phase rand with 1, keeps 0 and accepts 0..1', () => {
     const { osc1, osc2 } = normalizePreset({
       ...preset,
       osc1: { ...preset.osc1, ph: undefined, pr: undefined },
       osc2: { ...preset.osc2, ph: 1, pr: 1 },
     });
-    expect([osc1.ph, osc1.pr, osc2.ph, osc2.pr]).toEqual([0, 1, 1, 1]);
-    expect(normalizePreset({}).osc1).toMatchObject({ ph: 0, pr: 1 });
+    expect([osc1.ph, osc1.pr, osc2.ph, osc2.pr]).toEqual([0.5, 1, 1, 1]);
+    expect(normalizePreset({}).osc1).toMatchObject({ ph: 0.5, pr: 1 });
     expect(normalizePreset(preset).osc2).toMatchObject({ ph: 0, pr: 0 });
   });
 
@@ -142,6 +142,14 @@ describe('normalizePreset', () => {
     // pr wins over r
     expect(normalizePreset({ ...preset, osc1: { ...preset.osc1, r: 0.002 } }).osc1.pr).toBe(0.5);
     expect(presetDataSchema.safeParse({ ...legacy, osc1: { ...legacy.osc1, r: 0.003 } }).success).toBe(false);
+  });
+
+  it('keeps a legacy preset (r without pr) at the phase it played from, 0, not the default', () => {
+    const legacy = { ...preset, osc1: { ...preset.osc1, ph: undefined, pr: undefined, r: 0 } };
+    expect(normalizePreset(legacy).osc1.ph).toBe(0);
+    expect(normalizePreset({ ...legacy, osc1: { ...legacy.osc1, ph: 0.25 } }).osc1.ph).toBe(0.25);
+    // with pr it is not legacy
+    expect(normalizePreset({ ...legacy, osc1: { ...legacy.osc1, pr: 0 } }).osc1.ph).toBe(0.5);
   });
 
   it('keeps a position between two frames, with 4 significant digits', () => {

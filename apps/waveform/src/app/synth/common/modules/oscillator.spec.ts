@@ -44,7 +44,7 @@ describe('oscillator', () => {
     });
     expect(model.$active.value).toBe(false);
     expect(model.$waveTablePath.value).toEqual(['folder', 'file.wav']);
-    expect(model.$osc.value).toEqual({ unison: 2, detune: 5, phase: 0, phaseRand: 1, octave: 0 });
+    expect(model.$osc.value).toEqual({ unison: 2, detune: 5, phase: 0.5, phaseRand: 1, octave: 0 });
     expect(model.$waveTable.value.map(({ value }) => value)).toEqual([placeholder]);
     expect(model.$position.value).toBe(0);
   });
@@ -319,12 +319,12 @@ describe('oscillator', () => {
     it('restores default settings for missing keys and keeps the wavetable', () => {
       const [model, actions] = createOscillator();
       actions.setOscValue('detune', 50);
-      actions.setOscValue('phase', 0.5);
+      actions.setOscValue('phase', 0.25);
       actions.setGain(0.9);
 
       applySnapshot({});
 
-      expect(model.$osc.value).toEqual({ octave: 0, detune: 5, unison: 2, phase: 0, phaseRand: 1 });
+      expect(model.$osc.value).toEqual({ octave: 0, detune: 5, unison: 2, phase: 0.5, phaseRand: 1 });
       expect(model.$gain.value).toBe(0.9);
       expect(model.$waveTablePath.value).toEqual(['default']);
     });
@@ -339,6 +339,17 @@ describe('oscillator', () => {
       applySnapshot({ osc1: { r: 0.002, pr: 0 } });
       expect(model.$osc.value.phaseRand).toBe(0);
       expect(getSnapshot()['osc1']).not.toHaveProperty('r');
+    });
+
+    it('keeps a legacy snapshot (r without pr) at the phase it played from, 0, not the default', () => {
+      const [model] = createOscillator();
+      applySnapshot({ osc1: { r: 0 } });
+      expect(model.$osc.value.phase).toBe(0);
+      applySnapshot({ osc1: { r: 0, ph: 0.25 } });
+      expect(model.$osc.value.phase).toBe(0.25);
+      // with pr it is not legacy
+      applySnapshot({ osc1: { r: 0, pr: 0 } });
+      expect(model.$osc.value.phase).toBe(0.5);
     });
   });
 
