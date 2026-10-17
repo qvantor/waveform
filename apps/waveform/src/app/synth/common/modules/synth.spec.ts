@@ -2,6 +2,7 @@ import { registrar } from 'standardized-audio-context-mock';
 import { applySnapshot, getSnapshot } from '../../../app';
 import { createSynth, stopModels } from '../../../../test-utils/models';
 import { withoutAudioWorklet } from '../../../../test-utils/no-audio-worklet';
+import { WorkerStub } from '../../../../test-utils/worker-stub';
 import { getFq } from '../../services';
 import { VOICE_PROCESSOR } from '../wavetable/wavetable-osc-params';
 
@@ -170,6 +171,33 @@ describe('synth', () => {
 
     expect(voice.disconnect).toHaveBeenCalled();
     expect(envelope.disconnect).toHaveBeenCalled();
+  });
+
+  it('takes a held voice off when its processor fails, the others and new notes play on', async () => {
+    const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { onPress, onRelease, voices, envelopes, wavetables, osc1, audioCtx } = await setup();
+    osc1[1].connectBus('gain', audioCtx.createOscillator());
+    onPress([4, 'C']);
+    onPress([4, 'E']);
+    const [c, e] = voices();
+    const [cEnvelope, eEnvelope] = envelopes();
+
+    c.onprocessorerror?.(new Event('processorerror'));
+
+    expect(error).toHaveBeenCalledWith('A voice of the wavetable oscillator failed', expect.any(Event));
+    expect(c.disconnect).toHaveBeenCalled();
+    expect(cEnvelope.disconnect).toHaveBeenCalled();
+    expect(osc1[0].buses.gain.disconnect).toHaveBeenCalledTimes(1);
+    expect(e.disconnect).not.toHaveBeenCalled();
+    expect(eEnvelope.disconnect).not.toHaveBeenCalled();
+    expect(wavetables.$status.value).toBe('ready');
+    // a voice that ended doesn't follow the knobs, its note is released as any other
+    osc1[1].connectBus('spread', audioCtx.createOscillator());
+    expect(osc1[0].buses.spread.connect).toHaveBeenCalledTimes(1);
+    onRelease([4, 'C']);
+    onPress([4, 'G']);
+    expect(voices()).toHaveLength(3);
+    error.mockRestore();
   });
 
   it('steals the oldest voice above max voices: it fades out in its processor', async () => {
@@ -471,9 +499,8 @@ describe('synth', () => {
     it('plays nothing while the oscillator failed, again after a retry', async () => {
       const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
       const { onPress, wavetables, synthModel } = await setup();
-      // a processor throws
-      const voice = wavetables.createVoice({ osc: [], start: 0 }, {});
-      voice?.onprocessorerror?.(new Event('processorerror'));
+      // the worker fails
+      WorkerStub.created.at(-1)?.onerror?.(new Event('error'));
       expect(wavetables.$status.value).toBe('failed');
       onPress([4, 'C']);
       expect(synthModel.$voicesCount.value).toBe(0);

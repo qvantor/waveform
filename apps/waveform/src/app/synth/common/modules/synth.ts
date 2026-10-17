@@ -148,13 +148,23 @@ abstract class OscillatorVoice {
     config.oscillators.forEach((oscillator, osc) =>
       OSC_PARAMS.forEach((param) => this.setBus(osc, param, oscillator.$busSources.value[param] > 0))
     );
-    node.port.onmessage = ({ data }: MessageEvent<VoiceEndedMessage>) => {
-      if (!data.ended) return;
+    let ended = false;
+    const end = () => {
+      if (ended) return;
+      ended = true;
       node.disconnect();
       this.links.forEach((disconnect) => disconnect());
       this.links.clear();
       this.onEnded();
       config.onEnded(this);
+    };
+    node.port.onmessage = ({ data }: MessageEvent<VoiceEndedMessage>) => {
+      if (data.ended) end();
+    };
+    // its processor failed outside process() (an error in process() ends the voice there): it never ends
+    node.onprocessorerror = (event) => {
+      console.error('A voice of the wavetable oscillator failed', event);
+      end();
     };
   }
 

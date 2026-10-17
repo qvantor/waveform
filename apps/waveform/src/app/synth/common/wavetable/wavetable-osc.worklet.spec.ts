@@ -99,6 +99,33 @@ describe('wavetable oscillator worklet', () => {
     expect(processor.port.postMessage).toHaveBeenCalledWith({ ended: true });
   });
 
+  it('ends a voice that throws: it tells the node and gives its version back', () => {
+    const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const store = new processors[STORE_PROCESSOR]({});
+    const port = workerPort();
+    store.port.onmessage({ data: { port } });
+    const first = buildLevels([saw]);
+    port.onmessage?.({ data: { table: 'thrown', version: 1, levels: first } });
+    const processor = voice('thrown');
+    render(processor, 0);
+    // the voice holds version 1: a newer one doesn't free it
+    port.onmessage?.({ data: { table: 'thrown', version: 2, levels: buildLevels([sine]) } });
+    expect(port.postMessage).not.toHaveBeenCalledWith({ freed: first.data.buffer }, [first.data.buffer]);
+
+    // no frequency: process() throws
+    const broken: Partial<Record<VoiceParam, Float32Array>> = params({ gain1: 1, frequency: 100 });
+    delete broken.frequency;
+    const { alive, left, right } = render(processor, 128, broken as Record<VoiceParam, Float32Array>);
+
+    expect(alive).toBe(false);
+    expect(left.every((value) => value === 0)).toBe(true);
+    expect(right.every((value) => value === 0)).toBe(true);
+    expect(processor.port.postMessage).toHaveBeenCalledWith({ ended: true });
+    expect(port.postMessage).toHaveBeenCalledWith({ freed: first.data.buffer }, [first.data.buffer]);
+    expect(error).toHaveBeenCalledWith('A voice of the wavetable oscillator failed', expect.any(TypeError));
+    error.mockRestore();
+  });
+
   it('renders into one channel when the node has one', () => {
     const outputs = [[new Float32Array(128)]];
     Object.assign(globalThis, { currentFrame: 0 });

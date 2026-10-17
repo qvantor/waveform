@@ -384,9 +384,9 @@ describe('wavetable voice dsp', () => {
   });
 
   describe('unison', () => {
-    it('detunes the voices evenly from -spread/2 to +spread/2, even ones left, odd ones right', () => {
+    it('detunes the voices evenly from -spread/2 to +spread/2, the middle one of an odd count both', () => {
       const { store } = storeWith({ a: [sine] });
-      // an octave below and above the note and the note itself: voice 0 left, 1 right, the last one both
+      // an octave below and above the note and the note itself: voice 0 left, the middle one both, 2 right
       const { left, right } = render({
         store,
         oscs: [osc({ unison: 3 })],
@@ -395,12 +395,41 @@ describe('wavetable voice dsp', () => {
       });
       const level = 1 / Math.sqrt(2);
       expect(toneAmplitude(left, 200)).toBeCloseTo(level, 2);
-      expect(toneAmplitude(left, 400)).toBeCloseTo(0, 2);
-      expect(toneAmplitude(left, 800)).toBeCloseTo(level, 2);
+      expect(toneAmplitude(left, 400)).toBeCloseTo(level, 2);
+      expect(toneAmplitude(left, 800)).toBeCloseTo(0, 2);
       expect(toneAmplitude(right, 200)).toBeCloseTo(0, 2);
       expect(toneAmplitude(right, 400)).toBeCloseTo(level, 2);
       expect(toneAmplitude(right, 800)).toBeCloseTo(level, 2);
     });
+
+    it.each([3, 5, 7])(
+      'puts the voices of u%s around the middle one: the channels mirror each other',
+      (unison) => {
+        const { store } = storeWith({ a: [sine] });
+        const spread = 2400;
+        const { left, right } = render({
+          store,
+          oscs: [osc({ unison })],
+          params: { frequency: 400, spread1: spread },
+          frames: RATE,
+        });
+        const level = 1 / Math.sqrt(Math.ceil(unison / 2));
+        const middle = (unison - 1) / 2;
+        const cents = (j: number) => spread * (j / (unison - 1) - 0.5);
+        for (let j = 0; j < unison; j++) {
+          const pitch = 400 * 2 ** (cents(j) / 1200);
+          // the voices below the middle from the left, the ones above it continue the turns
+          const side = j > middle ? j - 1 : j;
+          const inLeft = j === middle || side % 2 === 0;
+          const inRight = j === middle || side % 2 === 1;
+          expect(toneAmplitude(left, pitch)).toBeCloseTo(inLeft ? level : 0, 2);
+          expect(toneAmplitude(right, pitch)).toBeCloseTo(inRight ? level : 0, 2);
+          // its mirror (the same detune, the other way) is on the other side
+          const mirror = 400 * 2 ** (-cents(j) / 1200);
+          if (j !== middle) expect(toneAmplitude(inLeft ? right : left, mirror)).toBeCloseTo(level, 2);
+        }
+      }
+    );
 
     it('pairs 8 voices into the channels at the level of 4 per channel', () => {
       const { store } = storeWith({ a: [sine] });
@@ -478,7 +507,7 @@ describe('wavetable voice dsp', () => {
 
   describe('phase', () => {
     it.each([
-      // voice 2, the last of 3, plays in both channels: 2 voices at 1/√2 each
+      // voice 1, the middle of 3, plays in both channels: 2 voices at 1/√2 each
       [2, 1],
       [3, Math.SQRT2],
       // 4 voices at 1/2 a channel
@@ -497,8 +526,9 @@ describe('wavetable voice dsp', () => {
 
     it('shifts each voice by a random share of its own, fading in', () => {
       const { store } = storeWith({ a: [sine] });
-      // voices 0 and 1 at the phase, voice 2 (both channels, at 1/√2 as the others) half a period off
-      const shares = [0, 0, 0.5];
+      // voices 0 and 2 at the phase, voice 1 (the middle: both channels, at 1/√2 as the others) half a
+      // period off
+      const shares = [0, 0.5, 0];
       const { left, right } = render({
         store,
         oscs: [osc({ unison: 3, phase: 0.25, phaseRand: 1 })],
@@ -508,7 +538,7 @@ describe('wavetable voice dsp', () => {
       });
       expect(left[0]).toBe(0);
       expect(right[0]).toBe(0);
-      // after the fade voice 2 cancels voices 0 and 1 in both channels
+      // after the fade voice 1 cancels voice 0 on the left and voice 2 on the right
       expect(Math.max(...left.subarray(1000).map(Math.abs))).toBeLessThan(1e-3);
       expect(Math.max(...right.subarray(1000).map(Math.abs))).toBeLessThan(1e-3);
     });

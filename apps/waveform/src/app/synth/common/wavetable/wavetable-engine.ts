@@ -10,8 +10,8 @@ export const WAVETABLE_WORKLET = 'wavetable-osc';
 export const WAVETABLE_WORKER = 'wavetable-worker';
 
 // loading: the module is being added; unsupported: no AudioWorklet (http on a LAN IP, old Safari) or no
-// Worker; failed: the module, the worker or a processor failed, retry() loads it again. Without it the synth
-// doesn't play: there is no native fallback
+// Worker; failed: the module, the worker or the store failed, retry() loads it again (a voice that fails
+// only ends: the synth takes it off). Without it the synth doesn't play: there is no native fallback
 export type WavetableStatus = 'loading' | 'ready' | 'unsupported' | 'failed';
 
 // a voice node: no input, both oscillators into one stereo output
@@ -126,16 +126,15 @@ export const createWavetableEngine = (
       const message: StoreTableMessage = { table, version: entry.version + 1, remove: true };
       worker.postMessage(message);
     },
+    // the node of a note; an error of its processor ends only that voice (the synth takes it off), the store,
+    // the worker and the other voices play on
     createVoice: (options: VoiceOptions, parameterData: Partial<Record<VoiceParam, number>>) => {
       if ($status.value !== 'ready') return null;
-      const node = new AudioWorkletNode(audioCtx, VOICE_PROCESSOR, {
+      return new AudioWorkletNode(audioCtx, VOICE_PROCESSOR, {
         ...VOICE_NODE_OPTIONS,
         processorOptions: options,
         parameterData,
       });
-      // the processor threw: the voices are silent from now on, a retry starts it again
-      node.onprocessorerror = fail;
-      return node;
     },
     retry: () => {
       if ($status.value === 'failed') load();

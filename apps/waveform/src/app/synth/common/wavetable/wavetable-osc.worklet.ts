@@ -86,7 +86,17 @@ class VoiceProcessor extends AudioWorkletProcessor {
   ) {
     const outL = output[0];
     if (scratch.length !== outL.length) scratch = new Float32Array(outL.length);
-    if (this.dsp.process(currentFrame, parameters, outL, output[1] ?? scratch)) return true;
+    try {
+      if (this.dsp.process(currentFrame, parameters, outL, output[1] ?? scratch)) return true;
+    } catch (error) {
+      // a voice that throws ends like one released: it gives its tables back to the store (a processor that
+      // failed would hold them for the life of the context) and its node is taken off the graph; the other
+      // voices and the new notes play on
+      console.error('A voice of the wavetable oscillator failed', error);
+      this.dsp.end();
+      outL.fill(0);
+      output[1]?.fill(0);
+    }
     const ended: VoiceEndedMessage = { ended: true };
     this.port.postMessage(ended);
     return false;

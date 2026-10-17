@@ -1,3 +1,4 @@
+import { registrar } from 'standardized-audio-context-mock';
 import { withoutAudioWorklet } from '../../../../test-utils/no-audio-worklet';
 import { workletLoads } from '../../../../test-utils/worklet-loads';
 import { MessageChannelStub, WorkerStub } from '../../../../test-utils/worker-stub';
@@ -155,9 +156,9 @@ describe('wavetable engine', () => {
     expect(builds()).toEqual([expect.objectContaining({ table: 'osc1', version: 1 })]);
   });
 
-  it('fails when the worker or a processor fails, the worker is terminated', async () => {
+  it('fails when the worker or the store fails, the worker is terminated', async () => {
     jest.spyOn(console, 'error').mockImplementation(() => undefined);
-    const { engine, statuses, worker } = setup();
+    const { audioCtx, engine, statuses, worker } = setup();
     await flush();
     const first = worker();
     first?.onerror?.(new Event('error'));
@@ -167,9 +168,24 @@ describe('wavetable engine', () => {
     engine.retry();
     await flush();
     expect(statuses.at(-1)).toBe('ready');
-    const voice = engine.createVoice({ osc: [], start: 0 }, {});
-    voice?.onprocessorerror?.(new Event('processorerror'));
+    const store = (
+      registrar.getAudioNodes(audioCtx as never, 'AudioWorkletNode' as never) as unknown as NodeStub[]
+    )
+      .filter(({ name }) => name === STORE_PROCESSOR)
+      .at(-1);
+    store?.onprocessorerror?.(new Event('processorerror'));
     expect(statuses.at(-1)).toBe('failed');
+    expect(worker()?.terminate).toHaveBeenCalled();
+  });
+
+  it('stays ready when a voice fails: the synth takes only that voice off', async () => {
+    const { engine, statuses, worker } = setup();
+    await flush();
+    const voice = engine.createVoice({ osc: [], start: 0 }, {});
+    expect(voice?.onprocessorerror).toBeNull();
+    expect(statuses).toEqual(['loading', 'ready']);
+    expect(worker()?.terminate).not.toHaveBeenCalled();
+    expect(engine.createVoice({ osc: [], start: 0 }, {})).not.toBeNull();
   });
 
   it('retry does nothing unless it failed', async () => {

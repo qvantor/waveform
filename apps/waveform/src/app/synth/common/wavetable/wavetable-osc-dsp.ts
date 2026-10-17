@@ -549,9 +549,11 @@ interface Osc {
 }
 
 // a voice of a note: both oscillators (null: off), each with its unison voices, into one stereo output.
-// Unison voice j of n is detuned by spread · (j / (n - 1) - 1/2) cents; the even voices play left, the odd
-// ones right, the last of an odd count both at full level; each at 1 / √ceil(n/2), the power of a channel
-// stays that of one voice. Every voice starts at `phase` shifted by a random share of its period up to
+// Unison voice j of n is detuned by spread · (j / (n - 1) - 1/2) cents; the middle one of an odd count (at
+// the pitch of the note) plays in both channels at full level, the others alternately left and right (from
+// the lowest, on the left): a voice and its mirror (the same detune, down instead of up) are on opposite
+// sides, so the channels mirror each other and their sum is centred on the note; each at 1 / √ceil(n/2), the
+// power of a channel stays that of one voice. Every voice starts at `phase` shifted by a random share of its period up to
 // phaseRand: at 0 all of them start in phase (their peaks add up, n voices are louder at the onset and
 // their beats sweep through the spectrum together), at 1 at any phase (steady, the power of one voice).
 // A voice at a random phase fades in (FADE_IN), at phaseRand 0 it starts at once (a click of its wave is
@@ -828,10 +830,13 @@ export const createVoiceDsp = (
       }
     }
 
+    // the middle voice of an odd count plays in both channels, the others take turns around it
+    const middle = osc.voices % 2 === 1 ? (osc.voices - 1) / 2 : -1;
     for (let v = 0; v < osc.voices; v++) {
       const fadeLeft = osc.fades[v];
       // the channel of the voice; a voice that fades in goes through `fading` first
-      const channel = osc.voices % 2 === 1 && v === osc.voices - 1 ? c : v % 2 === 0 ? l : r;
+      const side = middle >= 0 && v > middle ? v - 1 : v;
+      const channel = v === middle ? c : side % 2 === 0 ? l : r;
       const out = fadeLeft > 0 ? fading : channel;
       if (fadeLeft > 0) fading.fill(0, a, b);
       let ph = osc.phases[v];
@@ -1103,6 +1108,8 @@ export const createVoiceDsp = (
       }
       return true;
     },
+    // ends the voice at once (its process threw): the versions and the mixes it holds are given back
+    end,
     get ended() {
       return ended;
     },
