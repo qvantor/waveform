@@ -1,5 +1,6 @@
 import React, { ChangeEvent } from 'react';
 import styled from 'styled-components';
+import { theme } from '../common/constants';
 import { SelectDumb, ContentContainer } from './select-dumb';
 
 export { CascadeSelect } from './cascade-select';
@@ -7,6 +8,11 @@ export type { CascadeOption } from './cascade-select';
 
 const Root = styled.select`
   ${ContentContainer}
+
+  /* the option list is drawn on a light native background, white text is unreadable there */
+  option {
+    color: ${theme.colors.primaryDark};
+  }
 `;
 
 interface Props<T> {
