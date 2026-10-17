@@ -14,8 +14,8 @@ import {
 } from './schema';
 
 const preset = {
-  osc1: { a: true, p: ['A', 'B', 'A/B/c.wav'], w: 3, o: -1, d: 12.5, u: 4, r: 0.001, g: 0.7 },
-  osc2: { a: false, p: ['A', 'B', 'A/B/d.wav'], w: 0, o: 0, d: 5, u: 2, r: 0, g: 0.5 },
+  osc1: { a: true, p: ['A', 'B', 'A/B/c.wav'], w: 3, o: -1, d: 12.5, u: 4, ph: 0.25, pr: 0.5, g: 0.7 },
+  osc2: { a: false, p: ['A', 'B', 'A/B/d.wav'], w: 0, o: 0, d: 5, u: 2, ph: 0, pr: 0, g: 0.5 },
   filter: { a: true, t: 'bandpass', cut: 1234.5, res: 2, gain: 1 },
   adsr: { attack: 0.005, hold: 0.1, decay: 0, sustain: 1, release: 0.005 },
   v: { leg: false, port: 0, max: 8 },
@@ -115,11 +115,39 @@ describe('normalizePreset', () => {
     const normalized = normalizePreset({ ...preset, filter: { ...preset.filter, cut: 1234.5678 } });
     expect(normalized.filter.cut).toBe(1235);
     expect(Object.keys(normalized)).toEqual(['adsr', 'filter', 'fx', 'osc1', 'osc2', 'v']);
-    expect(Object.keys(normalized.osc1)).toEqual(['a', 'd', 'g', 'o', 'p', 'r', 'u', 'w']);
+    expect(Object.keys(normalized.osc1)).toEqual(['a', 'd', 'g', 'o', 'p', 'ph', 'pr', 'u', 'w']);
   });
 
   it('keeps small values', () => {
-    expect(normalizePreset({ ...preset, osc1: { ...preset.osc1, r: 0.00012346 } }).osc1.r).toBe(0.0001235);
+    expect(normalizePreset({ ...preset, osc1: { ...preset.osc1, pr: 0.00012346 } }).osc1.pr).toBe(0.0001235);
+  });
+
+  it('fills Phase with 0 and Phase rand with 1, keeps 0 and accepts 0..1', () => {
+    const { osc1, osc2 } = normalizePreset({
+      ...preset,
+      osc1: { ...preset.osc1, ph: undefined, pr: undefined },
+      osc2: { ...preset.osc2, ph: 1, pr: 1 },
+    });
+    expect([osc1.ph, osc1.pr, osc2.ph, osc2.pr]).toEqual([0, 1, 1, 1]);
+    expect(normalizePreset({}).osc1).toMatchObject({ ph: 0, pr: 1 });
+    expect(normalizePreset(preset).osc2).toMatchObject({ ph: 0, pr: 0 });
+  });
+
+  it('reads the Phase rand of a legacy preset from r (seconds up to 2 ms), writes only pr', () => {
+    const legacy = { ...preset, osc1: { ...preset.osc1, pr: undefined, r: 0.0005 } };
+    const { osc1, osc2 } = normalizePreset({ ...legacy, osc2: { ...preset.osc2, pr: undefined, r: 0 } });
+    expect(osc1.pr).toBe(0.25);
+    expect(osc2.pr).toBe(0);
+    expect(osc1).not.toHaveProperty('r');
+    // pr wins over r
+    expect(normalizePreset({ ...preset, osc1: { ...preset.osc1, r: 0.002 } }).osc1.pr).toBe(0.5);
+    expect(presetDataSchema.safeParse({ ...legacy, osc1: { ...legacy.osc1, r: 0.003 } }).success).toBe(false);
+  });
+
+  it('keeps a position between two frames, with 4 significant digits', () => {
+    expect(normalizePreset({ ...preset, osc1: { ...preset.osc1, w: 12.4 } }).osc1.w).toBe(12.4);
+    expect(normalizePreset({ ...preset, osc1: { ...preset.osc1, w: 123.45 } }).osc1.w).toBe(123.5);
+    expect(presetHash({ ...preset, osc1: { ...preset.osc1, w: 3 } })).toBe(presetHash(preset));
   });
 
   it('fills fx defaults: every effect in the order, none in the chain', () => {
@@ -212,6 +240,9 @@ describe('normalizePreset', () => {
 
   it.each([
     ['out of range', { ...preset, osc1: { ...preset.osc1, u: 9 } }],
+    ['phase out of range', { ...preset, osc1: { ...preset.osc1, ph: 1.1 } }],
+    ['phase rand out of range', { ...preset, osc2: { ...preset.osc2, pr: -0.1 } }],
+    ['position out of range', { ...preset, osc1: { ...preset.osc1, w: 1024 } }],
     ['not integer', { ...preset, osc1: { ...preset.osc1, o: 1.5 } }],
     ['wrong type', { ...preset, filter: { ...preset.filter, cut: '440' } }],
     ['unknown filter type', { ...preset, filter: { ...preset.filter, t: 'comb' } }],

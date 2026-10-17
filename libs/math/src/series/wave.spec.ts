@@ -1,4 +1,4 @@
-import { realWithImag } from './wave';
+import { fromRealWithImag, realWithImag } from './wave';
 
 const N = 64;
 const HALF = N / 2;
@@ -91,5 +91,60 @@ describe('wave.realWithImag', () => {
     // a quarter cycle turns the sine of the first harmonic into a cosine
     expect(Math.abs(shiftedReal[1])).toBeGreaterThan(0.5);
     expectClose(magnitudes(realWithImag(shifted)), magnitudes(realWithImag(saw)));
+  });
+});
+
+describe('wave.realWithImag of a wave that is not a power of two long', () => {
+  it('splits it into its harmonics below its nyquist', () => {
+    const size = 12;
+    const wave = Array.from({ length: size }, (_, n) => {
+      const phase = (2 * Math.PI * n) / size;
+      return 0.7 * Math.sin(phase) + 0.2 * Math.cos(5 * phase) + 0.1;
+    });
+    const [real, imag] = realWithImag(wave);
+    expect(real).toHaveLength(6);
+    expectClose(real, [0, 0, 0, 0, 0, 0.2]);
+    expectClose(imag, [0, 0.7, 0, 0, 0, 0]);
+  });
+
+  it('gives silence for a wave too short to have harmonics', () => {
+    expect(realWithImag([1])).toEqual([[0], [0]]);
+  });
+});
+
+describe('wave.fromRealWithImag', () => {
+  it('synthesizes the wave of the amplitudes, the inverse of realWithImag', () => {
+    const real = amplitudes(1.7);
+    const imag = amplitudes(2.3);
+    expectClose([...fromRealWithImag(real, imag, HALF, N)], synthesize(real, imag));
+  });
+
+  it('plays the harmonics up to count at any size above them', () => {
+    const real = amplitudes(0.9);
+    const imag = amplitudes(1.3);
+    const count = 5;
+    const keep = (values: number[]) => values.map((value, k) => (k <= count ? value : 0));
+    const size = 4 * N;
+    const expected = Array.from({ length: size }, (_, n) => {
+      const phase = (2 * Math.PI * n) / size;
+      return keep(real).reduce(
+        (sum, a, k) => sum + a * Math.cos(k * phase) + keep(imag)[k] * Math.sin(k * phase),
+        0
+      );
+    });
+    expectClose([...fromRealWithImag(real, imag, count, size)], expected);
+  });
+
+  it('drops the harmonics a smaller size cannot hold', () => {
+    const [real, imag] = [harmonic(5, 1), harmonic(5, 0)];
+    const samples = fromRealWithImag(real, imag, HALF, 8);
+    [...samples].forEach((value) => expect(value).toBeCloseTo(0, 12));
+  });
+
+  it('writes into the given array', () => {
+    const out = new Float32Array(N);
+    expect(fromRealWithImag(harmonic(1, 1), silence, 1, N, out)).toBe(out);
+    expect(out[0]).toBeCloseTo(1, 6);
+    expect(out[N / 4]).toBeCloseTo(0, 6);
   });
 });

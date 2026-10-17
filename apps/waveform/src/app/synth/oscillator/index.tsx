@@ -37,13 +37,13 @@ type Props = OscillatorModel & OscillatorActions & { useOscillator: typeof useOs
 
 export const Oscillator = ({
   $osc,
-  $current,
+  $position,
   $waveTable,
   $gain,
   ranges,
   setOscValue,
   useOscillator,
-  setCurrent,
+  setPosition,
   setGain,
 }: Props) => {
   // const wavetables = useWavetables();
@@ -80,13 +80,15 @@ export const Oscillator = ({
             />
           </HandlesGroup>
           <HandlesGroup>
+            {/* steps by whole frames, the label is the frame from 1 (a fractional position of a preset with one decimal) */}
             <RxHandle
-              max={wavetable.length - 1}
-              $value={$current}
+              min={0}
+              max={Math.max(0, wavetable.length - 1)}
+              $value={$position}
               label='Wave'
-              onChange={setCurrent}
+              onChange={setPosition}
               precision={1}
-              formatValue={(value) => `${value + 1}`}
+              formatValue={(value) => (Number.isInteger(value) ? `${value + 1}` : (value + 1).toFixed(1))}
             />
           </HandlesGroup>
           <HandlesGroup>
@@ -108,12 +110,22 @@ export const Oscillator = ({
               precision={1}
             />
             <Handle
+              label='Phase'
+              value={osc.phase}
+              min={ranges.phase[0]}
+              max={ranges.phase[1]}
+              precision={360}
+              formatValue={(value) => `${Math.round(value * 360)}°`}
+              onChange={onChangeInternal('phase')}
+            />
+            <Handle
               label='Phase rand'
-              value={osc.randPhase}
-              min={ranges.randPhase[0]}
-              max={ranges.randPhase[1]}
-              precision={100000}
-              onChange={onChangeInternal('randPhase')}
+              value={osc.phaseRand}
+              min={ranges.phaseRand[0]}
+              max={ranges.phaseRand[1]}
+              precision={100}
+              formatValue={(value) => number.percent(number.round(value, 100))}
+              onChange={onChangeInternal('phaseRand')}
             />
           </HandlesGroup>
         </Handles>

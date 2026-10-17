@@ -4,6 +4,7 @@
     "apps/waveform/src/main.tsx",
     "apps/waveform/src/polyfills.ts",
     "apps/waveform/src/**/*.worklet.ts",
+    "apps/waveform/src/**/*.worker.ts",
     "libs/*/src/index.ts",
     "netlify/functions/*.{ts,mts}",
     "scripts/*.mjs",
@@ -32,6 +33,6 @@
     "eslint-plugin-react-hooks"
   ],
   "ignoreBinaries": ["mkcert"],
-  "ignoreUnresolved": ["^\\w+=apps/waveform/src/.+\\.worklet\\.ts$"],
+  "ignoreUnresolved": ["^[\\w-]+=apps/waveform/src/.+\\.(worklet|worker)\\.ts$"],
   "ignoreExportsUsedInFile": true
 }

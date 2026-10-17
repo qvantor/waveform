@@ -1,11 +1,6 @@
-import { wave } from '@waveform/math';
+import { firstValueFrom } from 'rxjs';
 import { applySnapshot, getSnapshot } from '../../../app';
 import { createOscillator, createSynthCore, stopModels } from '../../../../test-utils/models';
-
-type WaveMock = PeriodicWave & { real: number[]; imag: number[] };
-const periodic = (value: PeriodicWave) => [(value as WaveMock).real, (value as WaveMock).imag];
-// the periodic wave is the spectrum of the current wave, the math is tested in libs/math
-const spectrum = (samples: number[]) => wave.realWithImag(samples);
 
 const saw = [-1, -0.5, 0, 0.5];
 const square = [1, 1, -1, -1];
@@ -49,68 +44,49 @@ describe('oscillator', () => {
     });
     expect(model.$active.value).toBe(false);
     expect(model.$waveTablePath.value).toEqual(['folder', 'file.wav']);
-    expect(model.$osc.value).toEqual({ unison: 2, detune: 5, randPhase: 0, octave: 0 });
+    expect(model.$osc.value).toEqual({ unison: 2, detune: 5, phase: 0, phaseRand: 1, octave: 0 });
     expect(model.$waveTable.value.map(({ value }) => value)).toEqual([placeholder]);
-    expect(periodic(model.$periodicWave.value)).toEqual(spectrum(placeholder));
+    expect(model.$position.value).toBe(0);
   });
 
-  it('plays a sine until a table loads', () => {
-    const [model] = createOscillator();
-    const [real, imag] = periodic(model.$periodicWave.value);
-    real.forEach((value) => expect(value).toBeCloseTo(0));
-    expect(imag[0]).toBeCloseTo(0);
-    expect(imag[1]).toBeCloseTo(1);
+  it('gives the voices the base of their params: position share, octave in cents, detune, gain', () => {
+    const [{ $params }, { setWaveTable, setPosition, setOscValue, setGain }] = createOscillator();
+    expect($params.value).toEqual({ position: 0, detune: 0, spread: 5, gain: 0.5 });
+
+    setWaveTable([saw, square, saw, square, saw]);
+    setPosition(1);
+    setOscValue('octave', -2);
+    setOscValue('detune', 30);
+    setGain(0.2);
+
+    expect($params.value).toEqual({ position: 0.25, detune: -2400, spread: 30, gain: 0.2 });
   });
 
-  it('builds the periodic wave from the current wave of the table', () => {
-    const synthCore = createSynthCore();
-    const createPeriodicWave = jest.spyOn(synthCore[0].audioCtx, 'createPeriodicWave');
-    const [{ $periodicWave }, { setWaveTable, setCurrent }] = createOscillator(synthCore);
-
-    setWaveTable([saw, square]);
-    expect(periodic($periodicWave.value)).toEqual(spectrum(saw));
-    // createPeriodicWave needs real and imag of the same length, at least 2
-    const [realArg, imagArg] = createPeriodicWave.mock.calls.at(-1) as unknown as [number[], number[]];
-    expect(realArg).toHaveLength(imagArg.length);
-    expect(realArg.length).toBeGreaterThanOrEqual(2);
-
-    setCurrent(1);
-    expect(periodic($periodicWave.value)).toEqual(spectrum(square));
-  });
-
-  it('rebuilds the periodic wave when the current wave is edited', () => {
-    const [{ $periodicWave, $waveTable }, { setWaveTable }] = createOscillator();
+  it('plays a table of one frame at position 0', () => {
+    const [{ $params }, { setWaveTable, setPosition }] = createOscillator();
     setWaveTable([saw]);
-
-    $waveTable.value[0].next(square);
-
-    expect(periodic($periodicWave.value)).toEqual(spectrum(square));
+    setPosition(3);
+    expect($params.value.position).toBe(0);
   });
 
-  it('clamps the current wave index when a shorter table is set', () => {
-    const [{ $current, $periodicWave }, { setWaveTable, setCurrent }] = createOscillator();
+  it('keeps the position within a shorter table', () => {
+    const [{ $position, $params }, { setWaveTable, setPosition }] = createOscillator();
     setWaveTable([saw, square, saw]);
-    setCurrent(2);
+    setPosition(2);
 
     setWaveTable([square, saw]);
 
-    expect($current.value).toBe(1);
-    expect(periodic($periodicWave.value)).toEqual(spectrum(saw));
+    expect($position.value).toBe(1);
+    expect($params.value.position).toBe(1);
   });
 
-  it('falls back to a default wave when the index is out of the table', () => {
-    const [{ $periodicWave }, { setWaveTable, setCurrent }] = createOscillator();
-    setWaveTable([saw]);
-    setCurrent(5);
-    expect(periodic($periodicWave.value)).toEqual(spectrum(placeholder));
-  });
-
-  it('applies the gain to the gain node', () => {
-    const [{ gainNode }, { setGain }] = createOscillator();
-    expect(gainNode.gain.value).toBe(0.5);
-    setGain(0.2);
-    expect(gainNode.gain.setValueAtTime).toHaveBeenLastCalledWith(0.2, 0);
-    expect(gainNode.gain.value).toBeCloseTo(0.2);
+  it('gives the editors the frame nearest to the position, a default one out of the table', async () => {
+    const [{ $wave }, { setWaveTable, setPosition }] = createOscillator();
+    setWaveTable([saw, square]);
+    setPosition(0.6);
+    expect(await firstValueFrom($wave)).toEqual(square);
+    setPosition(5);
+    expect(await firstValueFrom($wave)).toEqual(placeholder);
   });
 
   it('updates settings through actions', () => {
@@ -130,6 +106,56 @@ describe('oscillator', () => {
     expect(first.id).not.toBe(second.id);
   });
 
+  it('has a mod bus per param of the voices, taken off when it stops', () => {
+    const [{ buses }] = createOscillator();
+    expect(Object.keys(buses)).toEqual(['position', 'detune', 'spread', 'gain']);
+    stopModels();
+    Object.values(buses).forEach((bus) => expect(bus.disconnect).toHaveBeenCalled());
+  });
+
+  describe('table delivery', () => {
+    const setup = () => {
+      const synthCore = createSynthCore();
+      const setTable = jest.spyOn(synthCore[0].wavetables, 'setTable');
+      const removeTable = jest.spyOn(synthCore[0].wavetables, 'removeTable');
+      const oscillator = createOscillator(synthCore);
+      return { oscillator, setTable, removeTable };
+    };
+
+    it('sends its table to the wavetable oscillator under its id, a new one at once', () => {
+      const { oscillator, setTable } = setup();
+      const [model, actions] = oscillator;
+      expect(setTable).toHaveBeenLastCalledWith(model.id, [placeholder]);
+      actions.setWaveTable([saw, square]);
+      expect(setTable).toHaveBeenLastCalledWith(model.id, [saw, square]);
+    });
+
+    it('sends an edited table at most every 100 ms, the last edit too', () => {
+      jest.useFakeTimers();
+      const { oscillator, setTable } = setup();
+      const [model, actions] = oscillator;
+      actions.setWaveTable([saw, square]);
+      jest.advanceTimersByTime(100);
+      setTable.mockClear();
+
+      model.$waveTable.value[0].next(square);
+      model.$waveTable.value[0].next(placeholder);
+      model.$waveTable.value[1].next(saw);
+      expect(setTable).toHaveBeenCalledTimes(1);
+      expect(setTable).toHaveBeenLastCalledWith(model.id, [square, square]);
+      jest.advanceTimersByTime(100);
+      expect(setTable).toHaveBeenCalledTimes(2);
+      expect(setTable).toHaveBeenLastCalledWith(model.id, [placeholder, saw]);
+      jest.useRealTimers();
+    });
+
+    it('removes its table when it stops', () => {
+      const { oscillator, removeTable } = setup();
+      stopModels();
+      expect(removeTable).toHaveBeenCalledWith(oscillator[0].id);
+    });
+  });
+
   describe('wavetable loading', () => {
     // retries wait on rxjs timers (setInterval), flush stays on the real setTimeout
     beforeEach(() => jest.useFakeTimers({ doNotFake: ['setTimeout', 'clearTimeout'] }));
@@ -143,7 +169,6 @@ describe('oscillator', () => {
       await resolve('a.wav', [saw, square]);
 
       expect(table()).toEqual([saw, square]);
-      expect(periodic(model.$periodicWave.value)).toEqual(spectrum(saw));
       expect(model.$waveTableLoading.value).toBe(false);
     });
 
@@ -157,8 +182,8 @@ describe('oscillator', () => {
       expect(model.$waveTableLoading.value).toBe(true);
       await resolve('b.wav', [saw, square]);
       expect(table()).toEqual([saw, square]);
-      expect(model.$current.value).toBe(1);
-      expect(periodic(model.$periodicWave.value)).toEqual(spectrum(square));
+      expect(model.$position.value).toBe(1);
+      expect(model.$params.value.position).toBe(1);
       expect(model.$waveTableLoading.value).toBe(false);
     });
 
@@ -248,8 +273,10 @@ describe('oscillator', () => {
     it('exposes the persisted state', () => {
       const [, actions] = createOscillator();
       actions.setOscValue('octave', -2);
+      actions.setOscValue('phase', 0.25);
+      actions.setOscValue('phaseRand', 0.5);
       actions.setGain(0.7);
-      actions.setCurrent(3);
+      actions.setPosition(3);
       actions.setWaveTablePath(['a', 1]);
 
       expect(getSnapshot()['osc1']).toEqual({
@@ -259,32 +286,83 @@ describe('oscillator', () => {
         o: -2,
         d: 5,
         u: 2,
-        r: 0,
+        ph: 0.25,
+        pr: 0.5,
         g: 0.7,
       });
     });
 
+    it('keeps a position between two frames', () => {
+      const [model, actions] = createOscillator();
+      actions.setWaveTable([saw, square, saw]);
+      actions.setPosition(1.25);
+      expect(getSnapshot()['osc1']).toMatchObject({ w: 1.25 });
+      model.$position.next(0);
+      applySnapshot({ osc1: { w: 0.75 } });
+      expect(model.$position.value).toBe(0.75);
+      expect(model.$params.value.position).toBe(0.375);
+    });
+
     it('applies falsy values', () => {
-      const [model] = createOscillator();
-      model.$current.next(2);
-      applySnapshot({ osc1: { a: false, w: 0, g: 0, o: 0, d: 0, u: 1, r: 0 } });
+      const [model, actions] = createOscillator();
+      model.$position.next(2);
+      actions.setOscValue('phase', 0.5);
+      actions.setOscValue('phaseRand', 0.5);
+      applySnapshot({ osc1: { a: false, w: 0, g: 0, o: 0, d: 0, u: 1, ph: 0, pr: 0 } });
 
       expect(model.$active.value).toBe(false);
-      expect(model.$current.value).toBe(0);
+      expect(model.$position.value).toBe(0);
       expect(model.$gain.value).toBe(0);
-      expect(model.$osc.value).toEqual({ octave: 0, detune: 0, unison: 1, randPhase: 0 });
+      expect(model.$osc.value).toEqual({ octave: 0, detune: 0, unison: 1, phase: 0, phaseRand: 0 });
     });
 
     it('restores default settings for missing keys and keeps the wavetable', () => {
       const [model, actions] = createOscillator();
       actions.setOscValue('detune', 50);
+      actions.setOscValue('phase', 0.5);
       actions.setGain(0.9);
 
       applySnapshot({});
 
-      expect(model.$osc.value).toEqual({ octave: 0, detune: 5, unison: 2, randPhase: 0 });
+      expect(model.$osc.value).toEqual({ octave: 0, detune: 5, unison: 2, phase: 0, phaseRand: 1 });
       expect(model.$gain.value).toBe(0.9);
       expect(model.$waveTablePath.value).toEqual(['default']);
+    });
+
+    it('reads the Phase rand of a legacy snapshot from r (a start delay up to 2 ms), writes only pr', () => {
+      const [model] = createOscillator();
+      applySnapshot({ osc1: { r: 0.0005 } });
+      expect(model.$osc.value.phaseRand).toBe(0.25);
+      applySnapshot({ osc1: { r: 0.004 } });
+      expect(model.$osc.value.phaseRand).toBe(1);
+      // pr wins
+      applySnapshot({ osc1: { r: 0.002, pr: 0 } });
+      expect(model.$osc.value.phaseRand).toBe(0);
+      expect(getSnapshot()['osc1']).not.toHaveProperty('r');
+    });
+  });
+
+  describe('the wave of the chart', () => {
+    const latest = (osc: ReturnType<typeof createOscillator>) => {
+      let wave: number[] = [];
+      osc[0].$morphWave.subscribe((value) => (wave = value)).unsubscribe();
+      return wave;
+    };
+
+    it('morphs the two frames around the position, a frame alone at its position', () => {
+      const osc = createOscillator();
+      osc[1].setWaveTable([saw, square]);
+      osc[1].setPosition(0.25);
+      latest(osc).forEach((value, i) => expect(value).toBeCloseTo(0.75 * saw[i] + 0.25 * square[i]));
+      osc[1].setPosition(1);
+      expect(latest(osc)).toEqual(square);
+    });
+
+    it('follows an edited frame', () => {
+      const osc = createOscillator();
+      osc[1].setWaveTable([saw, square]);
+      osc[0].$waveTable.value[0].next(square);
+      expect(latest(osc)).toEqual(square);
     });
   });
 });

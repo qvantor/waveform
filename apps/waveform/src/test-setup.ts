@@ -11,7 +11,9 @@ import {
   setMockingImplementation,
   WaveShaperNode as WaveShaperNodeMock,
 } from 'standardized-audio-context-mock';
+import { VOICE_PARAMETERS, VOICE_PROCESSOR } from './app/synth/common/wavetable/wavetable-osc-params';
 import { stopModels } from './test-utils/model-registry';
+import { WorkerStub } from './test-utils/worker-stub';
 
 // every node/param method of the mock becomes a jest.fn, so calls can be asserted
 setMockingImplementation((implementation) => jest.fn(implementation));
@@ -85,9 +87,31 @@ const audioWorklet: PropertyDescriptor = {
 };
 Object.defineProperty(AudioContextMock.prototype, 'audioWorklet', audioWorklet);
 
-// the mock's AudioWorkletNode takes the options of the other node mocks, not (context, name, options)
+// the AudioParams of the processors, as their parameterDescriptors give them
+const PARAMETER_DESCRIPTORS: Record<string, typeof VOICE_PARAMETERS> = {
+  [VOICE_PROCESSOR]: VOICE_PARAMETERS,
+};
+
+// the mock doesn't export AudioParamMock: its class and the class of its automation events come from a gain
+type ParamClass = new (options: object) => AudioParam;
+const probe = new AudioContextMock().createGain().gain as unknown as {
+  constructor: ParamClass;
+  _automationEventList: { constructor: new (value: number) => object };
+};
+const createParam = (context: AudioContextMock, value: number, minValue?: number, maxValue?: number) =>
+  new probe.constructor({
+    automationEventList: new probe._automationEventList.constructor(value),
+    deLorean: registrar.getDeLorean(context as never),
+    minValue: minValue ?? -3.4028234663852886e38,
+    maxValue: maxValue ?? 3.4028234663852886e38,
+  });
+
+// the mock's AudioWorkletNode takes the options of the other node mocks, not (context, name, options); its
+// params are mocks of the descriptors of its processor, at their parameterData
 class AudioWorkletNodeStub extends AudioWorkletNodeMock<AudioContextMock> {
-  port = { postMessage: jest.fn() };
+  port = { postMessage: jest.fn(), onmessage: null as ((event: MessageEvent) => void) | null };
+  onprocessorerror: ((event: Event) => void) | null = null;
+  readonly parameters: Map<string, AudioParam>;
 
   constructor(context: AudioContextMock, readonly name: string, readonly options: AudioWorkletNodeOptions) {
     super({
@@ -98,11 +122,22 @@ class AudioWorkletNodeStub extends AudioWorkletNodeMock<AudioContextMock> {
       numberOfInputs: options.numberOfInputs ?? 1,
       numberOfOutputs: options.numberOfOutputs ?? 1,
     } as never);
+    this.parameters = new Map(
+      (PARAMETER_DESCRIPTORS[name] ?? []).map(({ name: param, defaultValue, minValue, maxValue }) => [
+        param,
+        createParam(context, options.parameterData?.[param] ?? defaultValue, minValue, maxValue),
+      ])
+    );
     registrar.addAudioNode(context, 'AudioWorkletNode' as never, this as never);
   }
 }
 
-Object.assign(globalThis, { AudioContext: AudioContextMock, AudioWorkletNode: AudioWorkletNodeStub });
+Object.assign(globalThis, {
+  AudioContext: AudioContextMock,
+  AudioWorkletNode: AudioWorkletNodeStub,
+  // no MessageChannel stub: React's scheduler would post its tasks to it (the specs pass one to the engine)
+  Worker: WorkerStub,
+});
 
 // jsdom has no TextEncoder, presetHash needs it
 Object.assign(globalThis, { TextEncoder });
@@ -143,7 +178,8 @@ afterEach(() => {
   stopModels();
   Reflect.deleteProperty(document, 'visibilityState');
   Object.defineProperty(AudioContextMock.prototype, 'audioWorklet', audioWorklet);
-  Object.assign(globalThis, { AudioWorkletNode: AudioWorkletNodeStub });
+  Object.assign(globalThis, { AudioWorkletNode: AudioWorkletNodeStub, Worker: WorkerStub });
+  WorkerStub.created = [];
   Reflect.deleteProperty(window, 'isSecureContext');
   localStorage.clear();
   window.history.replaceState(null, '', '/');

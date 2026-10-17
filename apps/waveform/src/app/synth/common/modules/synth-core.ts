@@ -1,6 +1,7 @@
 import { fromEvent, merge, pairwise, startWith } from 'rxjs';
 import { PrimitiveBS, ArrayBS, rxModel, rxModelReact } from '@waveform/rxjs-react';
 import { createMasterLimiter } from '../limiter/master-limiter';
+import { createWavetableEngine, WavetableEngineDependencies } from '../wavetable/wavetable-engine';
 
 // browsers (iOS Safari especially) keep the context suspended until a user gesture,
 // and iOS suspends/interrupts it again when the page goes to the background
@@ -18,7 +19,11 @@ const resumeOnGesture = (audioCtx: AudioContext) =>
     audioCtx.resume().catch(() => undefined);
   });
 
-export const synthCore = () =>
+interface Dependencies {
+  wavetables?: WavetableEngineDependencies;
+}
+
+export const synthCore = ({ wavetables: wavetableDependencies }: Dependencies = {}) =>
   rxModel(() => {
     const audioCtx = new AudioContext();
     const preGain = audioCtx.createGain();
@@ -29,6 +34,8 @@ export const synthCore = () =>
     // the fx chain is wired between these two by the fx model, after the mid nodes (filter)
     const fxIn = audioCtx.createGain();
     const fxOut = audioCtx.createGain();
+    // the oscillators of every voice (an audio worklet), loaded at the start like the limiter
+    const wavetables = createWavetableEngine(audioCtx, wavetableDependencies);
 
     preGain.gain.setValueAtTime(1, audioCtx.currentTime);
 
@@ -40,7 +47,18 @@ export const synthCore = () =>
     const $masterGain = new PrimitiveBS<number>(1);
     const $midNodes = new ArrayBS<AudioNode[]>([]); // nodes to connect between preGain and fxIn
 
-    return { audioCtx, preGain, fxIn, fxOut, masterLimiter, masterGain, output, $midNodes, $masterGain };
+    return {
+      audioCtx,
+      preGain,
+      fxIn,
+      fxOut,
+      masterLimiter,
+      masterGain,
+      output,
+      wavetables,
+      $midNodes,
+      $masterGain,
+    };
   })
     .actions(({ $masterGain, $midNodes }) => ({
       setMasterGain: (value: number) => $masterGain.next(value),
@@ -63,7 +81,10 @@ export const synthCore = () =>
         for (let i = 0; i < chain.length - 1; i++) chain[i].connect(chain[i + 1]);
       }),
     ])
-    .destroy(({ masterLimiter }) => masterLimiter.destroy());
+    .destroy(({ masterLimiter, wavetables }) => {
+      masterLimiter.destroy();
+      wavetables.destroy();
+    });
 
 export const { ModelProvider: SynthCoreProvider, useModel: useSynthCore } = rxModelReact(
   'synthCore',

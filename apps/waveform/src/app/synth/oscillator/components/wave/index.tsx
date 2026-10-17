@@ -5,6 +5,7 @@ import { theme, Modal, Deactivated } from '@waveform/ui-kit';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
 import WaveTableEditor from '../../../wave-table-editor';
 import { useOscillatorContext } from '../../hooks';
+import { OscillatorStatus } from '../oscillator-status';
 import { Chart } from './chart';
 
 const Root = styled.div`
@@ -38,6 +39,7 @@ export const Wave = () => {
   return (
     <Root>
       {!active && <Deactivated />}
+      <OscillatorStatus />
       <EditIcon onClick={toggleEditorOpen} />
       {editorOpen ? (
         <Modal onClose={toggleEditorOpen} name='Oscillator wavetable edit'>

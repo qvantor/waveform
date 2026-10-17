@@ -2,10 +2,11 @@ import React from 'react';
 import styled from 'styled-components';
 import { PlusOutlined } from '@ant-design/icons';
 import { useBehaviorSubject, useObservable } from '@waveform/rxjs-react';
-import { theme, LineChart, Line } from '@waveform/ui-kit';
+import { theme, LineChart, Line, Handle } from '@waveform/ui-kit';
 import { ManualWavetableActions } from '../../../manual-wavetable/modules';
 import { OscillatorModel, OscillatorActions } from '../../../../common/modules';
-import { RxHandle } from '../../../../../common/components';
+import { frameIndex } from '../../../../common/modules/oscillator';
+import { MAX_FRAMES } from '../../../../common/wavetable/wavetable-mipmap';
 
 const Root = styled.div`
   display: grid;
@@ -34,37 +35,48 @@ const Wave = styled.div<{ selected: boolean }>`
   border: 1px solid
     ${({ selected }) => (selected ? theme.colors.accent : theme.colors.primaryDarkHighContrast)};
 `;
-const NewWave = styled.div`
+const NewWave = styled.button`
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: center;
   width: 57px;
   height: 57px;
+  padding: 0;
   color: ${theme.colors.primaryDarkHighContrast};
+  background: none;
   border: 2px solid transparent;
   transition: all 150ms;
   cursor: pointer;
 
-  &:hover {
+  &:hover:not(:disabled) {
     border: 2px solid ${theme.colors.primaryDarkHighContrast};
+  }
+
+  &:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
   }
 `;
 
-export type Props = Pick<OscillatorModel, '$waveTable' | '$current' | '$wave'> &
-  Pick<OscillatorActions, 'setCurrent'> &
+export type Props = Pick<OscillatorModel, '$waveTable' | '$position' | '$wave'> &
+  Pick<OscillatorActions, 'setPosition'> &
   Partial<Pick<ManualWavetableActions, 'cloneCurrent'>>;
 
-export const WaveSelector = ({ $waveTable, $current, $wave, setCurrent, cloneCurrent }: Props) => {
+// the frames of the table: the editors work on the one of the position (the nearest), choosing one sets the
+// position to it
+export const WaveSelector = ({ $waveTable, $position, $wave, setPosition, cloneCurrent }: Props) => {
   const waveTable = useBehaviorSubject($waveTable);
+  const current = frameIndex(useBehaviorSubject($position));
   useObservable($wave, []);
   return (
     <Root>
       <HandlersWrapper>
-        <RxHandle
+        <Handle
           min={0}
           max={waveTable.length - 1}
-          $value={$current}
-          onChange={setCurrent}
+          value={current}
+          onChange={(value) => setPosition(Math.round(value))}
           label='Wave'
           precision={1}
           formatValue={(value) => `${value + 1}`}
@@ -72,14 +84,22 @@ export const WaveSelector = ({ $waveTable, $current, $wave, setCurrent, cloneCur
       </HandlersWrapper>
       <WavesPreview>
         {waveTable.map((wave, i) => (
-          <Wave key={i} onClick={() => setCurrent(i)} selected={i === $current.value}>
+          <Wave key={i} onClick={() => setPosition(i)} selected={i === current}>
             <LineChart domainX={[0, wave.value.length - 1]} domainY={[1, -1]} padding={[0, 0]}>
               <Line data={wave.value} />
             </LineChart>
           </Wave>
         ))}
         {cloneCurrent && (
-          <NewWave onClick={cloneCurrent}>
+          <NewWave
+            type='button'
+            aria-label='Add a wave'
+            onClick={cloneCurrent}
+            disabled={waveTable.length >= MAX_FRAMES}
+            title={
+              waveTable.length >= MAX_FRAMES ? `A table holds ${MAX_FRAMES} waves at most` : 'Add a wave'
+            }
+          >
             <PlusOutlined />
           </NewWave>
         )}

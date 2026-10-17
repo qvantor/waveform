@@ -3,15 +3,16 @@ import { number } from '@waveform/math';
 import { theme, useLineChartContext } from '@waveform/ui-kit';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
 import { useOscillatorContext } from '../../../../oscillator';
+import { frameIndex } from '../../../../common/modules/oscillator';
 import { useAudiofile } from '../../modules';
 
 export const Pickers = () => {
   const { scaleX, height, padding } = useLineChartContext();
   const [{ $wavePickers, $waveSize }] = useAudiofile();
-  const [{ $current }] = useOscillatorContext();
+  const [{ $position }] = useOscillatorContext();
   const wavePickers = useBehaviorSubject($wavePickers);
   const waveSize = useBehaviorSubject($waveSize);
-  const current = useBehaviorSubject($current);
+  const current = frameIndex(useBehaviorSubject($position));
 
   const width = scaleX(number.powerOfTwo(waveSize));
   return (

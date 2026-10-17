@@ -12,15 +12,15 @@ const Root = styled.div`
 `;
 
 export const ManualWavetable = () => {
-  const [{ $waveTable, $wave, $current }, { setCurrent }] = useOscillatorContext();
+  const [{ $waveTable, $wave, $position }, { setPosition }] = useOscillatorContext();
   const [{ $rate, rateRange }, { cloneCurrent, setRate, updateCurrentWave }] = useManualWavetable();
   return (
     <Root>
       <WaveSelector
         $wave={$wave}
         $waveTable={$waveTable}
-        $current={$current}
-        setCurrent={setCurrent}
+        $position={$position}
+        setPosition={setPosition}
         cloneCurrent={cloneCurrent}
       />
       <WaveEditor
