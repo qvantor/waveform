@@ -13,6 +13,7 @@ Waveform is an experimental browser wavetable synth (TypeScript + Web Audio API,
 - `npm run client:start` — frontend only (`nx serve`); wavetable list/download requests will fail.
 - `npm run build` — production build to `dist/apps/waveform`.
 - `npm run worklets` — bundles the audio worklet modules (reverb, limiter, distortion, wavetable-osc) and the Web Worker of the wavetables (`wavetable-worker`, a classic worker: the bundle has no import/export), one `name=path` entry each, with esbuild into `tmp/worklets/` (served as `assets/worklets/` via the `assets` of `apps/waveform/project.json`). `build` runs it with `--minify`, `client:start` runs it once and then in watch mode next to `nx serve`.
+- `npx -y -p playwright@1.50.1 node scripts/bench-osc/run.mjs` — the manual benchmark of the wavetable oscillator against a native `OscillatorNode` in Chromium, WebKit and Firefox (sound criteria, CPU, delivery, memory; `scripts/bench-osc/README.md`). Playwright is not a dependency (knip ignores it); the 3 tables come from S3 with the keys of `.env`; report in `tmp/bench-osc/report.md`.
 - `npx nx test <project>` — Jest for one project (`waveform`, `math`, `rxjs-react`, `ui-kit`, `preset-schema`, `netlify`). Single file: `npx nx test rxjs-react --testFile=rx-model.spec.tsx`.
 - `npx nx lint <project>` — ESLint (`import/order` is an error).
 - `npm run prettier:check` / `npm run prettier:fix` — Prettier over apps, libs, netlify and scripts (single quotes, JSX single quotes, print width 110).
