@@ -144,6 +144,59 @@ describe('synth', () => {
     expect(oscillator.disconnect).toHaveBeenCalled();
   });
 
+  it('takes the gains and the envelope of a voice off once all its oscillators have ended', () => {
+    const { onPress, onRelease, oscillators, gains, envelopes, osc2 } = setup();
+    osc2[1].toggleActive();
+    onPress([4, 'C']);
+    onRelease([4, 'C']);
+    const [envelope] = envelopes();
+    const voiceGains = gains();
+    const [first, ...rest] = oscillators();
+
+    first.dispatchEvent(new Event('ended'));
+    voiceGains.forEach((gain) => expect(gain.disconnect).not.toHaveBeenCalled());
+
+    rest.forEach((oscillator) => oscillator.dispatchEvent(new Event('ended')));
+    expect(envelope.disconnect).toHaveBeenCalled();
+    voiceGains.forEach((gain) => expect(gain.disconnect).toHaveBeenCalled());
+  });
+
+  it('takes a stolen voice off once its oscillators have ended', () => {
+    const { onPress, oscillators, envelopes, synthActions } = setup();
+    synthActions.setMaxVoices(1);
+    onPress([4, 'C']);
+    const [envelope] = envelopes();
+
+    onPress([4, 'E']);
+    oscillators()
+      .slice(0, 2)
+      .forEach((oscillator) => oscillator.dispatchEvent(new Event('ended')));
+
+    expect(envelope.disconnect).toHaveBeenCalled();
+    expect(envelopes()[1].disconnect).not.toHaveBeenCalled();
+  });
+
+  it('takes the legato envelope off once it is released and its last voice has ended', () => {
+    const { onPress, onRelease, oscillators, envelopes, synthActions } = setup();
+    synthActions.setLegato(true);
+    onPress([4, 'C']);
+    onPress([4, 'E']);
+    const [envelope] = envelopes();
+    const end = (from: number, to: number) =>
+      oscillators()
+        .slice(from, to)
+        .forEach((oscillator) => oscillator.dispatchEvent(new Event('ended')));
+
+    onRelease([4, 'C']);
+    end(0, 2);
+    expect(envelope.disconnect).not.toHaveBeenCalled();
+
+    onRelease([4, 'E']);
+    expect(envelope.disconnect).not.toHaveBeenCalled();
+    end(2, 4);
+    expect(envelope.disconnect).toHaveBeenCalled();
+  });
+
   it('plays several notes and steals the oldest voice above max voices', async () => {
     const { onPress, oscillators, synthModel, synthActions, travel } = setup();
     synthActions.setMaxVoices(2);
@@ -208,6 +261,36 @@ describe('synth', () => {
     // the next note starts a new envelope
     onPress([4, 'G']);
     expect(envelopes()).toHaveLength(2);
+  });
+
+  it('keeps a held legato note when the note it stole is released', () => {
+    const { onPress, onRelease, envelopes, synthActions, synthModel } = setup();
+    synthActions.setLegato(true);
+    synthActions.setMaxVoices(1);
+    onPress([4, 'A']);
+    onPress([4, 'B']);
+    const [envelope] = envelopes();
+
+    onRelease([4, 'A']);
+    expect(envelope.gain.cancelScheduledValues).not.toHaveBeenCalled();
+    expect(synthModel.$voicesCount.value).toBe(1);
+
+    onRelease([4, 'B']);
+    expect(envelope.gain.cancelScheduledValues).toHaveBeenCalled();
+    expect(synthModel.$voicesCount.value).toBe(0);
+  });
+
+  it('ignores the release of a stolen note', () => {
+    const { onPress, onRelease, oscillators, synthActions } = setup();
+    synthActions.setMaxVoices(1);
+    onPress([4, 'A']);
+    onPress([4, 'B']);
+    const [, , b1, b2] = oscillators();
+
+    onRelease([4, 'A']);
+
+    expect(b1.stop).not.toHaveBeenCalled();
+    expect(b2.stop).not.toHaveBeenCalled();
   });
 
   it('applies oscillator gain changes to playing voices', () => {

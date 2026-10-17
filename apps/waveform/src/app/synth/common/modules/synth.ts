@@ -39,6 +39,39 @@ const envelope = (audioCtx: AudioContext, config: AdsrEnvelopeModel['$envelope']
   return { stop, envelope: gain };
 };
 
+// the envelope the voices of a legato phrase share: taken off the output once it is released and the last voice
+// playing into it has ended
+const legatoEnvelope = (
+  audioCtx: AudioContext,
+  config: AdsrEnvelopeModel['$envelope']['value'],
+  outputNode: AudioNode
+) => {
+  const adsr = envelope(audioCtx, config);
+  adsr.envelope.connect(outputNode);
+  let voices = 0;
+  let released = false;
+  const disconnect = () => {
+    if (released && voices === 0) adsr.envelope.disconnect();
+  };
+
+  return {
+    envelope: adsr.envelope,
+    // a voice plays into it until the returned function is called
+    attach: () => {
+      voices++;
+      return () => {
+        voices--;
+        disconnect();
+      };
+    },
+    stop: () => {
+      adsr.stop();
+      released = true;
+      disconnect();
+    },
+  };
+};
+
 interface OscillatorConfig {
   id: string;
   wave: PeriodicWave;
@@ -108,14 +141,19 @@ const unisonOscillator = (audioCtx: AudioContext, config: OscillatorConfig) => {
     }
   };
 
-  const stop = (time?: number) =>
+  // onEnded: the last oscillator has ended
+  const stop = (time?: number, onEnded?: () => void) => {
+    let playing = oscillators.length;
     oscillators.forEach((oscillator) => {
       oscillator.stop(time);
       oscillator.addEventListener('ended', () => {
         oscillator.disconnect();
+        if (--playing > 0) return;
         merger.disconnect();
+        onEnded?.();
       });
     });
+  };
 
   return { start, connect, setWave, setFrequency, setFrequencyPortamento, stop };
 };
@@ -173,13 +211,24 @@ abstract class OscillatorVoice {
     return oscillators;
   }
 
-  stop(time: number) {
-    Object.values(this.oscillators).forEach(({ osc }) => osc.stop(time));
+  // takes the nodes of the voice off once all its oscillators have ended
+  protected onEnded() {
+    Object.values(this.oscillators).forEach(({ gain }) => gain.disconnect());
+  }
+
+  protected stopOscillators(time: number) {
+    const oscillators = Object.values(this.oscillators);
+    let playing = oscillators.length;
+    if (!playing) this.onEnded();
+    oscillators.forEach(({ osc }) =>
+      osc.stop(time, () => {
+        if (--playing === 0) this.onEnded();
+      })
+    );
   }
 
   immediatelyStop() {
-    const { audioCtx } = this.config;
-    Object.values(this.oscillators).forEach(({ osc }) => osc.stop(audioCtx.currentTime));
+    this.stopOscillators(this.config.audioCtx.currentTime);
   }
 
   setGainValue = (id: string, value: number) => {
@@ -204,9 +253,9 @@ class Voice extends OscillatorVoice {
     this.adsr.envelope.connect(outputNode);
   }
 
-  override stop = () => {
+  stop = () => {
     const { audioCtx, adsrConfig } = this.config;
-    super.stop(audioCtx.currentTime + adsrConfig.release);
+    this.stopOscillators(audioCtx.currentTime + adsrConfig.release);
     this.adsr.stop();
   };
 
@@ -214,15 +263,21 @@ class Voice extends OscillatorVoice {
     super.immediatelyStop();
     this.adsr.stop();
   };
+
+  protected override onEnded() {
+    super.onEnded();
+    this.adsr.envelope.disconnect();
+  }
 }
 
 type LegatoVoiceConfig = VoiceConfig & {
-  adsr: ReturnType<typeof envelope>;
+  adsr: ReturnType<typeof legatoEnvelope>;
 };
 
 class LegatoVoice extends OscillatorVoice {
   override config: LegatoVoiceConfig;
   private gain: GainNode;
+  private detach: () => void;
 
   constructor(config: LegatoVoiceConfig) {
     const { adsr, outputNode, ...rest } = config;
@@ -231,11 +286,18 @@ class LegatoVoice extends OscillatorVoice {
     this.config = config;
     this.gain = gain;
     gain.connect(adsr.envelope);
+    this.detach = adsr.attach();
   }
 
-  override stop = () => {
+  protected override onEnded() {
+    super.onEnded();
+    this.gain.disconnect();
+    this.detach();
+  }
+
+  stop = () => {
     const { audioCtx, adsrConfig } = this.config;
-    super.stop(audioCtx.currentTime + adsrConfig.release);
+    this.stopOscillators(audioCtx.currentTime + adsrConfig.release);
 
     // @todo it should be partial envelope with release only
     const now = audioCtx.currentTime;
@@ -259,7 +321,7 @@ interface VoicingContext {
 class Voicing {
   private config: VoicingContext;
   private voices: Record<string, Voice | LegatoVoice | null>;
-  private legatoAdsr: ReturnType<typeof envelope> | undefined;
+  private legatoAdsr: ReturnType<typeof legatoEnvelope> | undefined;
 
   constructor(config: VoicingContext) {
     this.voices = {};
@@ -292,10 +354,7 @@ class Voicing {
     };
 
     if (!$legato.value) return new Voice(voiceConfig);
-    if (!this.legatoAdsr) {
-      this.legatoAdsr = envelope(audioCtx, $envelope.value);
-      this.legatoAdsr.envelope.connect(outputNode);
-    }
+    if (!this.legatoAdsr) this.legatoAdsr = legatoEnvelope(audioCtx, $envelope.value, outputNode);
 
     return new LegatoVoice({ ...voiceConfig, adsr: this.legatoAdsr });
   };
@@ -314,14 +373,16 @@ class Voicing {
 
   onRelease = (note: Note) => {
     const stringNote = noteToString(note);
-    this.voices[stringNote]?.stop();
+    const voice = this.voices[stringNote];
+    // the voice of a stolen note has already stopped, the held ones keep playing
+    if (!voice) return;
+    voice.stop();
+    delete this.voices[stringNote];
 
-    if (this.legatoAdsr && this.voicesCount === 1) {
+    if (this.legatoAdsr && this.voicesCount === 0) {
       this.legatoAdsr.stop();
       this.legatoAdsr = undefined;
     }
-
-    delete this.voices[stringNote];
   };
 
   get voicesCount() {
