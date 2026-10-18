@@ -4,9 +4,11 @@
     "apps/waveform/src/main.tsx",
     "apps/waveform/src/polyfills.ts",
     "apps/waveform/src/**/*.worklet.ts",
+    "apps/waveform/src/**/*.worker.ts",
     "libs/*/src/index.ts",
     "netlify/functions/*.{ts,mts}",
     "scripts/*.mjs",
+    "scripts/bench-osc/run.mjs",
     "{apps/*,libs/*,netlify}/jest.config.ts",
     "**/*.spec.{ts,tsx}",
     "apps/waveform/src/test-setup.ts",
@@ -29,9 +31,10 @@
     "ts-node",
     "eslint-plugin-jsx-a11y",
     "eslint-plugin-react",
-    "eslint-plugin-react-hooks"
+    "eslint-plugin-react-hooks",
+    "playwright"
   ],
   "ignoreBinaries": ["mkcert"],
-  "ignoreUnresolved": ["^\\w+=apps/waveform/src/.+\\.worklet\\.ts$"],
+  "ignoreUnresolved": ["^[\\w-]+=apps/waveform/src/.+\\.(worklet|worker)\\.ts$"],
   "ignoreExportsUsedInFile": true
 }

@@ -1,12 +1,15 @@
 import { ArrayBS, PrimitiveBS, rxModel, rxModelReact } from '@waveform/rxjs-react';
 import { number } from '@waveform/math';
 import { OscillatorModule } from '../../../common/modules';
+import { frameIndex } from '../../../common/modules/oscillator';
+import { MAX_FRAMES } from '../../../common/wavetable/wavetable-mipmap';
 
 interface Dependencies {
   oscillator: OscillatorModule;
 }
 
-export const manualWavetable = ({ oscillator: [{ $waveTable, $current }] }: Dependencies) =>
+// the editor works on the frame of the position (the nearest one)
+export const manualWavetable = ({ oscillator: [{ $waveTable, $position }] }: Dependencies) =>
   rxModel(() => {
     const rateRange: [number, number] = [2, 8];
     const $rate = new PrimitiveBS<number>(4);
@@ -14,7 +17,7 @@ export const manualWavetable = ({ oscillator: [{ $waveTable, $current }] }: Depe
     return { $rate, rateRange };
   }).actions(({ $rate }) => ({
     updateCurrentWave: ([i, value]: [number, number]) => {
-      const $wave = $waveTable.value[$current.value];
+      const $wave = $waveTable.value[frameIndex($position.value)];
       const waveLength = $wave.value.length;
       const size = waveLength / number.powerOfTwo($rate.value);
       const from = (i / number.powerOfTwo($rate.value)) * $wave.value.length;
@@ -25,8 +28,13 @@ export const manualWavetable = ({ oscillator: [{ $waveTable, $current }] }: Depe
       }
       $wave.next(newWave);
     },
+    // a table holds MAX_FRAMES at most
     cloneCurrent: () => {
-      $waveTable.next([...$waveTable.value, new ArrayBS([...$waveTable.value[$current.value].value])]);
+      if ($waveTable.value.length >= MAX_FRAMES) return;
+      $waveTable.next([
+        ...$waveTable.value,
+        new ArrayBS([...$waveTable.value[frameIndex($position.value)].value]),
+      ]);
     },
     setRate: (value: number) => $rate.next(value),
   }));

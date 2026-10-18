@@ -20,7 +20,12 @@ export function Line<T>(props: CustomLineProps<T>): JSX.Element;
 export function Line(props: Props | CustomLineProps<unknown>) {
   const { data, style } = props;
   const { lineFn } = useLineChartContext();
-  const d = 'customLineFn' in props ? props.customLineFn(data) : lineFn(props.data);
+  const customLineFn = 'customLineFn' in props ? props.customLineFn : undefined;
+  // built again only for new data or scales, not on every render of the chart (a drag over it)
+  const d = React.useMemo(
+    () => (customLineFn ? customLineFn(data) : lineFn(data as number[])),
+    [customLineFn, lineFn, data]
+  );
   return (
     <g>
       <path

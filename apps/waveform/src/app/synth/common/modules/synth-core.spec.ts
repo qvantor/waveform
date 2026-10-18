@@ -1,5 +1,6 @@
 import { createSynthCore, stopModels } from '../../../../test-utils/models';
 import { setVisibility } from '../../../../test-utils/visibility';
+import { workletLoads } from '../../../../test-utils/worklet-loads';
 
 describe('synthCore', () => {
   it('connects preGain → fxIn → fxOut → masterGain → limiter → destination', () => {
@@ -24,11 +25,19 @@ describe('synthCore', () => {
     expect($masterGain.value).toBe(1);
   });
 
-  it('destroys the limiter when it stops', () => {
-    const [{ masterLimiter }] = createSynthCore();
+  it('destroys the limiter and the wavetable oscillator when it stops', () => {
+    const [{ masterLimiter, wavetables }] = createSynthCore();
     const destroy = jest.spyOn(masterLimiter, 'destroy');
+    const destroyWavetables = jest.spyOn(wavetables, 'destroy');
     stopModels();
     expect(destroy).toHaveBeenCalled();
+    expect(destroyWavetables).toHaveBeenCalled();
+  });
+
+  it('loads the wavetable oscillator at its start', () => {
+    const [{ audioCtx, wavetables }] = createSynthCore();
+    expect(workletLoads(audioCtx.audioWorklet.addModule as jest.Mock, 'wavetable-osc')).toBe(1);
+    expect(wavetables.$status.value).toBe('loading');
   });
 
   it('setMasterGain updates the master gain', () => {

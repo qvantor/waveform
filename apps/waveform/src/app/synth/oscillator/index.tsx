@@ -6,7 +6,7 @@ import { number } from '@waveform/math';
 import { OscillatorActions, OscillatorModel, useOscillator1 } from '../common/modules';
 import { RxHandle } from '../../common/components';
 import { OscillatorContext, useOscillatorContext } from './hooks';
-import { Wave, WaveSelector } from './components';
+import { formatWavePosition, Wave, WaveSelector } from './components';
 
 export { useOscillatorContext };
 
@@ -37,13 +37,13 @@ type Props = OscillatorModel & OscillatorActions & { useOscillator: typeof useOs
 
 export const Oscillator = ({
   $osc,
-  $current,
+  $position,
   $waveTable,
   $gain,
   ranges,
   setOscValue,
   useOscillator,
-  setCurrent,
+  setPosition,
   setGain,
 }: Props) => {
   // const wavetables = useWavetables();
@@ -80,13 +80,15 @@ export const Oscillator = ({
             />
           </HandlesGroup>
           <HandlesGroup>
+            {/* steps by whole frames, the label is the frame from 1 */}
             <RxHandle
-              max={wavetable.length - 1}
-              $value={$current}
+              min={0}
+              max={Math.max(0, wavetable.length - 1)}
+              $value={$position}
               label='Wave'
-              onChange={setCurrent}
+              onChange={setPosition}
               precision={1}
-              formatValue={(value) => `${value + 1}`}
+              formatValue={formatWavePosition}
             />
           </HandlesGroup>
           <HandlesGroup>
@@ -106,14 +108,6 @@ export const Oscillator = ({
               max={ranges.detune[1]}
               onChange={onChangeInternal('detune')}
               precision={1}
-            />
-            <Handle
-              label='Phase rand'
-              value={osc.randPhase}
-              min={ranges.randPhase[0]}
-              max={ranges.randPhase[1]}
-              precision={100000}
-              onChange={onChangeInternal('randPhase')}
             />
           </HandlesGroup>
         </Handles>

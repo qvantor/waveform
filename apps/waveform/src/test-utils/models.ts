@@ -5,10 +5,17 @@ import { synth } from '../app/synth/common/modules/synth';
 import { synthCore } from '../app/synth/common/modules/synth-core';
 import type { LoadWavetable } from '../app/synth/services';
 import { initModel } from './model-registry';
+import { MessageChannelStub } from './worker-stub';
 
 export { initModel, stopModels } from './model-registry';
 
-export const createSynthCore = () => initModel(synthCore(), 'synthCore', undefined);
+// the wavetable oscillator gets a stub channel (jsdom has no MessageChannel): it loads and gets ready
+export const createSynthCore = () =>
+  initModel(
+    synthCore({ wavetables: { createChannel: () => new MessageChannelStub() as unknown as MessageChannel } }),
+    'synthCore',
+    undefined
+  );
 
 export const createInputController = () => initModel(inputController(), 'inputController', undefined);
 

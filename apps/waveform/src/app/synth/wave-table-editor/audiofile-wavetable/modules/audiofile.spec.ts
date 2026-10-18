@@ -59,14 +59,14 @@ describe('audiofile', () => {
     ]);
   });
 
-  it('moves the current wave of the oscillator into the new table', () => {
+  it('moves the position of the oscillator into the new table', () => {
     const { oscillator, actions } = setup();
     actions.setWavesPickersCount(8);
     actions.setWaveSize(2);
-    oscillator[1].setCurrent(7);
+    oscillator[1].setPosition(7);
 
     actions.setWavesPickersCount(2);
 
-    expect(oscillator[0].$current.value).toBe(1);
+    expect(oscillator[0].$position.value).toBe(1);
   });
 });

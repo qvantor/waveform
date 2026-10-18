@@ -125,18 +125,51 @@ const mapParams = <K extends string, T>(params: Record<K, ParamRange>, toSchema:
 const toObject = (value: unknown) =>
   typeof value === 'object' && value !== null && !Array.isArray(value) ? value : {};
 
+// Phase rand of the presets saved before it was a share of the period: `r`, a start delay of 0..2 ms
+export const LEGACY_RAND_PHASE_MAX = 0.002;
+const legacyPhaseRand = (r: number) => Math.min(1, Math.max(0, r) / LEGACY_RAND_PHASE_MAX);
+
+// the Phase of a new preset: half a period (180°); a legacy one (saved before Phase) keeps the phase it
+// played from, the start of the wave
+export const DEFAULT_PHASE = 0.5;
+const LEGACY_PHASE = 0;
+
+// a legacy `r` without `pr` becomes its pr (read only: it is not in the output), its ph is LEGACY_PHASE; the
+// url snapshot of an oscillator skips the schema and calls it too
+export const withLegacyPhase = <T extends { ph?: unknown; pr?: unknown }>(osc: T): T => {
+  const { r } = osc as { r?: unknown };
+  return osc.pr === undefined && typeof r === 'number'
+    ? { ...osc, ph: osc.ph === undefined ? LEGACY_PHASE : osc.ph, pr: legacyPhaseRand(r) }
+    : osc;
+};
+
 const oscillatorSchema = (active: boolean) =>
   z
-    .object({
-      a: z.boolean().default(active),
-      p: z.array(z.string().min(1).max(256)).min(1).max(5).default(DEFAULT_WAVETABLE_PATH),
-      w: intRange(0, 1023).default(0),
-      o: intRange(-3, 3).default(0),
-      d: range(0, 100).default(5),
-      u: intRange(1, 8).default(2),
-      r: range(0, 0.002).default(0),
-      g: range(0, 1).default(0.5),
-    })
+    .preprocess(
+      (value) =>
+        typeof value === 'object' && value !== null && !Array.isArray(value) ? withLegacyPhase(value) : value,
+      z
+        .object({
+          a: z.boolean().default(active),
+          p: z.array(z.string().min(1).max(256)).min(1).max(5).default(DEFAULT_WAVETABLE_PATH),
+          // the Wave knob: the position in frames, between two of them a morph
+          w: range(0, 1023).default(0),
+          o: intRange(-3, 3).default(0),
+          d: range(0, 100).default(5),
+          u: intRange(1, 8).default(2),
+          // the start phase of every unison voice and the most of its random shift (0: all in phase, 1: any
+          // phase): shares of a period
+          ph: range(0, 1).default(DEFAULT_PHASE),
+          pr: range(0, 1).default(1),
+          r: range(0, LEGACY_RAND_PHASE_MAX).optional(),
+          g: range(0, 1).default(0.5),
+        })
+        .transform((osc) => {
+          const result: Omit<typeof osc, 'r'> & { r?: number } = { ...osc };
+          delete result.r;
+          return result as Omit<typeof osc, 'r'>;
+        })
+    )
     .default({});
 
 const filterSchema = z
