@@ -63,12 +63,25 @@ describe('keyboardController', () => {
     expect(down.defaultPrevented).toBe(false);
   });
 
-  it.each(['input', 'textarea', 'select'])('does not play notes while typing into %s', (tag) => {
+  it.each(['input', 'textarea'])('does not play notes while typing into %s', (tag) => {
     const { onPress } = setup();
     const field = document.body.appendChild(document.createElement(tag));
     const down = key('keydown', 'KeyZ', {}, field);
     expect(onPress).not.toHaveBeenCalled();
     expect(down.defaultPrevented).toBe(false);
+  });
+
+  it('plays notes on a focused select and keeps them from its type-ahead', () => {
+    const { onPress } = setup();
+    const select = document.body.appendChild(document.createElement('select'));
+    select.focus();
+
+    const down = key('keydown', 'KeyC', {}, select);
+    expect(onPress).toHaveBeenCalledWith([3, 'E']);
+    expect(down.defaultPrevented).toBe(true);
+
+    // the arrows still step through its options
+    expect(key('keydown', 'ArrowDown', {}, select).defaultPrevented).toBe(false);
   });
 
   it('releases a note even if keyup happens in a text field', () => {

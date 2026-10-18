@@ -32,7 +32,7 @@ const setup = async (access?: WebMidi.MIDIAccess | Promise<never>) => {
   const { module, onPress, onRelease } = createSpiedInputController();
   const midi = initModel(midiController({ inputController: module }), 'midiController', undefined);
   await flush();
-  return { midi, onPress, onRelease };
+  return { midi, onPress, onRelease, inputActions: module[1] };
 };
 
 afterEach(() => {
@@ -156,5 +156,160 @@ describe('midiController', () => {
     stopModels();
     message(input, 144, 60, 100);
     expect(onPress).not.toHaveBeenCalled();
+  });
+});
+
+describe('midiController channel', () => {
+  it('plays only the selected channel', async () => {
+    const input = createInput('a');
+    const { midi, onPress, onRelease } = await setup(createAccess([input]));
+
+    midi[1].selectMidiChannel(1);
+    message(input, 144, 60, 100);
+    message(input, 128, 60, 0);
+    expect(onPress).not.toHaveBeenCalled();
+    expect(onRelease).not.toHaveBeenCalled();
+
+    message(input, 145, 62, 100);
+    expect(onPress).toHaveBeenCalledWith([4, 'D']);
+    message(input, 129, 62, 0);
+    expect(onRelease).toHaveBeenCalledWith([4, 'D']);
+  });
+
+  it('takes channel 1 (0) as one channel and null as all of them', async () => {
+    const input = createInput('a');
+    const { midi, onPress } = await setup(createAccess([input]));
+
+    midi[1].selectMidiChannel(0);
+    message(input, 145, 62, 100);
+    expect(onPress).not.toHaveBeenCalled();
+    message(input, 144, 60, 100);
+    expect(onPress).toHaveBeenCalledWith([4, 'C']);
+
+    midi[1].selectMidiChannel(null);
+    message(input, 159, 69, 100);
+    expect(onPress).toHaveBeenLastCalledWith([4, 'A']);
+  });
+
+  it('releases on a channel switch only the notes of the channels it drops', async () => {
+    const input = createInput('a');
+    const { midi, onRelease, inputActions } = await setup(createAccess([input]));
+    message(input, 144, 60, 100);
+    message(input, 145, 62, 100);
+    // QWERTY
+    inputActions.onPress([3, 'C']);
+
+    midi[1].selectMidiChannel(0);
+    expect(onRelease).toHaveBeenCalledTimes(1);
+    expect(onRelease).toHaveBeenCalledWith([4, 'D']);
+
+    // the late note off of the dropped channel is ignored, the kept one still ends its note
+    message(input, 129, 62, 0);
+    expect(onRelease).toHaveBeenCalledTimes(1);
+    message(input, 128, 60, 0);
+    expect(onRelease).toHaveBeenLastCalledWith([4, 'C']);
+  });
+
+  it('keeps the held notes when the same channel or all channels are selected', async () => {
+    const input = createInput('a');
+    const { midi, onRelease } = await setup(createAccess([input]));
+    midi[1].selectMidiChannel(0);
+    message(input, 144, 60, 100);
+
+    midi[1].selectMidiChannel(0);
+    midi[1].selectMidiChannel(null);
+    expect(onRelease).not.toHaveBeenCalled();
+
+    message(input, 128, 60, 0);
+    expect(onRelease).toHaveBeenCalledWith([4, 'C']);
+  });
+
+  it('releases a note held on two channels with the note off of the last one', async () => {
+    const input = createInput('a');
+    const { onRelease } = await setup(createAccess([input]));
+    message(input, 144, 60, 100);
+    message(input, 145, 60, 100);
+
+    message(input, 128, 60, 0);
+    expect(onRelease).not.toHaveBeenCalled();
+    message(input, 129, 60, 0);
+    expect(onRelease).toHaveBeenCalledWith([4, 'C']);
+  });
+
+  it('keeps a note held on two channels when one of them is dropped', async () => {
+    const input = createInput('a');
+    const { midi, onRelease } = await setup(createAccess([input]));
+    message(input, 144, 60, 100);
+    message(input, 145, 60, 100);
+
+    midi[1].selectMidiChannel(1);
+    expect(onRelease).not.toHaveBeenCalled();
+    message(input, 129, 60, 0);
+    expect(onRelease).toHaveBeenCalledWith([4, 'C']);
+  });
+
+  it('releases the notes held on the previous input', async () => {
+    const a = createInput('a');
+    const { midi, onRelease, inputActions } = await setup(createAccess([a, createInput('b')]));
+    message(a, 144, 60, 100);
+    inputActions.onPress([3, 'C']);
+
+    midi[1].selectMidiInput('a');
+    expect(onRelease).not.toHaveBeenCalled();
+
+    midi[1].selectMidiInput('b');
+    expect(onRelease).toHaveBeenCalledTimes(1);
+    expect(onRelease).toHaveBeenCalledWith([4, 'C']);
+  });
+
+  it('releases the notes of the selected input once it is gone', async () => {
+    const input = createInput('a');
+    const access = createAccess([input]);
+    const { midi, onRelease } = await setup(access);
+    message(input, 144, 60, 100);
+
+    access.inputs.delete('a');
+    access.dispatchEvent(Object.assign(new Event('statechange'), { port: { type: 'input' } }));
+    expect(midi[0].$selectedInputId.value).toBeNull();
+    expect(onRelease).toHaveBeenCalledWith([4, 'C']);
+  });
+
+  it('ignores the note off of a note it did not press', async () => {
+    const input = createInput('a');
+    const { midi, onRelease, inputActions } = await setup(createAccess([input]));
+    midi[1].selectMidiChannel(0);
+    // filtered out, its note off comes once all channels are listened to
+    message(input, 145, 60, 100);
+    midi[1].selectMidiChannel(null);
+    // QWERTY
+    inputActions.onPress([4, 'C']);
+
+    message(input, 129, 60, 0);
+    message(input, 128, 62, 0);
+    expect(onRelease).not.toHaveBeenCalled();
+  });
+
+  it('leaves a note held by QWERTY to it', async () => {
+    const input = createInput('a');
+    const { midi, onPress, onRelease, inputActions } = await setup(createAccess([input]));
+    inputActions.onPress([4, 'C']);
+    message(input, 145, 60, 100);
+    message(input, 144, 60, 100);
+    expect(onPress).toHaveBeenCalledTimes(1);
+
+    // neither a channel switch nor a note off ends it
+    midi[1].selectMidiChannel(0);
+    message(input, 128, 60, 0);
+    expect(onRelease).not.toHaveBeenCalled();
+  });
+
+  it('leaves a note held by QWERTY to it on an input switch', async () => {
+    const a = createInput('a');
+    const { midi, onRelease, inputActions } = await setup(createAccess([a, createInput('b')]));
+    inputActions.onPress([4, 'C']);
+    message(a, 144, 60, 100);
+
+    midi[1].selectMidiInput('b');
+    expect(onRelease).not.toHaveBeenCalled();
   });
 });
