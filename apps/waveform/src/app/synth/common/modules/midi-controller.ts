@@ -1,4 +1,4 @@
-import { fromEvent, BehaviorSubject, filter, Subject, map, skip, Subscription } from 'rxjs';
+import { fromEvent, BehaviorSubject, distinctUntilChanged, filter, Subject, map, Subscription } from 'rxjs';
 import { rxModel, rxModelReact } from '@waveform/rxjs-react';
 import { Note, Notes } from '@waveform/ui-kit';
 import toast from 'react-hot-toast';
@@ -10,6 +10,10 @@ export const midiToNote = (midiNote: number): Note => {
   return [octave, notes[midiNote % 12]];
 };
 
+// null means all channels
+const acceptsChannel = (selected: number | null, channel: number) =>
+  selected === null || channel === selected;
+
 interface Dependencies {
   inputController: InputControllerModule;
 }
@@ -20,8 +24,9 @@ export const midiController = ({ inputController: [{ $pressed }, { onPress, onRe
     const $midiInputs = new BehaviorSubject<WebMidi.MIDIInput[]>([]);
     const $midiConnectionEvent = new Subject<WebMidi.MIDIConnectionEvent>();
     const $selectedInputId = new BehaviorSubject<string | null>(null);
-    // null means all channels
     const $selectedChannel = new BehaviorSubject<number | null>(null);
+    // the notes this controller pressed: midi note → the channels holding it
+    const held = new Map<number, Set<number>>();
 
     const $midiSubscription = new BehaviorSubject<
       [target: WebMidi.MIDIInput, subscription: Subscription] | null
@@ -44,6 +49,7 @@ export const midiController = ({ inputController: [{ $pressed }, { onPress, onRe
       $midiSubscription,
       $selectedInputId,
       $selectedChannel,
+      held,
     };
   })
     .actions(({ $selectedInputId, $selectedChannel }) => ({
@@ -59,6 +65,7 @@ export const midiController = ({ inputController: [{ $pressed }, { onPress, onRe
           $midiSubscription,
           $selectedInputId,
           $selectedChannel,
+          held,
         },
         { selectMidiInput }
       ) => [
@@ -107,25 +114,48 @@ export const midiController = ({ inputController: [{ $pressed }, { onPress, onRe
                 .subscribe((e) => {
                   const [control, midi, velocity] = e.data;
                   const channel = control & 0b1111;
-                  if ($selectedChannel.value !== null && channel !== $selectedChannel.value) return;
+                  if (!acceptsChannel($selectedChannel.value, channel)) return;
                   const noteOn = control >= 144 && control <= 159;
                   // many devices send note on with velocity 0 instead of note off
-                  if (noteOn && velocity > 0) onPress(midiToNote(midi));
-                  else if (noteOn || (control >= 128 && control <= 143)) onRelease(midiToNote(midi));
+                  if (noteOn && velocity > 0) {
+                    const note = midiToNote(midi);
+                    const channels = held.get(midi);
+                    // held by QWERTY or the piano: theirs to release, not on a channel or input switch
+                    if (!channels && $pressed.value[note[0]].includes(note[1])) return;
+                    held.set(midi, (channels ?? new Set<number>()).add(channel));
+                    onPress(note);
+                  } else if (noteOn || (control >= 128 && control <= 143)) {
+                    const channels = held.get(midi);
+                    // not pressed on this channel: filtered out then, or another source's note
+                    if (!channels?.delete(channel)) return;
+                    // still held on another channel
+                    if (channels.size) return;
+                    held.delete(midi);
+                    onRelease(midiToNote(midi));
+                  }
                 }),
             ]);
           }),
-
-        // notes held on the previous channel would never get their note off
-        $selectedChannel
-          .pipe(skip(1))
-          .subscribe(() =>
-            Object.entries($pressed.value).forEach(([octave, notes]) =>
-              notes.forEach((note) => onRelease([Number(octave), note]))
-            )
-          ),
       ]
     )
+    // the note off of a held note never comes once its channel or its input is no longer listened to
+    .subscriptions(({ $selectedInputId, $selectedChannel, held }) => {
+      const releaseHeld = (passes: (channel: number) => boolean) =>
+        held.forEach((channels, midi) => {
+          channels.forEach((channel) => {
+            if (!passes(channel)) channels.delete(channel);
+          });
+          if (channels.size > 0) return;
+          held.delete(midi);
+          onRelease(midiToNote(midi));
+        });
+      return [
+        // all channels or the same one keep every held note
+        $selectedChannel.subscribe((selected) => releaseHeld((channel) => acceptsChannel(selected, channel))),
+        // another input, or none: the selected one is gone
+        $selectedInputId.pipe(distinctUntilChanged()).subscribe(() => releaseHeld(() => false)),
+      ];
+    })
     .destroy(({ $midiSubscription }) => {
       $midiSubscription.value?.[1].unsubscribe();
     });

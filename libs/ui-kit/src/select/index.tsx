@@ -9,9 +9,10 @@ export type { CascadeOption } from './cascade-select';
 const Root = styled.select`
   ${ContentContainer}
 
-  /* the option list is drawn on a light native background, white text is unreadable there */
+  /* the native option list would inherit the white text, its background is up to the OS (dark in a dark theme) */
   option {
     color: ${theme.colors.primaryDark};
+    background: ${theme.colors.white};
   }
 `;
 

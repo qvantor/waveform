@@ -10,7 +10,14 @@ const Content = styled.div`
   min-width: 300px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
+`;
+
+// a label sits closer to its select than to the field above
+const Field = styled.div`
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 `;
 
 const ALL_CHANNELS = 'all';
@@ -33,21 +40,25 @@ export const MidiInput = () => {
       placement='bottom'
       content={
         <Content>
-          <Label>Midi source</Label>
-          <Select
-            value={selected ?? ''}
-            options={midiInputs.map((input) => ({
-              name: `${input.manufacturer} ${input.name}`,
-              value: input.id,
-            }))}
-            onChange={selectMidiInput}
-          />
-          <Label>Midi channel</Label>
-          <Select
-            value={selectedChannel === null ? ALL_CHANNELS : String(selectedChannel)}
-            options={channelOptions}
-            onChange={(value) => selectMidiChannel(value === ALL_CHANNELS ? null : Number(value))}
-          />
+          <Field>
+            <Label>Midi source</Label>
+            <Select
+              value={selected ?? ''}
+              options={midiInputs.map((input) => ({
+                name: `${input.manufacturer} ${input.name}`,
+                value: input.id,
+              }))}
+              onChange={selectMidiInput}
+            />
+          </Field>
+          <Field>
+            <Label>Midi channel</Label>
+            <Select
+              value={selectedChannel === null ? ALL_CHANNELS : String(selectedChannel)}
+              options={channelOptions}
+              onChange={(value) => selectMidiChannel(value === ALL_CHANNELS ? null : Number(value))}
+            />
+          </Field>
         </Content>
       }
       open={open}
