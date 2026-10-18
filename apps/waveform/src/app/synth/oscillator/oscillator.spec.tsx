@@ -5,7 +5,6 @@ import { createOscillator } from '../../../test-utils/models';
 import { withElementSize } from '../../../test-utils/element-size';
 import { useOscillator1 } from '../common/modules';
 import { useWavetables } from './hooks/use-wavetables';
-import { PHASE_FADE } from './components/wave/phase-overlay';
 import { Oscillator } from './index';
 
 // the knobs are inspected by their props, RxHandle renders a Handle too
@@ -54,7 +53,7 @@ const setup = () => {
       .map(([props]) => props as HandleProps)
       .filter((props) => props.label === label)
       .at(-1) as HandleProps;
-  return { model, actions, knob, drag };
+  return { model, actions, knob };
 };
 
 describe('Oscillator', () => {
@@ -71,7 +70,7 @@ describe('Oscillator', () => {
   });
 
   it('shows Phase under the wave from 0 to 360 degrees, 180 by default, dragged right or up, around past an end', () => {
-    const { model, drag } = setup();
+    const { model } = setup();
     const phase = screen.getByRole('slider', { name: 'Phase' });
     expect(phase.getAttribute('aria-valuetext')).toBe('180°');
     drag(phase, [50, 0]);
@@ -86,7 +85,7 @@ describe('Oscillator', () => {
   });
 
   it('shows Phase rand under the wave from 0 to 100% of the period, dragged left or down', () => {
-    const { model, drag } = setup();
+    const { model } = setup();
     const phaseRand = screen.getByRole('slider', { name: 'Phase rand' });
     expect(phaseRand.getAttribute('aria-valuetext')).toBe('100%');
     drag(phaseRand, [0, 100]);
@@ -112,25 +111,21 @@ describe('Oscillator', () => {
     expect(screen.getByText('2.4/3')).toBeDefined();
   });
 
+  // the fade itself is in the spec of the overlay
   it('shows the phase over the wave while Phase or Phase rand is held, fades it out once let go', () => {
     const restore = withElementSize(200, 100);
-    jest.useFakeTimers();
     try {
       setup();
-      const phase = screen.getByRole('slider', { name: 'Phase' });
+      const opacity = () => screen.getByTestId('phase-overlay').style.opacity;
       expect(screen.queryByTestId('phase-overlay')).toBeNull();
-      pointer('pointerdown', phase, [100, 100]);
-      expect(screen.getByTestId('phase-overlay').style.opacity).toBe('1');
+      pointer('pointerdown', screen.getByRole('slider', { name: 'Phase' }), [100, 100]);
+      expect(opacity()).toBe('1');
       pointer('pointerup', document, [100, 100]);
-      act(() => {
-        jest.advanceTimersByTime(PHASE_FADE);
-      });
-      expect(screen.queryByTestId('phase-overlay')).toBeNull();
+      expect(opacity()).toBe('0');
       pointer('pointerdown', screen.getByRole('slider', { name: 'Phase rand' }), [100, 100]);
-      expect(screen.getByTestId('phase-overlay')).toBeDefined();
+      expect(opacity()).toBe('1');
       pointer('pointerup', document, [100, 100]);
     } finally {
-      jest.useRealTimers();
       restore();
     }
   });

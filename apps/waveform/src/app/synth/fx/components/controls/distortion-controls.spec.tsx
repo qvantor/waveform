@@ -2,27 +2,18 @@ import { render, screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { FX_PARAMS } from '@waveform/preset-schema';
 import { mapValues } from 'lodash';
+import { withElementSize } from '../../../../../test-utils/element-size';
 import { distortion } from '../../effects/distortion';
 import { DistortionControls } from './distortion-controls';
 
 const params = mapValues(FX_PARAMS.distortion, (param) => param.default);
 
 // the chart draws once it knows its size
-const OriginalResizeObserver = window.ResizeObserver;
+let restoreSize: () => void;
 beforeAll(() => {
-  window.ResizeObserver = class {
-    constructor(private callback: ResizeObserverCallback) {}
-    observe() {
-      this.callback([{ contentRect: { width: 160, height: 80 } } as ResizeObserverEntry], this as never);
-    }
-    disconnect() {
-      return undefined;
-    }
-  } as unknown as typeof ResizeObserver;
+  restoreSize = withElementSize(160, 80);
 });
-afterAll(() => {
-  window.ResizeObserver = OriginalResizeObserver;
-});
+afterAll(() => restoreSize());
 
 const setup = (props: Partial<React.ComponentProps<typeof DistortionControls>> = {}) => {
   const setParam = jest.fn();

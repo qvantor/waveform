@@ -127,26 +127,27 @@ const toObject = (value: unknown) =>
 
 // Phase rand of the presets saved before it was a share of the period: `r`, a start delay of 0..2 ms
 export const LEGACY_RAND_PHASE_MAX = 0.002;
-export const legacyPhaseRand = (r: number) => Math.min(1, Math.max(0, r) / LEGACY_RAND_PHASE_MAX);
+const legacyPhaseRand = (r: number) => Math.min(1, Math.max(0, r) / LEGACY_RAND_PHASE_MAX);
 
 // the Phase of a new preset: half a period (180°); a legacy one (saved before Phase) keeps the phase it
 // played from, the start of the wave
 export const DEFAULT_PHASE = 0.5;
-export const LEGACY_PHASE = 0;
+const LEGACY_PHASE = 0;
 
-// a legacy `r` without `pr` becomes its pr (read only: it is not in the output), its ph is LEGACY_PHASE
-const withLegacyPhaseRand = (value: unknown) => {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return value;
-  const { r, pr, ph } = value as { r?: unknown; pr?: unknown; ph?: unknown };
-  return pr === undefined && typeof r === 'number'
-    ? { ...value, ph: ph === undefined ? LEGACY_PHASE : ph, pr: legacyPhaseRand(r) }
-    : value;
+// a legacy `r` without `pr` becomes its pr (read only: it is not in the output), its ph is LEGACY_PHASE; the
+// url snapshot of an oscillator skips the schema and calls it too
+export const withLegacyPhase = <T extends { ph?: unknown; pr?: unknown }>(osc: T): T => {
+  const { r } = osc as { r?: unknown };
+  return osc.pr === undefined && typeof r === 'number'
+    ? { ...osc, ph: osc.ph === undefined ? LEGACY_PHASE : osc.ph, pr: legacyPhaseRand(r) }
+    : osc;
 };
 
 const oscillatorSchema = (active: boolean) =>
   z
     .preprocess(
-      withLegacyPhaseRand,
+      (value) =>
+        typeof value === 'object' && value !== null && !Array.isArray(value) ? withLegacyPhase(value) : value,
       z
         .object({
           a: z.boolean().default(active),

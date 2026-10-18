@@ -71,7 +71,7 @@ export const { ModelProvider: FooProvider, useModel: useFoo } = rxModelReact('fo
 - Legacy URL params `<modelName>-<key>=<json>` are still applied on init.
 - `applySnap` must handle falsy values (`!== undefined`, not `&&`), and missing keys mean defaults.
 - When adding persisted state, extend the model's `modelToSnap`/`applySnap` **and** `presetDataSchema` in `libs/preset-schema` (unknown keys are stripped, so a missing schema field is silently not saved).
-- Oscillator keys: `w` is the Wave position in frames (fractional), `ph`/`pr` Phase and Phase rand (0..1, default `DEFAULT_PHASE` 0.5 = 180° and 1). A legacy `r` (Phase rand as a start delay of 0..2 ms) is read only: without `pr` it becomes `pr = min(1, r / 0.002)` (`legacyPhaseRand`, in the schema and in `applySnap` for legacy urls) and is not written; such a legacy preset or url without `ph` gets `LEGACY_PHASE` 0 (it played from the start of the wave), not the default.
+- Oscillator keys: `w` is the Wave position in frames (fractional), `ph`/`pr` Phase and Phase rand (0..1, default `DEFAULT_PHASE` 0.5 = 180° and 1). A legacy `r` (Phase rand as a start delay of 0..2 ms) is read only: without `pr` it becomes `pr = min(1, r / 0.002)` (`withLegacyPhase`, in the schema, `applySnap` calls it for legacy urls) and is not written; such a legacy preset or url without `ph` gets `LEGACY_PHASE` 0 (it played from the start of the wave), not the default.
 
 ### Presets (apps/waveform/src/app/presets, netlify/functions)
 

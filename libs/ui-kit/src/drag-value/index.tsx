@@ -101,24 +101,23 @@ export const DragValue = ({
     onChange?.(next);
   };
 
+  const hold = (held: boolean) => {
+    setActive(held);
+    onActiveChange?.(held);
+  };
+
   const onPointerDown = (e: React.PointerEvent) => {
     lastValue.current = value;
-    const start = value;
     const [startX, startY] = [e.clientX, e.clientY];
     const tracked = trackPointer(
       e,
       (move) => {
         const diff = move.clientX - startX - (move.clientY - startY);
-        emit(toValue(start + (diff / travel) * (max - min)));
+        emit(toValue(value + (diff / travel) * (max - min)));
       },
-      () => {
-        setActive(false);
-        onActiveChange?.(false);
-      }
+      () => hold(false)
     );
-    if (!tracked) return;
-    setActive(true);
-    onActiveChange?.(true);
+    if (tracked) hold(true);
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {

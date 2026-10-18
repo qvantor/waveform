@@ -45,8 +45,8 @@ const EditIcon = styled(EditFilled)`
 export const Wave = () => {
   const [{ $active }] = useOscillatorContext();
   const [editorOpen, setEditorOpen] = React.useState(false);
-  // Phase or Phase rand is dragged under the wave: the chart shows them
-  const [phaseDrag, setPhaseDrag] = React.useState(false);
+  // Phase and Phase rand held under the wave (both at once with two fingers): the chart shows them
+  const [phaseHeld, setPhaseHeld] = React.useState(0);
   const toggleEditorOpen = () => setEditorOpen(!editorOpen);
   const active = useBehaviorSubject($active);
   return (
@@ -60,10 +60,10 @@ export const Wave = () => {
             <WaveTableEditor />
           </Modal>
         ) : (
-          <Chart phaseVisible={phaseDrag} />
+          <Chart phaseVisible={phaseHeld > 0} />
         )}
       </ChartArea>
-      <WaveInfo onPhaseDrag={setPhaseDrag} />
+      <WaveInfo onPhaseActiveChange={(active) => setPhaseHeld((held) => held + (active ? 1 : -1))} />
     </Root>
   );
 };

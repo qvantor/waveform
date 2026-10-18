@@ -1,13 +1,14 @@
 import React from 'react';
 import styled from 'styled-components';
-import { theme, useLineChartContext } from '@waveform/ui-kit';
+import { Line, theme, useLineChartContext } from '@waveform/ui-kit';
+import { useBehaviorSubject } from '@waveform/rxjs-react';
+import { useOscillatorContext } from '../../hooks';
+import { periodX } from './period';
 
 interface Props {
-  // the wave of the chart and its line data (one period, see Chart)
+  // the wave of the chart and its line (periodLine)
   wave: number[];
-  data: number[];
-  phase: number;
-  phaseRand: number;
+  line: number[];
   visible: boolean;
 }
 
@@ -44,14 +45,15 @@ const randBands = (phase: number, phaseRand: number): [number, number][] => {
 
 // over the wave while Phase or Phase rand is dragged: the point every voice starts at (phase) and the band
 // Phase rand spreads their starts over, the wave in it highlighted; fades out once let go
-export const PhaseOverlay = ({ wave, data, phase, phaseRand, visible }: Props) => {
+export const PhaseOverlay = ({ wave, line, visible }: Props) => {
   const {
     height,
     padding: [, paddingY],
     scaleX,
     scaleY,
-    lineFn,
   } = useLineChartContext();
+  const [{ $osc }] = useOscillatorContext();
+  const { phase, phaseRand } = useBehaviorSubject($osc);
   const clipId = `phase-band-${React.useId().replace(/:/g, '')}`;
   // kept while it fades out, then not rendered at all: no work while the wave morphs
   const [shown, setShown] = React.useState(visible);
@@ -65,58 +67,46 @@ export const PhaseOverlay = ({ wave, data, phase, phaseRand, visible }: Props) =
   }, [visible]);
   if (!(visible || shown) || wave.length === 0) return null;
 
-  const x = (share: number) => scaleX(1 + share * wave.length);
-  const bands = randBands(phase, phaseRand);
+  const x = (share: number) => scaleX(periodX(share, wave.length));
   const top = -paddingY;
-  const end = phase + phaseRand;
+  const bands = randBands(phase, phaseRand).map(([from, to]) => ({
+    x: x(from),
+    y: top,
+    width: x(to) - x(from),
+    height,
+  }));
+  // a line across the chart at a phase
+  const across = (share: number) => ({ x1: x(share), x2: x(share), y1: top, y2: top + height });
   return (
     <Root data-testid='phase-overlay' style={{ opacity: visible ? 1 : 0 }}>
       <clipPath id={clipId}>
-        {bands.map(([from, to]) => (
-          <rect key={from} x={x(from)} y={top} width={x(to) - x(from)} height={height} />
+        {bands.map((band) => (
+          <rect key={band.x} {...band} />
         ))}
       </clipPath>
-      {bands.map(([from, to]) => (
+      {bands.map((band) => (
         <rect
-          key={from}
+          key={band.x}
           data-testid='phase-band'
-          x={x(from)}
-          y={top}
-          width={x(to) - x(from)}
-          height={height}
+          {...band}
           fill={theme.colors.secondAccent}
           fillOpacity={0.18}
         />
       ))}
       {bands.length > 0 && (
-        <path
-          d={lineFn(data) ?? undefined}
-          clipPath={`url(#${clipId})`}
-          fill='none'
-          stroke={theme.colors.secondAccent}
-          strokeWidth={2}
-        />
+        <g clipPath={`url(#${clipId})`}>
+          <Line data={line} style={{ stroke: theme.colors.secondAccent }} />
+        </g>
       )}
       {phaseRand > 0 && phaseRand < 1 && (
         <line
           data-testid='phase-band-end'
-          x1={x(end - Math.floor(end))}
-          x2={x(end - Math.floor(end))}
-          y1={top}
-          y2={top + height}
+          {...across((phase + phaseRand) % 1)}
           stroke={theme.colors.secondAccent}
           strokeDasharray='3 3'
         />
       )}
-      <line
-        data-testid='phase-marker'
-        x1={x(phase)}
-        x2={x(phase)}
-        y1={top}
-        y2={top + height}
-        stroke={theme.colors.white}
-        strokeWidth={1.5}
-      />
+      <line data-testid='phase-marker' {...across(phase)} stroke={theme.colors.white} strokeWidth={1.5} />
       <circle
         data-testid='phase-dot'
         cx={x(phase)}

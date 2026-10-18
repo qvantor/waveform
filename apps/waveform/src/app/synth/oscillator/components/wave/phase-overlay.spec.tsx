@@ -11,7 +11,7 @@ const [WIDTH, HEIGHT] = [400, 100];
 
 const setup = (phaseVisible = true) => {
   const oscillator = createOscillator();
-  const [model, actions] = oscillator;
+  const [, actions] = oscillator;
   const chart = (visible: boolean) => (
     <OscillatorContext.Provider value={oscillator}>
       <Chart phaseVisible={visible} />
@@ -30,7 +30,6 @@ const setup = (phaseVisible = true) => {
       .map((band) => [Number(band.getAttribute('x')), Number(band.getAttribute('width'))]);
   return {
     ...result,
-    model,
     set,
     attr,
     bands,
@@ -106,9 +105,11 @@ describe('Chart of the wave', () => {
     const { set } = setup();
     set(0.75, 0.5);
     const overlay = screen.getByTestId('phase-overlay');
-    const wave = overlay.querySelector('path');
-    const clip = wave?.getAttribute('clip-path')?.match(/^url\(#(.+)\)$/)?.[1];
-    expect(wave?.getAttribute('d')).toContain('L0,50L100,0L200,50L300,100L400,50');
+    const highlight = overlay.querySelector('g[clip-path]');
+    const clip = highlight?.getAttribute('clip-path')?.match(/^url\(#(.+)\)$/)?.[1];
+    expect(highlight?.querySelector('path')?.getAttribute('d')).toContain(
+      'L0,50L100,0L200,50L300,100L400,50'
+    );
     expect(overlay.querySelector(`clipPath[id="${clip}"]`)?.querySelectorAll('rect')).toHaveLength(2);
   });
 

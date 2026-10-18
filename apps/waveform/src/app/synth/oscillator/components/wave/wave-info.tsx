@@ -30,22 +30,16 @@ export const formatWavePosition = (position: number) =>
   Number.isInteger(position) ? `${position + 1}` : (position + 1).toFixed(1);
 
 interface Props {
-  // Phase or Phase rand is held (true) or both are let go (false)
-  onPhaseDrag: (active: boolean) => void;
+  // Phase or Phase rand is held (true) or let go (false)
+  onPhaseActiveChange: (active: boolean) => void;
 }
 
 // under the wave, on its background: the frame it plays of the table, Phase and Phase rand dragged to change them
-export const WaveInfo = ({ onPhaseDrag }: Props) => {
+export const WaveInfo = ({ onPhaseActiveChange }: Props) => {
   const [{ $position, $waveTable, $osc, ranges }, { setOscValue }] = useOscillatorContext();
   const position = useBehaviorSubject($position);
   const frames = useBehaviorSubject($waveTable).length;
   const { phase, phaseRand } = useBehaviorSubject($osc);
-  // both can be held at once (two fingers)
-  const held = React.useRef(0);
-  const onActiveChange = (active: boolean) => {
-    held.current += active ? 1 : -1;
-    onPhaseDrag(held.current > 0);
-  };
   return (
     <Root>
       <Cell label='Wave' value={position} formatValue={(value) => `${formatWavePosition(value)}/${frames}`} />
@@ -58,7 +52,7 @@ export const WaveInfo = ({ onPhaseDrag }: Props) => {
         precision={360}
         formatValue={(value) => `${Math.round(value * 360)}°`}
         onChange={(value) => setOscValue('phase', value)}
-        onActiveChange={onActiveChange}
+        onActiveChange={onPhaseActiveChange}
       />
       <Cell
         label='Phase rand'
@@ -66,9 +60,9 @@ export const WaveInfo = ({ onPhaseDrag }: Props) => {
         min={ranges.phaseRand[0]}
         max={ranges.phaseRand[1]}
         precision={100}
-        formatValue={(value) => number.percent(number.round(value, 100))}
+        formatValue={number.percent}
         onChange={(value) => setOscValue('phaseRand', value)}
-        onActiveChange={onActiveChange}
+        onActiveChange={onPhaseActiveChange}
       />
     </Root>
   );

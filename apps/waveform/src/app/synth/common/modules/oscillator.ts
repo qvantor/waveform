@@ -14,7 +14,7 @@ import {
   asyncScheduler,
 } from 'rxjs';
 import { ObjectBS, rxModel, rxModelReact, PrimitiveBS, ArrayBS } from '@waveform/rxjs-react';
-import { DEFAULT_PHASE, LEGACY_PHASE, legacyPhaseRand } from '@waveform/preset-schema';
+import { DEFAULT_PHASE, withLegacyPhase } from '@waveform/preset-schema';
 import { generateId, Vector2D } from '@waveform/math';
 import { urlSnapshotPlugin } from '../../../app';
 import { loadWavetable, LoadWavetable, wavetableId } from '../../services';
@@ -221,11 +221,9 @@ export const oscillator = ({
             g: model.$gain.value,
           };
         },
-        // r: the Phase rand of a legacy url (seconds of a start delay), read only; without pr it is legacy,
-        // its Phase LEGACY_PHASE
+        // r: the Phase rand of a legacy url (seconds of a start delay), read only
         applySnap: (snap, model) => {
-          const legacy = (snap as { r?: unknown }).r;
-          const legacyPhase = snap.pr === undefined && typeof legacy === 'number';
+          const { ph, pr } = withLegacyPhase(snap);
           snap.a !== undefined && model.$active.next(snap.a);
           snap.p !== undefined && model.$waveTablePath.next(snap.p);
           snap.w !== undefined && model.$position.next(snap.w);
@@ -234,8 +232,8 @@ export const oscillator = ({
             octave: snap.o ?? 0,
             detune: snap.d ?? 5,
             unison: snap.u ?? 2,
-            phase: snap.ph ?? (legacyPhase ? LEGACY_PHASE : DEFAULT_PHASE),
-            phaseRand: snap.pr ?? (typeof legacy === 'number' ? legacyPhaseRand(legacy) : 1),
+            phase: ph ?? DEFAULT_PHASE,
+            phaseRand: pr ?? 1,
           });
         },
       })
