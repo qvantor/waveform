@@ -4,23 +4,16 @@
 // Chromium, WebKit and Firefox through Playwright, which is not a dependency of the project:
 //   npx -y -p playwright@1.50.1 node scripts/bench-osc/run.mjs [--browsers=chromium,webkit,firefox]
 //     [--rates=44100,48000,96000] [--only=sound,pitch,continuity,switch,stereo,unison,cpu,delivery,build]
-import { createRequire } from 'module';
 import fs from 'fs';
 import http from 'http';
 import path from 'path';
+import { downloadTables, fileName, loadPlaywright, parseArgs, require, root } from '../bench-common.mjs';
 
-const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..');
 const out = path.join(root, 'tmp/bench-osc');
 const site = path.join(out, 'site');
 const tablesDir = path.join(out, 'tables');
-const require = createRequire(path.join(root, 'package.json'));
 
-const args = Object.fromEntries(
-  process.argv.slice(2).map((arg) => {
-    const [key, value = 'true'] = arg.replace(/^--/, '').split('=');
-    return [key, value];
-  })
-);
+const args = parseArgs(process.argv.slice(2));
 const browsers = (args.browsers ?? 'chromium,webkit,firefox').split(',');
 const rates = (args.rates ?? '44100,48000,96000').split(',').map(Number);
 const only = args.only ? args.only.split(',') : null;
@@ -33,45 +26,6 @@ const TABLES = [
 ];
 const PITCHES = [55, 220, 1046, 3520, 7040];
 
-// playwright from `npx -p playwright` (its .bin is on the PATH) or installed somewhere node finds it
-const loadPlaywright = () => {
-  const candidates = (process.env.PATH ?? '')
-    .split(path.delimiter)
-    .filter((dir) => dir.endsWith(path.join('node_modules', '.bin')))
-    .map((dir) => path.join(dir, '..', 'playwright'));
-  for (const candidate of candidates)
-    if (fs.existsSync(candidate)) return createRequire(candidate + '/')(candidate);
-  return require('playwright');
-};
-
-const readEnv = () => {
-  const file = path.join(root, '.env');
-  if (!fs.existsSync(file)) return;
-  for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
-    const match = line.match(/^([A-Z_]+)=(.*)$/);
-    if (match && !process.env[match[1]]) process.env[match[1]] = match[2];
-  }
-};
-
-const fileName = (key) => key.split('/').at(-1);
-
-const downloadTables = async () => {
-  fs.mkdirSync(tablesDir, { recursive: true });
-  const missing = TABLES.filter((key) => !fs.existsSync(path.join(tablesDir, fileName(key))));
-  if (!missing.length) return;
-  readEnv();
-  const { S3Client, GetObjectCommand } = require('@aws-sdk/client-s3');
-  const client = new S3Client({
-    region: 'eu-central-1',
-    credentials: { accessKeyId: process.env.ACCESS_KEY_ID, secretAccessKey: process.env.SECRET_ACCESS_KEY },
-  });
-  for (const key of missing) {
-    const { Body } = await client.send(new GetObjectCommand({ Bucket: process.env.BUCKET, Key: key }));
-    fs.writeFileSync(path.join(tablesDir, fileName(key)), Buffer.from(await Body.transformToByteArray()));
-    console.log(`downloaded ${key}`);
-  }
-};
-
 const bundle = async () => {
   const esbuild = require('esbuild');
   fs.mkdirSync(site, { recursive: true });
@@ -80,6 +34,8 @@ const bundle = async () => {
     format: 'esm',
     logLevel: 'warning',
     tsconfig: path.join(root, 'tsconfig.base.json'),
+    // the code of the perf build out, as in production (apps/waveform/src/globals.d.ts)
+    define: { __PERF__: 'false' },
   };
   await esbuild.build({
     ...common,
@@ -314,7 +270,7 @@ const runBrowser = async (playwright, name, port) => {
 
 const main = async () => {
   const playwright = loadPlaywright();
-  await downloadTables();
+  await downloadTables(TABLES, tablesDir);
   await bundle();
   const server = await serve();
   const { port } = server.address();

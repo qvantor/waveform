@@ -35,3 +35,6 @@ jobs:
       - name: Test
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: npm run test:all
+      - name: Script tests
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npm run test:scripts

@@ -513,6 +513,33 @@ describe('synth', () => {
     });
   });
 
+  describe('voice starts', () => {
+    it('traces no voice unless its starts are observed', async () => {
+      const { onPress, voices } = await setup();
+      onPress([4, 'A']);
+      expect(voices()[0].options.processorOptions).not.toHaveProperty('trace');
+    });
+
+    it('traces the voices while observed: their starts come with their note', async () => {
+      const { onPress, voices, synthModel, end } = await setup();
+      const starts: unknown[] = [];
+      const subscription = synthModel.$voiceStarts.subscribe((start) => starts.push(start));
+      onPress([4, 'A']);
+      const [voice] = voices();
+      expect(voice.options.processorOptions).toMatchObject({ trace: true });
+      voice.port.onmessage?.({ data: { started: 140, scheduled: 0 } });
+      expect(starts).toEqual([{ note: 'A4', scheduled: 0, started: 140 }]);
+      // a start doesn't end the voice, the end still does
+      expect(voice.disconnect).not.toHaveBeenCalled();
+      end(voice);
+      expect(voice.disconnect).toHaveBeenCalled();
+
+      subscription.unsubscribe();
+      onPress([4, 'C']);
+      expect(voices()[1].options.processorOptions).not.toHaveProperty('trace');
+    });
+  });
+
   it('stops listening to the input after stop', async () => {
     const { onPress, voices } = await setup();
     stopModels();

@@ -1,8 +1,14 @@
 import { BehaviorSubject } from 'rxjs';
 import { isWorkletSupported, loadWorklet, WORKLETS_PATH } from '../../fx/effects/load-worklet';
-import type { BuilderPortMessage, BuildMessage } from './wavetable-builder';
-import type { StoreTableMessage, VoiceOptions } from './wavetable-osc-dsp';
+import type {
+  BuilderPortMessage,
+  BuilderStats,
+  BuilderStatsMessage,
+  BuildMessage,
+} from './wavetable-builder';
+import type { StatsRequest, StoreStatsMessage, StoreTableMessage, VoiceOptions } from './wavetable-osc-dsp';
 import { STORE_PROCESSOR, VOICE_PROCESSOR, VoiceParam } from './wavetable-osc-params';
+import type { StoreStoredMessage } from './wavetable-osc.worklet';
 
 // the worklet module (wavetable-osc.worklet.ts) and the worker (wavetable.worker.ts), bundled by `npm run
 // worklets` into assets/worklets/
@@ -29,6 +35,13 @@ export interface WavetableEngineDependencies {
 
 const defaultChannel = () => new MessageChannel();
 
+// the counters of the store, the voices and the worker (the perf test hook)
+export interface WavetableEngineStats {
+  worklet: StoreStatsMessage['stats'];
+  worker: BuilderStats;
+}
+type Waiter<T> = (answer: T | null) => void;
+
 // the wavetable oscillator of an AudioContext, one for both oscillators: loads the worklet module (the synth
 // core does it at its start, like the limiter), creates the store node (it receives the tables, the voice
 // processors of the context read them) and the worker that builds the levels of the tables, connected to the
@@ -45,15 +58,31 @@ export const createWavetableEngine = (
 ) => {
   const $status = new BehaviorSubject<WavetableStatus>('loading');
   const tables = new Map<string, { version: number; frames: ArrayLike<number>[] }>();
+  // the last version of each table, kept after a removal: versions only grow, so a table set again after it was
+  // removed is newer than the version the store may still hold (the worker replaces a waiting removal with it)
+  const versions = new Map<string, number>();
+  const nextVersion = (table: string) => {
+    const version = (versions.get(table) ?? 0) + 1;
+    versions.set(table, version);
+    return version;
+  };
   let store: AudioWorkletNode | null = null;
   let worker: Worker | null = null;
   let destroyed = false;
+  // the version of each table the store has acknowledged (when it is the latest, new voices play it)
+  const stored = new Map<string, number>();
+  // the answers to stats requests, in the order they were asked (each port answers in order)
+  const storeWaiters: Waiter<StoreStatsMessage['stats']>[] = [];
+  const workerWaiters: Waiter<BuilderStats>[] = [];
 
   const teardown = () => {
     worker?.terminate();
     worker = null;
     store?.disconnect();
     store = null;
+    stored.clear();
+    storeWaiters.splice(0).forEach((answer) => answer(null));
+    workerWaiters.splice(0).forEach((answer) => answer(null));
   };
 
   const fail = (error: unknown) => {
@@ -91,12 +120,23 @@ export const createWavetableEngine = (
         node.onprocessorerror = (event) => {
           if (store === node) fail(event);
         };
+        // the acks and the counters of the store, the counters of the worker (the perf build)
+        if (__PERF__)
+          node.port.onmessage = ({ data }: MessageEvent<StoreStoredMessage | StoreStatsMessage>) => {
+            if (store !== node) return;
+            if ('stats' in data) storeWaiters.shift()?.(data.stats);
+            else if (tables.get(data.stored)?.version === data.version) stored.set(data.stored, data.version);
+          };
         const created = createWorker(
           new URL(`${WORKLETS_PATH}${WAVETABLE_WORKER}.js`, document.baseURI).href
         );
         created.onerror = (event) => {
           if (worker === created) fail(event);
         };
+        if (__PERF__)
+          created.onmessage = ({ data }: MessageEvent<BuilderStatsMessage>) => {
+            if (worker === created && data.stats) workerWaiters.shift()?.(data.stats);
+          };
         const { port1, port2 } = (createChannel as () => MessageChannel)();
         const toStore: BuilderPortMessage = { port: port1 };
         const toWorker: BuilderPortMessage = { port: port2 };
@@ -115,15 +155,18 @@ export const createWavetableEngine = (
     $status,
     // a new version of the table (the frames of the model, read when it is sent)
     setTable: (table: string, frames: ArrayLike<number>[]) => {
-      tables.set(table, { version: (tables.get(table)?.version ?? 0) + 1, frames });
+      tables.set(table, { version: nextVersion(table), frames });
       send(table);
     },
     // the table is gone (its oscillator was destroyed): the store frees it once no voice plays it
     removeTable: (table: string) => {
       const entry = tables.get(table);
       tables.delete(table);
-      if (!entry || !worker) return;
-      const message: StoreTableMessage = { table, version: entry.version + 1, remove: true };
+      stored.delete(table);
+      if (!entry) return;
+      const version = nextVersion(table);
+      if (!worker) return;
+      const message: StoreTableMessage = { table, version, remove: true };
       worker.postMessage(message);
     },
     // the node of a note; an error of its processor ends only that voice (the synth takes it off), the store,
@@ -135,6 +178,32 @@ export const createWavetableEngine = (
         processorOptions: options,
         parameterData,
       });
+    },
+    // the tables whose latest version the store hasn't acknowledged yet (a note meanwhile plays the previous
+    // version, or a sine for a new table); the perf build only
+    pending: () =>
+      __PERF__
+        ? [...tables].filter(([table, { version }]) => stored.get(table) !== version).map(([table]) => table)
+        : [],
+    // the counters of the store, the voices and the worker (the perf build); null unless ready or when an
+    // answer doesn't come in time (a late answer still takes its own request: the queues stay in order)
+    stats: (timeout = 1000): Promise<WavetableEngineStats | null> => {
+      if (!__PERF__ || !store || !worker) return Promise.resolve(null);
+      const request: StatsRequest = { stats: true };
+      const ask = <T>(waiters: Waiter<T>[], post: () => void) =>
+        new Promise<T | null>((resolve) => {
+          const timer = setTimeout(() => resolve(null), timeout);
+          waiters.push((answer) => {
+            clearTimeout(timer);
+            resolve(answer);
+          });
+          post();
+        });
+      const [node, builder] = [store, worker];
+      return Promise.all([
+        ask(storeWaiters, () => node.port.postMessage(request)),
+        ask(workerWaiters, () => builder.postMessage(request)),
+      ]).then(([worklet, built]) => (worklet && built ? { worklet, worker: built } : null));
     },
     retry: () => {
       if ($status.value === 'failed') load();

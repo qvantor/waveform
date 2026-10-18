@@ -20,11 +20,52 @@ export interface VoiceOptions {
   osc: (VoiceOscOptions | null)[];
   // seconds of the context time the note starts at
   start: number;
+  // posts a VoiceStartedMessage once (the perf test hook times the notes)
+  trace?: boolean;
 }
 
 // voice → main thread: the voice has ended, its node can be disconnected
 export interface VoiceEndedMessage {
   ended: true;
+}
+// voice → main thread, once, for a traced voice: the frame it was scheduled at and the one it started at (its
+// first block: later when the node was created after its start)
+export interface VoiceStartedMessage {
+  started: number;
+  scheduled: number;
+}
+
+// main thread → store or worker: their counters (the perf test hook)
+export interface StatsRequest {
+  stats: true;
+}
+// the tables of the store, the versions held (by the store or by voices still playing a replaced one) and
+// their bytes
+export interface TableStoreStats {
+  tables: number;
+  versions: number;
+  bytes: number;
+}
+// the voices of a scope: processors alive and their unison voices; unison-voice samples played from mix tables
+// and directly (once during a crossfade into a new version; silent spans above the nyquist are not played);
+// mix builds, their multiply-adds and those the budget refused; the most multiply-adds of builds in one block
+// since the last read; the mix tables allocated (the pool reuses them, a voice that ends gives them back) and
+// their bytes
+export interface VoiceStats {
+  voices: number;
+  unison: number;
+  mixSamples: number;
+  directSamples: number;
+  builds: number;
+  buildCost: number;
+  refused: number;
+  peakCost: number;
+  mixes: number;
+  mixBytes: number;
+}
+// store → main thread: the answer to a StatsRequest, at the frame it was read
+export interface StoreStatsMessage {
+  stats: TableStoreStats & VoiceStats & { frame: number };
 }
 
 // worker → store (its MessagePort): a new version of a table (its data buffer transferred), or a table that
@@ -47,9 +88,9 @@ const SEGMENT = 32;
 const BLOCK = 128;
 // seconds: the fade-in of a voice at a random phase, the fade-out of a stolen voice, the crossfade into a
 // new version of the table
-const FADE_IN = 0.0015;
-const KILL_FADE = 0.005;
-const CROSSFADE = 0.01;
+export const FADE_IN = 0.0015;
+export const KILL_FADE = 0.005;
+export const CROSSFADE = 0.01;
 // a position this close to a frame (in frames) plays the frame alone: an AudioParam is a float32, k / (N - 1)
 // times N - 1 is not exactly k
 const SNAP = 1e-4;
@@ -67,8 +108,16 @@ export interface TableEntry {
 // back to the worker)
 export const createTableStore = (onFree: (levels: WavetableLevels) => void = () => undefined) => {
   const current = new Map<string, TableEntry>();
+  // the versions held and their bytes (counted before onFree: it transfers the buffer)
+  let versions = 0;
+  let bytes = 0;
   const release = (entry: TableEntry) => {
-    if (--entry.refs === 0) onFree(entry.levels);
+    if (--entry.refs !== 0) return;
+    if (__PERF__) {
+      versions--;
+      bytes -= entry.levels.data.byteLength;
+    }
+    onFree(entry.levels);
   };
   return {
     // a stale version (an older one arriving after a newer one) is freed at once
@@ -76,6 +125,10 @@ export const createTableStore = (onFree: (levels: WavetableLevels) => void = () 
       const previous = current.get(table);
       if (previous && previous.version >= version) return onFree(levels);
       current.set(table, { table, version, levels, refs: 1 });
+      if (__PERF__) {
+        versions++;
+        bytes += levels.data.byteLength;
+      }
       if (previous) release(previous);
     },
     remove: (table: string) => {
@@ -89,6 +142,7 @@ export const createTableStore = (onFree: (levels: WavetableLevels) => void = () 
       return entry;
     },
     release,
+    stats: (): TableStoreStats => ({ tables: current.size, versions, bytes }),
   };
 };
 export type TableStore = ReturnType<typeof createTableStore>;
@@ -341,7 +395,7 @@ const render22 = (
 
 // the length of the tables of a browser's PeriodicWave at the rate (Chrome and WebKit: 2048 up to 24 kHz, 4096
 // up to 88.2 kHz, 16384 above), its oscillator reads them linearly: a mix table as long has the same aliasing
-const nativeTableLength = (sampleRate: number) =>
+export const nativeTableLength = (sampleRate: number) =>
   sampleRate <= 24000 ? 2048 : sampleRate <= 88200 ? 4096 : 16384;
 
 type Params = Record<VoiceParam, Float32Array>;
@@ -349,13 +403,26 @@ type Params = Record<VoiceParam, Float32Array>;
 // the cost of the mix tables built per block at most (multiply-adds), across all the voices of a context
 // (they render one after another on the audio thread): a chord of new notes converts to them over a few
 // blocks instead of one long block (about 0.2 ms of a block at most)
-const MIX_BUDGET = 200000;
+export const MIX_BUDGET = 200000;
 // the points of the interpolation that brings a shorter level to the length of a mix
-const UPSAMPLER_TAPS = 6;
+export const UPSAMPLER_TAPS = 6;
+
+// the counters of VoiceStats in the typed array of the shared voices (the render loops add to it: no boxed
+// doubles)
+const VOICES = 0;
+const UNISON = 1;
+const MIX_SAMPLES = 2;
+const DIRECT_SAMPLES = 3;
+const BUILDS = 4;
+const BUILD_COST = 5;
+const REFUSED = 6;
+const PEAK_COST = 7;
+const MIXES = 8;
+const MIX_BYTES = 9;
 
 // what the voices of a context share: the buffers of a block (they render one after another, never at once),
-// the mix tables (pooled: a voice that ends gives them back, the audio thread collects nothing) and the
-// budget of mix builds per block
+// the mix tables (pooled: a voice that ends gives them back, the audio thread collects nothing), the budget of
+// mix builds per block and the counters of the voices
 export const createVoiceShared = () => {
   let size = 0;
   const scratch = {
@@ -380,7 +447,9 @@ export const createVoiceShared = () => {
   const pool = new Map<number, Float32Array[]>();
   let budgetFrame = -1;
   let spent = 0;
+  const counts = new Float64Array(10);
   return {
+    counts,
     scratch: (length: number) => {
       if (length > size) {
         size = length;
@@ -403,7 +472,16 @@ export const createVoiceShared = () => {
       }
       return scratch;
     },
-    acquireMix: (length: number) => pool.get(length)?.pop() ?? new Float32Array(length + FRAME_GUARD),
+    acquireMix: (length: number) => {
+      const pooled = pool.get(length)?.pop();
+      if (pooled) return pooled;
+      const mix = new Float32Array(length + FRAME_GUARD);
+      if (__PERF__) {
+        counts[MIXES]++;
+        counts[MIX_BYTES] += mix.byteLength;
+      }
+      return mix;
+    },
     releaseMix: (mix: Float32Array) => {
       const length = mix.length - FRAME_GUARD;
       const free = pool.get(length) ?? [];
@@ -416,14 +494,41 @@ export const createVoiceShared = () => {
         budgetFrame = frame;
         spent = 0;
       }
-      if (spent > 0 && spent + cost > MIX_BUDGET) return false;
+      if (spent > 0 && spent + cost > MIX_BUDGET) {
+        if (__PERF__) counts[REFUSED]++;
+        return false;
+      }
       spent += cost;
+      if (__PERF__) {
+        counts[BUILDS]++;
+        counts[BUILD_COST] += cost;
+        if (spent > counts[PEAK_COST]) counts[PEAK_COST] = spent;
+      }
       return true;
+    },
+    // the counters (the peak cost starts again from here)
+    stats: (): VoiceStats => {
+      const stats = {
+        voices: counts[VOICES],
+        unison: counts[UNISON],
+        mixSamples: counts[MIX_SAMPLES],
+        directSamples: counts[DIRECT_SAMPLES],
+        builds: counts[BUILDS],
+        buildCost: counts[BUILD_COST],
+        refused: counts[REFUSED],
+        peakCost: counts[PEAK_COST],
+        mixes: counts[MIXES],
+        mixBytes: counts[MIX_BYTES],
+      };
+      counts[PEAK_COST] = 0;
+      return stats;
     },
   };
 };
 export type VoiceShared = ReturnType<typeof createVoiceShared>;
 const SHARED = createVoiceShared();
+// the counters of the voices of the scope (the worklet answers them to the main thread)
+export const voiceStats = () => SHARED.stats();
 
 // the weights of the 6-point Lagrange interpolation (5th order, the points -2..3) at the shares q / ratio of
 // a sample, per ratio
@@ -592,6 +697,10 @@ export const createVoiceDsp = (
   let started = false;
   let ended = false;
   let blockFrame = 0;
+  // the frame the voice started at (-1 before), its unison voices (counted while it plays)
+  let startedAt = -1;
+  let unison = 0;
+  const { counts } = shared;
 
   const oscs: Osc[] = [];
   options.osc.forEach((config, index) => {
@@ -630,6 +739,7 @@ export const createVoiceDsp = (
       },
     });
   });
+  if (__PERF__) counts[VOICES]++;
 
   let scratch = shared.scratch(BLOCK);
   let pointsLength = 0;
@@ -647,6 +757,7 @@ export const createVoiceDsp = (
   // the start of the note (its first sample, i): the unison collapses at detune 0, the phases are set
   const start = (params: Params, i: number) => {
     started = true;
+    if (__PERF__) startedAt = blockFrame + i;
     oscs.forEach((osc) => {
       const spread = params[osc.params.spread];
       if ((spread.length > 1 ? spread[i] : spread[0]) <= 0) osc.voices = 1;
@@ -656,7 +767,9 @@ export const createVoiceDsp = (
         osc.phases[v] = phase - Math.floor(phase);
         osc.fades[v] = osc.phaseRand > 0 ? fadeLength : 0;
       }
+      if (__PERF__) unison += osc.voices;
     });
+    if (__PERF__) counts[UNISON] += unison;
   };
 
   // the pitch at the points of the block for every voice: the phase step and log2 of the frequency
@@ -788,7 +901,9 @@ export const createVoiceDsp = (
     r: Float32Array,
     c: Float32Array,
     g: number,
-    mixable: boolean
+    mixable: boolean,
+    // the samples are counted (the perf build): not those of the version a crossfade goes to, the same samples
+    counted = true
   ) => {
     const { points, positions, fading } = scratch;
     const { levels } = entry;
@@ -866,9 +981,11 @@ export const createVoiceDsp = (
           const mix = osc.mixes[v];
           if (mix && osc.mixIds[v] === osc.stableId) {
             ph = render11(mix, 1, mix.length - FRAME_GUARD, ph, inc0, 0, g, out, s0, s1);
+            if (__PERF__ && counted) counts[MIX_SAMPLES] += length;
             continue;
           }
         }
+        if (__PERF__ && counted) counts[DIRECT_SAMPLES] += length;
         if (!moving) {
           ph = renderSpan(levels, level, w0, dw, k, m, 0, ph, inc0, dInc, g, out, s0, s1);
           continue;
@@ -1018,7 +1135,7 @@ export const createVoiceDsp = (
       bLeft.fill(0, a, b);
       bRight.fill(0, a, b);
       bCenter.fill(0, a, b);
-      renderVoices(osc, next, params, count, a, b, bLeft, bRight, bCenter, osc.level, false);
+      renderVoices(osc, next, params, count, a, b, bLeft, bRight, bCenter, osc.level, false, false);
       let done = osc.crossfade;
       for (let i = a; i < b; i++) {
         const share = Math.min(1, done / crossfadeLength);
@@ -1046,6 +1163,10 @@ export const createVoiceDsp = (
   const end = () => {
     if (ended) return;
     ended = true;
+    if (__PERF__) {
+      counts[VOICES]--;
+      counts[UNISON] -= unison;
+    }
     oscs.forEach((osc) => {
       if (osc.entry !== SINE) store.release(osc.entry);
       if (osc.next) store.release(osc.next);
@@ -1112,6 +1233,11 @@ export const createVoiceDsp = (
     end,
     get ended() {
       return ended;
+    },
+    // the frame the voice is scheduled at (options.start) and the one it started at (-1 before)
+    startFrame,
+    get startedAt() {
+      return startedAt;
     },
   };
 };

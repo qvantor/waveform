@@ -29,13 +29,14 @@ export const createOscillator = (
 
 export const createAdsrEnvelope = () => initModel(adsrEnvelope(), 'adsr', undefined);
 
-// the whole voice chain: synth core, input, envelope and both oscillators
-export const createSynth = (initialWavePath = ['default']) => {
+// the whole voice chain: synth core, input, envelope and both oscillators (the loader of their tables: never
+// by default)
+export const createSynth = (initialWavePath = ['default'], loadWavetable?: LoadWavetable) => {
   const synthCoreModule = createSynthCore();
   const inputControllerModule = createInputController();
   const adsrEnvelopeModule = createAdsrEnvelope();
-  const osc1 = createOscillator(synthCoreModule, 'osc1', { active: true, initialWavePath });
-  const osc2 = createOscillator(synthCoreModule, 'osc2', { active: false, initialWavePath });
+  const osc1 = createOscillator(synthCoreModule, 'osc1', { active: true, initialWavePath }, loadWavetable);
+  const osc2 = createOscillator(synthCoreModule, 'osc2', { active: false, initialWavePath }, loadWavetable);
   const synthModule = initModel(
     synth({
       synthCore: synthCoreModule,

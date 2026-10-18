@@ -1,43 +1,26 @@
 import toast from 'react-hot-toast';
+import {
+  createMidiAccess as createAccess,
+  createMidiInput as createInput,
+  midiMessage as message,
+  provideMidiAccess,
+  removeMidiAccess,
+} from '../../../../test-utils/midi';
 import { createSpiedInputController, initModel, stopModels } from '../../../../test-utils/models';
 import { midiController, midiToNote } from './midi-controller';
-
-const createInput = (id: string, name = 'Keys') =>
-  Object.assign(new EventTarget(), {
-    id,
-    name,
-    manufacturer: 'Acme',
-    type: 'input',
-  }) as unknown as WebMidi.MIDIInput;
-
-const createAccess = (inputs: WebMidi.MIDIInput[]) => {
-  const access = Object.assign(new EventTarget(), {
-    inputs: new Map(inputs.map((input) => [input.id, input])),
-  });
-  return access as unknown as WebMidi.MIDIAccess & { inputs: Map<string, WebMidi.MIDIInput> };
-};
-
-const message = (input: WebMidi.MIDIInput, ...data: number[]) =>
-  input.dispatchEvent(Object.assign(new Event('midimessage'), { data: new Uint8Array(data) }));
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 // without access the browser has no WebMIDI
 const setup = async (access?: WebMidi.MIDIAccess | Promise<never>) => {
-  if (access)
-    Object.defineProperty(navigator, 'requestMIDIAccess', {
-      configurable: true,
-      value: jest.fn(() => (access instanceof Promise ? access : Promise.resolve(access))),
-    });
+  if (access) provideMidiAccess(access);
   const { module, onPress, onRelease } = createSpiedInputController();
   const midi = initModel(midiController({ inputController: module }), 'midiController', undefined);
   await flush();
   return { midi, onPress, onRelease };
 };
 
-afterEach(() => {
-  delete (navigator as { requestMIDIAccess?: unknown }).requestMIDIAccess;
-});
+afterEach(removeMidiAccess);
 
 describe('midiToNote', () => {
   it.each([

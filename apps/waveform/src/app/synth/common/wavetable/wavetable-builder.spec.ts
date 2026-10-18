@@ -9,12 +9,19 @@ const short = Float32Array.from({ length: 64 }, (_, n) => Math.sin((2 * Math.PI 
 // the builds run when the test says so (setTimeout in the worker)
 const setup = () => {
   const queue: (() => void)[] = [];
-  const builder = createTableBuilder((run) => queue.push(run));
+  const reply = jest.fn();
+  const builder = createTableBuilder((run) => queue.push(run), reply);
   const port = { onmessage: null as null | ((event: { data: unknown }) => void), postMessage: jest.fn() };
   const run = () => queue.splice(0).forEach((task) => task());
   const connect = () => builder.receive({ port: port as unknown as MessagePort });
   const posted = () => port.postMessage.mock.calls.map(([message]) => message);
-  return { builder, port, run, connect, posted };
+  // the answer to a stats request
+  const stats = () => {
+    reply.mockClear();
+    builder.receive({ stats: true });
+    return reply.mock.calls[0][0].stats;
+  };
+  return { builder, port, run, connect, posted, stats };
 };
 
 describe('wavetable builder', () => {
@@ -80,6 +87,52 @@ describe('wavetable builder', () => {
     builder.receive({ table: 'osc2', version: 1, frames: [short] });
     run();
     expect((posted()[1] as { levels: WavetableLevels }).levels.data.buffer).not.toBe(small);
+  });
+
+  describe('stats', () => {
+    it('answers the tables waiting, before the port of the store too', () => {
+      const { builder, stats } = setup();
+      builder.receive({ table: 'osc1', version: 1, frames: [sine] });
+      expect(stats()).toEqual({ pending: 1, pooled: 0, pool: 0, builds: 0, lastMs: 0, totalMs: 0, maxMs: 0 });
+    });
+
+    it('times the builds', () => {
+      const { builder, run, connect, stats } = setup();
+      const now = jest.spyOn(performance, 'now');
+      // build 1: 10 ms, build 2: 30 ms
+      [100, 110, 200, 230].forEach((ms) => now.mockReturnValueOnce(ms));
+      connect();
+      builder.receive({ table: 'osc1', version: 1, frames: [sine] });
+      run();
+      builder.receive({ table: 'osc1', version: 2, frames: [saw] });
+      run();
+      expect(stats()).toEqual({
+        pending: 0,
+        pooled: 0,
+        pool: 0,
+        builds: 2,
+        lastMs: 30,
+        totalMs: 40,
+        maxMs: 30,
+      });
+      now.mockRestore();
+    });
+
+    it('answers the freed buffers kept and their bytes', () => {
+      const { port, connect, stats } = setup();
+      connect();
+      const bytes = tableBytes([saw]);
+      [1, 2, 3].forEach(() => port.onmessage?.({ data: { freed: new ArrayBuffer(bytes) } }));
+      expect(stats()).toMatchObject({ pooled: 2, pool: 2 * bytes });
+    });
+
+    it("doesn't take a stats request for a table", () => {
+      const { builder, run, connect, posted } = setup();
+      connect();
+      builder.receive({ stats: true });
+      run();
+      expect(posted()).toEqual([]);
+    });
   });
 
   it('knows the bytes of a table', () => {

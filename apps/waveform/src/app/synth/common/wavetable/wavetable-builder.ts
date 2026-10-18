@@ -1,5 +1,5 @@
 import { buildLevels, tableBytes } from './wavetable-mipmap';
-import type { StoreFreedMessage, StoreTableMessage } from './wavetable-osc-dsp';
+import type { StatsRequest, StoreFreedMessage, StoreTableMessage } from './wavetable-osc-dsp';
 
 // the worker that builds the levels of the tables (wavetable.worker.ts): the main thread posts it the port of
 // the store (a MessageChannel to the store processor of the worklet) and the frames of each new version of a
@@ -16,18 +16,37 @@ export interface BuildMessage {
   version: number;
   frames: Float32Array[];
 }
-export type BuilderMessage = BuilderPortMessage | BuildMessage | StoreTableMessage;
+export type BuilderMessage = BuilderPortMessage | BuildMessage | StoreTableMessage | StatsRequest;
+
+// worker → main thread: the answer to a StatsRequest (the perf test hook): the tables waiting, the freed
+// buffers kept and their bytes, the builds and their milliseconds
+export interface BuilderStats {
+  pending: number;
+  pooled: number;
+  pool: number;
+  builds: number;
+  lastMs: number;
+  totalMs: number;
+  maxMs: number;
+}
+export interface BuilderStatsMessage {
+  stats: BuilderStats;
+}
 
 type Port = Pick<MessagePort, 'postMessage'> & { onmessage: ((event: MessageEvent) => void) | null };
 
 // freed buffers kept for reuse at most (64 MB each)
 const POOL = 2;
 
-export const createTableBuilder = (schedule: (run: () => void) => void = (run) => setTimeout(run)) => {
+export const createTableBuilder = (
+  schedule: (run: () => void) => void = (run) => setTimeout(run),
+  reply: (message: BuilderStatsMessage) => void = () => undefined
+) => {
   let store: Port | null = null;
   const pending = new Map<string, BuildMessage | StoreTableMessage>();
   const freed: ArrayBuffer[] = [];
   let scheduled = false;
+  const timing = { builds: 0, lastMs: 0, totalMs: 0, maxMs: 0 };
 
   const reuse = (bytes: number) => {
     const index = freed.findIndex((buffer) => buffer.byteLength === bytes);
@@ -43,7 +62,15 @@ export const createTableBuilder = (schedule: (run: () => void) => void = (run) =
         store.postMessage(message);
         continue;
       }
+      const begin = __PERF__ ? performance.now() : 0;
       const levels = buildLevels(message.frames, reuse(tableBytes(message.frames)));
+      if (__PERF__) {
+        const ms = performance.now() - begin;
+        timing.builds++;
+        timing.lastMs = ms;
+        timing.totalMs += ms;
+        timing.maxMs = Math.max(timing.maxMs, ms);
+      }
       const stored: StoreTableMessage = { table, version: message.version, levels };
       store.postMessage(stored, [levels.data.buffer]);
     }
@@ -64,6 +91,13 @@ export const createTableBuilder = (schedule: (run: () => void) => void = (run) =
           if (freed.length > POOL) freed.shift();
         };
         later();
+        return;
+      }
+      if ('stats' in message) {
+        // (the perf build)
+        if (!__PERF__) return;
+        const pool = freed.reduce((bytes, buffer) => bytes + buffer.byteLength, 0);
+        reply({ stats: { pending: pending.size, pooled: freed.length, pool, ...timing } });
         return;
       }
       pending.set(message.table, message);

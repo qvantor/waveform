@@ -11,6 +11,8 @@ export default {
   moduleNameMapper: { '^@marsidev/react-turnstile$': '<rootDir>/src/test-utils/turnstile-mock.tsx' },
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx'],
   setupFilesAfterEnv: ['<rootDir>/src/test-setup.ts'],
+  // the specs test the code of the perf build too (src/globals.d.ts)
+  globals: { __PERF__: true },
   clearMocks: true,
   coverageDirectory: '../../coverage/apps/waveform',
 };

@@ -22,7 +22,7 @@ const params = (values: Partial<Record<VoiceParam, number>> = {}) =>
     ])
   ) as Record<VoiceParam, Float32Array>;
 
-const voice = (table: string, options: Partial<{ start: number }> = {}) =>
+const voice = (table: string, options: Partial<{ start: number; trace: boolean }> = {}) =>
   new processors[VOICE_PROCESSOR]({
     processorOptions: { osc: [{ table, unison: 1, phase: 0.25, phaseRand: 0 }, null], start: 0, ...options },
   });
@@ -124,6 +124,75 @@ describe('wavetable oscillator worklet', () => {
     expect(port.postMessage).toHaveBeenCalledWith({ freed: first.data.buffer }, [first.data.buffer]);
     expect(error).toHaveBeenCalledWith('A voice of the wavetable oscillator failed', expect.any(TypeError));
     error.mockRestore();
+  });
+
+  // the counters of the scope persist across the specs (module singletons): they are compared before and after
+  describe('stats', () => {
+    const ask = (store: WorkletProcessorStub) => {
+      store.port.postMessage.mockClear();
+      store.port.onmessage({ data: { stats: true } });
+      return store.port.postMessage.mock.calls[0][0].stats;
+    };
+
+    it('answers the counters of the store and the voices at the current frame', () => {
+      const store = new processors[STORE_PROCESSOR]({});
+      Object.assign(globalThis, { currentFrame: 640 });
+      const before = ask(store);
+      expect(before.frame).toBe(640);
+      const levels = buildLevels([saw]);
+      store.port.onmessage({ data: { table: 'counted', version: 1, levels } });
+      const processor = voice('counted');
+      render(processor, 0);
+      render(processor, 128);
+      const after = ask(store);
+      expect(after.tables - before.tables).toBe(1);
+      expect(after.versions - before.versions).toBe(1);
+      expect(after.bytes - before.bytes).toBe(levels.data.byteLength);
+      expect(after.voices - before.voices).toBe(1);
+      expect(after.unison - before.unison).toBe(1);
+      expect(after.mixSamples - before.mixSamples).toBe(128);
+    });
+
+    it('only answers a stats request: nothing is stored or acknowledged', () => {
+      const store = new processors[STORE_PROCESSOR]({});
+      const before = ask(store);
+      const after = ask(store);
+      expect(store.port.postMessage).toHaveBeenCalledTimes(1);
+      expect(store.port.postMessage).toHaveBeenCalledWith({
+        stats: expect.objectContaining({ tables: before.tables }),
+      });
+      expect(after.versions).toBe(before.versions);
+    });
+  });
+
+  describe('trace', () => {
+    const started = (processor: WorkletProcessorStub) =>
+      processor.port.postMessage.mock.calls
+        .filter(([message]) => 'started' in message)
+        .map(([message]) => message);
+
+    it('tells the frames of its start once, in the block it starts in', () => {
+      const processor = voice('none', { start: 200 / RATE, trace: true });
+      render(processor, 0);
+      expect(started(processor)).toEqual([]);
+      render(processor, 128);
+      expect(started(processor)).toEqual([{ started: 200, scheduled: 200 }]);
+      render(processor, 256);
+      expect(started(processor)).toHaveLength(1);
+    });
+
+    it('tells a start later than scheduled: its first block', () => {
+      const processor = voice('none', { start: 100 / RATE, trace: true });
+      render(processor, 1280);
+      expect(started(processor)).toEqual([{ started: 1280, scheduled: 100 }]);
+    });
+
+    it('tells nothing unless traced', () => {
+      const processor = voice('none');
+      render(processor, 0);
+      render(processor, 128);
+      expect(processor.port.postMessage).not.toHaveBeenCalled();
+    });
   });
 
   it('renders into one channel when the node has one', () => {

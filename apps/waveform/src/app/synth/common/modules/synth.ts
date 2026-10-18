@@ -1,9 +1,9 @@
-import { pairwise } from 'rxjs';
+import { pairwise, Subject } from 'rxjs';
 import { Note } from '@waveform/ui-kit';
 import { PrimitiveBS, rxModel, rxModelReact } from '@waveform/rxjs-react';
 import { getFq, stringToNote, noteToString } from '../../services';
 import { urlSnapshotPlugin } from '../../../app';
-import type { VoiceEndedMessage, VoiceOscOptions } from '../wavetable/wavetable-osc-dsp';
+import type { VoiceEndedMessage, VoiceOscOptions, VoiceStartedMessage } from '../wavetable/wavetable-osc-dsp';
 import { OSC_PARAMS, OscParam, oscParamName, VoiceParam } from '../wavetable/wavetable-osc-params';
 import { InputControllerModule } from './input-controller';
 import { AdsrEnvelopeModule, AdsrEnvelopeModel } from './adsr-envelope';
@@ -15,6 +15,14 @@ interface Deps {
   inputController: InputControllerModule;
   adsrEnvelope: AdsrEnvelopeModule;
   oscillator: [OscillatorModule, OscillatorModule];
+}
+
+// a traced voice has started (the perf test hook times the notes): its note and the frames it was scheduled
+// and started at. Voices are traced only while $voiceStarts of the model is observed
+export interface VoiceStart {
+  note: string;
+  scheduled: number;
+  started: number;
 }
 
 // seconds: the time constant a knob glides to its value on a playing note with (95% in 10 ms), it is set
@@ -103,6 +111,8 @@ interface OscillatorVoiceConfig {
   portamento?: [Note, number];
   // the voice has ended: its nodes are off the graph
   onEnded: (voice: OscillatorVoice) => void;
+  // traces the voice: its processor posts the frames of its start
+  onStarted?: (message: VoiceStartedMessage) => void;
 }
 
 type VoiceConfig = OscillatorVoiceConfig & {
@@ -112,7 +122,14 @@ type VoiceConfig = OscillatorVoiceConfig & {
 
 // the node of a note: both oscillators (off: not active when it was pressed) with their unison voices; the
 // knobs are the base of its params (oscillator $params), the unison, the phases and on/off are read now
-const createVoiceNode = ({ audioCtx, createNode, note, oscillators, portamento }: OscillatorVoiceConfig) => {
+const createVoiceNode = ({
+  audioCtx,
+  createNode,
+  note,
+  oscillators,
+  portamento,
+  onStarted,
+}: OscillatorVoiceConfig) => {
   const now = audioCtx.currentTime;
   const frequency = getFq(note);
   const from = portamento ? getFq(portamento[0]) : frequency;
@@ -125,7 +142,7 @@ const createVoiceNode = ({ audioCtx, createNode, note, oscillators, portamento }
     const { unison, phase, phaseRand } = oscillator.$osc.value;
     return { table: oscillator.id, unison, phase, phaseRand };
   });
-  const node = createNode({ osc, start: now }, parameterData);
+  const node = createNode({ osc, start: now, ...(onStarted && { trace: true }) }, parameterData);
   if (node && portamento) {
     const param = node.parameters.get('frequency') as AudioParam;
     param.setValueAtTime(from, now);
@@ -158,8 +175,10 @@ abstract class OscillatorVoice {
       this.onEnded();
       config.onEnded(this);
     };
-    node.port.onmessage = ({ data }: MessageEvent<VoiceEndedMessage>) => {
-      if (data.ended) end();
+    node.port.onmessage = ({ data }: MessageEvent<VoiceEndedMessage | VoiceStartedMessage>) => {
+      if ('started' in data) {
+        if (__PERF__) config.onStarted?.(data);
+      } else if (data.ended) end();
     };
     // its processor failed outside process() (an error in process() ends the voice there): it never ends
     node.onprocessorerror = (event) => {
@@ -291,6 +310,7 @@ interface VoicingContext {
   $portamento: PrimitiveBS<number>;
   oscillators: VoiceOscillator[];
   $envelope: AdsrEnvelopeModel['$envelope'];
+  $voiceStarts: Subject<VoiceStart>;
 }
 
 class Voicing {
@@ -309,7 +329,8 @@ class Voicing {
 
   // the voice of a note, null if the oscillator isn't ready (a note played meanwhile is not played later)
   private getVoice = (note: Note): Voice | LegatoVoice | null => {
-    const { audioCtx, outputNode, createNode, $legato, $portamento, $envelope, oscillators } = this.config;
+    const { audioCtx, outputNode, createNode, $legato, $portamento, $envelope, oscillators, $voiceStarts } =
+      this.config;
     const voicesArray = Object.keys(this.voices);
     const key = voicesArray[voicesArray.length - 1];
 
@@ -322,6 +343,10 @@ class Voicing {
       portamento: key && !$legato.value ? [stringToNote(key), $portamento.value / 1000] : undefined,
       adsrConfig: $envelope.value,
       onEnded: (voice) => this.sounding.delete(voice),
+      onStarted:
+        __PERF__ && $voiceStarts.observed
+          ? ({ scheduled, started }) => $voiceStarts.next({ note: noteToString(note), scheduled, started })
+          : undefined,
     };
     const node = createVoiceNode(voiceConfig);
     if (!node) return null;
@@ -385,6 +410,7 @@ export const synth = ({
     const $portamento = new PrimitiveBS<number>(0);
     const $legato = new PrimitiveBS<boolean>(false);
     const $voicesCount = new PrimitiveBS<number>(0);
+    const $voiceStarts = new Subject<VoiceStart>();
 
     // move to another module
     const voicingContext: VoicingContext = {
@@ -397,10 +423,11 @@ export const synth = ({
       $portamento,
       $envelope,
       oscillators: oscillators.map(([osc]) => osc),
+      $voiceStarts,
     };
     const voicing = new Voicing(voicingContext);
 
-    return { $maxVoices, $portamento, $legato, $voicesCount, voicing };
+    return { $maxVoices, $portamento, $legato, $voicesCount, $voiceStarts, voicing };
   })
     .actions(({ $maxVoices, $portamento, $legato, $voicesCount }) => ({
       setMaxVoices: (value: number) => $maxVoices.next(value),

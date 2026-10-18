@@ -5,10 +5,14 @@
     "apps/waveform/src/polyfills.ts",
     "apps/waveform/src/**/*.worklet.ts",
     "apps/waveform/src/**/*.worker.ts",
+    "apps/waveform/src/app/perf/perf-hook.perf.tsx",
+    "apps/waveform/webpack.config.js",
     "libs/*/src/index.ts",
     "netlify/functions/*.{ts,mts}",
     "scripts/*.mjs",
     "scripts/bench-osc/run.mjs",
+    "scripts/bench-perf/run.mjs",
+    "scripts/**/*.test.mjs",
     "{apps/*,libs/*,netlify}/jest.config.ts",
     "**/*.spec.{ts,tsx}",
     "apps/waveform/src/test-setup.ts",
@@ -34,7 +38,7 @@
     "eslint-plugin-react-hooks",
     "playwright"
   ],
-  "ignoreBinaries": ["mkcert"],
+  "ignoreBinaries": ["mkcert", "caffeinate", "notifyutil"],
   "ignoreUnresolved": ["^[\\w-]+=apps/waveform/src/.+\\.(worklet|worker)\\.ts$"],
   "ignoreExportsUsedInFile": true
 }

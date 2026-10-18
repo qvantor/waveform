@@ -1,10 +1,14 @@
 import {
   createTableStore,
   createVoiceDsp,
+  StatsRequest,
   StoreFreedMessage,
+  StoreStatsMessage,
   StoreTableMessage,
   VoiceEndedMessage,
   VoiceOptions,
+  VoiceStartedMessage,
+  voiceStats,
 } from './wavetable-osc-dsp';
 import { STORE_PROCESSOR, VOICE_PARAMETERS, VOICE_PROCESSOR, VoiceParam } from './wavetable-osc-params';
 
@@ -45,10 +49,19 @@ const store = createTableStore((levels) => {
 class StoreProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
-    const receive = ({ data }: MessageEvent<StoreTableMessage | StorePortMessage>) => {
+    const receive = ({ data }: MessageEvent<StoreTableMessage | StorePortMessage | StatsRequest>) => {
       if ('port' in data) {
         workerPort = data.port;
         workerPort.onmessage = receive;
+        return;
+      }
+      if ('stats' in data) {
+        // the counters of the store and of the voices of the scope (the perf build)
+        if (!__PERF__) return;
+        const answer: StoreStatsMessage = {
+          stats: { ...store.stats(), ...voiceStats(), frame: currentFrame },
+        };
+        this.port.postMessage(answer);
         return;
       }
       if (data.remove) store.remove(data.table);
@@ -73,10 +86,14 @@ class VoiceProcessor extends AudioWorkletProcessor {
   }
 
   private dsp: ReturnType<typeof createVoiceDsp>;
+  // posts the frames of its start once (VoiceOptions.trace)
+  private trace: boolean;
 
   constructor(options: AudioWorkletNodeOptions) {
     super();
-    this.dsp = createVoiceDsp(sampleRate, options.processorOptions as VoiceOptions, store);
+    const voiceOptions = options.processorOptions as VoiceOptions;
+    this.dsp = createVoiceDsp(sampleRate, voiceOptions, store);
+    this.trace = __PERF__ && !!voiceOptions.trace;
   }
 
   process(
@@ -87,7 +104,13 @@ class VoiceProcessor extends AudioWorkletProcessor {
     const outL = output[0];
     if (scratch.length !== outL.length) scratch = new Float32Array(outL.length);
     try {
-      if (this.dsp.process(currentFrame, parameters, outL, output[1] ?? scratch)) return true;
+      const playing = this.dsp.process(currentFrame, parameters, outL, output[1] ?? scratch);
+      if (__PERF__ && this.trace && this.dsp.startedAt >= 0) {
+        this.trace = false;
+        const started: VoiceStartedMessage = { started: this.dsp.startedAt, scheduled: this.dsp.startFrame };
+        this.port.postMessage(started);
+      }
+      if (playing) return true;
     } catch (error) {
       // a voice that throws ends like one released: it gives its tables back to the store (a processor that
       // failed would hold them for the life of the context) and its node is taken off the graph; the other

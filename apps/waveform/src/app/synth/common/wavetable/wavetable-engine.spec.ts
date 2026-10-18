@@ -29,7 +29,19 @@ const setup = ({ failFirstLoad = false } = {}) => {
     (worker()?.postMessage.mock.calls ?? [])
       .map(([message]) => message)
       .filter((message) => 'frames' in message);
-  return { audioCtx, addModule, engine, statuses, worker, builds };
+  // the store node and what it posts to the main thread: an ack of a version, its counters
+  const store = () =>
+    (registrar.getAudioNodes(audioCtx as never, 'AudioWorkletNode' as never) as unknown as NodeStub[])
+      .filter(({ name }) => name === STORE_PROCESSOR)
+      .at(-1);
+  const fromStore = (data: unknown, node = store()) => node?.port.onmessage?.({ data } as MessageEvent);
+  const ack = (table: string, version: number) => fromStore({ stored: table, version });
+  // both answers to a stats request
+  const answer = (worklet: unknown, builder: unknown) => {
+    fromStore({ stats: worklet });
+    worker()?.onmessage?.({ data: { stats: builder } } as MessageEvent);
+  };
+  return { audioCtx, addModule, engine, statuses, worker, builds, store, fromStore, ack, answer };
 };
 
 const saw = [-1, -0.5, 0, 0.5];
@@ -204,6 +216,113 @@ describe('wavetable engine', () => {
     engine.destroy();
     expect(worker()?.terminate).toHaveBeenCalled();
     expect(complete).toHaveBeenCalled();
+  });
+
+  describe('pending tables', () => {
+    it('lists the tables until the store acknowledges their latest version', async () => {
+      const { engine, ack } = setup();
+      engine.setTable('osc1', [saw]);
+      engine.setTable('osc2', [sine]);
+      await flush();
+      expect(engine.pending()).toEqual(['osc1', 'osc2']);
+      ack('osc1', 1);
+      expect(engine.pending()).toEqual(['osc2']);
+      engine.setTable('osc1', [sine]);
+      // an ack of an older version doesn't count
+      ack('osc1', 1);
+      expect(engine.pending()).toEqual(['osc1', 'osc2']);
+      ack('osc1', 2);
+      ack('osc2', 1);
+      expect(engine.pending()).toEqual([]);
+    });
+
+    it('numbers a table set again after its removal on from it: the store takes it over the version it holds', async () => {
+      const { engine, ack, builds, worker } = setup();
+      await flush();
+      engine.setTable('osc1', [saw]);
+      engine.setTable('osc1', [sine]);
+      engine.removeTable('osc1');
+      expect(worker()?.postMessage).toHaveBeenLastCalledWith({ table: 'osc1', version: 3, remove: true });
+      engine.setTable('osc1', [saw]);
+      expect(builds().at(-1)).toMatchObject({ table: 'osc1', version: 4 });
+      // the ack of the removal doesn't count, the one of version 4 does
+      ack('osc1', 3);
+      expect(engine.pending()).toEqual(['osc1']);
+      ack('osc1', 4);
+      expect(engine.pending()).toEqual([]);
+    });
+
+    it('forgets a removed table, and its ack', async () => {
+      const { engine, ack } = setup();
+      engine.setTable('osc1', [saw]);
+      await flush();
+      engine.removeTable('osc1');
+      ack('osc1', 2);
+      expect(engine.pending()).toEqual([]);
+      engine.setTable('osc1', [sine]);
+      expect(engine.pending()).toEqual(['osc1']);
+    });
+
+    it('sends the tables again after a failure: pending until acknowledged again', async () => {
+      jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      const { engine, ack, worker, store, fromStore } = setup();
+      engine.setTable('osc1', [saw]);
+      await flush();
+      ack('osc1', 1);
+      const failed = store();
+      worker()?.onerror?.(new Event('error'));
+      engine.retry();
+      await flush();
+      expect(engine.pending()).toEqual(['osc1']);
+      // the failed store is not heard anymore
+      fromStore({ stored: 'osc1', version: 1 }, failed);
+      expect(engine.pending()).toEqual(['osc1']);
+      ack('osc1', 1);
+      expect(engine.pending()).toEqual([]);
+    });
+  });
+
+  describe('stats', () => {
+    const worklet = { tables: 1, versions: 1, bytes: 1024, voices: 2, frame: 128 };
+    const builder = { pending: 0, pooled: 1, pool: 1024, builds: 1, lastMs: 3, totalMs: 3, maxMs: 3 };
+
+    it('null unless ready', async () => {
+      const { engine } = setup();
+      expect(await engine.stats()).toBeNull();
+      // (its module would load without AudioWorkletNode)
+      engine.destroy();
+      withoutAudioWorklet();
+      expect(await setup().engine.stats()).toBeNull();
+    });
+
+    it('asks the store and the worker for their counters', async () => {
+      const { engine, store, worker, answer } = setup();
+      await flush();
+      const asked = engine.stats();
+      expect(store()?.port.postMessage).toHaveBeenLastCalledWith({ stats: true });
+      expect(worker()?.postMessage).toHaveBeenLastCalledWith({ stats: true });
+      answer(worklet, builder);
+      expect(await asked).toEqual({ worklet, worker: builder });
+    });
+
+    it("null when an answer doesn't come in time; a late one doesn't answer the next request", async () => {
+      const { engine, answer } = setup();
+      await flush();
+      expect(await engine.stats(5)).toBeNull();
+      const next = engine.stats();
+      answer({ ...worklet, frame: 1 }, builder);
+      answer({ ...worklet, frame: 2 }, builder);
+      expect((await next)?.worklet.frame).toBe(2);
+    });
+
+    it('a failure answers null', async () => {
+      jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      const { engine, worker } = setup();
+      await flush();
+      const asked = engine.stats();
+      worker()?.onerror?.(new Event('error'));
+      expect(await asked).toBeNull();
+    });
   });
 
   it('a module that loads after destroy creates nothing', async () => {
