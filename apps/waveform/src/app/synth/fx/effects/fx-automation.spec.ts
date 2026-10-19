@@ -30,13 +30,62 @@ describe('scheduleRouted', () => {
   it('from where the param is to the knob in 10 ms, through the release', () => {
     const { param, calls } = setup();
     scheduleRouted(param, 1.05, note(2), [time], 0.2, 'linear');
-    expect(calls('setValueAtTime')).toEqual([]);
+    // the sustain stays (exactly: the corners are the sums of its stages)
+    expect(calls('setValueAtTime')).toEqual([[0.4, 2]]);
     expect(calls('linearRampToValueAtTime')).toEqual([
       [expect.closeTo(0.44, 9), expect.closeTo(1.06, 9)],
       [expect.closeTo(0.6, 9), expect.closeTo(1.1, 9)],
       [expect.closeTo(0.4, 9), expect.closeTo(1.2, 9)],
-      [expect.closeTo(0.4, 9), 2],
       [expect.closeTo(0.2, 9), 2.2],
+    ]);
+  });
+
+  it('holds a stage that ends in a step and steps at its corner', () => {
+    const { param, calls } = setup();
+    // a decay of 0 to a sustain of 0: the hold stays at the top until 0.6 after the start, then the knob drops
+    const pluck: EnvelopeParams = { attack: 0.1, hold: 0.5, decay: 0, sustain: 0, release: 0.2 };
+    scheduleRouted(param, 0.5, { ...note(), envelopes: [FLAT, pluck, FLAT] }, [time], 0.2, 'linear');
+    expect(calls('linearRampToValueAtTime')).toEqual([
+      [0.2, 0.51],
+      [expect.closeTo(0.6, 9), expect.closeTo(1.1, 9)],
+    ]);
+    expect(calls('setValueAtTime')).toEqual([
+      [0.2, 1],
+      [expect.closeTo(0.6, 9), expect.closeTo(1.6, 9)],
+      [expect.closeTo(0.2, 9), expect.closeTo(1.6, 9)],
+    ]);
+  });
+
+  it('reaches the top of an attack followed by a step to the sustain, holds the sustain to a release of 0', () => {
+    const { param, calls } = setup();
+    const step: EnvelopeParams = { attack: 0.1, hold: 0, decay: 0, sustain: 0.5, release: 0 };
+    scheduleRouted(
+      param,
+      0.5,
+      { envelopes: [FLAT, step, FLAT], start: 1, release: 2 },
+      [time],
+      0.2,
+      'linear'
+    );
+    expect(calls('linearRampToValueAtTime')).toEqual([
+      [0.2, 0.51],
+      [expect.closeTo(0.6, 9), expect.closeTo(1.1, 9)],
+    ]);
+    expect(calls('setValueAtTime')).toEqual([
+      [0.2, 1],
+      [expect.closeTo(0.4, 9), expect.closeTo(1.1, 9)],
+      [expect.closeTo(0.4, 9), 2],
+      [expect.closeTo(0.2, 9), 2],
+    ]);
+  });
+
+  it('holds the base until a start in the future with an attack of 0, then steps', () => {
+    const { param, calls } = setup();
+    scheduleRouted(param, 0.5, { ...note(), envelopes: [FLAT, FLAT, FLAT] }, [time], 0.2, 'linear');
+    expect(calls('linearRampToValueAtTime')).toEqual([[0.2, 0.51]]);
+    expect(calls('setValueAtTime')).toEqual([
+      [0.2, 1],
+      [expect.closeTo(0.6, 9), 1],
     ]);
   });
 
@@ -48,6 +97,25 @@ describe('scheduleRouted', () => {
     expect(calls('cancelScheduledValues')).toEqual([]);
     expect(calls('setValueAtTime')).toEqual([]);
     expect(calls('linearRampToValueAtTime')[0]).toEqual([expect.closeTo(0.24, 9), expect.closeTo(1.01, 9)]);
+  });
+
+  it('a corner sooner than the glide ends it: a short attack and decay are not skipped', () => {
+    const { param, calls } = setup();
+    const short: EnvelopeParams = { attack: 0.002, hold: 0, decay: 0.008, sustain: 0, release: 0 };
+    scheduleRouted(param, 1, { ...note(), envelopes: [FLAT, short, FLAT] }, [time], 0.2, 'linear');
+    expect(calls('linearRampToValueAtTime')).toEqual([
+      [expect.closeTo(0.6, 9), expect.closeTo(1.002, 9)],
+      [expect.closeTo(0.2, 9), expect.closeTo(1.01, 9)],
+    ]);
+    expect(calls('setValueAtTime')).toEqual([]);
+  });
+
+  it('steps at a corner the glide ends at where the envelope steps', () => {
+    const { param, calls } = setup();
+    const held: EnvelopeParams = { attack: 0, hold: 0.005, decay: 0, sustain: 0.5, release: 0 };
+    scheduleRouted(param, 1, { ...note(), envelopes: [FLAT, held, FLAT] }, [time], 0.2, 'linear');
+    expect(calls('linearRampToValueAtTime')).toEqual([[expect.closeTo(0.6, 9), expect.closeTo(1.005, 9)]]);
+    expect(calls('setValueAtTime')).toEqual([[expect.closeTo(0.4, 9), expect.closeTo(1.005, 9)]]);
   });
 
   it('ramps a log knob exponentially', () => {

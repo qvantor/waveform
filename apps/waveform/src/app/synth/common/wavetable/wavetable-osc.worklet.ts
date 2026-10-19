@@ -88,8 +88,10 @@ class VoiceProcessor extends AudioWorkletProcessor {
   }
 
   private dsp: ReturnType<typeof createVoiceDsp>;
-  // posts the frames of its start once (VoiceOptions.trace)
+  // posts the frames of its start once: traced (VoiceOptions.trace), or started after them (its node came
+  // late: the fx and Poly follow its first sample)
   private trace: boolean;
+  private reported = false;
 
   constructor(options: AudioWorkletNodeOptions) {
     super();
@@ -111,10 +113,11 @@ class VoiceProcessor extends AudioWorkletProcessor {
     if (scratch.length !== outL.length) scratch = new Float32Array(outL.length);
     try {
       const playing = this.dsp.process(currentFrame, parameters, outL, output[1] ?? scratch);
-      if (__PERF__ && this.trace && this.dsp.startedAt >= 0) {
-        this.trace = false;
-        const started: VoiceStartedMessage = { started: this.dsp.startedAt, scheduled: this.dsp.startFrame };
-        this.port.postMessage(started);
+      const { startedAt, startFrame } = this.dsp;
+      if (!this.reported && startedAt >= 0) {
+        this.reported = true;
+        const started: VoiceStartedMessage = { started: startedAt, scheduled: startFrame };
+        if (this.trace || startedAt > startFrame) this.port.postMessage(started);
       }
       if (playing) return true;
     } catch (error) {

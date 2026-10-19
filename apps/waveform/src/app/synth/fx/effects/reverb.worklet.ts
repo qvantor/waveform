@@ -12,5 +12,5 @@ registerStereoProcessor(
     if (active !== undefined) dsp.setActive(active);
   },
   // the knobs the envelopes move (fx-modulation.ts); the lines are worked out again only while they move
-  (dsp, values) => dsp.set(values)
+  (dsp, values) => dsp.set(values, true)
 );

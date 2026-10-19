@@ -11,7 +11,15 @@ import type { VoiceFilterMessage, VoiceFilterOptions } from '../wavetable/voice-
 import { amountInUnits, filterTargetScale, MOD_TARGETS } from '../modulation/modulation-targets';
 import type { FilterModule } from '../../filter/modules/filter';
 import type { FxNote } from '../../fx/effects/fx-modulation';
-import { OSC_PARAMS, OscParam, oscParamName, VoiceParam } from '../wavetable/wavetable-osc-params';
+import {
+  OSC_PARAMS,
+  OscParam,
+  oscParamName,
+  RELEASE_GATE,
+  RELEASE_LEAD,
+  releaseStart,
+  VoiceParam,
+} from '../wavetable/wavetable-osc-params';
 import { InputControllerModule } from './input-controller';
 import { EnvelopesModule } from './envelopes';
 import { ModRoute, ModulationModule } from './modulation';
@@ -84,6 +92,22 @@ const voiceRoutes = (routes: ModRoute[], on: boolean[], filter: VoiceFilterOptio
     return [scale === 'log' ? { ...route, log: true } : route];
   });
 
+// the envelopes of a note, in legato of its phrase (its notes share them): its number (the processors find
+// the phrase by it: two of them may be scheduled at the same time), ENV 1–3 (read at the note on, in legato
+// at the start of the phrase), the seconds of the context time they are scheduled at (the note on of its
+// first note: they don't start again) and those they started at (later when the first voice was processed
+// late: it starts them at its first sample, and tells it)
+interface Phrase {
+  id: number;
+  envelopes: EnvelopeParams[];
+  start: number;
+  started: number;
+}
+
+// the numbers of the phrases, unique in the page (a model created again on the same context doesn't take the
+// number of a voice still playing)
+let phrases = 0;
+
 interface VoiceConfig {
   audioCtx: AudioContext;
   createNode: SynthCoreModule[0]['wavetables']['createVoice'];
@@ -94,15 +118,16 @@ interface VoiceConfig {
   oscillators: VoiceOscillator[];
   // the note it glides from and the seconds of the glide
   portamento?: [Note, number];
-  // ENV 1–3 of the note (read at the note on, in legato at the start of the phrase) and the seconds of the
-  // context time they start at (in legato the start of the phrase: they don't start again)
-  envelopes: EnvelopeParams[];
-  envStart: number;
+  // its envelopes (its own, in legato those of its phrase)
+  phrase: Phrase;
   // the routes of the modulation (to its params: voiceRoutes) and the filter (null: off)
   routes: ModRoute[];
   filter: VoiceFilterOptions | null;
   // the voice has ended: its node is off the graph
   onEnded: (voice: Voice) => void;
+  // its processor started it later than scheduled, at `startedAt` (seconds of the context): its node came
+  // after that block began
+  onLate: (startedAt: number) => void;
   // traces the voice: its processor posts the frames of its start
   onStarted?: (message: VoiceStartedMessage) => void;
 }
@@ -117,8 +142,7 @@ const createVoiceNode = ({
   start: now,
   oscillators,
   portamento,
-  envelopes,
-  envStart,
+  phrase: { id: phrase, envelopes, start: envStart },
   routes,
   filter,
   onStarted,
@@ -141,6 +165,7 @@ const createVoiceNode = ({
       start: now,
       envelopes,
       envStart,
+      phrase,
       routes: voiceRoutes(routes, on, filter),
       filter,
       ...(onStarted && { trace: true }),
@@ -164,11 +189,14 @@ class Voice {
   private links = new Map<string, () => void>();
   // the oscillators on when the note was pressed
   private on: boolean[];
-  // the end of the release, Infinity while the note is held
-  releaseEnd = Infinity;
-  // its envelopes, as the fx follow them while it is the last note (from the frame it is scheduled at: a voice
-  // processed later starts its own there, at most a device buffer after them)
-  readonly fxNote: FxNote;
+  // the milliseconds of the note on (performance.now): the time its key is held, currentTime moves by device
+  // buffers
+  private pressedAt = performance.now();
+  // the seconds of the context its first sample is at: its start, later once its processor tells it started
+  // late
+  private startedAt: number;
+  // the key was released: the seconds of the context then and those it was held
+  private stopped: { now: number; held: number } | null = null;
   // the routes its processor has (JSON): a change of the routes of other knobs sends nothing
   private routes: string;
 
@@ -177,7 +205,7 @@ class Voice {
   constructor(config: VoiceConfig, node: AudioWorkletNode) {
     this.config = config;
     this.node = node;
-    this.fxNote = { envelopes: config.envelopes, start: config.envStart, release: null };
+    this.startedAt = config.start;
     this.on = config.oscillators.map(({ $active }) => $active.value);
     this.routes = JSON.stringify(voiceRoutes(config.routes, this.on, config.filter));
     node.connect(config.outputNode);
@@ -196,6 +224,10 @@ class Voice {
     node.port.onmessage = ({ data }: MessageEvent<VoiceEndedMessage | VoiceStartedMessage>) => {
       if ('started' in data) {
         if (__PERF__) config.onStarted?.(data);
+        if (data.started > data.scheduled) {
+          this.startedAt = data.started / config.audioCtx.sampleRate;
+          config.onLate(this.startedAt);
+        }
       } else if (data.ended) end();
     };
     // its processor failed outside process() (an error in process() ends the voice there): it never ends
@@ -226,11 +258,34 @@ class Voice {
     return this.node.parameters.get('gate') as AudioParam;
   }
 
-  // the key is released: the release of ENV 1 starts now, from the level it has reached
+  get phrase() {
+    return this.config.phrase;
+  }
+
+  // the seconds of the context its release starts at, as its processor starts it (null while the key is
+  // held): as long after its first sample as the key was held, not before it sees the gate (now, or its first
+  // sample if later), at most RELEASE_LEAD after it
+  get releaseAt() {
+    if (!this.stopped) return null;
+    const { now, held } = this.stopped;
+    return releaseStart(Math.max(now, this.startedAt), this.startedAt + held, RELEASE_LEAD);
+  }
+
+  // the end of the release, Infinity while the note is held
+  get releaseEnd() {
+    const at = this.releaseAt;
+    return at === null ? Infinity : at + this.config.phrase.envelopes[0].release;
+  }
+
+  // the key is released: the release of ENV 1 starts from the level it has reached, as long after the start as
+  // the key was held (a note shorter than a device buffer would see the currentTime of its note on: released
+  // at its start, silent). The gate tells the processor how long (from the first sample of the voice: it may
+  // be processed late), the fx release at that time (releaseAt)
   stop = () => {
     const now = this.config.audioCtx.currentTime;
-    setParam(this.gate, 0, now);
-    this.releaseEnd = now + this.config.envelopes[0].release;
+    const held = (performance.now() - this.pressedAt) / 1000;
+    setParam(this.gate, RELEASE_GATE + held, now);
+    this.stopped = { now, held };
   };
 
   // a stolen voice: its node fades out (5 ms) instead of being cut
@@ -293,9 +348,11 @@ class Voicing {
   // held ones, a long release would pile up voices of fast playing above it
   private released: Voice[] = [];
   // legato: the notes pressed while another one is held share the envelopes of the first one, started then
-  private phrase: { start: number; envelopes: EnvelopeParams[] } | undefined;
-  // the last note pressed: the fx follow its envelopes until the next one
+  private phrase: Phrase | undefined;
+  // the last note pressed: the fx follow the envelopes of its phrase until the next one, from where they
+  // started; released with the release of `fxRelease` (the last note, in legato the last key of its phrase)
   private last: Voice | null = null;
+  private fxRelease: Voice | null = null;
 
   constructor(config: VoicingContext) {
     this.voices = {};
@@ -310,9 +367,13 @@ class Voicing {
     const voicesArray = Object.keys(this.voices);
     const key = voicesArray[voicesArray.length - 1];
     const now = audioCtx.currentTime;
-    const envelopes = ENVELOPES.map((id) => $envelopes.value[id]);
-    if ($legato.value && !this.phrase) this.phrase = { start: now, envelopes };
-    const phrase = $legato.value ? this.phrase : undefined;
+    const own: Phrase = {
+      id: ++phrases,
+      envelopes: ENVELOPES.map((id) => $envelopes.value[id]),
+      start: now,
+      started: now,
+    };
+    const phrase = $legato.value ? (this.phrase ??= own) : own;
 
     const voiceConfig: VoiceConfig = {
       audioCtx,
@@ -322,8 +383,7 @@ class Voicing {
       start: now,
       oscillators,
       portamento: key && !$legato.value ? [stringToNote(key), $portamento.value / 1000] : undefined,
-      envelopes: phrase?.envelopes ?? envelopes,
-      envStart: phrase?.start ?? now,
+      phrase,
       routes: $routes.value,
       filter: voiceFilter(),
       onStarted:
@@ -334,10 +394,24 @@ class Voicing {
         this.sounding.delete(voice);
         if (this.forget(voice)) this.config.onCount();
       },
+      // processed late: the envelopes of the first note of a phrase started with it; the fx follow them (and
+      // its release) from there while they are those of the last note
+      onLate: (startedAt) => {
+        if (phrase === own) phrase.started = startedAt;
+        if (phrase === this.last?.phrase) this.followFx();
+      },
     };
     const node = createVoiceNode(voiceConfig);
     return node ? new Voice(voiceConfig, node) : null;
   };
+
+  // the envelopes the fx follow: those of the phrase of the last note from where they started, released with
+  // fxRelease
+  private followFx() {
+    if (!this.last) return;
+    const { envelopes, started } = this.last.phrase;
+    this.config.$fxNote.next({ envelopes, start: started, release: this.fxRelease?.releaseAt ?? null });
+  }
 
   // a released voice is no longer counted: it has ended or it is stolen; true if it was
   private forget(voice: Voice) {
@@ -370,7 +444,8 @@ class Voicing {
     this.voices[noteToString(note)] = voice;
     this.sounding.add(voice);
     this.last = voice;
-    this.config.$fxNote.next(voice.fxNote);
+    this.fxRelease = null;
+    this.followFx();
   };
 
   onRelease = (note: Note) => {
@@ -382,10 +457,12 @@ class Voicing {
     delete this.voices[stringNote];
     this.released.push(voice);
     const held = Object.keys(this.voices).length;
-    // the fx release their envelopes with the last note, in legato with the last key of the phrase
-    const { $fxNote } = this.config;
-    if ($fxNote.value && (this.phrase ? held === 0 : voice === this.last))
-      $fxNote.next({ ...$fxNote.value, release: this.config.audioCtx.currentTime });
+    // the fx release their envelopes with the last note (at its release), in legato with the last key of the
+    // phrase
+    if (this.last && (this.phrase ? held === 0 : voice === this.last)) {
+      this.fxRelease = voice;
+      this.followFx();
+    }
     // the last key of a legato phrase: the next note starts a new one
     if (held === 0) this.phrase = undefined;
   };

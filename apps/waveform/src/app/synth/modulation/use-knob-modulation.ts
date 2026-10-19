@@ -1,5 +1,5 @@
 import React from 'react';
-import { BehaviorSubject } from 'rxjs';
+import { BehaviorSubject, distinctUntilChanged, map } from 'rxjs';
 import { HandleModulation, HandleProps } from '@waveform/ui-kit';
 import { useObservable } from '@waveform/rxjs-react';
 import { number } from '@waveform/math';
@@ -12,7 +12,7 @@ import { amountInUnits, MOD_TARGETS, ModScale } from '../common/modulation/modul
 import { ENVELOPE_COLORS, ENVELOPE_LABELS } from '../envelope/envelope-colors';
 
 const NO_ROUTES = new BehaviorSubject<ModRoute[]>([]);
-const NO_VOICES = new BehaviorSubject(0);
+const NOT_LIVE = new BehaviorSubject(false);
 
 const sign = (value: number) => (value > 0 ? '+' : value < 0 ? '-' : '');
 
@@ -40,11 +40,23 @@ export const useKnobModulation = (
   const $routes = module?.[0].$routes ?? NO_ROUTES;
   const routes = useObservable($routes, $routes.value);
   const actions = module?.[1];
-  // the live dot of a ring: the level of its envelope in the last note (as the fx follow it), while voices sound
+  // the live dot of a ring: the level of its envelope in the last note (as the fx follow it), while voices
+  // sound: only a knob with routes renders, when the first voice starts and when the last one ends
   const synth = React.useContext(SynthContext);
   const core = React.useContext(SynthCoreContext);
-  const $voices = synth?.[0].$voicesCount ?? NO_VOICES;
-  const live = useObservable($voices, $voices.value) > 0;
+  const $voices = synth?.[0].$voicesCount;
+  const routed = routes.some((route) => route.target === target);
+  const $live = React.useMemo(
+    () =>
+      $voices && routed
+        ? $voices.pipe(
+            map((count) => count > 0),
+            distinctUntilChanged()
+          )
+        : NOT_LIVE,
+    [$voices, routed]
+  );
+  const live = useObservable($live, routed && ($voices?.value ?? 0) > 0);
   const level = React.useCallback(
     (source: ModSource) => () => {
       const note = synth?.[0].$fxNote.value;

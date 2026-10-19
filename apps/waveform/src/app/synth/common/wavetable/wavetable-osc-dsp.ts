@@ -1,7 +1,7 @@
 import type { EnvelopeParams } from '../envelope/envelope-curve';
 import { createEnvelopeBlock } from '../envelope/envelope-block';
 import { FRAME_GUARD, levelBase, WavetableLevels } from './wavetable-levels';
-import { oscParamName, VoiceParam } from './wavetable-osc-params';
+import { oscParamName, RELEASE_GATE, RELEASE_LEAD, releaseStart, VoiceParam } from './wavetable-osc-params';
 import { createVoiceModulation, ParamAccess, VoiceRoute } from './voice-modulation';
 import { createVoiceFilter, VoiceFilterOptions } from './voice-filter';
 
@@ -28,6 +28,9 @@ export interface VoiceOptions {
   // time they start at: the note on, in legato the start of the phrase (they don't start again)
   envelopes: EnvelopeParams[];
   envStart: number;
+  // the phrase of the note, a number of the main thread unique in the context: the notes of a legato phrase
+  // share it (and its envelopes), a note on starts one of its own
+  phrase: number;
   // the envelopes move these params (voice-modulation.ts), changed on a playing note by a message
   routes: VoiceRoute[];
   // the filter after the oscillators (voice-filter.ts), null: off; its knobs change by a message
@@ -40,8 +43,9 @@ export interface VoiceOptions {
 export interface VoiceEndedMessage {
   ended: true;
 }
-// voice → main thread, once, for a traced voice: the frame it was scheduled at and the one it started at (its
-// first block: later when the node was created after its start)
+// voice → main thread, once: the frame it was scheduled at and the one it started at (its first block: later
+// when the node was created after its start). A traced voice tells it always, another one only when late (the
+// fx and Poly follow it from its first sample)
 export interface VoiceStartedMessage {
   started: number;
   scheduled: number;
@@ -471,8 +475,45 @@ export const createVoiceShared = () => {
   let budgetFrame = -1;
   let spent = 0;
   const counts = new Float64Array(10);
+  // legato: the phrases of the voices that play, by their number (VoiceOptions.phrase; not by the frame their
+  // envelopes are scheduled at: a key released and the next one pressed within a device buffer start two
+  // phrases at the same frame): the frame they started at (-1 before the first voice has started: processed
+  // late, it starts them at its first sample, the notes of the phrase start theirs there too) and the voices
+  // of it (forgotten after the last one). Not only the latest: a note out of legato starts its own while the
+  // keys of a phrase are held, a note of that phrase may come after it
+  const phrases = new Map<number, { frame: number; voices: number }>();
   return {
     counts,
+    // a voice joins its phrase until it ends: one that starts its envelopes (a note on, the first note of a
+    // phrase) opens it (or joins it, a chord of a phrase pressed at once), a note of a phrase joins it while a
+    // voice of it plays; false: an unknown phrase, not joined
+    joinPhrase: (id: number, opens: boolean) => {
+      let phrase = phrases.get(id);
+      if (!phrase) {
+        if (!opens) return false;
+        phrase = { frame: -1, voices: 0 };
+        phrases.set(id, phrase);
+      }
+      phrase.voices++;
+      return true;
+    },
+    // a voice of it has ended
+    leavePhrase: (id: number) => {
+      const phrase = phrases.get(id);
+      if (phrase && --phrase.voices <= 0) phrases.delete(id);
+    },
+    // its first voice has started its envelopes at `frame`
+    startPhrase: (id: number, frame: number) => {
+      const phrase = phrases.get(id);
+      if (phrase && phrase.frame < 0) phrase.frame = frame;
+    },
+    // the frame the envelopes of a phrase scheduled at `start` start at, for a note of it whose first block is
+    // at `frame`: its first voice was created before it, so it has started, or starts in this block (the order
+    // the nodes are processed in is the browser's); an unknown phrase: its start
+    phraseFrame: (id: number, start: number, frame: number) => {
+      const phrase = phrases.get(id);
+      return !phrase ? start : phrase.frame >= 0 ? phrase.frame : Math.max(start, frame);
+    },
     scratch: (length: number) => {
       if (length > size) {
         size = length;
@@ -686,8 +727,9 @@ interface Osc {
 // power of a channel stays that of one voice. Every voice starts at `phase` shifted by a random share of its period up to
 // phaseRand: at 0 all of them start in phase (their peaks add up, n voices are louder at the onset and
 // their beats sweep through the spectrum together), at 1 at any phase (steady, the power of one voice).
-// A voice at a random phase fades in (FADE_IN), at phaseRand 0 it starts at once (a click of its wave is
-// intended, as with a native oscillator). random() is drawn only here, at the note on.
+// A voice at a random phase fades in (FADE_IN), so does a note of a legato phrase (its envelopes go on: it
+// would start at their level); a note on at phaseRand 0 starts at once (a click of its wave is intended, as
+// with a native oscillator). random() is drawn only here, at the note on.
 // The pitch: frequency · 2^(detune / 1200), clamped to 0..nyquist; it picks the levels of the table that
 // don't fold back (level r keeps base · 2^(-r/3), levelBase): the pitch range p = 1 + 3·log2(base · f / nyquist),
 // level floor(p) crossfaded with the next one by its fraction (as the PeriodicWave of a browser). The
@@ -701,10 +743,10 @@ interface Osc {
 // and reads only that: a held note costs what a native oscillator does, with its aliasing; the direct
 // reading is left to the notes that glide or morph. A new version of the table is crossfaded into
 // (CROSSFADE). The voice starts at options.start; its volume is ENV 1 (exact to the sample, from
-// options.envStart: in legato the start of the phrase, so it doesn't start again). Where its gate param drops
-// to 0 the release of ENV 1 starts, from the level it has reached; the voice ends where ENV 1 is back at 0
-// (exactly, to the sample), or after the fade of a stolen voice (gate below 0, KILL_FADE); process() returns
-// false from then on
+// options.envStart: in legato the start of the phrase, so it doesn't start again). Once its gate param is
+// released (RELEASE_GATE + the seconds the key was held, 0: at that sample) the release of ENV 1 starts, from
+// the level it has reached; the voice ends where ENV 1 is back at 0 (exactly, to the sample), or after the
+// fade of a stolen voice (gate below 0, KILL_FADE); process() returns false from then on
 export const createVoiceDsp = (
   sampleRate: number,
   options: VoiceOptions,
@@ -727,10 +769,14 @@ export const createVoiceDsp = (
   const killLength = Math.max(1, Math.round(KILL_FADE * sampleRate));
   const fadeLength = Math.max(1, Math.round(FADE_IN * sampleRate));
   const crossfadeLength = Math.max(1, Math.round(CROSSFADE * sampleRate));
+  const leadLength = Math.round(RELEASE_LEAD * sampleRate);
+  // a note of a legato phrase: its envelopes started before it; it counts in its phrase until it ends
+  const inPhrase = envStartFrame < startFrame;
+  const joined = shared.joinPhrase(options.phrase, !inPhrase);
   let started = false;
   let ended = false;
   let blockFrame = 0;
-  // the frame the voice started at (-1 before), its unison voices (counted while it plays)
+  // the frame the voice started at, its first sample (-1 before), its unison voices (counted while it plays)
   let startedAt = -1;
   let unison = 0;
   const { counts } = shared;
@@ -813,13 +859,14 @@ export const createVoiceDsp = (
 
   // the start of the note (its first sample, i): the unison collapses at detune 0, the phases are set. A voice
   // processed after its start (its node came after the block of its start began: a device buffer late) starts
-  // its envelopes there, the attack is not skipped; in legato they go on from the start of the phrase
+  // its envelopes there, the attack is not skipped; in legato they go on from the start of the phrase, where
+  // its first voice started them (the voices of a phrase stay in step)
   const start = (params: Params, i: number) => {
     started = true;
-    if (__PERF__) startedAt = blockFrame + i;
-    const late = blockFrame + i - startFrame;
-    if (late > 0 && envStartFrame >= startFrame)
-      envelopes.forEach((envelope) => envelope.startAt(envStartFrame + late));
+    startedAt = blockFrame + i;
+    const envFrame = inPhrase ? shared.phraseFrame(options.phrase, envStartFrame, blockFrame) : startedAt;
+    if (envFrame > envStartFrame) envelopes.forEach((envelope) => envelope.startAt(envFrame));
+    if (!inPhrase) shared.startPhrase(options.phrase, startedAt);
     oscs.forEach((osc) => {
       const spread = params[osc.params.spread];
       // ENV → Detune would never spread the voices of a unison collapsed at a detune of 0
@@ -829,7 +876,7 @@ export const createVoiceDsp = (
       for (let v = 0; v < osc.voices; v++) {
         const phase = osc.phase + osc.random[v] * osc.phaseRand;
         osc.phases[v] = phase - Math.floor(phase);
-        osc.fades[v] = osc.phaseRand > 0 ? fadeLength : 0;
+        osc.fades[v] = osc.phaseRand > 0 || inPhrase ? fadeLength : 0;
       }
       if (__PERF__) unison += osc.voices;
     });
@@ -1231,6 +1278,7 @@ export const createVoiceDsp = (
   const end = () => {
     if (ended) return;
     ended = true;
+    if (joined) shared.leavePhrase(options.phrase);
     if (__PERF__) {
       counts[VOICES]--;
       counts[UNISON] -= unison;
@@ -1259,17 +1307,22 @@ export const createVoiceDsp = (
         outR.fill(0);
         return true;
       }
-      // before the gate: a release in its first block counts from where its envelopes start
+      // before the gate: a release counts from the first sample
       if (!started) start(params, a);
-      // the gate: 0 starts the release of ENV 1 at that sample, below 0 the fade of a stolen voice
+      // the gate: released, the release of ENV 1 starts; below 0 the fade of a stolen voice
       const gate = params.gate;
       for (let i = a; gate && i < (gate.length > 1 ? n : a + 1); i++) {
         const value = gate.length > 1 ? gate[i] : gate[0];
-        if (value > 0) continue;
-        if (value === 0) {
-          // the release, once: the voice stops where ENV 1 is back at 0
+        if (value > 0 && value < RELEASE_GATE) continue;
+        if (value >= 0) {
+          // the release, once: the voice stops where ENV 1 is back at 0. As long after its first sample as the
+          // key was held, wherever the gate is seen (the node and the automation reach the audio thread each
+          // with a lag of its own), not before the sample it is seen at (the level would step), at most
+          // RELEASE_LEAD after it (a clock stalled while the key was held); 0: at that sample
           if (!amp.released) {
-            for (let k = 0; k < envelopes.length; k++) envelopes[k].release(frame + i);
+            const held = startedAt + Math.round(Math.max(0, value - RELEASE_GATE) * sampleRate);
+            const at = releaseStart(frame + i, held, leadLength);
+            for (let k = 0; k < envelopes.length; k++) envelopes[k].release(at);
             modulation.wake();
             stopFrame = Math.min(stopFrame, amp.endFrame);
           }

@@ -28,6 +28,21 @@ export const envelopeValue = (env: EnvelopeParams, t: number, releasedAt = Infin
   return r < env.release ? from * (1 - r / env.release) : 0;
 };
 
+// envelopeValue just before t: at a corner the end of the stage before it. They differ where the envelope
+// steps: an attack, a decay or a release of 0 (the automation of a knob holds a stage, then steps with it)
+export const envelopeValueBefore = (env: EnvelopeParams, t: number, releasedAt = Infinity) => {
+  const { attack, hold, decay, sustain, release } = env;
+  if (t <= releasedAt) {
+    if (t <= 0) return 0;
+    if (t <= attack) return t / attack;
+    if (t <= attack + hold) return 1;
+    if (t <= attack + hold + decay) return 1 + ((sustain - 1) * (t - attack - hold)) / decay;
+    return sustain;
+  }
+  const r = t - releasedAt;
+  return r <= release ? envelopeLevel(env, releasedAt) * (1 - r / release) : 0;
+};
+
 // the stage at `t`: out[0] its value at t, out[1] its slope (per second), out[2] the time it lasts until
 // (Infinity: for ever). Flat stages (before the start, hold, sustain, after the release) have the slope 0:
 // a block within one of them has one value. Released at `releasedAt`; returns out

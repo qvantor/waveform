@@ -1,4 +1,4 @@
-import { EnvelopeParams, envelopeValue } from '../../common/envelope/envelope-curve';
+import { EnvelopeParams, envelopeValue, envelopeValueBefore } from '../../common/envelope/envelope-curve';
 
 // the modulation of the fx knobs: there is one fx for the whole synth, so its knobs follow the envelopes of the
 // last note pressed (in legato its phrase: a note of the phrase doesn't start them again). Shared by the main
@@ -35,21 +35,27 @@ export interface FxModMessage {
   mod?: FxModulation | null;
 }
 
-// the levels of the envelopes of the note at t (seconds of the context): each route sums amount × level
-const level = (note: FxNote, env: number, t: number) =>
-  envelopeValue(
-    note.envelopes[env],
-    t - note.start,
-    note.release === null ? Infinity : note.release - note.start
-  );
+// the levels of the envelopes of the note t seconds after its start (before: just before t): each route sums
+// amount × level
+const level = (note: FxNote, env: number, t: number, before: boolean) => {
+  const released = note.release === null ? Infinity : note.release - note.start;
+  return before
+    ? envelopeValueBefore(note.envelopes[env], t, released)
+    : envelopeValue(note.envelopes[env], t, released);
+};
 
-// a knob moved by its routes at t: base + Σ amount × level (base × 2^Σ for a log one), clamped to its range
-export const routedValue = (base: number, routes: FxRoute[], note: FxNote, t: number) => {
+// a knob moved by its routes t seconds after the start of the note (before: just before t, at a corner the end
+// of the stage before it), not clamped: base + Σ amount × level (base × 2^Σ for a log one)
+export const routedUnclamped = (base: number, routes: FxRoute[], note: FxNote, t: number, before = false) => {
   let sum = 0;
-  for (let r = 0; r < routes.length; r++) sum += routes[r].amount * level(note, routes[r].env, t);
-  const { min, max, log } = routes[0];
-  const value = log ? base * 2 ** sum : base + sum;
-  return Math.min(max, Math.max(min, value));
+  for (let r = 0; r < routes.length; r++) sum += routes[r].amount * level(note, routes[r].env, t, before);
+  return routes[0].log ? base * 2 ** sum : base + sum;
+};
+
+// a knob moved by its routes at t (seconds of the context), clamped to its range
+export const routedValue = (base: number, routes: FxRoute[], note: FxNote, t: number) => {
+  const { min, max } = routes[0];
+  return Math.min(max, Math.max(min, routedUnclamped(base, routes, note, t - note.start)));
 };
 
 // the routes grouped by knob

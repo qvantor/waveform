@@ -113,15 +113,17 @@ export const createVoiceFilter = (sampleRate: number, options: VoiceFilterOption
     targets[0] = Math.log2(Math.max(1e-3, next.cutoff));
     targets[1] = next.resonance;
     targets[2] = next.gain;
-    if (next.type !== type) last.fill(NaN);
-    type = next.type;
-    // a filter turned on starts at its knobs from silence
-    if (!glide || !flags.on) {
+    // a filter turned on starts at its knobs from silence; another type takes them at once (its state goes
+    // on, as the native node's): the units of the resonance differ, the Q of a bandpass is linear, that of a
+    // lowpass in dB, a glide from one to the other would pass through a huge Q
+    const restart = !glide || !flags.on;
+    if (restart || next.type !== type) {
       values.set(targets);
       for (let k = 0; k < 3; k++) settle(k);
-      state.fill(0);
       last.fill(NaN);
     }
+    if (restart) state.fill(0);
+    type = next.type;
     flags.on = true;
   };
   set(options, false);

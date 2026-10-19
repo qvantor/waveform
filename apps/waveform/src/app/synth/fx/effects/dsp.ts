@@ -131,11 +131,14 @@ export type Smoothed = ReturnType<typeof createSmoothed>;
 // at the start of the block, so delay lengths can be interpolated per sample instead of jumping
 export const createSmoothed = (initial: number, timeConstant: number, sampleRate: number) => {
   let target = initial;
+  let glide = timeConstant;
   const state = { from: initial, value: initial };
   return Object.assign(state, {
-    // the first value is applied instantly, like a param set before the effect is heard
-    set: (value: number, instant = false) => {
+    // the first value is applied instantly, like a param set before the effect is heard; `seconds`: the time
+    // constant of this glide (the one of the param by default)
+    set: (value: number, instant = false, seconds = timeConstant) => {
       target = value;
+      glide = seconds;
       if (instant) [state.from, state.value] = [value, value];
     },
     // jumps to the target
@@ -146,7 +149,7 @@ export const createSmoothed = (initial: number, timeConstant: number, sampleRate
     step: (frames: number): boolean => {
       state.from = state.value;
       if (state.value === target) return false;
-      state.value += (target - state.value) * (1 - Math.exp(-frames / (timeConstant * sampleRate)));
+      state.value += (target - state.value) * (1 - Math.exp(-frames / (glide * sampleRate)));
       if (Math.abs(target - state.value) <= Math.abs(target) * 1e-6 + 1e-9) state.value = target;
       return true;
     },

@@ -34,10 +34,12 @@ const voice = (
       osc: [{ table, unison: 1, phase: 0.25, phaseRand: 0 }, null],
       start: 0,
       envelopes: [FLAT, FLAT, FLAT],
-      envStart: 0,
       routes: [],
       filter: null,
+      phrase: 0,
       ...options,
+      // a note on: its envelopes start with it
+      envStart: options.start ?? 0,
     },
   });
 
@@ -179,7 +181,7 @@ describe('wavetable oscillator worklet', () => {
     });
   });
 
-  describe('trace', () => {
+  describe('the frames of its start', () => {
     const started = (processor: WorkletProcessorStub) =>
       processor.port.postMessage.mock.calls
         .filter(([message]) => 'started' in message)
@@ -201,11 +203,18 @@ describe('wavetable oscillator worklet', () => {
       expect(started(processor)).toEqual([{ started: 1280, scheduled: 100 }]);
     });
 
-    it('tells nothing unless traced', () => {
+    it('tells nothing of a start on time unless traced', () => {
       const processor = voice('none');
       render(processor, 0);
       render(processor, 128);
       expect(processor.port.postMessage).not.toHaveBeenCalled();
+    });
+
+    it('tells a start later than scheduled once, traced or not: the fx and Poly follow it', () => {
+      const processor = voice('none', { start: 100 / RATE });
+      render(processor, 1280);
+      render(processor, 1408);
+      expect(started(processor)).toEqual([{ started: 1280, scheduled: 100 }]);
     });
   });
 

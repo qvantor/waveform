@@ -84,6 +84,7 @@ const renderVoice = (rate: number, frames: number, start: number) => {
       start,
       envelopes: [FLAT, FLAT, FLAT],
       envStart: start,
+      phrase: 0,
       routes: [],
       filter: null,
     },

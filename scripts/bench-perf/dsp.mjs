@@ -127,6 +127,7 @@ const createCases = (dsp) => {
       // ENV 1 at full level, no route, no filter: the oscillators as they play
       envelopes: [0, 1, 2].map(() => ({ attack: 0, hold: 0, decay: 0, sustain: 1, release: 0 })),
       envStart: 0,
+      phrase: 0,
       routes: [],
       filter: null,
     };

@@ -131,12 +131,11 @@ describe('Oscillator', () => {
       expect(knob('Detune').modulations).toHaveLength(1);
     });
 
-    it('the dot of a ring follows the envelope of the last note while voices sound', () => {
+    // the oscillator with the synth: its last note and the count of its voices
+    const setupWithSynth = () => {
       const oscillator = createOscillator();
       const modulation = createModulation();
       const [model, actions] = oscillator;
-      const decay = { attack: 0, hold: 0, decay: 1, sustain: 0, release: 0 };
-      const flat = { attack: 0, hold: 0, decay: 0, sustain: 1, release: 0 };
       const $fxNote = new BehaviorSubject<unknown>(null);
       const $voicesCount = new BehaviorSubject(0);
       const synth = [{ $fxNote, $voicesCount }, {}] as unknown as SynthModule;
@@ -154,6 +153,26 @@ describe('Oscillator', () => {
           </SynthContext.Provider>
         </SynthCoreContext.Provider>
       );
+      return { modulation, $fxNote, $voicesCount };
+    };
+
+    it('renders on the voices only with routes: when the first one starts and the last one ends', () => {
+      const { modulation, $voicesCount } = setupWithSynth();
+      // whether the knobs rendered when the synth had `count` voices
+      const rendered = (count: number) => {
+        const before = (Handle as jest.Mock).mock.calls.length;
+        act(() => $voicesCount.next(count));
+        return (Handle as jest.Mock).mock.calls.length > before;
+      };
+      expect([1, 2, 0].map(rendered)).toEqual([false, false, false]);
+      act(() => modulation[1].addRoute('env2', 'osc1.gain'));
+      expect([1, 2, 3, 1, 0, 1].map(rendered)).toEqual([true, false, false, false, true, true]);
+    });
+
+    it('the dot of a ring follows the envelope of the last note while voices sound', () => {
+      const { modulation, $fxNote, $voicesCount } = setupWithSynth();
+      const decay = { attack: 0, hold: 0, decay: 1, sustain: 0, release: 0 };
+      const flat = { attack: 0, hold: 0, decay: 0, sustain: 1, release: 0 };
       act(() => modulation[1].addRoute('env2', 'osc1.gain'));
       const gain = () =>
         (

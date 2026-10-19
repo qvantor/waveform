@@ -102,7 +102,16 @@ export const createVoiceScope = ({
       const voice: ScopeVoice = {
         dsp: createVoiceDsp(
           rate,
-          { osc, start, envelopes: [FLAT, FLAT, FLAT], envStart: start, routes: [], filter: null },
+          // a phrase of its own: the voices of a scope are notes, not of a legato phrase
+          {
+            osc,
+            start,
+            envelopes: [FLAT, FLAT, FLAT],
+            envStart: start,
+            phrase: voices.length,
+            routes: [],
+            filter: null,
+          },
           store,
           random,
           shared

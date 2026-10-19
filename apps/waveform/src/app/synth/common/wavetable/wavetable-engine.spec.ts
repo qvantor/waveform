@@ -55,7 +55,10 @@ describe('wavetable engine', () => {
     expect(statuses).toEqual(['loading']);
     expect(workletLoads(addModule, 'wavetable-osc')).toBe(1);
     expect(
-      engine.createVoice({ osc: [], start: 0, envelopes: [], envStart: 0, routes: [], filter: null }, {})
+      engine.createVoice(
+        { osc: [], start: 0, envelopes: [], envStart: 0, phrase: 0, routes: [], filter: null },
+        {}
+      )
     ).toBeNull();
     await flush();
     expect(statuses).toEqual(['loading', 'ready']);
@@ -128,6 +131,7 @@ describe('wavetable engine', () => {
       start: 1,
       envelopes: [{ attack: 0, hold: 0, decay: 0, sustain: 1, release: 0.1 }],
       envStart: 1,
+      phrase: 0,
       routes: [],
       filter: null,
     };
@@ -150,7 +154,10 @@ describe('wavetable engine', () => {
     await flush();
     expect(statuses).toEqual(['unsupported']);
     expect(
-      engine.createVoice({ osc: [], start: 0, envelopes: [], envStart: 0, routes: [], filter: null }, {})
+      engine.createVoice(
+        { osc: [], start: 0, envelopes: [], envStart: 0, phrase: 0, routes: [], filter: null },
+        {}
+      )
     ).toBeNull();
 
     Object.assign(globalThis, { Worker: undefined });
@@ -171,7 +178,10 @@ describe('wavetable engine', () => {
     expect(statuses).toEqual(['loading', 'failed']);
     expect(error).toHaveBeenCalledWith('The wavetable oscillator failed', expect.any(Error));
     expect(
-      engine.createVoice({ osc: [], start: 0, envelopes: [], envStart: 0, routes: [], filter: null }, {})
+      engine.createVoice(
+        { osc: [], start: 0, envelopes: [], envStart: 0, phrase: 0, routes: [], filter: null },
+        {}
+      )
     ).toBeNull();
 
     engine.retry();
@@ -207,14 +217,17 @@ describe('wavetable engine', () => {
     const { engine, statuses, worker } = setup();
     await flush();
     const voice = engine.createVoice(
-      { osc: [], start: 0, envelopes: [], envStart: 0, routes: [], filter: null },
+      { osc: [], start: 0, envelopes: [], envStart: 0, phrase: 0, routes: [], filter: null },
       {}
     );
     expect(voice?.onprocessorerror).toBeNull();
     expect(statuses).toEqual(['loading', 'ready']);
     expect(worker()?.terminate).not.toHaveBeenCalled();
     expect(
-      engine.createVoice({ osc: [], start: 0, envelopes: [], envStart: 0, routes: [], filter: null }, {})
+      engine.createVoice(
+        { osc: [], start: 0, envelopes: [], envStart: 0, phrase: 0, routes: [], filter: null },
+        {}
+      )
     ).not.toBeNull();
   });
 

@@ -13,7 +13,7 @@ import {
   VoiceOscOptions,
   VoiceShared,
 } from './wavetable-osc-dsp';
-import { VoiceParam } from './wavetable-osc-params';
+import { RELEASE_GATE, VoiceParam } from './wavetable-osc-params';
 import type { VoiceRoute } from './voice-modulation';
 import type { VoiceFilterOptions } from './voice-filter';
 
@@ -44,7 +44,8 @@ const osc = (config: Partial<VoiceOscOptions> = {}): VoiceOscOptions => ({
   ...config,
 });
 
-// the gate param drops to 0 at the release (setValueAtTime), below 0 for a stolen voice
+// the gate param from `stop` on (setValueAtTime): released (0 at that sample, RELEASE_GATE + h h seconds after
+// the first sample), below 0 for a stolen voice
 const gateAt =
   (stop: number, value = 0) =>
   (frame: number) =>
@@ -63,6 +64,8 @@ interface RenderOptions {
   envelope?: EnvelopeParams;
   envStart?: number;
   envelopes?: EnvelopeParams[];
+  // its phrase (0 by default: a render has its own shared)
+  phrase?: number;
   routes?: VoiceRoute[];
   filter?: VoiceFilterOptions | null;
   random?: () => number;
@@ -86,6 +89,7 @@ const render = ({
   envelope = FLAT,
   envStart = start,
   envelopes = [FLAT, FLAT],
+  phrase = 0,
   routes = [],
   filter = null,
   random,
@@ -96,7 +100,7 @@ const render = ({
 }: RenderOptions) => {
   const dsp = createVoiceDsp(
     rate,
-    { osc: oscs, start, envelopes: [envelope, ...envelopes], envStart, routes, filter },
+    { osc: oscs, start, envelopes: [envelope, ...envelopes], envStart, phrase, routes, filter },
     store,
     random ?? seeded(1),
     shared
@@ -706,12 +710,14 @@ describe('wavetable voice dsp', () => {
       expect(endedAt).toBe(3968);
     });
 
-    it('does not start again in legato: it goes on from the start of the phrase', () => {
-      // the phrase started 0.01 s before the note: at its first sample the envelope is at the end of the attack
+    it('does not start again in legato: it goes on from the start of the phrase, fading in', () => {
+      // the phrase started 0.01 s before the note: at its first sample the envelope is at the end of the attack,
+      // the note fades in over 1.5 ms (72 samples) instead of stepping to that level
       const start = 1000;
       const { left } = peak(4096, { envelope: env, start: sec(start), envStart: sec(start) - 0.01 });
-      expect(left.subarray(0, start).every((value) => value === 0)).toBe(true);
-      expect(left[start]).toBeCloseTo(1, 4);
+      expect(left.subarray(0, start + 1).every((value) => value === 0)).toBe(true);
+      expect(left[start + 36]).toBeCloseTo(0.5, 4);
+      expect(left[start + 72]).toBeCloseTo(1, 4);
       expect(left[start + 960]).toBeCloseTo(envelopeValue(env, 0.01 + sec(960)), 4);
     });
 
@@ -721,7 +727,7 @@ describe('wavetable voice dsp', () => {
       for (let i = 1280; i < 4096; i += 7) expect(left[i]).toBeCloseTo(envelopeValue(env, sec(i - 1280)), 4);
       expect(left[1280]).toBe(0);
       expect(left[1280 + 480]).toBeCloseTo(1, 4);
-      // released in its first block: from the level reached since its first sample
+      // released after its first block: at that sample, from the level reached since its first sample
       const released = peak(8192, {
         envelope: env,
         start: sec(100),
@@ -730,9 +736,142 @@ describe('wavetable voice dsp', () => {
       });
       expect(released.left[1280 + 240]).toBeCloseTo(0.5, 4);
       expect(released.endedAt).toBe(Math.floor((1280 + 240 + 0.03 * RATE) / BLOCK) * BLOCK);
-      // a note of a phrase started 0.01 s before it: the level of the phrase at its first sample
+      // a note of a phrase started 0.01 s before it (its first voice unknown): the level of the phrase once it
+      // has faded in
       const legato = peak(4096, { envelope: env, start: sec(100), envStart: sec(100) - 0.01, from: 1280 });
-      expect(legato.left[1280]).toBeCloseTo(envelopeValue(env, 0.01 + sec(1180)), 4);
+      expect(legato.left[1280]).toBe(0);
+      expect(legato.left[1280 + 72]).toBeCloseTo(envelopeValue(env, 0.01 + sec(1180 + 72)), 4);
+    });
+
+    it('starts the envelopes of a note of a phrase where its first voice, processed late, started them', () => {
+      // the first note scheduled at 100 is processed from 1280, the second one of the phrase from 2048: it is in
+      // the decay of the phrase started at 1280 (in its sustain from 100)
+      const shared = createVoiceShared();
+      peak(4096, { envelope: env, start: sec(100), from: 1280, shared });
+      const { left } = peak(4096, {
+        envelope: env,
+        start: sec(2000),
+        envStart: sec(100),
+        from: 2048,
+        shared,
+      });
+      for (let i = 2048 + 72; i < 4096; i += 7)
+        expect(left[i]).toBeCloseTo(envelopeValue(env, sec(i - 1280)), 4);
+      expect(left[2048 + 72]).toBeGreaterThan(0.9);
+    });
+
+    it('starts the envelopes of a note of a phrase where its first voice will, processed after it in a block', () => {
+      // both are processed from 1280 on, the second one first: the first voice starts there in this block
+      const shared = createVoiceShared();
+      const { store } = storeWith({ a: [sine] });
+      const first = createVoiceDsp(
+        RATE,
+        {
+          osc: [osc()],
+          start: sec(100),
+          envelopes: [env, FLAT, FLAT],
+          envStart: sec(100),
+          phrase: 0,
+          routes: [],
+          filter: null,
+        },
+        store,
+        seeded(1),
+        shared
+      );
+      const { left } = peak(4096, {
+        envelope: env,
+        start: sec(1200),
+        envStart: sec(100),
+        from: 1280,
+        shared,
+      });
+      for (let i = 1280 + 72; i < 4096; i += 7)
+        expect(left[i]).toBeCloseTo(envelopeValue(env, sec(i - 1280)), 4);
+      expect(first.startedAt).toBe(-1);
+    });
+
+    it('keeps the phrase of a held note when a note out of legato starts its own meanwhile', () => {
+      // the first note scheduled at 100 is processed from 1280; legato off, a note starts its envelopes at
+      // 1536; legato on again, a note of the first phrase from 2048: in the decay of the phrase started at 1280
+      const shared = createVoiceShared();
+      peak(4096, { envelope: env, start: sec(100), from: 1280, shared });
+      peak(4096, { envelope: env, start: sec(1536), from: 1536, phrase: 1, shared });
+      const { left } = peak(4096, {
+        envelope: env,
+        start: sec(2000),
+        envStart: sec(100),
+        from: 2048,
+        shared,
+      });
+      for (let i = 2048 + 72; i < 4096; i += 7)
+        expect(left[i]).toBeCloseTo(envelopeValue(env, sec(i - 1280)), 4);
+      expect(left[2048 + 72]).toBeGreaterThan(0.9);
+    });
+
+    it('keeps two phrases scheduled at the same frame apart', () => {
+      // a key released and the next one pressed within a device buffer: both phrases are scheduled at 100, the
+      // first one processed from 1280 (still playing), the next one from 1792; a note of the next one from 2048
+      // goes on from 1792 (in its attack), not from the first one
+      const shared = createVoiceShared();
+      peak(4096, { envelope: env, start: sec(100), from: 1280, shared });
+      peak(4096, { envelope: env, start: sec(100), from: 1792, phrase: 1, shared });
+      const { left } = peak(4096, {
+        envelope: env,
+        start: sec(2000),
+        envStart: sec(100),
+        from: 2048,
+        phrase: 1,
+        shared,
+      });
+      for (let i = 2048 + 72; i < 4096; i += 7)
+        expect(left[i]).toBeCloseTo(envelopeValue(env, sec(i - 1792)), 4);
+      expect(left[2048 + 72]).toBeLessThan(0.7);
+    });
+
+    it('forgets a phrase once its voices have ended: a note of it goes on from its start', () => {
+      // the only voice of the phrase, processed from 1280, released at 1400, has ended (a release of 1 ms)
+      const short = { ...env, release: 0.001 };
+      const shared = createVoiceShared();
+      const first = peak(4096, {
+        envelope: short,
+        start: sec(100),
+        from: 1280,
+        params: { frequency: 0.01, gate: gateAt(1400) },
+        shared,
+      });
+      expect(first.endedAt).toBe(1408);
+      const { left } = peak(4096, {
+        envelope: short,
+        start: sec(1536),
+        envStart: sec(100),
+        from: 1536,
+        shared,
+      });
+      for (let i = 1536 + 72; i < 4096; i += 7)
+        expect(left[i]).toBeCloseTo(envelopeValue(short, sec(i - 100)), 4);
+    });
+
+    it('processed after its start, releases as long after its first sample as its key was held, wherever it is seen', () => {
+      // scheduled at 100, its first block at 1280: the gate seen with its node, in a later block before the
+      // release (1520, held 1420 frames: at 2700), after it (at the sample it is seen), held over a stalled clock
+      // (at most 50 ms after it is seen)
+      [
+        [1280, sec(200), 200],
+        [1520, sec(1420), 1420],
+        [3000, sec(100), 1720],
+        [2000, 10, 720 + 2400],
+      ].forEach(([seen, hold, held]) => {
+        const { left, endedAt } = peak(8192, {
+          envelope: env,
+          start: sec(100),
+          from: 1280,
+          params: { frequency: 0.01, gate: gateAt(seen, RELEASE_GATE + hold) },
+        });
+        for (let i = 1280; i < 8192; i += 5)
+          expect(left[i]).toBeCloseTo(envelopeValue(env, sec(i - 1280), sec(held)), 4);
+        expect(endedAt).toBe(Math.floor((1280 + held + 0.03 * RATE) / BLOCK) * BLOCK);
+      });
     });
 
     it('fades a stolen voice out within 5 ms from the level it has', () => {
@@ -1008,6 +1147,20 @@ describe('wavetable voice dsp', () => {
       });
       [...toggled].forEach((value) => expect(Number.isFinite(value)).toBe(true));
     });
+
+    it('takes the knobs of another type at once: the units of the resonance differ', () => {
+      // the Q of a bandpass is linear, that of a lowpass in dB: gliding from 1000 to 20 would pass through
+      // a lowpass of several hundred dB
+      const { store } = storeWith({ a: [sine] });
+      const bandpass: VoiceFilterOptions = { type: 'bandpass', cutoff: 1000, resonance: 1000, gain: 0 };
+      const resonant: VoiceFilterOptions = { type: 'lowpass', cutoff: 1000, resonance: 20, gain: 0 };
+      const play = (filter: VoiceFilterOptions, before?: RenderOptions['before']) =>
+        render({ store, params: { frequency: 1000 }, filter, frames: 8192, before }).left;
+      const peak = (values: Float32Array) => values.reduce((max, value) => Math.max(max, Math.abs(value)), 0);
+      const steady = play(resonant);
+      const changed = play(bandpass, (frame, dsp) => frame === 2048 && dsp.setFilter(resonant));
+      expect(peak(changed.subarray(2048))).toBeLessThan(1.5 * peak(steady.subarray(4096)));
+    });
   });
 
   describe('oscillators', () => {
@@ -1088,6 +1241,7 @@ describe('wavetable voice dsp', () => {
           start: 100 / RATE,
           envelopes: [FLAT, FLAT, FLAT],
           envStart: 100 / RATE,
+          phrase: 0,
           routes: [],
           filter: null,
         },
