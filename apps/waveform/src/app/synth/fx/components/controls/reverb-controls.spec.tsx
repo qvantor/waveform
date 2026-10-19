@@ -2,6 +2,8 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { FX_PARAMS } from '@waveform/preset-schema';
 import { mapValues } from 'lodash';
+import { withElementSize } from '../../../../../test-utils/element-size';
+import { createLiveRoutes } from '../../../../../test-utils/live-routes';
 import { reverb } from '../../effects/reverb';
 import { ReverbControls } from './reverb-controls';
 
@@ -174,5 +176,32 @@ describe('reverb param formatting', () => {
       .filter(([, def]) => def.mode === 'log')
       .map(([key]) => key);
     expect(logs.sort()).toEqual(['bass', 'damp', 'decay', 'lowcut']);
+  });
+
+  it('the decay curve follows where the routes of its knobs move them while they sound', () => {
+    const restore = withElementSize(160, 80);
+    const curve = (
+      changes: Partial<typeof params>,
+      Wrapper?: React.JSXElementConstructor<React.PropsWithChildren>
+    ) => {
+      const { unmount } = render(
+        <ReverbControls params={{ ...params, ...changes }} setParam={jest.fn()} on sampleRate={48000} />,
+        { wrapper: Wrapper }
+      );
+      const d = Array.from(screen.getByTestId('reverb-decay').querySelectorAll('path')).map((path) =>
+        path.getAttribute('d')
+      );
+      unmount();
+      return d;
+    };
+    const { Wrapper, route, play } = createLiveRoutes();
+    route('reverb.size', 0.5);
+    route('reverb.bass', -0.5);
+    play(0.5);
+    // a quarter of the travel each: Size 0.5 → 0.75, Bass (log 0.25..4) 1 → 0.5
+    const moved = curve({ size: 0.5, bass: 1 }, Wrapper);
+    expect(moved).toEqual(curve({ size: 0.75, bass: 0.5 }));
+    expect(moved).not.toEqual(curve({ size: 0.5, bass: 1 }));
+    restore();
   });
 });

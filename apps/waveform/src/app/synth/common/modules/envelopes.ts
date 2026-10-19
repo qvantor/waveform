@@ -21,7 +21,7 @@ export const envelopes = () =>
   rxModel(() => {
     const $envelopes = new ObjectBS<Envelopes>(defaultEnvelopes());
     // the envelope the section shows and its knobs edit: the state of the UI, not in the preset
-    const $selected = new BehaviorSubject<EnvelopeId>('env1');
+    const $selected = new BehaviorSubject<EnvelopeId>(ENVELOPES[0]);
     return { $envelopes, $selected };
   })
     .actions(({ $envelopes, $selected }) => ({
@@ -59,6 +59,10 @@ export const envelopes = () =>
       })
     );
 
-export const { ModelProvider: EnvelopesProvider, useModel: useEnvelopes } = rxModelReact('env', envelopes);
+export const {
+  ModelProvider: EnvelopesProvider,
+  useModel: useEnvelopes,
+  Context: EnvelopesContext,
+} = rxModelReact('env', envelopes);
 
 export type EnvelopesModule = ReturnType<typeof useEnvelopes>;

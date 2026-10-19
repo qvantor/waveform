@@ -6,6 +6,7 @@ import { number } from '@waveform/math';
 import { text12 } from '../common/styles';
 import { theme } from '../common/constants';
 import { singlePointerTracker } from '../common/utils';
+import { StepArrows } from '../draggable-number/step-arrows';
 
 interface DragValueProps {
   label: string;
@@ -18,6 +19,8 @@ interface DragValueProps {
   travel?: number;
   // past one end it goes on from the other (an angle): max is min
   cyclic?: boolean;
+  // it steps by whole numbers: the arrows of DraggableNumber after the value
+  arrows?: boolean;
   formatValue?: (value: number) => string;
   // without it the value is only shown
   onChange?: (value: number) => void;
@@ -81,6 +84,7 @@ export const DragValue = ({
   precision = 100,
   travel = 200,
   cyclic = false,
+  arrows = false,
   formatValue,
   onChange,
   onActiveChange,
@@ -154,6 +158,7 @@ export const DragValue = ({
     >
       <Label>{label}</Label>
       <Value>{formatted}</Value>
+      {arrows && <StepArrows active={active} />}
     </Root>
   );
 };

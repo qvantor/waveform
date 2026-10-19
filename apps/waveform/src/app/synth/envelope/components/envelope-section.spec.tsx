@@ -1,5 +1,5 @@
 import React from 'react';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { AdsrEnvelope, formatTime } from '@waveform/ui-kit';
 import { MOD_SOURCES } from '@waveform/preset-schema';
 import { EnvelopesProvider, ModulationProvider, useEnvelopes, useModulation } from '../../common/modules';
@@ -7,6 +7,7 @@ import { EnvelopesModule } from '../../common/modules/envelopes';
 import { ModulationModule } from '../../common/modules/modulation';
 import { MOD_TARGETS } from '../../common/modulation/modulation-targets';
 import { EnvelopeSection } from './envelope-section';
+import { EnvelopeDot } from './envelope-dot';
 
 jest.mock('@waveform/ui-kit', () => ({
   ...jest.requireActual('@waveform/ui-kit'),
@@ -80,7 +81,24 @@ describe('EnvelopeSection', () => {
     expect($envelopes.value.env1.attack).toBe(0.005);
   });
 
-  it('a tab dragged onto a knob assigns its envelope to it at +50%, once', () => {
+  it('the chart has the dot of the note on the envelope of the selected tab, one of its own per tab', () => {
+    const { props } = setup();
+    const dot = () => props().children as React.ReactElement;
+    expect(dot()).toMatchObject({ type: EnvelopeDot, key: 'env1', props: { id: 'env1' } });
+    fireEvent.click(screen.getByRole('tab', { name: 'ENV 3' }));
+    expect(dot()).toMatchObject({ type: EnvelopeDot, key: 'env3', props: { id: 'env3' } });
+  });
+
+  it('only the selected tab has the grip of a drag', () => {
+    setup();
+    const grips = () =>
+      screen.getAllByRole('tab').map((tab) => within(tab).queryByTestId('env-grip') !== null);
+    expect(grips()).toEqual([true, false, false]);
+    fireEvent.click(screen.getByRole('tab', { name: 'ENV 2' }));
+    expect(grips()).toEqual([false, true, false]);
+  });
+
+  it('a tab dragged onto a knob assigns its envelope to it at +50%, once, and selects it', () => {
     const { modulation } = setup();
     const [{ $routes }, { setAmount }] = modulation;
     dragTab('ENV 2', screen.getByTestId('knob'));
@@ -89,8 +107,8 @@ describe('EnvelopeSection', () => {
     dragTab('ENV 2', screen.getByTestId('knob'));
     dragTab('ENV 3', document.body);
     expect($routes.value).toEqual([{ source: 'env2', target: 'osc1.wave', amount: 0.2 }]);
-    // the drag didn't select it
-    expect(screen.getByRole('tab', { name: 'ENV 1' }).getAttribute('aria-selected')).toBe('true');
+    // the drop selected it: the knobs show its routes
+    expect(screen.getByRole('tab', { name: 'ENV 2' }).getAttribute('aria-selected')).toBe('true');
   });
 
   it('with 64 routes a dragged tab adds none', () => {

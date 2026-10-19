@@ -1,5 +1,5 @@
-// one requestAnimationFrame loop for every subscriber (the live dots of the amount rings), running while one is:
-// many rings don't each schedule a frame of their own
+// one requestAnimationFrame loop for every subscriber (the live marks of the modulated controls), running
+// while one is: many controls don't each schedule a frame of their own
 const subscribers = new Set<() => void>();
 let frame = 0;
 

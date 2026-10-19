@@ -7,6 +7,9 @@ import { Handle } from '../handle';
 import { theme } from '../common/constants';
 import { text12 } from '../common/styles';
 
+export { NoteDot } from './note-dot';
+export type { NotePath } from './note-dot';
+
 const Root = styled.div`
   height: 100%;
   display: flex;
@@ -93,11 +96,13 @@ type Props = LineProps & {
   onChange: (key: keyof LineProps, value: number) => void;
   // seconds of a stage at most
   maxTime: number;
+  // HTML over the chart, in its context (the NoteDot of a playing note)
+  children?: React.ReactNode;
 };
 
 // the chart scales to the whole envelope; the time knobs are nonlinear (pow): short times get most of their
 // travel
-export const AdsrEnvelope = ({ onChange, maxTime, ...rest }: Props) => {
+export const AdsrEnvelope = ({ onChange, maxTime, children, ...rest }: Props) => {
   const { attack, hold, decay, sustain, release } = rest;
   const formatValue = formatTime;
   const handleProps = {
@@ -114,7 +119,7 @@ export const AdsrEnvelope = ({ onChange, maxTime, ...rest }: Props) => {
 
   return (
     <Root>
-      <Chart domainX={[0, Math.max(length * 1.1, 0.5)]} domainY={[1, 0]} padding={[10, 5]}>
+      <Chart domainX={[0, Math.max(length * 1.1, 0.5)]} domainY={[1, 0]} padding={[10, 5]} overlay={children}>
         <YAxis ticks={2} />
         <XAxis ticks={4} formatText={formatTime} />
         <CustomLine {...rest} />

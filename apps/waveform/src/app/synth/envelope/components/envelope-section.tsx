@@ -4,6 +4,7 @@ import { useBehaviorSubject } from '@waveform/rxjs-react';
 import { ENVELOPE_TIME_MAX } from '@waveform/preset-schema';
 import { useEnvelopes, useModulation } from '../../common/modules';
 import { EnvelopeTabs } from './envelope-tabs';
+import { EnvelopeDot } from './envelope-dot';
 
 export const EnvelopeSection = () => {
   const [{ $envelopes, $selected }, { setEnvelopeValue, select }] = useEnvelopes();
@@ -11,12 +12,27 @@ export const EnvelopeSection = () => {
   const envelopes = useBehaviorSubject($envelopes);
   const selected = useBehaviorSubject($selected);
   return (
-    <Section name={<EnvelopeTabs selected={selected} onSelect={select} onDrop={addRoute} />}>
+    <Section
+      plain
+      name={
+        <EnvelopeTabs
+          selected={selected}
+          onSelect={select}
+          // the knobs show the route of the selected tab: the new one shows at once
+          onDrop={(id, target) => {
+            addRoute(id, target);
+            select(id);
+          }}
+        />
+      }
+    >
       <AdsrEnvelope
         {...envelopes[selected]}
         maxTime={ENVELOPE_TIME_MAX}
         onChange={(key, value) => setEnvelopeValue(selected, key, value)}
-      />
+      >
+        <EnvelopeDot key={selected} id={selected} env={envelopes[selected]} />
+      </AdsrEnvelope>
     </Section>
   );
 };

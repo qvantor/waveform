@@ -2,9 +2,11 @@ import React from 'react';
 import styled from 'styled-components';
 import { Vector2D } from '@waveform/math';
 import { Deactivated } from '../../common/styles';
+import { liveKnob } from '../../common/utils';
+import { HandleModulation } from '../../handle';
 import { LineChart } from '../../line-chart';
-import { DB_RANGE, getChartData } from '../services';
-import { FilterProps } from '../types';
+import { DB_RANGE } from '../services';
+import { FilterNumerics, FilterProps, FilterRange } from '../types';
 import { FilterLineChart } from './filter-linechart';
 
 const Root = styled.div`
@@ -27,6 +29,9 @@ type Props = Partial<Pick<FilterProps, 'gain'>> &
     sampleRate: number;
     active?: boolean;
     className?: string;
+    // the knobs of the params (their travel) and their routes: the chart follows where the routes move them
+    ranges?: Partial<Record<FilterNumerics, FilterRange>>;
+    modulations?: Partial<Record<FilterNumerics, HandleModulation[]>>;
   };
 
 // frequency response chart of a BiquadFilterNode with these params
@@ -38,16 +43,19 @@ export const FilterResponse = ({
   sampleRate,
   active = true,
   className,
+  ranges,
+  modulations,
 }: Props) => {
-  const data = React.useMemo(
-    () => getChartData(type, { cutoff, resonance, gain }, sampleRate),
-    [type, cutoff, resonance, gain, sampleRate]
-  );
+  const knobs = [
+    liveKnob(cutoff, ranges?.cutoff, modulations?.cutoff),
+    liveKnob(resonance, ranges?.resonance, modulations?.resonance),
+    liveKnob(gain, ranges?.gain, modulations?.gain),
+  ];
   return (
     <Root className={className} data-testid='filter-response'>
       {!active && <Deactivated data-testid='filter-response-deactivated' />}
       <Chart domainY={[DB_RANGE, -DB_RANGE]} padding={CHART_PADDING}>
-        <FilterLineChart data={data} />
+        <FilterLineChart type={type} sampleRate={sampleRate} knobs={knobs} active={active} />
       </Chart>
     </Root>
   );

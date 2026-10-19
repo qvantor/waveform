@@ -102,12 +102,14 @@ describe('Chart of the wave', () => {
   });
 
   it('highlights the wave inside the band: the line clipped by its rects', () => {
-    const { set } = setup();
+    const { set, container } = setup();
     set(0.75, 0.5);
     const overlay = screen.getByTestId('phase-overlay');
     const highlight = overlay.querySelector('g[clip-path]');
     const clip = highlight?.getAttribute('clip-path')?.match(/^url\(#(.+)\)$/)?.[1];
-    expect(highlight?.querySelector('path')?.getAttribute('d')).toContain(
+    // the path of the wave itself: it follows the wave drawn
+    const line = highlight?.querySelector('use')?.getAttribute('href') ?? '';
+    expect(container.querySelector(`path${line}`)?.getAttribute('d')).toContain(
       'L0,50L100,0L200,50L300,100L400,50'
     );
     expect(overlay.querySelector(`clipPath[id="${clip}"]`)?.querySelectorAll('rect')).toHaveLength(2);
@@ -145,5 +147,34 @@ describe('Chart of the wave', () => {
       jest.advanceTimersByTime(PHASE_FADE);
     });
     expect(screen.getByTestId('phase-overlay').style.opacity).toBe('1');
+  });
+
+  it('draws the wave where the routes of the Wave knob move the position: the frames morphed, the point on it', () => {
+    const oscillator = createOscillator();
+    const [{ $position }, actions] = oscillator;
+    act(() =>
+      actions.setWaveTable([
+        [0, 1, 0, -1],
+        [0, 0.5, 0, -0.5],
+        [0, 0, 0, 0],
+      ])
+    );
+    const route = { id: 'env2', color: '#fff', amount: 0.5, level: () => 0.5, live: true };
+    const chart = (modulations?: typeof route[]) => (
+      <OscillatorContext.Provider value={oscillator}>
+        <Chart phaseVisible modulations={modulations} />
+      </OscillatorContext.Provider>
+    );
+    const line = (container: HTMLElement) => container.querySelector('path')?.getAttribute('d');
+    act(() => actions.setOscValue('phase', 0.25));
+    // a quarter of the travel of 3 frames: from frame 0 to between 0 and 1, the crest at 0.75
+    const live = render(chart([route]));
+    const moved = line(live.container);
+    expect(moved).toContain('L0,50L100,12.5L200,50L300,87.5L400,50');
+    expect(Number(screen.getByTestId('phase-dot').getAttribute('cy'))).toBe(12.5);
+    live.unmount();
+    act(() => $position.next(0.5));
+    const still = render(chart());
+    expect(line(still.container)).toBe(moved);
   });
 });

@@ -1,4 +1,4 @@
-import { TextEncoder } from 'util';
+import { TextDecoder, TextEncoder } from 'util';
 import '@testing-library/jest-dom';
 import {
   AudioContext as AudioContextMock,
@@ -139,8 +139,8 @@ Object.assign(globalThis, {
   Worker: WorkerStub,
 });
 
-// jsdom has no TextEncoder, presetHash needs it
-Object.assign(globalThis, { TextEncoder });
+// jsdom has no TextEncoder and TextDecoder: presetHash needs the encoder, the paths of the charts the decoder
+Object.assign(globalThis, { TextEncoder, TextDecoder });
 
 // antd uses matchMedia for responsive observers
 Object.defineProperty(window, 'matchMedia', {

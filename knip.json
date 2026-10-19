@@ -15,7 +15,7 @@
     "scripts/**/*.test.mjs",
     "{apps/*,libs/*,netlify}/jest.config.ts",
     "**/*.spec.{ts,tsx}",
-    "apps/waveform/src/test-setup.ts",
+    "{apps/waveform,libs/ui-kit}/src/test-setup.ts",
     "apps/waveform/src/test-utils/*.{ts,tsx}",
     "apps/waveform/__mocks__/*.ts"
   ],

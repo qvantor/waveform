@@ -2,6 +2,7 @@ import React from 'react';
 import styled from 'styled-components';
 import { reverb } from '../../effects/reverb';
 import { ReverbParam } from '../../effects/reverb-presets';
+import { KnobModulation, useKnobModulation } from '../../../modulation/use-knob-modulation';
 import { ControlsGroup, groupChart, LastGroups } from './group';
 import { ParamHandle } from './param-handle';
 import { ParamSwitch } from './param-switch';
@@ -19,6 +20,13 @@ const { params: defs } = reverb;
 // input | time | decay (chart) | levels (faders: er, sep, mod); the wet level is the common mix of FxPanel,
 // which also lays the groups out (many knobs: they wrap on narrow screens)
 export const ReverbControls = ({ params, setParam, on, sampleRate, out }: FxControlsProps) => {
+  // the knobs of the decay curve: it follows where their routes move them
+  const charted: Partial<Record<ReverbParam, KnobModulation>> = {
+    size: useKnobModulation('reverb.size'),
+    decay: useKnobModulation('reverb.decay'),
+    damp: useKnobModulation('reverb.damp'),
+    bass: useKnobModulation('reverb.bass'),
+  };
   const handle = (key: Exclude<ReverbParam, 'era'>) => (
     <ParamHandle
       def={defs[key]}
@@ -26,6 +34,7 @@ export const ReverbControls = ({ params, setParam, on, sampleRate, out }: FxCont
       onChange={(value) => setParam(key, value)}
       disabled={!on}
       target={`reverb.${key}`}
+      modulation={charted[key]}
     />
   );
   return (
@@ -54,6 +63,12 @@ export const ReverbControls = ({ params, setParam, on, sampleRate, out }: FxCont
           bass={params['bass']}
           sampleRate={sampleRate}
           active={on}
+          modulations={{
+            size: charted.size?.modulations,
+            decay: charted.decay?.modulations,
+            damp: charted.damp?.modulations,
+            bass: charted.bass?.modulations,
+          }}
         />
         {handle('decay')}
         {handle('damp')}

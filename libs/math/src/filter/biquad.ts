@@ -109,13 +109,18 @@ export const coefficientsInto = <T extends Out>(
 export const coefficients = (type: BiquadFilterType, params: BiquadParams, sampleRate: number) =>
   coefficientsInto([0, 0, 0, 0, 0] as Coefficients, type, params, sampleRate);
 
-// |H(e^jw)| in dB at `freq`: (b0 + b1 z^-1 + b2 z^-2) / (1 + a1 z^-1 + a2 z^-2)
-export const magnitudeDb = ([b0, b1, b2, a1, a2]: Coefficients, freq: number, sampleRate: number) => {
-  const w = (2 * Math.PI * freq) / sampleRate;
-  const [cos1, sin1, cos2, sin2] = [Math.cos(w), Math.sin(w), Math.cos(2 * w), Math.sin(2 * w)];
-  const numRe = b0 + b1 * cos1 + b2 * cos2;
-  const numIm = -(b1 * sin1 + b2 * sin2);
-  const denRe = 1 + a1 * cos1 + a2 * cos2;
-  const denIm = -(a1 * sin1 + a2 * sin2);
+// |H(e^jw)| in dB from the terms of z = e^jw (cos w, sin w, cos 2w, sin 2w): a chart reads the response at the
+// same frequencies every frame, it works them out once. (b0 + b1 z^-1 + b2 z^-2) / (1 + a1 z^-1 + a2 z^-2)
+export const magnitudeDbAt = (c: Coefficients, cos1: number, sin1: number, cos2: number, sin2: number) => {
+  const numRe = c[0] + c[1] * cos1 + c[2] * cos2;
+  const numIm = -(c[1] * sin1 + c[2] * sin2);
+  const denRe = 1 + c[3] * cos1 + c[4] * cos2;
+  const denIm = -(c[3] * sin1 + c[4] * sin2);
   return 10 * Math.log10((numRe * numRe + numIm * numIm) / (denRe * denRe + denIm * denIm));
+};
+
+// |H(e^jw)| in dB at `freq`
+export const magnitudeDb = (c: Coefficients, freq: number, sampleRate: number) => {
+  const w = (2 * Math.PI * freq) / sampleRate;
+  return magnitudeDbAt(c, Math.cos(w), Math.sin(w), Math.cos(2 * w), Math.sin(2 * w));
 };

@@ -410,7 +410,11 @@ class Voicing {
   private followFx() {
     if (!this.last) return;
     const { envelopes, started } = this.last.phrase;
-    this.config.$fxNote.next({ envelopes, start: started, release: this.fxRelease?.releaseAt ?? null });
+    const release = this.fxRelease?.releaseAt ?? null;
+    // a note of the phrase, or a late voice that didn't move its start, changes nothing
+    const note = this.config.$fxNote.value;
+    if (note?.envelopes === envelopes && note.start === started && note.release === release) return;
+    this.config.$fxNote.next({ envelopes, start: started, release });
   }
 
   // a released voice is no longer counted: it has ended or it is stolen; true if it was

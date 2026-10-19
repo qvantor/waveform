@@ -3,8 +3,9 @@ import { act, render, screen } from '@testing-library/react';
 import { Handle, HandleProps } from '@waveform/ui-kit';
 import { BehaviorSubject } from 'rxjs';
 import { MOD_SOURCES, ModSource } from '@waveform/preset-schema';
-import { createModulation, createOscillator } from '../../../test-utils/models';
+import { createEnvelopes, createModulation, createOscillator } from '../../../test-utils/models';
 import { ModulationContext } from '../common/modules/modulation';
+import { EnvelopesContext } from '../common/modules/envelopes';
 import { MOD_TARGETS } from '../common/modulation/modulation-targets';
 import { SynthContext, SynthModule } from '../common/modules/synth';
 import { SynthCoreContext } from '../common/modules/synth-core';
@@ -44,19 +45,24 @@ const drag = (target: Element, [dx, dy]: [number, number]) => {
   pointer('pointerup', document, [100 + dx, 100 + dy]);
 };
 
-const setup = ({ target }: { target?: 'osc1' | 'osc2' } = {}) => {
+const setup = ({
+  target,
+  envelopes = null,
+}: { target?: 'osc1' | 'osc2'; envelopes?: ReturnType<typeof createEnvelopes> | null } = {}) => {
   const oscillator = createOscillator();
   const modulation = createModulation();
   const [model, actions] = oscillator;
   render(
-    <ModulationContext.Provider value={modulation}>
-      <Oscillator
-        {...model}
-        {...actions}
-        useOscillator={(() => oscillator) as unknown as typeof useOscillator1}
-        target={target}
-      />
-    </ModulationContext.Provider>
+    <EnvelopesContext.Provider value={envelopes}>
+      <ModulationContext.Provider value={modulation}>
+        <Oscillator
+          {...model}
+          {...actions}
+          useOscillator={(() => oscillator) as unknown as typeof useOscillator1}
+          target={target}
+        />
+      </ModulationContext.Provider>
+    </EnvelopesContext.Provider>
   );
   const knob = (label: string) =>
     (Handle as jest.Mock).mock.calls
@@ -75,10 +81,9 @@ describe('Oscillator', () => {
       expect(knob('Gain').modTarget).toBe('osc2.gain');
       expect(knob('Wave').modTarget).toBe('osc2.wave');
       expect(knob('Detune').modTarget).toBe('osc2.detune');
-      expect(knob('Unison').modTarget).toBeUndefined();
     });
 
-    it('with 64 routes the knobs take no envelope, their rings stay', () => {
+    it('with 64 routes the knobs take no envelope, their routes stay', () => {
       const { knob, modulation } = setup();
       const [{ $routes }, { addRoute }] = modulation;
       act(() =>
@@ -109,7 +114,7 @@ describe('Oscillator', () => {
       expect(knob('Gain').modTarget).toBe('osc1.gain');
     });
 
-    it('a knob shows its routes in the colors of their envelopes, its rings change and remove them', () => {
+    it('a knob shows its routes in the colors of their envelopes, its dot changes and removes them', () => {
       const { knob, modulation } = setup();
       const [{ $routes }, { addRoute }] = modulation;
       act(() => {
@@ -118,7 +123,7 @@ describe('Oscillator', () => {
         addRoute('env2', 'osc1.gain');
       });
       const [env2, env3] = knob('Detune').modulations ?? [];
-      expect(env2).toMatchObject({ id: 'env2', amount: 0.5, color: '#f1c40f', label: 'ENV 2' });
+      expect(env2).toMatchObject({ id: 'env2', amount: 0.5, color: '#4796d3', label: 'ENV 2' });
       expect(env3).toMatchObject({ id: 'env3', amount: -0.25, label: 'ENV 3' });
       expect(env3.formatAmount?.(-0.25)).toBe('-25%');
 
@@ -129,6 +134,43 @@ describe('Oscillator', () => {
         { source: 'env2', target: 'osc1.gain', amount: 0.5 },
       ]);
       expect(knob('Detune').modulations).toHaveLength(1);
+    });
+
+    it('gives the routes of a knob in the order of the sources: each has its section of the dot in one place', () => {
+      const { knob, modulation } = setup();
+      act(() => {
+        modulation[1].addRoute('env3', 'osc1.detune');
+        modulation[1].addRoute('env1', 'osc1.detune');
+        modulation[1].addRoute('env2', 'osc1.detune');
+      });
+      expect(knob('Detune').modulations?.map(({ id }) => id)).toEqual(['env1', 'env2', 'env3']);
+    });
+
+    it('the route of the selected ENV tab is the one the knob shows, ENV 1 without the envelopes model', () => {
+      const selected = (knob: (label: string) => HandleProps) =>
+        knob('Detune').modulations?.map(({ id, selected }) => [id, selected]);
+      const routes = ({ addRoute }: ReturnType<typeof createModulation>[1]) =>
+        act(() => {
+          addRoute('env1', 'osc1.detune');
+          addRoute('env2', 'osc1.detune');
+        });
+
+      const alone = setup();
+      routes(alone.modulation[1]);
+      expect(selected(alone.knob)).toEqual([
+        ['env1', true],
+        ['env2', false],
+      ]);
+      (Handle as jest.Mock).mockClear();
+
+      const envelopes = createEnvelopes();
+      const { knob, modulation } = setup({ envelopes });
+      routes(modulation[1]);
+      act(() => envelopes[1].select('env2'));
+      expect(selected(knob)).toEqual([
+        ['env1', false],
+        ['env2', true],
+      ]);
     });
 
     // the oscillator with the synth: its last note and the count of its voices
@@ -169,7 +211,7 @@ describe('Oscillator', () => {
       expect([1, 2, 3, 1, 0, 1].map(rendered)).toEqual([true, false, false, false, true, true]);
     });
 
-    it('the dot of a ring follows the envelope of the last note while voices sound', () => {
+    it('the level of a route follows the envelope of the last note while voices sound', () => {
       const { modulation, $fxNote, $voicesCount } = setupWithSynth();
       const decay = { attack: 0, hold: 0, decay: 1, sustain: 0, release: 0 };
       const flat = { attack: 0, hold: 0, decay: 0, sustain: 1, release: 0 };
@@ -191,14 +233,43 @@ describe('Oscillator', () => {
     });
   });
 
-  it('has the knobs of the unison group in order: Unison, Detune, Phase and Phase rand are under the wave', () => {
+  it('has the knobs Gain, Wave and Detune: Phase, Phase rand and Unison are under the wave', () => {
     setup();
     const labels = (Handle as jest.Mock).mock.calls.map(([props]) => (props as HandleProps).label);
-    const group = labels.slice(labels.indexOf('Unison'), labels.indexOf('Unison') + 2);
-    expect(group).toEqual(['Unison', 'Detune']);
-    expect(labels).not.toContain('Phase');
-    expect(labels).not.toContain('Phase rand');
+    expect([...new Set(labels)]).toEqual(['Gain', 'Wave', 'Detune']);
+    const sliders = screen.getAllByRole('slider').map((slider) => slider.getAttribute('aria-label'));
+    expect(sliders).toEqual(['Phase', 'Phase rand', 'Unison']);
     expect(useWavetables).toHaveBeenCalled();
+  });
+
+  it('shows Unison under the wave with the arrows of Oct, 2 voices by default, dragged by whole voices from 1 to 8', () => {
+    const { model } = setup();
+    const unison = screen.getByRole('slider', { name: 'Unison' });
+    expect(unison.getAttribute('aria-valuetext')).toBe('2');
+    expect(unison.querySelectorAll('[role="img"]')).toHaveLength(2);
+    drag(unison, [100, 0]);
+    expect(model.$osc.value.unison).toBe(6);
+    drag(unison, [0, -30]);
+    expect(model.$osc.value.unison).toBe(7);
+    expect(unison.getAttribute('aria-valuetext')).toBe('7');
+    drag(unison, [500, 0]);
+    expect(model.$osc.value.unison).toBe(8);
+    drag(unison, [0, 500]);
+    expect(model.$osc.value.unison).toBe(1);
+  });
+
+  it.each([
+    [300, true],
+    [620, false],
+  ])('in a strip of %s px has the values under the wave compact: %s', (width, compact) => {
+    const restore = withElementSize(width, 27);
+    try {
+      setup();
+      const strip = screen.getByRole('slider', { name: 'Unison' }).parentElement;
+      expect(strip?.classList.contains('compact')).toBe(compact);
+    } finally {
+      restore();
+    }
   });
 
   it('shows Phase under the wave from 0 to 360 degrees, 180 by default, dragged right or up, around past an end', () => {

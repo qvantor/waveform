@@ -24,6 +24,8 @@ export const sizeFactor = (size: number) => 0.3 + size * 1.2;
 export const loopLength = (i: number, factor: number) => (LINE_TIMES[i] + LOOP_ALLPASS_TIMES[i]) * factor;
 
 const TOTAL_LOOP = LINE_TIMES.reduce((sum, _, i) => sum + loopLength(i, 1), 0);
+// the average pass through a line (s) at the scale `factor` of the lines (lineFactor)
+export const meanLoopLength = (factor: number) => (TOTAL_LOOP / LINE_TIMES.length) * factor;
 // the modes of the tail are 1 / (all loops) Hz apart and 2.2 / decay Hz wide; overlapping less, they ring
 // as separate metallic tones (a tiny room with a long decay and no modulation)
 export const MIN_MODAL_OVERLAP = 0.19;

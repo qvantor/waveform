@@ -1,5 +1,6 @@
 import React from 'react';
 import styled from 'styled-components';
+import cls from 'classnames';
 import { Checkbox } from '../checkbox';
 import { theme } from '../common/constants';
 import { text12, textBold12 } from '../common/styles';
@@ -10,6 +11,8 @@ interface Props {
   onClick?: () => void;
   // on the right side of the header, its clicks don't reach onClick
   extra?: React.ReactNode;
+  // the header without its padding: the name fills it (the ENV tabs), as high as the others
+  plain?: boolean;
 }
 
 const Root = styled.div`
@@ -30,6 +33,10 @@ const Header = styled.div`
   color: ${theme.colors.white};
   margin-bottom: 5px;
   border-radius: 3px;
+
+  &.plain {
+    padding: 0;
+  }
 `;
 
 const Title = styled.div`
@@ -40,6 +47,12 @@ const Title = styled.div`
   &:focus,
   &:focus-visible {
     outline: none;
+  }
+
+  /* without an extra it takes the whole header (the ENV tabs fill it) */
+  &:last-child {
+    flex: 1 1 auto;
+    min-width: 0;
   }
 `;
 
@@ -58,10 +71,17 @@ const Content = styled.div`
   flex: 1 1;
 `;
 
-export const Section = ({ name, children, active, onClick, extra }: React.PropsWithChildren<Props>) => {
+export const Section = ({
+  name,
+  children,
+  active,
+  onClick,
+  extra,
+  plain,
+}: React.PropsWithChildren<Props>) => {
   return (
     <Root>
-      <Header onClick={onClick}>
+      <Header onClick={onClick} className={cls({ plain })}>
         {/* the whole header is clickable, the title is the accessible toggle (the extra is not part of it) */}
         <Title
           {...(onClick && {

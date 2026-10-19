@@ -680,8 +680,11 @@ describe('synth', () => {
       const { onPress, onRelease, synthModel, synthActions, travel } = await setup();
       synthActions.setLegato(true);
       onPress([4, 'C']);
+      const phrase = synthModel.$fxNote.value;
       await travel(1);
       onPress([4, 'E']);
+      // a note of the phrase changes nothing: no new value
+      expect(synthModel.$fxNote.value).toBe(phrase);
       expect(synthModel.$fxNote.value).toMatchObject({ start: 0, release: null });
       onRelease([4, 'E']);
       expect(synthModel.$fxNote.value?.release).toBeNull();

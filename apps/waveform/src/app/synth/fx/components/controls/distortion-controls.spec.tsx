@@ -3,6 +3,7 @@ import { userEvent } from '@testing-library/user-event';
 import { FX_PARAMS } from '@waveform/preset-schema';
 import { mapValues } from 'lodash';
 import { withElementSize } from '../../../../../test-utils/element-size';
+import { createLiveRoutes } from '../../../../../test-utils/live-routes';
 import { distortion } from '../../effects/distortion';
 import { DistortionControls } from './distortion-controls';
 
@@ -107,6 +108,25 @@ describe('DistortionControls', () => {
       rerender({ mode: 1, drive: 6, level });
       expect(path()).toEqual(lighter);
     });
+  });
+
+  it('the curve follows where the routes of Drive move it while they sound', () => {
+    const curve = (drive: number, Wrapper?: React.JSXElementConstructor<React.PropsWithChildren>) => {
+      const { unmount } = render(
+        <DistortionControls params={{ ...params, drive }} setParam={jest.fn()} on sampleRate={48000} />,
+        { wrapper: Wrapper }
+      );
+      const d = screen.getByTestId('distortion-curve').querySelectorAll('path')[1].getAttribute('d');
+      unmount();
+      return d;
+    };
+    const { Wrapper, route, play } = createLiveRoutes();
+    route('distortion.drive', 0.5);
+    expect(curve(6, Wrapper)).toBe(curve(6));
+    // half of +50% of 12 dB from 6
+    play(0.5);
+    expect(curve(6, Wrapper)).toBe(curve(9));
+    expect(curve(6, Wrapper)).not.toBe(curve(6));
   });
 
   it('the curve spans the whole width of the chart and stays inside it', () => {

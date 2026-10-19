@@ -61,8 +61,6 @@ export const Oscillator = ({
   const gainModulation = useKnobModulation(`${target}.gain`);
   const waveModulation = useKnobModulation(`${target}.wave`);
   const detuneModulation = useKnobModulation(`${target}.detune`);
-  const onChangeInternal = (key: keyof typeof osc) => (value: number) =>
-    setOscValue(key, Math.round(value * 100000) / 100000);
 
   return (
     <OscillatorContext.Provider value={oscillator}>
@@ -76,7 +74,7 @@ export const Oscillator = ({
           />
           <WaveSelector />
         </TopControls>
-        <Wave />
+        <Wave modulations={waveModulation.modulations} />
         <Handles>
           <HandlesGroup>
             <RxHandle
@@ -105,20 +103,11 @@ export const Oscillator = ({
           </HandlesGroup>
           <HandlesGroup>
             <Handle
-              plotSize={30}
-              label='Unison'
-              value={osc.unison}
-              min={ranges.unison[0]}
-              max={ranges.unison[1]}
-              precision={1}
-              onChange={onChangeInternal('unison')}
-            />
-            <Handle
               label='Detune'
               value={osc.detune}
               min={ranges.detune[0]}
               max={ranges.detune[1]}
-              onChange={onChangeInternal('detune')}
+              onChange={(value) => setOscValue('detune', Math.round(value * 100000) / 100000)}
               precision={1}
               {...detuneModulation}
             />

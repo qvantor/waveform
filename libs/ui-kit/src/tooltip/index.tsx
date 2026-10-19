@@ -13,7 +13,7 @@ interface Props {
 }
 
 const TooltipElementId = 'tooltip';
-// marks the element of a tooltip: a press on a control with a tooltip of its own inside it (the amount ring of a
+// marks the element of a tooltip: a press on a control with a tooltip of its own inside it (the amount dot of a
 // knob) shows only that one
 const OWNER_ATTR = 'data-tooltip-owner';
 

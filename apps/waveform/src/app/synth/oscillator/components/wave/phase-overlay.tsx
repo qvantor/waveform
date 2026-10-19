@@ -1,14 +1,17 @@
 import React from 'react';
 import styled from 'styled-components';
-import { Line, theme, useLineChartContext } from '@waveform/ui-kit';
+import { BehaviorSubject } from 'rxjs';
+import { theme, useLineChartContext } from '@waveform/ui-kit';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
 import { useOscillatorContext } from '../../hooks';
 import { periodX } from './period';
 
 interface Props {
-  // the wave of the chart and its line (periodLine)
-  wave: number[];
-  line: number[];
+  // the id of the path of the wave, the samples of the wave at the knob and the wave drawn (also where the
+  // routes of the Wave knob move it)
+  lineId: string;
+  length: number;
+  $drawn: BehaviorSubject<ArrayLike<number>>;
   visible: boolean;
 }
 
@@ -22,7 +25,7 @@ const Root = styled.g`
 
 // the value of the wave at a phase (a share of the period): linear between its samples as the line is drawn,
 // past the last sample towards the first one
-const waveAt = (wave: number[], phase: number) => {
+const waveAt = (wave: ArrayLike<number>, phase: number) => {
   const position = phase * wave.length;
   const i = Math.floor(position);
   const a = wave[i % wave.length];
@@ -44,8 +47,9 @@ const randBands = (phase: number, phaseRand: number): [number, number][] => {
 };
 
 // over the wave while Phase or Phase rand is dragged: the point every voice starts at (phase) and the band
-// Phase rand spreads their starts over, the wave in it highlighted; fades out once let go
-export const PhaseOverlay = ({ wave, line, visible }: Props) => {
+// Phase rand spreads their starts over, the wave in it highlighted; fades out once let go. The highlight is the
+// path of the wave (<use>) and the point is moved onto the wave drawn: both follow it without a render
+export const PhaseOverlay = ({ lineId, length, $drawn, visible }: Props) => {
   const {
     height,
     padding: [, paddingY],
@@ -65,9 +69,18 @@ export const PhaseOverlay = ({ wave, line, visible }: Props) => {
     const timeout = setTimeout(() => setShown(false), PHASE_FADE);
     return () => clearTimeout(timeout);
   }, [visible]);
-  if (!(visible || shown) || wave.length === 0) return null;
+  const rendered = (visible || shown) && length > 0;
+  const dot = React.useRef<SVGCircleElement>(null);
+  React.useLayoutEffect(() => {
+    if (!rendered) return;
+    const subscription = $drawn.subscribe((wave) => {
+      if (wave.length > 0) dot.current?.setAttribute('cy', String(scaleY(waveAt(wave, phase))));
+    });
+    return () => subscription.unsubscribe();
+  }, [rendered, $drawn, phase, scaleY]);
+  if (!rendered) return null;
 
-  const x = (share: number) => scaleX(periodX(share, wave.length));
+  const x = (share: number) => scaleX(periodX(share, length));
   const top = -paddingY;
   const bands = randBands(phase, phaseRand).map(([from, to]) => ({
     x: x(from),
@@ -95,7 +108,10 @@ export const PhaseOverlay = ({ wave, line, visible }: Props) => {
       ))}
       {bands.length > 0 && (
         <g clipPath={`url(#${clipId})`}>
-          <Line data={line} style={{ stroke: theme.colors.secondAccent }} />
+          <use
+            href={`#${lineId}`}
+            style={{ stroke: theme.colors.secondAccent, strokeWidth: 2, fill: 'transparent' }}
+          />
         </g>
       )}
       {phaseRand > 0 && phaseRand < 1 && (
@@ -108,9 +124,9 @@ export const PhaseOverlay = ({ wave, line, visible }: Props) => {
       )}
       <line data-testid='phase-marker' {...across(phase)} stroke={theme.colors.white} strokeWidth={1.5} />
       <circle
+        ref={dot}
         data-testid='phase-dot'
         cx={x(phase)}
-        cy={scaleY(waveAt(wave, phase))}
         r={3.5}
         fill={theme.colors.white}
         stroke={theme.colors.primaryDark}

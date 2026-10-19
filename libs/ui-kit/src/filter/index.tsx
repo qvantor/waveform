@@ -59,6 +59,12 @@ export const Filter = ({
         gain={gain}
         sampleRate={sampleRate}
         active={active}
+        ranges={ranges}
+        modulations={{
+          cutoff: modulation.cutoff?.modulations,
+          resonance: modulation.resonance?.modulations,
+          gain: modulation.gain?.modulations,
+        }}
       />
       <HandlersContainer>
         <Handle

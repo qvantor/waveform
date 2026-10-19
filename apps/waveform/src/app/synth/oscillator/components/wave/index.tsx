@@ -1,7 +1,7 @@
 import React from 'react';
 import { EditFilled } from '@ant-design/icons';
 import styled from 'styled-components';
-import { theme, Modal, Deactivated } from '@waveform/ui-kit';
+import { theme, Modal, Deactivated, HandleModulation } from '@waveform/ui-kit';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
 import WaveTableEditor from '../../../wave-table-editor';
 import { useOscillatorContext } from '../../hooks';
@@ -9,7 +9,7 @@ import { OscillatorStatus } from '../oscillator-status';
 import { Chart } from './chart';
 import { WaveInfo } from './wave-info';
 
-// the wave and under it its frame, Phase and Phase rand: one dark block
+// the wave and under it its frame, Phase, Phase rand and Unison: one dark block
 const Root = styled.div`
   flex: 1 1;
   display: flex;
@@ -42,7 +42,12 @@ const EditIcon = styled(EditFilled)`
   }
 `;
 
-export const Wave = () => {
+interface Props {
+  // the routes of the Wave knob: the chart follows where they move it
+  modulations?: HandleModulation[];
+}
+
+export const Wave = ({ modulations }: Props) => {
   const [{ $active }] = useOscillatorContext();
   const [editorOpen, setEditorOpen] = React.useState(false);
   // Phase and Phase rand held under the wave (both at once with two fingers): the chart shows them
@@ -60,7 +65,7 @@ export const Wave = () => {
             <WaveTableEditor />
           </Modal>
         ) : (
-          <Chart phaseVisible={phaseHeld > 0} />
+          <Chart phaseVisible={phaseHeld > 0} modulations={modulations} />
         )}
       </ChartArea>
       <WaveInfo onPhaseActiveChange={(active) => setPhaseHeld((held) => held + (active ? 1 : -1))} />

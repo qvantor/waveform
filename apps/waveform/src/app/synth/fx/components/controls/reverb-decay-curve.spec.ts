@@ -2,15 +2,20 @@ import { HF_RATIO } from '../../effects/reverb-decay';
 import { DECAY_CHART_FREQS, decayCurve } from './reverb-decay-curve';
 
 const params = { size: 0.5, decay: 2, damp: 20000, bass: 1 };
-const at = (curve: [number, number][], freq: number) =>
-  curve.reduce((best, point) => (Math.abs(point[0] - freq) < Math.abs(best[0] - freq) ? point : best))[1];
+// the RT60 of the curve at the frequency of the chart nearest to freq
+const at = (curve: Float64Array, freq: number) =>
+  curve[
+    DECAY_CHART_FREQS.reduce(
+      (best, f, i) => (Math.abs(f - freq) < Math.abs(DECAY_CHART_FREQS[best] - freq) ? i : best),
+      0
+    )
+  ];
 
 describe('decayCurve', () => {
   it('covers 20 Hz..20 kHz', () => {
-    const curve = decayCurve(params, 48000);
-    expect(curve.map(([freq]) => freq)).toEqual(DECAY_CHART_FREQS);
-    expect(curve[0][0]).toBe(20);
-    expect(curve[curve.length - 1][0]).toBeCloseTo(20000);
+    expect(decayCurve(params, 48000)).toHaveLength(DECAY_CHART_FREQS.length);
+    expect(DECAY_CHART_FREQS[0]).toBe(20);
+    expect(DECAY_CHART_FREQS[DECAY_CHART_FREQS.length - 1]).toBeCloseTo(20000);
   });
 
   it('is flat at the decay time with bass 1 and no damping in the audible range', () => {
@@ -29,7 +34,6 @@ describe('decayCurve', () => {
     const curve = decayCurve({ ...params, damp: 1000 }, 48000);
     expect(at(curve, 100)).toBeCloseTo(2, 1);
     expect(at(curve, 15000)).toBeCloseTo(2 * HF_RATIO, 1);
-    const values = curve.map(([, seconds]) => seconds);
-    values.slice(1).forEach((value, i) => expect(value).toBeLessThanOrEqual(values[i] + 1e-9));
+    curve.slice(1).forEach((value, i) => expect(value).toBeLessThanOrEqual(curve[i] + 1e-9));
   });
 });

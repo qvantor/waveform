@@ -1,6 +1,6 @@
 import FFT from 'fft.js';
 import { FX_PARAMS } from '@waveform/preset-schema';
-import { decayCurve } from '../components/controls/reverb-decay-curve';
+import { DECAY_CHART_FREQS, decayCurve } from '../components/controls/reverb-decay-curve';
 import { createBiquad } from './dsp';
 import { createReverbDsp, MAX_PREDELAY, MAX_SIZE, ReverbDspParams } from './reverb-dsp';
 import { HF_RATIO } from './reverb-decay';
@@ -161,9 +161,9 @@ describe('createReverbDsp', () => {
         const measured = rt60(filtered(mono, 'bandpass', 1000));
         expect(measured / decay).toBeGreaterThan(0.88);
         expect(measured / decay).toBeLessThan(1.12);
-        const [, chart] = decayCurve({ size, decay, damp: BASE.damp, bass: BASE.bass }, SAMPLE_RATE).find(
-          ([freq]) => freq > 1000
-        ) as [number, number];
+        const chart = decayCurve({ size, decay, damp: BASE.damp, bass: BASE.bass }, SAMPLE_RATE)[
+          DECAY_CHART_FREQS.findIndex((freq) => freq > 1000)
+        ];
         expect(measured / chart).toBeGreaterThan(0.88);
         expect(measured / chart).toBeLessThan(1.12);
       }

@@ -19,7 +19,7 @@ export type CommonFilterProps = FilterParams & {
   setType: (value: BiquadFilterType) => void;
   setNumericValue: (key: FilterNumerics, value: number) => void;
   ranges: FilterRanges;
-  // the modulation of each knob (its arcs, rings and drop target)
+  // the modulation of each knob (its routes and drop target)
   modulation?: Partial<Record<FilterNumerics, Pick<HandleProps, 'modulations' | 'modTarget'>>>;
 };
 

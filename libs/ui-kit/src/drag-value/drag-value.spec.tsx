@@ -51,6 +51,15 @@ describe('DragValue', () => {
     expect(slider.classList.contains('editable')).toBe(true);
   });
 
+  it('shows the arrows of a value stepping by whole numbers after it with arrows, none without', () => {
+    const { slider, rerender } = setup({ value: 3, min: 1, max: 8, precision: 1, formatValue: undefined });
+    expect(slider.querySelectorAll('[role="img"]')).toHaveLength(0);
+    rerender(<DragValue label='Rand' value={3} min={1} max={8} precision={1} arrows onChange={jest.fn()} />);
+    const arrows = slider.querySelectorAll('[role="img"]');
+    expect([...arrows].map((arrow) => arrow.getAttribute('aria-label'))).toEqual(['caret-up', 'caret-down']);
+    expect(slider.textContent).toBe('Rand3');
+  });
+
   it('only shows the value without onChange', () => {
     render(<DragValue label='Wave' value={3} formatValue={(value) => `${value + 1}/8`} />);
     expect(screen.queryByRole('slider')).toBeNull();
