@@ -12,6 +12,7 @@ import {
   TONE_OPEN,
 } from './distortion-dsp';
 import { createWorkletFx, STEREO_WORKLET_OPTIONS } from './worklet-fx';
+import type { FxModMessage } from './fx-modulation';
 
 const { mode, drive, tone, level } = FX_PARAMS.distortion;
 
@@ -62,6 +63,11 @@ export const distortion: FxDefinition<DistortionParam> = {
       },
       // no loops to drain: the closed send silences the input, and the worklet idles once it is silent
       setActive: noop,
+      // the worklet moves the knobs once per block
+      setModulation: (mod) => {
+        const message: FxModMessage = { mod };
+        worklet.post(message);
+      },
       destroy: worklet.destroy,
     };
   },

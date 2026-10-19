@@ -3,17 +3,34 @@ import styled from 'styled-components';
 import { arc } from 'd3-shape';
 import cls from 'classnames';
 import { number, vector2d } from '@waveform/math';
-import { scaleLinear, scaleLog } from 'd3-scale';
 import { theme } from '../common/constants';
 import { absoluteCenterXY } from '../common/styles';
-import { singlePointerTracker } from '../common/utils';
+import { ScaleMode, singlePointerTracker, valueScale } from '../common/utils';
 import { Tooltip } from '../tooltip';
 import { ValueTooltipContent } from '../tooltip/value-tooltip';
 import { Label } from '../label';
+import { AmountRing, AMOUNT_RING_SIZE } from '../amount-ring';
+import { MOD_DRAGGING_CLASS, MOD_OVER_ATTR, MOD_TARGET_ATTR } from '../mod-drag';
+
+// a modulation of the knob: a source (an envelope) moves it by amount, a share of its range in its scale
+// (-1..1); an arc of the color of the source outside the scale shows where to, a ring next to the knob changes
+// the amount
+export interface HandleModulation {
+  id: string;
+  color: string;
+  amount: number;
+  // the name of the source
+  label?: string;
+  onChange?: (amount: number) => void;
+  onRemove?: () => void;
+  // the amount in the units of the knob (+2.4 oct, +35%)
+  formatAmount?: (amount: number) => React.ReactNode;
+  // the level of the source now and whether it sounds: a dot follows it on the ring (AmountRing)
+  level?: () => number | null;
+  live?: boolean;
+}
 
 type Size = 'm' | 'l';
-
-type Mode = 'linear' | 'log';
 
 export interface HandleProps {
   min?: number;
@@ -24,12 +41,16 @@ export interface HandleProps {
   onChange?: (value: number) => void;
   formatValue?: (value: number) => React.ReactNode;
   label?: React.ReactNode;
-  mode?: Mode;
+  mode?: ScaleMode;
   precision?: number;
   plotSize?: number;
   disabled?: boolean;
   // the value the fill starts from (e.g. 0 for a bipolar knob), min by default
   fillFrom?: number;
+  // the routes moving the knob (hidden while it is disabled)
+  modulations?: HandleModulation[];
+  // the id a dragged source is dropped onto (MOD_TARGET_ATTR): a disabled knob takes none
+  modTarget?: string;
 }
 
 interface StyledProps {
@@ -125,6 +146,45 @@ const HandleMark = styled.div<StyledProps>`
   top: 2px;
 `;
 
+// lit while a source is dragged (mod-drag), brighter under the pointer
+const ModHighlight = styled.div<StyledProps>`
+  position: absolute;
+  ${absoluteCenterXY};
+  width: ${(props) => `${sizes[props.size].handleOuter[0]}`};
+  height: ${(props) => `${sizes[props.size].handleOuter[1]}`};
+  border-radius: 100%;
+  pointer-events: none;
+  z-index: 3;
+  display: none;
+
+  body.${MOD_DRAGGING_CLASS} [${MOD_TARGET_ATTR}] > * > & {
+    display: block;
+    box-shadow: 0 0 0 2px var(--mod-drag-color);
+  }
+
+  body.${MOD_DRAGGING_CLASS} [${MOD_OVER_ATTR}] > * > & {
+    box-shadow: 0 0 0 3px var(--mod-drag-color), 0 0 12px 3px var(--mod-drag-color);
+  }
+`;
+
+// the rings of the modulations at the corners of the knob, clockwise from the top right one
+const RING_CORNERS: React.CSSProperties[] = [
+  { right: -AMOUNT_RING_SIZE / 2, top: -AMOUNT_RING_SIZE / 2 },
+  { left: -AMOUNT_RING_SIZE / 2, top: -AMOUNT_RING_SIZE / 2 },
+  { right: -AMOUNT_RING_SIZE / 2, bottom: 0 },
+  { left: -AMOUNT_RING_SIZE / 2, bottom: 0 },
+];
+
+const Ring = styled(AmountRing)`
+  position: absolute;
+  z-index: 4;
+`;
+
+// px between the scale and the first arc of a modulation, the width of an arc and the step to the next one
+const MOD_ARC_GAP = 1.5;
+const MOD_ARC_WIDTH = 2;
+const MOD_ARC_STEP = 2.5;
+
 const Svg = styled.svg<StyledProps>`
   position: absolute;
   ${absoluteCenterXY};
@@ -148,14 +208,16 @@ export const Handle = ({
   plotSize = 100,
   disabled = false,
   fillFrom,
+  modulations = [],
+  modTarget,
 }: HandleProps) => {
   const { svg } = sizes[size];
   const prevValue = React.useRef(value);
-  const { arcBackground, commonArcOptions, toAngle, fillStartAngle } = React.useMemo(() => {
+  const { arcBackground, commonArcOptions, toAngle, fillStartAngle, angles } = React.useMemo(() => {
     const { arc: arcSize } = sizes[size];
     const arcPadding = 1.2;
     const [minAngle, maxAngle] = [-Math.PI / arcPadding, Math.PI / arcPadding];
-    const scale = (mode === 'linear' ? scaleLinear() : scaleLog())
+    const scale = valueScale(mode)
       .domain(step ? [0, step.length - 1] : [min, max])
       .range([minAngle, maxAngle]);
     const toAngle = (value: number) => scale(step ? step.indexOf(value) : value);
@@ -166,12 +228,12 @@ export const Handle = ({
     };
     const arcBackground = arc()({ ...commonArcOptions, endAngle: maxAngle }) ?? undefined;
     const fillStartAngle = fillFrom === undefined ? minAngle : toAngle(fillFrom);
-    return { arcBackground, commonArcOptions, toAngle, fillStartAngle };
+    return { arcBackground, commonArcOptions, toAngle, fillStartAngle, angles: [minAngle, maxAngle] };
   }, [min, max, size, mode, step, fillFrom]);
 
   const scaleMouse = React.useMemo(
     () =>
-      (mode === 'linear' ? scaleLinear() : scaleLog())
+      valueScale(mode)
         .domain(step ? [0, step.length - 1] : [min * precision, max * precision])
         .range([-plotSize, plotSize]),
     [max, min, mode, plotSize, precision, step]
@@ -186,6 +248,26 @@ export const Handle = ({
         : undefined;
     return { arcValue, rotateRad };
   }, [commonArcOptions, value, toAngle, fillStartAngle]);
+
+  // a modulation: from the value to the value + amount (a share of the travel), clamped to the scale
+  const modArcs = disabled
+    ? []
+    : modulations.map(({ id, color, amount }, index) => {
+        const [minAngle, maxAngle] = angles;
+        const share = (rotateRad - minAngle) / (maxAngle - minAngle);
+        const end = minAngle + number.thresholds(share + amount, 0, 1) * (maxAngle - minAngle);
+        const innerRadius = commonArcOptions.outerRadius + MOD_ARC_GAP + index * MOD_ARC_STEP;
+        const path =
+          end === rotateRad
+            ? undefined
+            : arc()({
+                innerRadius,
+                outerRadius: innerRadius + MOD_ARC_WIDTH,
+                startAngle: Math.min(rotateRad, end),
+                endAngle: Math.max(rotateRad, end),
+              }) ?? undefined;
+        return { id, color, path };
+      });
 
   const [trackPointer] = React.useState(singlePointerTracker);
   const onPointerDown = React.useCallback(
@@ -213,8 +295,13 @@ export const Handle = ({
 
   return (
     <Tooltip content={<ValueTooltipContent>{formatValue?.(value) ?? value}</ValueTooltipContent>}>
-      <Root onPointerDown={onPointerDown} className={cls({ disabled: disabled })}>
+      <Root
+        onPointerDown={onPointerDown}
+        className={cls({ disabled: disabled })}
+        {...(modTarget && !disabled && { [MOD_TARGET_ATTR]: modTarget })}
+      >
         <HandleContainer size={size}>
+          <ModHighlight size={size} />
           <HandleCircle style={{ transform: `rotate(${rotateRad}rad)` }} size={size}>
             <HandleCircleInner size={size}>
               <HandleMark size={size} />
@@ -225,8 +312,17 @@ export const Handle = ({
             <g transform={`translate(${svg[0] / 2},${svg[1] / 2})`}>
               <path fill={theme.colors.primaryHighContrast} d={arcBackground} />
               {arcValue && <path fill={theme.colors.accent} d={arcValue} />}
+              {modArcs.map(
+                ({ id, color, path }) => path && <path key={id} fill={color} d={path} data-testid='mod-arc' />
+              )}
             </g>
           </Svg>
+          {!disabled &&
+            modulations
+              .slice(0, RING_CORNERS.length)
+              .map(({ id, label: source, onChange: onAmount, ...ring }, index) => (
+                <Ring key={id} {...ring} label={source} onChange={onAmount} style={RING_CORNERS[index]} />
+              ))}
         </HandleContainer>
         {label && <Label>{label}</Label>}
       </Root>

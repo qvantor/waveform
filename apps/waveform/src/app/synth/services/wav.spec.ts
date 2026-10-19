@@ -14,7 +14,7 @@ import { parseWav } from './wav';
 const floats = (...values: number[]) => Float32Array.from(values);
 
 describe('parseWav', () => {
-  it('reads a Serum wavetable (JUNK, fmt, clm, data) as stored', () => {
+  it('reads a wavetable file (JUNK, fmt, clm, data) as stored', () => {
     const samples = floats(0, 0.25, -0.5, 1, -1, 0.125);
 
     expect(parseWav(wavetableFile(samples))).toEqual({ sampleRate: 44100, samples });

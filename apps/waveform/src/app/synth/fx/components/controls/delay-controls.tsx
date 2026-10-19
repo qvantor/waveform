@@ -24,6 +24,7 @@ export const DelayControls = ({ params, setParam, on, sampleRate, out }: FxContr
       value={params[key]}
       onChange={(value) => setParam(key, value)}
       disabled={!on}
+      target={`delay.${key}`}
     />
   );
   return (

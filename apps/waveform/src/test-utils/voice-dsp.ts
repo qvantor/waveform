@@ -8,12 +8,17 @@ import {
   VoiceShared,
   VoiceStats,
 } from '../app/synth/common/wavetable/wavetable-osc-dsp';
+import type { EnvelopeParams } from '../app/synth/common/envelope/envelope-curve';
 import { VoiceParam } from '../app/synth/common/wavetable/wavetable-osc-params';
 
 // the voice dsp of the wavetable oscillator run offline, as the worklet runs it: tables in a store, the
 // voices of a scope one after another every block of 128 frames
 
 export const BLOCK = 128;
+
+// ENV 1 at full level from the start, ended at once by the gate, ENV 2 and 3 read by no route: the voice as
+// the oscillators play it
+const FLAT: EnvelopeParams = { attack: 0, hold: 0, decay: 0, sustain: 1, release: 0 };
 
 // a seeded random() (mulberry32): the phases of a note are reproducible
 export const seeded = (seed: number) => () => {
@@ -95,7 +100,13 @@ export const createVoiceScope = ({
     },
     add: (osc: VoiceOptions['osc'], params: VoiceParams = {}, start = frame / rate) => {
       const voice: ScopeVoice = {
-        dsp: createVoiceDsp(rate, { osc, start }, store, random, shared),
+        dsp: createVoiceDsp(
+          rate,
+          { osc, start, envelopes: [FLAT, FLAT, FLAT], envStart: start, routes: [], filter: null },
+          store,
+          random,
+          shared
+        ),
         // its own: a spec changes them for this voice
         params: { ...params },
         ended: false,

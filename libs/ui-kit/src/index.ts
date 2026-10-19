@@ -1,5 +1,7 @@
 export { LineChart, Line, SquareDots, XAxis, YAxis, useLineChartContext } from './line-chart';
 export { Handle } from './handle';
+export { AmountRing } from './amount-ring';
+export { startModDrag, MOD_DWELL_ATTR } from './mod-drag';
 export { Fader } from './fader';
 export { Tooltip } from './tooltip';
 export { WaveDrawer } from './wave-drawer';
@@ -8,7 +10,7 @@ export { Analyser } from './analyser';
 export { FileDrop } from './file-drop';
 export { Tabs } from './tabs';
 export { PianoKeyboard } from './piano-keyboard';
-export { AdsrEnvelope } from './adsr-envelope';
+export { AdsrEnvelope, formatTime } from './adsr-envelope';
 export { Modal } from './modal';
 export { Section } from './section';
 export { VolumeAnalyser } from './volume-analyser';
@@ -30,6 +32,6 @@ export * from './common/types';
 
 export type { FilterNumerics, FilterRange, FilterRanges, FilterParams } from './filter';
 export type { CascadeOption } from './select';
-export type { HandleProps } from './handle';
+export type { HandleProps, HandleModulation } from './handle';
 export type { Theme } from './common/constants';
 export { useIsMobile, useIsPortrait, useElementSize } from './common/hooks';

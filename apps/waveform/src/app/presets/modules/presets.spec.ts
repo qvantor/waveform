@@ -6,10 +6,8 @@ import {
   Preset,
   PresetListItem,
 } from '@waveform/preset-schema';
-import { createAdsrEnvelope, createSynth, initModel } from '../../../test-utils/models';
+import { createEnvelopes, createFx, createSynth, initModel } from '../../../test-utils/models';
 import { getSnapshot } from '../../app';
-import { filter } from '../../synth/filter/modules/filter';
-import { fx } from '../../synth/fx/modules/fx';
 import {
   clearUrlPresetId,
   getEditToken,
@@ -38,7 +36,7 @@ const getTopPresetsMock = getTopPresets as jest.MockedFunction<typeof getTopPres
 const getUrlPresetIdMock = getUrlPresetId as jest.MockedFunction<typeof getUrlPresetId>;
 
 const preset = (id: string, attack: number): Preset =>
-  ({ id, name: `Preset ${id}`, data: { adsr: { attack } } } as unknown as Preset);
+  ({ id, name: `Preset ${id}`, data: { env: { e1: { attack } } } } as unknown as Preset);
 
 // resolved by the test, for requests that must still be pending
 const deferred = <T>() => {
@@ -53,9 +51,9 @@ const listItem = (id: string) => ({ id, name: id } as PresetListItem);
 const flush = () => new Promise((resolve) => jest.requireActual('timers').setImmediate(resolve));
 
 const setup = () => {
-  const adsr = createAdsrEnvelope();
+  const env = createEnvelopes();
   const model = initModel(presets(), 'presets', undefined);
-  return { adsr, model };
+  return { env, model };
 };
 
 // the popular list is still loading on start; resolveTop delivers ['a']
@@ -82,7 +80,7 @@ afterEach(() => jest.useRealTimers());
 describe('presets model', () => {
   it('loads a preset: applies the snapshot and becomes clean', async () => {
     const {
-      adsr: [{ $envelope }],
+      env: [{ $envelopes }],
       model: [{ $current, $loadedHash, $dirty }, { loadById }],
     } = setup();
     getPresetMock.mockResolvedValue(preset('p1', 0.5));
@@ -90,7 +88,7 @@ describe('presets model', () => {
     await loadById('p1');
 
     expect(getPresetMock).toHaveBeenCalledWith('p1');
-    expect($envelope.value.attack).toBe(0.5);
+    expect($envelopes.value.env1.attack).toBe(0.5);
     expect($current.value).toEqual({ id: 'p1', name: 'Preset p1' });
     expect($loadedHash.value).toBe(presetHash(getSnapshot()));
     expect($dirty.value).toBe(false);
@@ -99,7 +97,7 @@ describe('presets model', () => {
 
   it('applies only the last requested preset', async () => {
     const {
-      adsr: [{ $envelope }],
+      env: [{ $envelopes }],
       model: [{ $current }, { loadById }],
     } = setup();
     const p1 = deferred<Preset>();
@@ -111,7 +109,7 @@ describe('presets model', () => {
     await first;
 
     expect($current.value?.id).toBe('p2');
-    expect($envelope.value.attack).toBe(0.2);
+    expect($envelopes.value.env1.attack).toBe(0.2);
   });
 
   it('shows an error when loading fails', async () => {
@@ -306,7 +304,7 @@ describe('presets model', () => {
     getTopPresetsMock.mockResolvedValue(['a', 'b'].map(listItem));
     getPresetMock.mockImplementation((id) => Promise.resolve(preset(id, 0.5)));
     const {
-      adsr: [{ $envelope }],
+      env: [{ $envelopes }],
       model: [{ $current, $dirty, $loadedHash }],
     } = setup();
     await flush();
@@ -314,7 +312,7 @@ describe('presets model', () => {
     expect(getPresetMock).toHaveBeenCalledTimes(1);
     expect(getPresetMock).toHaveBeenCalledWith('a');
     expect($current.value).toEqual({ id: 'a', name: 'Preset a', auto: true });
-    expect($envelope.value.attack).toBe(0.5);
+    expect($envelopes.value.env1.attack).toBe(0.5);
     expect($loadedHash.value).toBe(presetHash(getSnapshot()));
     expect($dirty.value).toBe(false);
     // not in the url: a reload opens a random popular one again, not this one as chosen
@@ -396,17 +394,17 @@ describe('presets model', () => {
   it('does not open a popular preset when params were changed before the list arrived', async () => {
     getPresetMock.mockImplementation((id) => Promise.resolve(preset(id, 0.5)));
     const {
-      adsr: [{ $envelope }, { setEnvelopeValue }],
+      env: [{ $envelopes }, { setEnvelopeValue }],
       model: [{ $current }],
       resolveTop,
     } = setupPendingTop();
 
-    setEnvelopeValue('attack', 0.3);
+    setEnvelopeValue('env1', 'attack', 0.3);
     await resolveTop();
 
     expect(getPresetMock).not.toHaveBeenCalled();
     expect($current.value).toBeNull();
-    expect($envelope.value.attack).toBe(0.3);
+    expect($envelopes.value.env1.attack).toBe(0.3);
   });
 
   it('does not apply the popular preset when params were changed while it loaded', async () => {
@@ -414,18 +412,18 @@ describe('presets model', () => {
     const loading = deferred<Preset>();
     getPresetMock.mockReturnValue(loading.promise);
     const {
-      adsr: [{ $envelope }, { setEnvelopeValue }],
+      env: [{ $envelopes }, { setEnvelopeValue }],
       model: [{ $current }],
     } = setup();
     await flush();
     expect(getPresetMock).toHaveBeenCalledWith('a');
 
-    setEnvelopeValue('attack', 0.3);
+    setEnvelopeValue('env1', 'attack', 0.3);
     loading.resolve(preset('a', 0.5));
     await flush();
 
     expect($current.value).toBeNull();
-    expect($envelope.value.attack).toBe(0.3);
+    expect($envelopes.value.env1.attack).toBe(0.3);
     expect(setUrlPresetId).not.toHaveBeenCalled();
   });
 
@@ -472,23 +470,23 @@ describe('presets model', () => {
   it('Init resets the sound to the defaults and leaves the preset', async () => {
     jest.useFakeTimers();
     const {
-      adsr: [{ $envelope }, { setEnvelopeValue }],
+      env: [{ $envelopes }, { setEnvelopeValue }],
       model: [{ $current, $loadedHash, $dirty }, { loadById, reset }],
     } = setup();
     // sustain 0 and decay 0 are falsy: the defaults come back, not the preset values
     getPresetMock.mockResolvedValue({
       id: 'p1',
       name: 'Pluck',
-      data: { adsr: { attack: 0.5, hold: 0, decay: 0.3, sustain: 0, release: 0.2 } },
+      data: { env: { e1: { attack: 0.5, hold: 0, decay: 0.3, sustain: 0, release: 0.2 } } },
     } as unknown as Preset);
     await loadById('p1');
-    setEnvelopeValue('decay', 0);
+    setEnvelopeValue('env1', 'decay', 0);
     jest.advanceTimersByTime(200);
     expect($dirty.value).toBe(true);
 
     reset();
 
-    expect($envelope.value).toEqual({ attack: 0.005, hold: 0.1, decay: 0, sustain: 1, release: 0.005 });
+    expect($envelopes.value.env1).toEqual({ attack: 0.005, hold: 0.1, decay: 0, sustain: 1, release: 0.005 });
     expect(presetHash(getSnapshot())).toBe(presetHash({}));
     expect($current.value).toBeNull();
     expect($loadedHash.value).toBeNull();
@@ -497,14 +495,14 @@ describe('presets model', () => {
 
     // changes on Init never make it dirty
     jest.advanceTimersByTime(200);
-    setEnvelopeValue('attack', 0.3);
+    setEnvelopeValue('env1', 'attack', 0.3);
     jest.advanceTimersByTime(200);
     expect($dirty.value).toBe(false);
   });
 
   it('a preset still loading is not applied over Init', async () => {
     const {
-      adsr: [{ $envelope }],
+      env: [{ $envelopes }],
       model: [{ $current }, { loadById, reset }],
     } = setup();
     const loading = deferred<Preset>();
@@ -516,13 +514,12 @@ describe('presets model', () => {
     await load;
 
     expect($current.value).toBeNull();
-    expect($envelope.value.attack).toBe(0.005);
+    expect($envelopes.value.env1.attack).toBe(0.005);
   });
 
   it('the start state of the synth is Init', () => {
-    const { synthCore } = createSynth(DEFAULT_WAVETABLE_PATH);
-    initModel(filter({ synthCore }), 'filter', undefined);
-    initModel(fx({ synthCore }), 'fx', undefined);
+    const { synthCore, modulation } = createSynth(DEFAULT_WAVETABLE_PATH);
+    createFx(synthCore, modulation);
 
     // every snapshot model is registered: nothing is filled in by the schema
     expect(getSnapshot()).toEqual(normalizePreset({}));
@@ -531,12 +528,12 @@ describe('presets model', () => {
   it('marks the preset dirty when params change and clean when they return', () => {
     jest.useFakeTimers();
     const {
-      adsr: [, { setEnvelopeValue }],
+      env: [, { setEnvelopeValue }],
       model: [{ $dirty, $current }, { setSaved }],
     } = setup();
 
     // nothing is loaded: never dirty
-    setEnvelopeValue('attack', 0.3);
+    setEnvelopeValue('env1', 'attack', 0.3);
     jest.advanceTimersByTime(200);
     expect($dirty.value).toBe(false);
 
@@ -544,13 +541,13 @@ describe('presets model', () => {
     expect($current.value).toEqual({ id: 's1', name: 'Saved' });
     expect(setUrlPresetId).toHaveBeenCalledWith('s1');
 
-    setEnvelopeValue('attack', 0.4);
+    setEnvelopeValue('env1', 'attack', 0.4);
     jest.advanceTimersByTime(199);
     expect($dirty.value).toBe(false);
     jest.advanceTimersByTime(1);
     expect($dirty.value).toBe(true);
 
-    setEnvelopeValue('attack', 0.3);
+    setEnvelopeValue('env1', 'attack', 0.3);
     jest.advanceTimersByTime(200);
     expect($dirty.value).toBe(false);
   });

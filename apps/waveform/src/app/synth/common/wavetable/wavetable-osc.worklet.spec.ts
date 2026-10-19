@@ -5,6 +5,9 @@ import { STORE_PROCESSOR, VOICE_PARAMETERS, VOICE_PROCESSOR, VoiceParam } from '
 const RATE = 48000;
 const processors = installWorkletScope(RATE);
 
+// ENV 1 at full level, the gate ends the voice at once
+const FLAT = { attack: 0, hold: 0, decay: 0, sustain: 1, release: 0 };
+
 const sine = Array.from({ length: 2048 }, (_, n) => Math.sin((2 * Math.PI * n) / 2048));
 const saw = Array.from({ length: 2048 }, (_, n) => n / 1024 - 1);
 
@@ -22,9 +25,20 @@ const params = (values: Partial<Record<VoiceParam, number>> = {}) =>
     ])
   ) as Record<VoiceParam, Float32Array>;
 
-const voice = (table: string, options: Partial<{ start: number; trace: boolean }> = {}) =>
+const voice = (
+  table: string,
+  options: Partial<{ start: number; trace: boolean; envelopes: unknown[] }> = {}
+) =>
   new processors[VOICE_PROCESSOR]({
-    processorOptions: { osc: [{ table, unison: 1, phase: 0.25, phaseRand: 0 }, null], start: 0, ...options },
+    processorOptions: {
+      osc: [{ table, unison: 1, phase: 0.25, phaseRand: 0 }, null],
+      start: 0,
+      envelopes: [FLAT, FLAT, FLAT],
+      envStart: 0,
+      routes: [],
+      filter: null,
+      ...options,
+    },
   });
 
 const render = (
@@ -114,7 +128,7 @@ describe('wavetable oscillator worklet', () => {
 
     // no frequency: process() throws
     const broken: Partial<Record<VoiceParam, Float32Array>> = params({ gain1: 1, frequency: 100 });
-    delete broken.frequency;
+    broken.frequency = undefined;
     const { alive, left, right } = render(processor, 128, broken as Record<VoiceParam, Float32Array>);
 
     expect(alive).toBe(false);
@@ -193,6 +207,18 @@ describe('wavetable oscillator worklet', () => {
       render(processor, 128);
       expect(processor.port.postMessage).not.toHaveBeenCalled();
     });
+  });
+
+  it('takes the routes of a playing note from its port: the amounts glide', () => {
+    const processor = voice('none', { envelopes: [FLAT, FLAT, FLAT] });
+    expect(render(processor, 0).left[0]).toBeCloseTo(1, 4);
+    processor.port.onmessage({ data: { routes: [{ env: 1, param: 'gain1', amount: -1, min: 0, max: 1 }] } });
+    render(processor, 128);
+    render(processor, 256);
+    render(processor, 384);
+    render(processor, 512);
+    // 10 ms later: the gain is 1 - 1 × ENV 2 (at full level)
+    expect(render(processor, 640).left.every((value) => Math.abs(value) < 1e-6)).toBe(true);
   });
 
   it('renders into one channel when the node has one', () => {

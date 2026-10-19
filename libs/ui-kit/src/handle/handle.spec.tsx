@@ -1,5 +1,6 @@
 import React from 'react';
-import { render } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { valueScale } from '../common/utils';
 import { Handle } from './index';
 
 // size m: the arc outer radius is 21, angle 0 (the value 0 on a -1..1 knob) is the top point
@@ -39,5 +40,98 @@ describe('Handle', () => {
       expect(x).toBeCloseTo(0);
       expect(y).toBeCloseTo(-OUTER_RADIUS);
     }
+  });
+});
+
+describe('Handle scales', () => {
+  // the angle of the value from the start of the arc, as a share of its whole travel
+  const share = (props: React.ComponentProps<typeof Handle>) => {
+    const { container } = render(<Handle {...props} />);
+    const circle = container.querySelector('[style*="rotate"]') as HTMLElement;
+    const angle = Number(circle.style.transform.match(/rotate\(([-\d.e]+)rad\)/)?.[1]);
+    const max = Math.PI / 1.2;
+    return (angle + max) / (2 * max);
+  };
+
+  it('pow gives the short times most of the travel: of 32 s, 125 ms at a quarter, 2 s in the middle', () => {
+    expect(share({ min: 0, max: 32, mode: 'pow', value: 0 })).toBeCloseTo(0);
+    expect(share({ min: 0, max: 32, mode: 'pow', value: 0.125 })).toBeCloseTo(0.25);
+    expect(share({ min: 0, max: 32, mode: 'pow', value: 2 })).toBeCloseTo(0.5);
+    expect(share({ min: 0, max: 32, mode: 'pow', value: 32 })).toBeCloseTo(1);
+  });
+
+  it('linear and log as before', () => {
+    expect(share({ min: 0, max: 32, value: 8 })).toBeCloseTo(0.25);
+    expect(share({ min: 10, max: 1000, mode: 'log', value: 100 })).toBeCloseTo(0.5);
+  });
+});
+
+describe('valueScale', () => {
+  it('pow goes from a time to the travel and back', () => {
+    const scale = valueScale('pow').domain([0, 32]).range([-100, 100]);
+    [0, 0.0001, 0.005, 0.1, 1, 2.5, 31.9999, 32].forEach((time) =>
+      expect(scale.invert(scale(time))).toBeCloseTo(time, 9)
+    );
+  });
+});
+
+describe('Handle modulation', () => {
+  const modulation = (amount: number, id = 'env2') => ({ id, color: '#f1c40f', amount, label: id });
+  // the start and the end angle of an arc path of d3 (it starts at its start angle on the outer radius)
+  const angleOf = ({ x, y }: { x: number; y: number }) => Math.atan2(x, -y);
+  const modArcs = (container: HTMLElement) =>
+    Array.from(container.querySelectorAll('[data-testid="mod-arc"]'));
+
+  it('draws an arc of the color of the source from the value to the value + amount', () => {
+    const { container } = render(<Handle min={0} max={1} value={0.5} modulations={[modulation(0.25)]} />);
+    const [path] = modArcs(container);
+    expect(path.getAttribute('fill')).toBe('#f1c40f');
+    // from the top (0.5) a quarter of the travel clockwise
+    const start = startPoint(path.getAttribute('d') ?? '');
+    expect(angleOf(start)).toBeCloseTo(0);
+  });
+
+  it('clamps the arc to the scale, draws one per route and none at 0', () => {
+    const { container } = render(
+      <Handle
+        min={0}
+        max={1}
+        value={1}
+        modulations={[modulation(0.5), modulation(-0.5, 'env3'), modulation(0, 'env1')]}
+      />
+    );
+    // the first is past max: nothing to draw, the second down to the middle
+    const paths = modArcs(container);
+    expect(paths).toHaveLength(1);
+    expect(screen.getAllByTestId('amount-ring')).toHaveLength(3);
+  });
+
+  it('is a drop target with its id, its rings change and remove the routes', () => {
+    const onChange = jest.fn();
+    const onRemove = jest.fn();
+    const { container } = render(
+      <Handle
+        min={0}
+        max={1}
+        value={0.5}
+        modTarget='osc1.gain'
+        modulations={[{ ...modulation(0.25), onChange, onRemove }]}
+      />
+    );
+    expect(container.querySelector('[data-mod-target="osc1.gain"]')).not.toBeNull();
+    const ring = screen.getByRole('slider', { name: 'env2' });
+    fireEvent.keyDown(ring, { key: 'ArrowUp' });
+    expect(onChange).toHaveBeenCalledWith(0.26);
+    fireEvent.doubleClick(ring);
+    expect(onRemove).toHaveBeenCalled();
+  });
+
+  it('a disabled knob takes no source and hides its routes', () => {
+    const { container } = render(
+      <Handle min={0} max={1} value={0.5} disabled modTarget='filter.gain' modulations={[modulation(0.25)]} />
+    );
+    expect(container.querySelector('[data-mod-target]')).toBeNull();
+    expect(modArcs(container)).toHaveLength(0);
+    expect(screen.queryByTestId('amount-ring')).toBeNull();
   });
 });

@@ -54,7 +54,9 @@ describe('wavetable engine', () => {
     const { addModule, statuses, worker, engine } = setup();
     expect(statuses).toEqual(['loading']);
     expect(workletLoads(addModule, 'wavetable-osc')).toBe(1);
-    expect(engine.createVoice({ osc: [], start: 0 }, {})).toBeNull();
+    expect(
+      engine.createVoice({ osc: [], start: 0, envelopes: [], envStart: 0, routes: [], filter: null }, {})
+    ).toBeNull();
     await flush();
     expect(statuses).toEqual(['loading', 'ready']);
     expect(worker()?.url).toMatch(/assets\/worklets\/wavetable-worker\.js$/);
@@ -121,7 +123,14 @@ describe('wavetable engine', () => {
   it('creates the node of a voice once ready', async () => {
     const { engine } = setup();
     await flush();
-    const options = { osc: [{ table: 'osc1', unison: 2, phase: 0, phaseRand: 0 }, null], start: 1 };
+    const options = {
+      osc: [{ table: 'osc1', unison: 2, phase: 0, phaseRand: 0 }, null],
+      start: 1,
+      envelopes: [{ attack: 0, hold: 0, decay: 0, sustain: 1, release: 0.1 }],
+      envStart: 1,
+      routes: [],
+      filter: null,
+    };
     const node = engine.createVoice(options, { frequency: 220, gain1: 0.5 }) as NodeStub;
     expect(node.name).toBe(VOICE_PROCESSOR);
     expect(node.options).toEqual({
@@ -140,7 +149,9 @@ describe('wavetable engine', () => {
     const { statuses, engine } = setup();
     await flush();
     expect(statuses).toEqual(['unsupported']);
-    expect(engine.createVoice({ osc: [], start: 0 }, {})).toBeNull();
+    expect(
+      engine.createVoice({ osc: [], start: 0, envelopes: [], envStart: 0, routes: [], filter: null }, {})
+    ).toBeNull();
 
     Object.assign(globalThis, { Worker: undefined });
     const second = setup();
@@ -159,7 +170,9 @@ describe('wavetable engine', () => {
     await flush();
     expect(statuses).toEqual(['loading', 'failed']);
     expect(error).toHaveBeenCalledWith('The wavetable oscillator failed', expect.any(Error));
-    expect(engine.createVoice({ osc: [], start: 0 }, {})).toBeNull();
+    expect(
+      engine.createVoice({ osc: [], start: 0, envelopes: [], envStart: 0, routes: [], filter: null }, {})
+    ).toBeNull();
 
     engine.retry();
     expect(workletLoads(addModule, 'wavetable-osc')).toBe(2);
@@ -193,11 +206,16 @@ describe('wavetable engine', () => {
   it('stays ready when a voice fails: the synth takes only that voice off', async () => {
     const { engine, statuses, worker } = setup();
     await flush();
-    const voice = engine.createVoice({ osc: [], start: 0 }, {});
+    const voice = engine.createVoice(
+      { osc: [], start: 0, envelopes: [], envStart: 0, routes: [], filter: null },
+      {}
+    );
     expect(voice?.onprocessorerror).toBeNull();
     expect(statuses).toEqual(['loading', 'ready']);
     expect(worker()?.terminate).not.toHaveBeenCalled();
-    expect(engine.createVoice({ osc: [], start: 0 }, {})).not.toBeNull();
+    expect(
+      engine.createVoice({ osc: [], start: 0, envelopes: [], envStart: 0, routes: [], filter: null }, {})
+    ).not.toBeNull();
   });
 
   it('retry does nothing unless it failed', async () => {

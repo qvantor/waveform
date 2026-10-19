@@ -1,7 +1,7 @@
 import React from 'react';
 import styled from 'styled-components';
 import { line } from 'd3-shape';
-import { Vector2D, vector2d } from '@waveform/math';
+import { number, Vector2D, vector2d } from '@waveform/math';
 import { LineChart, useLineChartContext, Line, XAxis, YAxis } from '../line-chart';
 import { Handle } from '../handle';
 import { theme } from '../common/constants';
@@ -78,31 +78,45 @@ const CustomLine = ({ attack, hold, decay, sustain, release }: LineProps) => {
   );
 };
 
-type Props = LineProps & {
-  onChange: (key: keyof LineProps, value: number) => void;
+// 0.5ms, 12ms, 340ms, 1.25s, 12.5s
+export const formatTime = (seconds: number) => {
+  if (seconds < 0.01) return `${number.round(seconds * 1000, 10)}ms`;
+  if (seconds < 1) return `${Math.round(seconds * 1000)}ms`;
+  if (seconds < 10) return `${number.round(seconds, 100)}s`;
+  return `${number.round(seconds, 10)}s`;
 };
 
-export const AdsrEnvelope = ({ onChange, ...rest }: Props) => {
+// the times in steps of 0.1 ms
+const TIME_PRECISION = 10000;
+
+type Props = LineProps & {
+  onChange: (key: keyof LineProps, value: number) => void;
+  // seconds of a stage at most
+  maxTime: number;
+};
+
+// the chart scales to the whole envelope; the time knobs are nonlinear (pow): short times get most of their
+// travel
+export const AdsrEnvelope = ({ onChange, maxTime, ...rest }: Props) => {
   const { attack, hold, decay, sustain, release } = rest;
-  const formatValue = (value: number) => `${value * 1000}ms`;
+  const formatValue = formatTime;
   const handleProps = {
     min: 0,
-    max: 1,
-    plotSize: 500,
+    max: maxTime,
+    mode: 'pow' as const,
+    precision: TIME_PRECISION,
+    plotSize: 200,
     formatValue,
   };
   const onChangeInternal = (key: keyof LineProps) => (value: number) =>
-    onChange(key, Math.round(value * 1000) / 1000);
+    onChange(key, number.round(value, TIME_PRECISION));
+  const length = attack + hold + decay + release;
 
   return (
     <Root>
-      <Chart
-        domainX={[0, Math.max(attack + hold + decay + release + 0.1, 0.5)]}
-        domainY={[1, 0]}
-        padding={[10, 5]}
-      >
+      <Chart domainX={[0, Math.max(length * 1.1, 0.5)]} domainY={[1, 0]} padding={[10, 5]}>
         <YAxis ticks={2} />
-        <XAxis ticks={4} formatText={(value) => `${value * 1000}ms`} />
+        <XAxis ticks={4} formatText={formatTime} />
         <CustomLine {...rest} />
       </Chart>
       <Handlers>

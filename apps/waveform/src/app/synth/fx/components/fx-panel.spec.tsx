@@ -36,6 +36,24 @@ describe('FxPanel', () => {
     expect(fx[0].$effects.value.delay.on).toBe(true);
   });
 
+  it.each([
+    ['distortion', ['drive', 'tone', 'level', 'mix']],
+    ['delay', ['pan', 'time', 'fb', 'freq', 'q', 'mix']],
+    ['reverb', ['lowcut', 'pre', 'size', 'decay', 'damp', 'bass', 'er', 'sep', 'depth', 'mix']],
+  ] as const)('%s: every knob and fader takes the envelopes, the switches do not', (type, knobs) => {
+    const { container } = renderWithFx(<FxPanel type={type} />);
+    const targets = Array.from(container.querySelectorAll('[data-mod-target]')).map((element) =>
+      element.getAttribute('data-mod-target')
+    );
+    expect(targets.sort()).toEqual(knobs.map((knob) => `${type}.${knob}`).sort());
+  });
+
+  it('a bypassed effect takes none', async () => {
+    const { user } = setup();
+    await user.click(screen.getByRole('button', { name: 'Delay' }));
+    expect(document.querySelector('[data-mod-target]')).toBeNull();
+  });
+
   it('selecting a preset applies it to the model', async () => {
     const { fx, user } = setup();
     await user.selectOptions(screen.getByRole('combobox'), 'Dub');

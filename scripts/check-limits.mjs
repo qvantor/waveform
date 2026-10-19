@@ -33,7 +33,11 @@ const save = (i) =>
     body: JSON.stringify({
       name: `limits check ${i}`,
       // unique sound per run (values survive rounding to 4 significant digits), otherwise saves are deduplicated
-      data: { osc1: { w: i }, filter: { cut: 100 + (run % 900) }, adsr: { attack: (run % 997) / 1000 } },
+      data: {
+        osc1: { w: i },
+        filter: { cut: 100 + (run % 900) },
+        env: { e1: { attack: (run % 997) / 1000 } },
+      },
       turnstileToken: TOKEN,
     }),
   });

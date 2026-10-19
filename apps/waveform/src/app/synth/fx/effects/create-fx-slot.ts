@@ -1,6 +1,8 @@
 import { BehaviorSubject } from 'rxjs';
 import { noop } from 'lodash';
 import { FxCore, FxStatus } from './types';
+import { FxModulation, FxNote, FxRoute } from './fx-modulation';
+import { holdParam, scheduleRouted } from './fx-automation';
 
 // smooths param changes, so mix, bypass and effect params don't click
 export const setSmooth = (
@@ -50,6 +52,26 @@ export const createFxSlot = (audioCtx: BaseAudioContext, core: FxCore) => {
 
   const setGain = (node: GainNode, value: number) => setSmooth(audioCtx, node.gain, value);
 
+  // the mix knob, on (not bypassed and ready) and the routes moving it with the note they follow
+  let mix = { value: 0, on: false };
+  let mixMod: { note: FxNote; routes: FxRoute[] } | null = null;
+  // the crossfade of mixGains: linear gains ramp, equal power ones are curves
+  const applyMix = () => {
+    const now = audioCtx.currentTime;
+    if (mixMod && mix.on) {
+      const { note, routes } = mixMod;
+      const ramp = linearMix ? 'linear' : 'curve';
+      scheduleRouted(dry.gain, now, note, routes, mix.value, ramp, (value) => mixGains(value, linearMix)[0]);
+      scheduleRouted(wet.gain, now, note, routes, mix.value, ramp, (value) => mixGains(value, linearMix)[1]);
+      return;
+    }
+    holdParam(dry.gain, now);
+    holdParam(wet.gain, now);
+    const [dryGain, wetGain] = mix.on ? mixGains(mix.value, linearMix) : [1, 0];
+    setGain(dry, dryGain);
+    setGain(wet, wetGain);
+  };
+
   return {
     input,
     output,
@@ -64,10 +86,20 @@ export const createFxSlot = (audioCtx: BaseAudioContext, core: FxCore) => {
     retry: core.retry ?? noop,
     // the crossfade of mixGains (both gains glide alike, so a linear one keeps their sum); bypassed: only
     // the dry signal passes
-    setMix: (mix: number, on: boolean) => {
-      const [dryGain, wetGain] = on ? mixGains(mix, linearMix) : [1, 0];
-      setGain(dry, dryGain);
-      setGain(wet, wetGain);
+    setMix: (value: number, on: boolean) => {
+      mix = { value, on };
+      applyMix();
+    },
+    // the routes of the envelopes of the last note: the mix moves the gains of the slot, the others the core
+    setModulation: (mod: FxModulation | null) => {
+      const mixRoutes = mod?.routes.filter(({ param }) => param === 'mix') ?? [];
+      const routes = mod?.routes.filter(({ param }) => param !== 'mix') ?? [];
+      const next = mod && mixRoutes.length > 0 ? { note: mod.note, routes: mixRoutes } : null;
+      if (next || mixMod) {
+        mixMod = next;
+        applyMix();
+      }
+      core.setModulation(mod && routes.length > 0 ? { note: mod.note, routes } : null);
     },
     // active: in the chain and not bypassed
     setActive: (active: boolean) => {

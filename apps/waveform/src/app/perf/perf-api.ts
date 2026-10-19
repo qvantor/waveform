@@ -2,7 +2,8 @@ import { Subscription } from 'rxjs';
 import { normalizePreset } from '@waveform/preset-schema';
 import { applySnapshot } from '../app';
 import type {
-  useAdsrEnvelope,
+  useEnvelopes,
+  useModulation,
   useInputController,
   useOscillator1,
   useOscillator2,
@@ -25,7 +26,8 @@ import { PROBE_PROCESSOR, ProbeOnsetMessage, ProbeOptions } from './probe-dsp';
 export interface PerfModels {
   synthCore: ReturnType<typeof useSynthCore>;
   inputController: ReturnType<typeof useInputController>;
-  adsr: ReturnType<typeof useAdsrEnvelope>;
+  env: ReturnType<typeof useEnvelopes>;
+  mod: ReturnType<typeof useModulation>;
   osc1: ReturnType<typeof useOscillator1>;
   osc2: ReturnType<typeof useOscillator2>;
   filter: ReturnType<typeof useFilter>;
@@ -136,7 +138,6 @@ export const createPerfApi = (models: PerfModels) => {
   // filter and the effects), 1 the output (after the limiter); the core disconnects preGain whenever its mid
   // nodes change, the probe connects it again
   let probe: AudioWorkletNode | null = null;
-  let tap: Subscription | null = null;
   let onsets: ProbeOnsetMessage[] = [];
   // one probe however many installs: one before the module has loaded shares the first; a removal meanwhile
   // (a new generation) drops the install
@@ -154,7 +155,8 @@ export const createPerfApi = (models: PerfModels) => {
     node.port.onmessage = ({ data }: MessageEvent<ProbeOnsetMessage>) => onsets.push(data);
     core.output.connect(node, 0, 1);
     node.connect(audioCtx.destination);
-    tap = core.$midNodes.subscribe(() => core.preGain.connect(node, 0, 0));
+    // the voices before the fx (the filter is in each voice)
+    core.preGain.connect(node, 0, 0);
     probe = node;
   };
   const installProbe = (url: string, options: Partial<ProbeOptions> = {}) => {
@@ -168,7 +170,6 @@ export const createPerfApi = (models: PerfModels) => {
     probeGeneration++;
     installing = null;
     if (!probe) return;
-    tap?.unsubscribe();
     probe.port.postMessage({ stop: true });
     core.preGain.disconnect(probe);
     core.output.disconnect(probe);

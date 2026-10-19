@@ -4,6 +4,8 @@ import { FxDefinition } from './types';
 import { DelayParam, DELAY_PRESETS } from './delay-presets';
 import { createFxParams } from './fx-params';
 import { formatHz, formatMs } from './format';
+import { FxModulation, FxNote, FxRoute } from './fx-modulation';
+import { FxRamp, holdParam, scheduleRouted } from './fx-automation';
 
 const { time, fb, mode, pan, freq, q } = FX_PARAMS.delay;
 
@@ -14,7 +16,10 @@ const TIME_GLIDE = 0.1;
 
 // input → splitter → in gains → line L/R → bandpass L/R → pan L/R → merger (output)
 // feedback: bandpass L/R → fb gains → line L/R; normal: each line feeds itself,
-// ping-pong: the mono sum goes into the left line, the lines feed each other (L → R → L)
+// ping-pong: the mono sum goes into the left line, the lines feed each other (L → R → L).
+// A knob the envelopes move (fx-modulation.ts) is automated, base + amount × level: linear ramps, exponential
+// ones for Freq and Q; Time without its tape glide (a fast envelope would be smoothed away), Feedback on the
+// gains of the mode, Pan on the delay of the side it is on
 export const delay: FxDefinition<DelayParam> = {
   label: 'Delay',
   params: {
@@ -74,9 +79,20 @@ export const delay: FxDefinition<DelayParam> = {
 
     const gain = () => audioCtx.createGain();
     const line = () => audioCtx.createDelay(time.max);
+    // its Freq and Q k-rate: automated a-rate (an envelope, a knob gliding) Chrome and WebKit work the
+    // coefficients out every sample, twice the cost of the filter (scripts/bench-osc, biquad); once per block
+    // a sweep of the feedback loop doesn't step audibly
     const bandpass = () => {
       const node = audioCtx.createBiquadFilter();
       node.type = 'bandpass';
+      [node.frequency, node.Q].forEach((param) => {
+        // a browser that has no automationRate keeps a-rate
+        try {
+          param.automationRate = 'k-rate';
+        } catch {
+          // a-rate
+        }
+      });
       return node;
     };
 
@@ -133,7 +149,58 @@ export const delay: FxDefinition<DelayParam> = {
       q: (value) => [filters.l, filters.r].forEach((node) => setValue(node.Q, value)),
     };
 
-    const setParam = bind(apply);
+    // the routes of the knobs and the note they follow (null: none)
+    let modulation: FxModulation | null = null;
+    const routesOf = (key: DelayParam) => modulation?.routes.filter(({ param }) => param === key) ?? [];
+    // the params of each knob the envelopes move, the ramp and the map of the knob to each of them
+    const automated: Partial<Record<DelayParam, () => [AudioParam, FxRamp, ((value: number) => number)?][]>> =
+      {
+        time: () => [lines.l, lines.r].map((node) => [node.delayTime, 'linear']),
+        fb: () =>
+          (isPingPong(values.mode) ? [feedbacks.lr, feedbacks.rl] : [feedbacks.ll, feedbacks.rr]).map(
+            (node) => [node.gain, 'linear']
+          ),
+        pan: () => [
+          [offsets.l.delayTime, 'curve', (value) => Math.max(0, value)],
+          [offsets.r.delayTime, 'curve', (value) => Math.max(0, -value)],
+        ],
+        freq: () => [filters.l, filters.r].map((node) => [node.frequency, 'exponential']),
+        q: () => [filters.l, filters.r].map((node) => [node.Q, 'exponential']),
+      };
+    // every param a knob may move (the feedback gains of both modes)
+    const paramsOf: Partial<Record<DelayParam, AudioParam[]>> = {
+      time: [lines.l.delayTime, lines.r.delayTime],
+      fb: Object.values(feedbacks).map((node) => node.gain),
+      pan: [offsets.l.delayTime, offsets.r.delayTime],
+      freq: [filters.l.frequency, filters.r.frequency],
+      q: [filters.l.Q, filters.r.Q],
+    };
+    const automate = (key: DelayParam, routes: FxRoute[], note: FxNote) =>
+      automated[key]?.().forEach(([param, ramp, map]) =>
+        scheduleRouted(param, audioCtx.currentTime, note, routes, values[key], ramp, map)
+      );
+    // a knob moved by its routes is automated, else it glides to its value
+    const routed = (key: DelayParam, set: (value: number) => void) => (value: number) => {
+      const routes = routesOf(key);
+      if (modulation && routes.length > 0) automate(key, routes, modulation.note);
+      else set(value);
+    };
+    // the mode and the active flag set every feedback gain: a moved feedback is automated again
+    const routing = () => {
+      applyRouting();
+      const routes = routesOf('fb');
+      if (modulation && routes.length > 0) automate('fb', routes, modulation.note);
+    };
+
+    const setParam = bind({
+      ...apply,
+      time: routed('time', apply.time),
+      fb: routing,
+      mode: routing,
+      pan: routed('pan', apply.pan),
+      freq: routed('freq', apply.freq),
+      q: routed('q', apply.q),
+    });
 
     return {
       input,
@@ -141,7 +208,23 @@ export const delay: FxDefinition<DelayParam> = {
       setParam,
       setActive: (value) => {
         active = value;
-        applyRouting();
+        routing();
+      },
+      setModulation: (mod) => {
+        const before = new Set(modulation?.routes.map(({ param }) => param));
+        modulation = mod;
+        (Object.keys(paramsOf) as DelayParam[]).forEach((key) => {
+          const routes = routesOf(key);
+          if (mod && routes.length > 0) {
+            automate(key, routes, mod.note);
+            return;
+          }
+          if (!before.has(key)) return;
+          // its routes are gone: from where it is to its value
+          paramsOf[key]?.forEach((param) => holdParam(param, audioCtx.currentTime));
+          if (key === 'fb') applyRouting();
+          else apply[key](values[key]);
+        });
       },
       destroy: () =>
         [

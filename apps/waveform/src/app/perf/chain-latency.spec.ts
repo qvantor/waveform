@@ -5,6 +5,7 @@ import {
   createVoiceDsp,
   createVoiceShared,
 } from '../synth/common/wavetable/wavetable-osc-dsp';
+import type { EnvelopeParams } from '../synth/common/envelope/envelope-curve';
 import { VoiceParam } from '../synth/common/wavetable/wavetable-osc-params';
 import { createDistortionDsp, DISTORTION_LATENCY, TONE_OPEN } from '../synth/fx/effects/distortion-dsp';
 import { OVERSAMPLER_LATENCY } from '../synth/fx/effects/oversampler';
@@ -69,13 +70,23 @@ const PARAMS = Object.fromEntries(
   }).map(([name, value]) => [name, Float32Array.of(value)])
 ) as Record<VoiceParam, Float32Array>;
 
+// ENV 1 at full level from the start: the voice as the oscillator plays it
+const FLAT: EnvelopeParams = { attack: 0, hold: 0, decay: 0, sustain: 1, release: 0 };
+
 // a note at `start` (seconds): its voice at phase rand 0 from a quarter of the sine (its peak), left channel
 const renderVoice = (rate: number, frames: number, start: number) => {
   const store = createTableStore();
   store.set('a', 1, buildLevels([SINE]));
   const voice = createVoiceDsp(
     rate,
-    { osc: [{ table: 'a', unison: 1, phase: 0.25, phaseRand: 0 }, null], start },
+    {
+      osc: [{ table: 'a', unison: 1, phase: 0.25, phaseRand: 0 }, null],
+      start,
+      envelopes: [FLAT, FLAT, FLAT],
+      envStart: start,
+      routes: [],
+      filter: null,
+    },
     store,
     () => 0,
     createVoiceShared()

@@ -25,6 +25,7 @@ export const ReverbControls = ({ params, setParam, on, sampleRate, out }: FxCont
       value={params[key]}
       onChange={(value) => setParam(key, value)}
       disabled={!on}
+      target={`reverb.${key}`}
     />
   );
   return (

@@ -1,1 +1,1 @@
-export { defaultFilterRanges, filterRanges } from './ranges';
+export { defaultFilterRanges, rangesOf } from './ranges';

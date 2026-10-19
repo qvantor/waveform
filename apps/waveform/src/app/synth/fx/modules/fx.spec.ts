@@ -1,20 +1,20 @@
 import { mapValues } from 'lodash';
 import { FX_MIX_PARAM, FX_PARAMS, FX_TYPES } from '@waveform/preset-schema';
 import { applySnapshot, getSnapshot } from '../../../app';
-import { createSynthCore, initModel } from '../../../../test-utils/models';
+import { createFx, createSynthCore } from '../../../../test-utils/models';
 import { withoutAudioWorklet } from '../../../../test-utils/no-audio-worklet';
 import { workletLoads } from '../../../../test-utils/worklet-loads';
 import { DELAY_PRESETS } from '../effects/delay-presets';
 import { DISTORTION_LATENCY } from '../effects/distortion-dsp';
 import { REVERB_PRESETS } from '../effects/reverb-presets';
 import { findFxPreset, FxStatus } from '../effects';
-import { fx, getChain } from './fx';
+import { getChain } from './fx';
 
 const setup = () => {
   const synthCore = createSynthCore();
   const createDelay = jest.spyOn(synthCore[0].audioCtx, 'createDelay');
   const createBiquadFilter = jest.spyOn(synthCore[0].audioCtx, 'createBiquadFilter');
-  const [model, actions] = initModel(fx({ synthCore }), 'fx', undefined);
+  const [model, actions] = createFx(synthCore).fx;
   // the left delay line (the first one as long as the longest time) and its bandpass, the bandpass feeds the
   // line back through the feedback gain
   const line = createDelay.mock.calls.findIndex(([max]) => max === FX_PARAMS.delay.time.max);
@@ -44,7 +44,7 @@ const setupFailing = () => {
     failed = true;
     return Promise.reject(new Error('404'));
   });
-  const [model, actions] = initModel(fx({ synthCore }), 'fx', undefined);
+  const [model, actions] = createFx(synthCore).fx;
   return { model, actions, synthCore: synthCore[0], addModule, error };
 };
 
@@ -80,7 +80,7 @@ describe('fx', () => {
   it('keeps send and wet closed until the slot is set up', () => {
     const synthCore = createSynthCore();
     const createGain = jest.spyOn(synthCore[0].audioCtx, 'createGain');
-    const [model] = initModel(fx({ synthCore }), 'fx', undefined);
+    const [model] = createFx(synthCore).fx;
     const gains = createGain.mock.results.map(({ value }) => value as GainNode);
     const { send, wet } = model.slots.delay;
     expect(gains).toContain(send);
@@ -143,7 +143,7 @@ describe('fx', () => {
     const synthCore = createSynthCore();
     const { audioCtx } = synthCore[0];
     const createChannelMerger = jest.spyOn(audioCtx, 'createChannelMerger');
-    const [model, actions] = initModel(fx({ synthCore }), 'fx', undefined);
+    const [model, actions] = createFx(synthCore).fx;
     const { drain, wet } = model.slots.delay;
     // the delay output (merger) feeds both wet and the drain
     const coreOutput = createChannelMerger.mock.results[0].value as ChannelMergerNode;
@@ -761,6 +761,81 @@ describe('fx', () => {
         params: { ...DISTORTION_DEFAULTS, drive: 9 },
       });
       expect(model.$effects.value.delay.mix).toBe(0.3);
+    });
+  });
+
+  describe('modulation', () => {
+    const ENV = { attack: 0.1, hold: 0, decay: 0.1, sustain: 0.5, release: 0.2 };
+    const FLAT = { attack: 0, hold: 0, decay: 0, sustain: 1, release: 0 };
+    const note = (start: number) => ({ envelopes: [FLAT, ENV, FLAT], start, release: null });
+    const setupModulated = () => {
+      const synthCore = createSynthCore();
+      const { fx, modulation, $fxNote } = createFx(synthCore);
+      const [model, actions] = fx;
+      const setModulation = FX_TYPES.reduce(
+        (spies, type) => ({ ...spies, [type]: jest.spyOn(model.slots[type], 'setModulation') }),
+        {} as Record<typeof FX_TYPES[number], jest.SpyInstance>
+      );
+      return { model, actions, modulation, $fxNote, setModulation };
+    };
+
+    it('gives an effect in the chain, on and ready its routes and the last note', async () => {
+      const { actions, modulation, $fxNote, setModulation } = setupModulated();
+      await flush();
+      modulation[1].addRoute('env2', 'delay.time', 0.5);
+      modulation[1].addRoute('env3', 'distortion.drive', 0.25);
+      $fxNote.next(note(1));
+      // not added: nothing computed (null since the start)
+      expect(setModulation.delay).not.toHaveBeenCalled();
+
+      actions.setAdded('delay', true);
+      expect(setModulation.delay).toHaveBeenLastCalledWith({
+        note: note(1),
+        routes: [{ param: 'time', env: 1, amount: 0.5 * (1 - 0.01), min: 0.01, max: 1 }],
+      });
+      // bypassed: nothing computed
+      actions.setOn('delay', false);
+      expect(setModulation.delay).toHaveBeenLastCalledWith(null);
+      expect(setModulation.distortion).not.toHaveBeenCalled();
+    });
+
+    it('a log knob moves in octaves, a route of amount 0 is left out', async () => {
+      const { actions, modulation, $fxNote, setModulation } = setupModulated();
+      await flush();
+      actions.setAdded('reverb', true);
+      $fxNote.next(note(1));
+      modulation[1].addRoute('env2', 'reverb.decay', 0.5);
+      modulation[1].addRoute('env3', 'reverb.size', 0.5);
+      modulation[1].setAmount('env3', 'reverb.size', 0);
+      expect(setModulation.reverb).toHaveBeenLastCalledWith({
+        note: note(1),
+        routes: [
+          {
+            param: 'decay',
+            env: 1,
+            amount: expect.closeTo(0.5 * Math.log2(200), 9),
+            min: 0.1,
+            max: 20,
+            log: true,
+          },
+        ],
+      });
+    });
+
+    it('a new note starts the envelopes again, the same one (a note of a legato phrase) sends nothing', async () => {
+      const { actions, modulation, $fxNote, setModulation } = setupModulated();
+      await flush();
+      actions.setAdded('delay', true);
+      modulation[1].addRoute('env2', 'delay.fb', 0.5);
+      $fxNote.next(note(1));
+      const calls = setModulation.delay.mock.calls.length;
+      $fxNote.next(note(1));
+      expect(setModulation.delay).toHaveBeenCalledTimes(calls);
+      $fxNote.next(note(2));
+      expect(setModulation.delay).toHaveBeenCalledTimes(calls + 1);
+      expect(setModulation.delay.mock.lastCall?.[0].note.start).toBe(2);
+      $fxNote.next({ ...note(2), release: 3 });
+      expect(setModulation.delay.mock.lastCall?.[0].note.release).toBe(3);
     });
   });
 });

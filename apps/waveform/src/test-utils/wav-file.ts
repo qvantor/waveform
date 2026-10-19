@@ -80,7 +80,7 @@ export const encode = (values: number[], { format = FLOAT, bits = 32 }: Encoding
 
 export const data = (values: number[], encoding: Encoding = {}) => chunk('data', encode(values, encoding));
 
-// the layout of a Serum wavetable: JUNK, fmt, clm (the wave size), data in mono 32 bit float
+// the layout of a wavetable file: JUNK, fmt, clm (the wave size), data in mono 32 bit float
 export const wavetableFile = (samples: ArrayLike<number>, sampleRate = 44100) =>
   riff(
     chunk('JUNK', new Uint8Array(28)),

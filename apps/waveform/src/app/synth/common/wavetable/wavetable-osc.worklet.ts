@@ -11,6 +11,8 @@ import {
   voiceStats,
 } from './wavetable-osc-dsp';
 import { STORE_PROCESSOR, VOICE_PARAMETERS, VOICE_PROCESSOR, VoiceParam } from './wavetable-osc-params';
+import type { VoiceRoutesMessage } from './voice-modulation';
+import type { VoiceFilterMessage } from './voice-filter';
 
 // the audio worklet module of the wavetable oscillator, bundled by esbuild (`npm run worklets`) into
 // assets/worklets/wavetable-osc.js; it runs in the AudioWorkletGlobalScope (one per AudioContext): no window,
@@ -94,6 +96,10 @@ class VoiceProcessor extends AudioWorkletProcessor {
     const voiceOptions = options.processorOptions as VoiceOptions;
     this.dsp = createVoiceDsp(sampleRate, voiceOptions, store);
     this.trace = __PERF__ && !!voiceOptions.trace;
+    this.port.onmessage = ({ data }: MessageEvent<Partial<VoiceRoutesMessage & VoiceFilterMessage>>) => {
+      if (data.routes) this.dsp.setRoutes(data.routes);
+      if (data.filter !== undefined) this.dsp.setFilter(data.filter);
+    };
   }
 
   process(

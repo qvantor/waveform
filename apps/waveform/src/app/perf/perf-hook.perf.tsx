@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import {
-  useAdsrEnvelope,
+  useEnvelopes,
+  useModulation,
   useInputController,
   useOscillator1,
   useOscillator2,
@@ -19,7 +20,8 @@ export const PerfHook: typeof NoopPerfHook = () => {
   const models = {
     synthCore: useSynthCore(),
     inputController: useInputController(),
-    adsr: useAdsrEnvelope(),
+    env: useEnvelopes(),
+    mod: useModulation(),
     osc1: useOscillator1(),
     osc2: useOscillator2(),
     filter: useFilter(),

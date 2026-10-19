@@ -171,3 +171,30 @@ describe('Fader', () => {
     expect(slider.getAttribute('aria-disabled')).toBe('true');
   });
 });
+
+describe('Fader modulation', () => {
+  const modulation = (amount: number, id = 'env2') => ({ id, color: '#f1c40f', amount, label: id });
+
+  it('draws a bar of the color of the source from the value to the value + amount, clamped', () => {
+    render(<Fader min={0} max={1} value={0.5} modulations={[modulation(0.25), modulation(-0.75, 'env3')]} />);
+    const [up, down] = screen.getAllByTestId('mod-bar');
+    expect(up.style.background).toBe('rgb(241, 196, 15)');
+    expect(parseFloat(up.style.bottom)).toBe(BOTTOM + FADER_TRAVEL / 2);
+    expect(parseFloat(up.style.height)).toBe(FADER_TRAVEL / 4);
+    expect(parseFloat(down.style.bottom)).toBe(BOTTOM);
+    expect(parseFloat(down.style.height)).toBe(FADER_TRAVEL / 2);
+    expect(screen.getAllByTestId('amount-ring')).toHaveLength(2);
+  });
+
+  it('is a drop target unless disabled, then its routes are hidden', () => {
+    const { container, rerender } = render(
+      <Fader min={0} max={1} value={0.5} modTarget='reverb.er' modulations={[modulation(0.25)]} />
+    );
+    expect(container.querySelector('[data-mod-target="reverb.er"]')).not.toBeNull();
+    rerender(
+      <Fader min={0} max={1} value={0.5} disabled modTarget='reverb.er' modulations={[modulation(0.25)]} />
+    );
+    expect(container.querySelector('[data-mod-target]')).toBeNull();
+    expect(screen.queryByTestId('mod-bar')).toBeNull();
+  });
+});

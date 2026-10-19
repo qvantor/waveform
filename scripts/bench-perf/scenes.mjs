@@ -45,7 +45,7 @@ const patch = (values = {}) => ({
   osc1: osc(TABLES.saw303),
   osc2: OFF,
   filter: NO_FILTER,
-  adsr: ADSR,
+  env: { e1: ADSR },
   v: VOICING,
   fx: fx(),
   ...values,
@@ -85,7 +85,7 @@ export const KEYS = [
   ['KeyI', 'C5'],
 ];
 
-const SHARP_PATCH = patch({ osc1: osc(TABLES.saw303, { pr: 0 }), adsr: SHARP });
+const SHARP_PATCH = patch({ osc1: osc(TABLES.saw303, { pr: 0 }), env: { e1: SHARP } });
 
 export const LATENCY_CASES = [
   {
@@ -101,7 +101,7 @@ export const LATENCY_CASES = [
     id: 'L3',
     group: 'latency',
     title: '8 notes held (2 × u8), single notes on top',
-    snapshot: { ...patch(BOTH_U8), adsr: SHARP },
+    snapshot: { ...patch(BOTH_U8), env: { e1: SHARP } },
     count: 50,
     interval: 300,
     held: ['C2', 'E2', 'G2', 'B2', 'C3', 'E3', 'G3', 'B3'],

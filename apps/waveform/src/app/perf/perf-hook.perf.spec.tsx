@@ -12,7 +12,8 @@ function mockTuple(name: string) {
 jest.mock('../synth/common/modules', () => ({
   useSynthCore: mockTuple('synthCore'),
   useInputController: mockTuple('inputController'),
-  useAdsrEnvelope: mockTuple('adsr'),
+  useEnvelopes: mockTuple('env'),
+  useModulation: mockTuple('mod'),
   useOscillator1: mockTuple('osc1'),
   useOscillator2: mockTuple('osc2'),
   useSynth: mockTuple('synth'),
@@ -30,7 +31,8 @@ describe('perf hook of the perf build', () => {
     expect(Object.keys(models)).toEqual([
       'synthCore',
       'inputController',
-      'adsr',
+      'env',
+      'mod',
       'osc1',
       'osc2',
       'filter',

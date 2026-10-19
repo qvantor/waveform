@@ -9,10 +9,13 @@ import { PresetSection, PresetsProvider } from '../presets';
 import { PerfHook } from '../perf/perf-hook';
 import {
   SynthProvider,
+  useSynth,
   InputControllerProvider,
   useInputController,
-  AdsrEnvelopeProvider,
-  useAdsrEnvelope,
+  EnvelopesProvider,
+  useEnvelopes,
+  ModulationProvider,
+  useModulation,
   Oscillator1Provider,
   Oscillator2Provider,
   useOscillator1,
@@ -22,7 +25,7 @@ import {
   useSynthCore,
   MidiControllerProvider,
 } from './common/modules';
-import { FilterProvider, FilterSection } from './filter';
+import { FilterProvider, FilterSection, useFilter } from './filter';
 import { OscillatorsContainer, MasterHandle } from './synth/components';
 import { VoicingSection } from './voicing';
 import { MidiInput } from './settings';
@@ -120,6 +123,42 @@ const DesktopLayout = ({ screen, onScreenChange }: ScreenProps) => (
   </>
 );
 
+// the fx follow the envelopes of the last note of the synth
+const FxInternal = ({ children }: React.PropsWithChildren) => {
+  const synthCore = useSynthCore();
+  const synth = useSynth();
+  const modulation = useModulation();
+  return (
+    <FxProvider initial={{}} synthCore={synthCore} synth={synth} modulation={modulation}>
+      {children}
+    </FxProvider>
+  );
+};
+
+// the voices: the filter is in each of them, the fx follow the last note
+const VoicesInternal = ({ children }: React.PropsWithChildren) => {
+  const synthCore = useSynthCore();
+  const inputController = useInputController();
+  const envelopes = useEnvelopes();
+  const modulation = useModulation();
+  const oscillator1 = useOscillator1();
+  const oscillator2 = useOscillator2();
+  const filter = useFilter();
+  return (
+    <SynthProvider
+      initial={{}}
+      inputController={inputController}
+      envelopes={envelopes}
+      modulation={modulation}
+      oscillator={[oscillator1, oscillator2]}
+      filter={filter}
+      synthCore={synthCore}
+    >
+      <FxInternal>{children}</FxInternal>
+    </SynthProvider>
+  );
+};
+
 const Internal = () => {
   const isMobile = useIsMobile();
   // lives above the layout switch, so the selected screen survives crossing the mobile breakpoint
@@ -127,34 +166,23 @@ const Internal = () => {
   const app = useApp();
   const synthCore = useSynthCore();
   const inputController = useInputController();
-  const adsrEnvelope = useAdsrEnvelope();
-  const oscillator1 = useOscillator1();
-  const oscillator2 = useOscillator2();
 
   return (
     <MidiControllerProvider initial={{}} inputController={inputController}>
       <FilterProvider initial={{}} synthCore={synthCore}>
-        <FxProvider initial={{}} synthCore={synthCore}>
+        <VoicesInternal>
           <KeyboardControllerProvider initial={{}} app={app} inputController={inputController}>
-            <SynthProvider
-              initial={{}}
-              inputController={inputController}
-              adsrEnvelope={adsrEnvelope}
-              oscillator={[oscillator1, oscillator2]}
-              synthCore={synthCore}
-            >
-              <PresetsProvider initial={{}}>
-                {/* nothing but in the perf build (scripts/bench-perf): above the layout switch, never remounted */}
-                <PerfHook />
-                {isMobile ? (
-                  <MobileLayout screen={screen} onScreenChange={setScreen} />
-                ) : (
-                  <DesktopLayout screen={screen} onScreenChange={setScreen} />
-                )}
-              </PresetsProvider>
-            </SynthProvider>
+            <PresetsProvider initial={{}}>
+              {/* nothing but in the perf build (scripts/bench-perf): above the layout switch, never remounted */}
+              <PerfHook />
+              {isMobile ? (
+                <MobileLayout screen={screen} onScreenChange={setScreen} />
+              ) : (
+                <DesktopLayout screen={screen} onScreenChange={setScreen} />
+              )}
+            </PresetsProvider>
           </KeyboardControllerProvider>
-        </FxProvider>
+        </VoicesInternal>
       </FilterProvider>
     </MidiControllerProvider>
   );
@@ -183,7 +211,7 @@ const HeaderInternal = ({ screen, onScreenChange }: ScreenProps) => {
     <Header>
       <HeaderEq audioCtx={audioCtx} master={output} />
       <HeaderRight>
-        <TapeSwitch options={SYNTH_SCREENS} value={screen} onChange={onScreenChange} />
+        <TapeSwitch options={SYNTH_SCREENS} value={screen} onChange={onScreenChange} switchOnDrag />
         <PresetSection actions={<MidiInput />} />
         <MasterSection>
           <MasterHandle />
@@ -197,11 +225,13 @@ const HeaderInternal = ({ screen, onScreenChange }: ScreenProps) => {
 export default () => (
   <InputControllerProvider initial={{}}>
     <SynthCoreProvider initial={{}}>
-      <AdsrEnvelopeProvider initial={{}}>
-        <OscillatorInternal>
-          <Internal />
-        </OscillatorInternal>
-      </AdsrEnvelopeProvider>
+      <EnvelopesProvider initial={{}}>
+        <ModulationProvider initial={{}}>
+          <OscillatorInternal>
+            <Internal />
+          </OscillatorInternal>
+        </ModulationProvider>
+      </EnvelopesProvider>
     </SynthCoreProvider>
   </InputControllerProvider>
 );

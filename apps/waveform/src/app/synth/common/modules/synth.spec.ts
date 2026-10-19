@@ -1,10 +1,12 @@
 import { registrar } from 'standardized-audio-context-mock';
+import { ENVELOPE_DEFAULTS } from '@waveform/preset-schema';
 import { applySnapshot, getSnapshot } from '../../../app';
 import { createSynth, stopModels } from '../../../../test-utils/models';
 import { withoutAudioWorklet } from '../../../../test-utils/no-audio-worklet';
 import { WorkerStub } from '../../../../test-utils/worker-stub';
 import { getFq } from '../../services';
 import { VOICE_PROCESSOR } from '../wavetable/wavetable-osc-params';
+import type { VoiceOptions } from '../wavetable/wavetable-osc-dsp';
 
 interface VoiceNode extends AudioWorkletNode {
   name: string;
@@ -29,16 +31,17 @@ const setup = async ({ ready = true } = {}) => {
     ).filter(({ name }) => name === VOICE_PROCESSOR);
   const param = (voice: VoiceNode, name: string) => voice.parameters.get(name) as AudioParam;
   const gains = () => createGain.mock.results.map(({ value }) => value as GainNode);
-  // ADSR envelopes are the gains connected straight to the synth output
-  const envelopes = () =>
-    gains().filter((gain) => (gain.connect as jest.Mock).mock.calls.some(([node]) => node === preGain));
+  // the options a voice node was created with
+  const options = (voice: VoiceNode) => voice.options.processorOptions as VoiceOptions;
   // the processor of a voice tells its node it has ended
   const end = (voice: VoiceNode) => voice.port.onmessage?.({ data: { ended: true } });
   const travel = (seconds: number) => registrar.getDeLorean(audioCtx as never)?.travel(seconds);
 
   return {
     ...modules,
+    envelopeModel: modules.envelopes,
     audioCtx,
+    preGain,
     wavetables,
     onPress,
     onRelease,
@@ -47,7 +50,7 @@ const setup = async ({ ready = true } = {}) => {
     voices,
     param,
     gains,
-    envelopes,
+    options,
     end,
     travel,
   };
@@ -68,6 +71,10 @@ describe('synth', () => {
     expect(voice.options.processorOptions).toEqual({
       osc: [{ table: osc1[0].id, unison: 2, phase: 0.5, phaseRand: 1 }, null],
       start: 0,
+      envelopes: [ENVELOPE_DEFAULTS.env1, ENVELOPE_DEFAULTS.env2, ENVELOPE_DEFAULTS.env3],
+      envStart: 0,
+      routes: [],
+      filter: null,
     });
     expect(param(voice, 'frequency').value).toBeCloseTo(440);
     expect(param(voice, 'gain1').value).toBe(0.5);
@@ -104,92 +111,80 @@ describe('synth', () => {
     expect(param(voice, 'position2').value).toBe(0.5);
   });
 
-  it('creates no native oscillators and no gains per oscillator', async () => {
-    const { onPress, audioCtx, gains, envelopes } = await setup();
+  it('creates no native oscillators and no gains: the volume is in the processor', async () => {
+    const { onPress, audioCtx, gains } = await setup();
     onPress([4, 'A']);
     expect(registrar.getAudioNodes(audioCtx as never, 'OscillatorNode')).toHaveLength(0);
-    expect(gains()).toEqual(envelopes());
+    expect(gains()).toEqual([]);
   });
 
-  it('connects the node of a voice to its envelope', async () => {
-    const { onPress, voices, envelopes } = await setup();
+  it('connects the node of a voice straight to the synth output', async () => {
+    const { onPress, voices, preGain } = await setup();
     onPress([4, 'A']);
     const [voice] = voices();
-    const [envelope] = envelopes();
-    expect(voice.connect).toHaveBeenCalledWith(envelope);
+    expect(voice.connect).toHaveBeenCalledWith(preGain);
   });
 
-  it('shapes a note with the ADSR envelope', async () => {
-    const { onPress, envelopes, adsrEnvelope, travel } = await setup();
-    const [, { setEnvelopeValue }] = adsrEnvelope;
-    setEnvelopeValue('attack', 0.1);
-    setEnvelopeValue('hold', 0.1);
-    setEnvelopeValue('decay', 0.1);
-    setEnvelopeValue('sustain', 0.5);
+  it('gives a note the envelopes at its note on, they start with it', async () => {
+    const { onPress, voices, options, envelopeModel, travel } = await setup();
+    const [{ $envelopes }, { setEnvelopeValue }] = envelopeModel;
+    setEnvelopeValue('env1', 'attack', 0.1);
+    setEnvelopeValue('env2', 'decay', 3);
+    await travel(1);
 
     onPress([4, 'C']);
-    const [envelope] = envelopes();
+    const { env1, env2, env3 } = $envelopes.value;
+    // an edit changes the next notes only
+    setEnvelopeValue('env1', 'sustain', 0.5);
+    onPress([4, 'E']);
 
-    expect(envelope.gain.value).toBe(0);
-    await travel(0.05);
-    expect(envelope.gain.value).toBeCloseTo(0.5);
-    // hold
-    await travel(0.1);
-    expect(envelope.gain.value).toBeCloseTo(1);
-    // decay to sustain
-    await travel(0.1);
-    expect(envelope.gain.value).toBeCloseTo(0.75);
-    await travel(1);
-    expect(envelope.gain.value).toBeCloseTo(0.5);
+    const [c, e] = voices();
+    expect(options(c)).toMatchObject({ envelopes: [env1, env2, env3], envStart: 1, start: 1 });
+    expect(options(e).envelopes[0]).toEqual({ ...env1, sustain: 0.5 });
   });
 
-  it('releases a note with the envelope release time: its gate closes at the end of it', async () => {
-    const { onPress, onRelease, voices, param, envelopes, synthModel, adsrEnvelope, travel } = await setup();
-    adsrEnvelope[1].setEnvelopeValue('release', 0.5);
+  it('releases a note: its gate drops to 0 now, the processor releases it from the level it has', async () => {
+    const { onPress, onRelease, voices, param, synthModel, envelopeModel, travel } = await setup();
+    envelopeModel[1].setEnvelopeValue('env1', 'release', 0.5);
     onPress([4, 'C']);
     await travel(1);
 
     onRelease([4, 'C']);
 
     const [voice] = voices();
-    expect(calls(param(voice, 'gate'), 'setValueAtTime').at(-1)).toEqual([0, 1.5]);
-    const [envelope] = envelopes();
-    expect(envelope.gain.cancelScheduledValues).toHaveBeenCalledWith(1);
-    expect(envelope.gain.linearRampToValueAtTime).toHaveBeenLastCalledWith(0.001, 1.5);
+    expect(calls(param(voice, 'gate'), 'setValueAtTime')).toEqual([[0, 1]]);
+    // it sounds until its release is over
+    expect(synthModel.$voicesCount.value).toBe(1);
+    voice.port.onmessage?.({ data: { ended: true } });
     expect(synthModel.$voicesCount.value).toBe(0);
   });
 
-  it('takes the node and the envelope of a voice off once it has ended', async () => {
-    const { onPress, onRelease, voices, envelopes, end } = await setup();
+  it('takes the node of a voice off once it has ended', async () => {
+    const { onPress, onRelease, voices, end } = await setup();
     onPress([4, 'C']);
     onRelease([4, 'C']);
     const [voice] = voices();
-    const [envelope] = envelopes();
     expect(voice.disconnect).not.toHaveBeenCalled();
 
     end(voice);
 
     expect(voice.disconnect).toHaveBeenCalled();
-    expect(envelope.disconnect).toHaveBeenCalled();
   });
 
   it('takes a held voice off when its processor fails, the others and new notes play on', async () => {
     const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
-    const { onPress, onRelease, voices, envelopes, wavetables, osc1, audioCtx } = await setup();
+    const { onPress, onRelease, voices, wavetables, osc1, audioCtx } = await setup();
     osc1[1].connectBus('gain', audioCtx.createOscillator());
     onPress([4, 'C']);
     onPress([4, 'E']);
     const [c, e] = voices();
-    const [cEnvelope, eEnvelope] = envelopes();
 
     c.onprocessorerror?.(new Event('processorerror'));
 
     expect(error).toHaveBeenCalledWith('A voice of the wavetable oscillator failed', expect.any(Event));
     expect(c.disconnect).toHaveBeenCalled();
-    expect(cEnvelope.disconnect).toHaveBeenCalled();
     expect(osc1[0].buses.gain.disconnect).toHaveBeenCalledTimes(1);
     expect(e.disconnect).not.toHaveBeenCalled();
-    expect(eEnvelope.disconnect).not.toHaveBeenCalled();
     expect(wavetables.$status.value).toBe('ready');
     // a voice that ended doesn't follow the knobs, its note is released as any other
     osc1[1].connectBus('spread', audioCtx.createOscillator());
@@ -218,17 +213,79 @@ describe('synth', () => {
     expect(calls(param(g, 'gate'), 'setValueAtTime')).toEqual([]);
   });
 
+  describe('poly', () => {
+    it('counts the released voices until they end', async () => {
+      const { onPress, onRelease, voices, end, synthModel, envelopeModel } = await setup();
+      envelopeModel[1].setEnvelopeValue('env1', 'release', 32);
+      onPress([4, 'C']);
+      onPress([4, 'E']);
+      onRelease([4, 'C']);
+      expect(synthModel.$voicesCount.value).toBe(2);
+      end(voices()[0]);
+      expect(synthModel.$voicesCount.value).toBe(1);
+    });
+
+    it('a release of 32 s gives no more sounding voices than Poly: the oldest released one is stolen', async () => {
+      const { onPress, onRelease, voices, param, synthModel, synthActions, envelopeModel } = await setup();
+      envelopeModel[1].setEnvelopeValue('env1', 'release', 32);
+      synthActions.setMaxVoices(3);
+      const notes = ['C', 'D', 'E', 'F', 'G', 'A'] as const;
+      notes.forEach((note) => {
+        onPress([4, note]);
+        onRelease([4, note]);
+        expect(synthModel.$voicesCount.value).toBeLessThanOrEqual(3);
+      });
+      // C, D and E fade out (gate below 0), F, G and A release on
+      const stolen = voices().map((voice) => calls(param(voice, 'gate'), 'setValueAtTime').at(-1)?.[0]);
+      expect(stolen).toEqual([-1, -1, -1, 0, 0, 0]);
+      expect(synthModel.$voicesCount.value).toBe(3);
+    });
+
+    it('steals a released voice before a held one, the oldest held one when none is released', async () => {
+      const { onPress, onRelease, voices, param, synthActions, envelopeModel } = await setup();
+      envelopeModel[1].setEnvelopeValue('env1', 'release', 32);
+      synthActions.setMaxVoices(3);
+      onPress([4, 'C']);
+      onPress([4, 'D']);
+      onPress([4, 'E']);
+      onRelease([4, 'E']);
+      onPress([4, 'F']);
+      const gate = (index: number) => calls(param(voices()[index], 'gate'), 'setValueAtTime').at(-1)?.[0];
+      // E, released, is stolen, C and D are held on
+      expect([gate(0), gate(1), gate(2)]).toEqual([undefined, undefined, -1]);
+      onPress([4, 'G']);
+      expect(gate(0)).toBe(-1);
+      expect(gate(1)).toBeUndefined();
+    });
+
+    it('does not count a released voice whose release is over', async () => {
+      const { onPress, onRelease, voices, param, synthActions, travel, envelopeModel } = await setup();
+      envelopeModel[1].setEnvelopeValue('env1', 'release', 1);
+      synthActions.setMaxVoices(2);
+      onPress([4, 'C']);
+      onRelease([4, 'C']);
+      onPress([4, 'D']);
+      // the release of C is over, its ended message has not arrived yet
+      await travel(2);
+      onPress([4, 'E']);
+      const [c, d] = voices();
+      // released at 0, not stolen
+      expect(calls(param(c, 'gate'), 'setValueAtTime')).toEqual([[0, 0]]);
+      expect(calls(param(d, 'gate'), 'setValueAtTime')).toEqual([]);
+    });
+  });
+
   it('takes a stolen voice off once its node has ended', async () => {
-    const { onPress, voices, envelopes, end, synthActions } = await setup();
+    const { onPress, voices, end, synthActions } = await setup();
     synthActions.setMaxVoices(1);
     onPress([4, 'C']);
     onPress([4, 'E']);
-    const [first] = envelopes();
+    const [c, e] = voices();
 
-    end(voices()[0]);
+    end(c);
 
-    expect(first.disconnect).toHaveBeenCalled();
-    expect(envelopes()[1].disconnect).not.toHaveBeenCalled();
+    expect(c.disconnect).toHaveBeenCalled();
+    expect(e.disconnect).not.toHaveBeenCalled();
   });
 
   it('glides from the previous held note with portamento', async () => {
@@ -258,59 +315,61 @@ describe('synth', () => {
     expect(param(next, 'frequency').value).toBeCloseTo(getFq([4, 'E']));
   });
 
-  it('shares one envelope between overlapping notes in legato mode', async () => {
-    const { onPress, onRelease, envelopes, synthActions } = await setup();
-    synthActions.setLegato(true);
+  describe('legato', () => {
+    it('the notes pressed while another one is held go on with its envelopes from its start', async () => {
+      const { onPress, onRelease, voices, options, synthActions, envelopeModel, travel } = await setup();
+      const [{ $envelopes }, { setEnvelopeValue }] = envelopeModel;
+      synthActions.setLegato(true);
+      await travel(1);
+      onPress([4, 'C']);
+      const phrase = [$envelopes.value.env1, $envelopes.value.env2, $envelopes.value.env3];
+      await travel(0.5);
+      setEnvelopeValue('env1', 'attack', 2);
+      onPress([4, 'E']);
 
-    onPress([4, 'C']);
-    onPress([4, 'E']);
-    expect(envelopes()).toHaveLength(1);
-    const [envelope] = envelopes();
+      const [c, e] = voices();
+      expect(options(c)).toMatchObject({ start: 1, envStart: 1, envelopes: phrase });
+      // not started again: the phrase's start and envelopes
+      expect(options(e)).toMatchObject({ start: 1.5, envStart: 1, envelopes: phrase });
 
-    onRelease([4, 'C']);
-    expect(envelope.gain.cancelScheduledValues).not.toHaveBeenCalled();
+      // the next note after the last key starts a new phrase
+      onRelease([4, 'C']);
+      onRelease([4, 'E']);
+      await travel(0.5);
+      onPress([4, 'G']);
+      expect(options(voices()[2])).toMatchObject({ start: 2, envStart: 2 });
+      expect(options(voices()[2]).envelopes[0].attack).toBe(2);
+    });
 
-    onRelease([4, 'E']);
-    expect(envelope.gain.cancelScheduledValues).toHaveBeenCalled();
+    it('releases each voice at its own key, from the level of the phrase', async () => {
+      const { onPress, onRelease, voices, param, synthActions, travel } = await setup();
+      synthActions.setLegato(true);
+      onPress([4, 'C']);
+      onPress([4, 'E']);
+      await travel(1);
+      onRelease([4, 'C']);
+      const [c, e] = voices();
+      expect(calls(param(c, 'gate'), 'setValueAtTime')).toEqual([[0, 1]]);
+      expect(calls(param(e, 'gate'), 'setValueAtTime')).toEqual([]);
+    });
 
-    // the next note starts a new envelope
-    onPress([4, 'G']);
-    expect(envelopes()).toHaveLength(2);
-  });
+    it('keeps a held legato note when the note it stole is released', async () => {
+      const { onPress, onRelease, voices, param, synthActions, synthModel } = await setup();
+      synthActions.setLegato(true);
+      synthActions.setMaxVoices(1);
+      onPress([4, 'A']);
+      onPress([4, 'B']);
+      const [, b] = voices();
 
-  it('keeps a held legato note when the note it stole is released', async () => {
-    const { onPress, onRelease, envelopes, synthActions, synthModel } = await setup();
-    synthActions.setLegato(true);
-    synthActions.setMaxVoices(1);
-    onPress([4, 'A']);
-    onPress([4, 'B']);
-    const [envelope] = envelopes();
+      onRelease([4, 'A']);
+      expect(calls(param(b, 'gate'), 'setValueAtTime')).toEqual([]);
+      expect(synthModel.$voicesCount.value).toBe(1);
 
-    onRelease([4, 'A']);
-    expect(envelope.gain.cancelScheduledValues).not.toHaveBeenCalled();
-    expect(synthModel.$voicesCount.value).toBe(1);
-
-    onRelease([4, 'B']);
-    expect(envelope.gain.cancelScheduledValues).toHaveBeenCalled();
-    expect(synthModel.$voicesCount.value).toBe(0);
-  });
-
-  it('takes the legato envelope off once it is released and its last voice has ended', async () => {
-    const { onPress, onRelease, voices, envelopes, end, synthActions } = await setup();
-    synthActions.setLegato(true);
-    onPress([4, 'C']);
-    onPress([4, 'E']);
-    const [envelope] = envelopes();
-    const [c, e] = voices();
-
-    onRelease([4, 'C']);
-    end(c);
-    expect(envelope.disconnect).not.toHaveBeenCalled();
-
-    onRelease([4, 'E']);
-    expect(envelope.disconnect).not.toHaveBeenCalled();
-    end(e);
-    expect(envelope.disconnect).toHaveBeenCalled();
+      onRelease([4, 'B']);
+      expect(calls(param(b, 'gate'), 'setValueAtTime')).toEqual([[0, 0]]);
+      // the released B sounds on, the stolen A doesn't count
+      expect(synthModel.$voicesCount.value).toBe(1);
+    });
   });
 
   describe('playing notes follow the knobs', () => {
@@ -411,6 +470,159 @@ describe('synth', () => {
       expect(first[1]).toBeNull();
       expect(second[0]?.unison).toBe(7);
       expect(second[1]).not.toBeNull();
+    });
+  });
+
+  describe('modulation', () => {
+    it('gives a note the routes to the params of its oscillators, in their units', async () => {
+      const { onPress, voices, options, modulation, osc2 } = await setup();
+      const [, { addRoute, setAmount }] = modulation;
+      addRoute('env2', 'osc1.wave', 0.5);
+      addRoute('env1', 'osc1.detune', -0.25);
+      addRoute('env3', 'osc1.gain', 0.2);
+      setAmount('env3', 'osc1.gain', 0);
+      // osc2 is off for the note
+      addRoute('env2', 'osc2.gain', 1);
+      expect(osc2[0].$active.value).toBe(false);
+
+      onPress([4, 'C']);
+
+      expect(options(voices()[0]).routes).toEqual([
+        { env: 1, param: 'position1', amount: 0.5, min: 0, max: 1 },
+        { env: 0, param: 'spread1', amount: -25, min: 0, max: 100 },
+      ]);
+    });
+
+    it('sends the playing notes, the released ones too, their new routes; nothing when theirs are the same', async () => {
+      const { onPress, onRelease, voices, modulation, osc2, end } = await setup();
+      const [, { addRoute, setAmount, removeRoute }] = modulation;
+      onPress([4, 'C']);
+      onPress([4, 'E']);
+      onRelease([4, 'E']);
+      const [c, e] = voices();
+      const posted = (voice: VoiceNode) =>
+        (voice.port.postMessage as jest.Mock).mock.calls.map(([data]) => data);
+
+      addRoute('env2', 'osc1.gain');
+      setAmount('env2', 'osc1.gain', -1);
+      // the knob of an oscillator off for the notes
+      addRoute('env2', 'osc2.gain');
+      expect(osc2[0].$active.value).toBe(false);
+      end(e);
+      removeRoute('env2', 'osc1.gain');
+
+      const route = { env: 1, param: 'gain1', min: 0, max: 1 };
+      expect(posted(c)).toEqual([
+        { routes: [{ ...route, amount: 0.5 }] },
+        { routes: [{ ...route, amount: -1 }] },
+        { routes: [] },
+      ]);
+      expect(posted(e)).toEqual([
+        { routes: [{ ...route, amount: 0.5 }] },
+        { routes: [{ ...route, amount: -1 }] },
+      ]);
+    });
+  });
+
+  describe('filter', () => {
+    const posted = (voice: VoiceNode) =>
+      (voice.port.postMessage as jest.Mock).mock.calls.map(([data]) => data);
+
+    it('gives a note the filter while it is on, its playing notes follow its knobs', async () => {
+      const { onPress, voices, options, filter } = await setup();
+      const [, { toggleActive, setNumericValue, setType }] = filter;
+      onPress([4, 'C']);
+      toggleActive();
+      setNumericValue('cutoff', 2000);
+      onPress([4, 'E']);
+      setType('highpass');
+      toggleActive();
+
+      const [c, e] = voices();
+      expect(options(c).filter).toBeNull();
+      const on = { type: 'lowpass', cutoff: 2000, resonance: 0, gain: 1 };
+      expect(options(e).filter).toEqual(on);
+      expect(posted(c)).toEqual([
+        { filter: { ...on, cutoff: 440 } },
+        { filter: on },
+        { filter: { ...on, type: 'highpass' } },
+        { filter: null },
+      ]);
+      expect(posted(e)).toEqual([{ filter: { ...on, type: 'highpass' } }, { filter: null }]);
+    });
+
+    it('routes the filter knobs in the range of its type: Cutoff in octaves, none while it is off', async () => {
+      const { onPress, voices, options, filter, modulation } = await setup();
+      const [, { addRoute }] = modulation;
+      addRoute('env2', 'filter.cutoff', 0.5);
+      addRoute('env3', 'filter.resonance', -1);
+      // lowpass doesn't use its gain: the route stays, it is not applied
+      addRoute('env1', 'filter.gain', 1);
+      onPress([4, 'C']);
+      filter[1].toggleActive();
+      onPress([4, 'E']);
+
+      const [off, on] = voices();
+      expect(options(off).routes).toEqual([]);
+      expect(options(on).routes).toEqual([
+        {
+          env: 1,
+          param: 'cutoff',
+          amount: expect.closeTo(0.5 * Math.log2(22050 / 10), 9),
+          min: 10,
+          max: 22050,
+          log: true,
+        },
+        { env: 2, param: 'resonance', amount: -20, min: 0, max: 20 },
+      ]);
+    });
+
+    it('sends the routes again when the type changes the range of a knob', async () => {
+      const { onPress, voices, filter, modulation } = await setup();
+      const [, { toggleActive, setType }] = filter;
+      toggleActive();
+      modulation[1].addRoute('env2', 'filter.gain', 0.5);
+      onPress([4, 'C']);
+      setType('lowshelf');
+
+      const [voice] = voices();
+      expect(posted(voice).at(-1)).toEqual({
+        routes: [{ env: 1, param: 'gain', amount: 40, min: -40, max: 40 }],
+      });
+    });
+  });
+
+  describe('the envelopes the fx follow', () => {
+    it('are those of the last note pressed, released with it', async () => {
+      const { onPress, onRelease, synthModel, envelopeModel, travel } = await setup();
+      const { $envelopes } = envelopeModel[0];
+      const envelopes = [$envelopes.value.env1, $envelopes.value.env2, $envelopes.value.env3];
+      expect(synthModel.$fxNote.value).toBeNull();
+      await travel(1);
+      onPress([4, 'C']);
+      expect(synthModel.$fxNote.value).toEqual({ envelopes, start: 1, release: null });
+      await travel(1);
+      onPress([4, 'E']);
+      // a key released that is not the last one: nothing
+      onRelease([4, 'C']);
+      expect(synthModel.$fxNote.value).toEqual({ envelopes, start: 2, release: null });
+      await travel(0.5);
+      onRelease([4, 'E']);
+      expect(synthModel.$fxNote.value).toEqual({ envelopes, start: 2, release: 2.5 });
+    });
+
+    it('in legato those of the phrase: not started again by its notes, released with its last key', async () => {
+      const { onPress, onRelease, synthModel, synthActions, travel } = await setup();
+      synthActions.setLegato(true);
+      onPress([4, 'C']);
+      await travel(1);
+      onPress([4, 'E']);
+      expect(synthModel.$fxNote.value).toMatchObject({ start: 0, release: null });
+      onRelease([4, 'E']);
+      expect(synthModel.$fxNote.value?.release).toBeNull();
+      await travel(1);
+      onRelease([4, 'C']);
+      expect(synthModel.$fxNote.value).toMatchObject({ start: 0, release: 2 });
     });
   });
 

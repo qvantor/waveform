@@ -5,51 +5,51 @@ import { filter } from './filter';
 
 const setup = () => {
   const synthCore = createSynthCore();
-  const addMidNode = jest.spyOn(synthCore[1] as Pick<typeof synthCore[1], 'addMidNode'>, 'addMidNode');
-  const removeMidNode = jest.spyOn(
-    synthCore[1] as Pick<typeof synthCore[1], 'removeMidNode'>,
-    'removeMidNode'
-  );
   const [model, actions] = initModel(filter({ synthCore }), 'filter', undefined);
-  return { model, actions, synthCore: synthCore[0], addMidNode, removeMidNode };
+  // the values the voices get
+  const played: unknown[] = [];
+  model.$voiceFilter.subscribe((value) => played.push(value));
+  return { model, actions, played };
 };
 
 describe('filter', () => {
-  it('is bypassed by default', () => {
-    const { model, synthCore, removeMidNode } = setup();
+  it('is off by default: the voices play no filter', () => {
+    const { model, played } = setup();
     expect(model.$active.value).toBe(false);
-    expect(removeMidNode).toHaveBeenCalledWith(model.filterNode);
-    expect(synthCore.$midNodes.value).toEqual([]);
+    expect(model.voiceFilter()).toBeNull();
+    expect(played).toEqual([null]);
   });
 
-  it('toggleActive inserts and removes the filter node', () => {
-    const { model, actions, synthCore, addMidNode } = setup();
-
+  it('gives the voices its knobs while it is on, once per change', () => {
+    const { model, actions, played } = setup();
     actions.toggleActive();
-    expect(addMidNode).toHaveBeenCalledWith(model.filterNode);
-    expect(synthCore.$midNodes.value).toEqual([model.filterNode]);
-
-    actions.toggleActive();
-    expect(synthCore.$midNodes.value).toEqual([]);
-  });
-
-  it('applies the values to the biquad node', () => {
-    const { model, actions } = setup();
+    actions.setNumericValue('cutoff', 1000);
     actions.setNumericValue('cutoff', 1000);
     actions.setNumericValue('resonance', 5);
-
-    expect(model.filterNode.frequency.setValueAtTime).toHaveBeenLastCalledWith(1000, 0);
-    expect(model.filterNode.Q.setValueAtTime).toHaveBeenLastCalledWith(5, 0);
-    expect(model.filterNode.gain.setValueAtTime).toHaveBeenLastCalledWith(1, 0);
-    expect(model.$filter.value).toEqual({ cutoff: 1000, resonance: 5, gain: 1 });
+    const on = { type: 'lowpass', cutoff: 1000, resonance: 5, gain: 1 };
+    expect(model.voiceFilter()).toEqual(on);
+    actions.toggleActive();
+    expect(played).toEqual([
+      null,
+      { type: 'lowpass', cutoff: 440, resonance: 0, gain: 1 },
+      { ...on, resonance: 0 },
+      on,
+      null,
+    ]);
   });
 
-  it('setType changes the node type and merges the type ranges', () => {
+  it('has no node of its own: it is in the voices', () => {
+    const { model } = setup();
+    expect(model).not.toHaveProperty('filterNode');
+    expect(model.sampleRate).toBe(44100);
+  });
+
+  it('setType changes the type of the voices and merges the type ranges', () => {
     const { model, actions } = setup();
 
     actions.setType('highshelf');
 
-    expect(model.filterNode.type).toBe('highshelf');
+    expect(model.$filterType.value).toBe('highshelf');
     expect(model.$ranges.value.gain).toEqual({ ...defaultFilterRanges.gain, min: -40, max: 40 });
     expect(model.$ranges.value.resonance.disabled).toBe(true);
     expect(model.$ranges.value.cutoff).toEqual(defaultFilterRanges.cutoff);

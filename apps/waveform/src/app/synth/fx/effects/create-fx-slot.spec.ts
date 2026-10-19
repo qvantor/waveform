@@ -7,6 +7,7 @@ const createCore = (audioCtx: AudioContext, latency?: number): FxCore => ({
   output: audioCtx.createGain(),
   setParam: jest.fn(),
   setActive: jest.fn(),
+  setModulation: jest.fn(),
   destroy: jest.fn(),
   latency,
 });
@@ -105,5 +106,54 @@ describe('createFxSlot', () => {
     [slot.input, slot.output, slot.dry, slot.dryDelay, slot.wet, slot.send, slot.drain].forEach((node) =>
       expect(node?.disconnect).toHaveBeenCalled()
     );
+  });
+
+  describe('modulation', () => {
+    const ENV = { attack: 0.1, hold: 0, decay: 0.1, sustain: 0.5, release: 0.2 };
+    const note = { envelopes: [ENV, ENV, ENV], start: 1, release: null };
+    const mix = { param: 'mix', env: 1, amount: 0.4, min: 0, max: 1 };
+    const drive = { param: 'drive', env: 1, amount: 6, min: 0, max: 12 };
+    const calls = (param: AudioParam, method: keyof AudioParam) => (param[method] as jest.Mock).mock.calls;
+
+    it('moves a linear mix by ramps of both gains, gives the core the routes of its knobs', () => {
+      const audioCtx = new AudioContext();
+      const core = { ...createCore(audioCtx), linearMix: true };
+      const slot = createFxSlot(audioCtx, core);
+      slot.setMix(0.5, true);
+      slot.setModulation({ note, routes: [mix, drive] });
+      expect(core.setModulation).toHaveBeenLastCalledWith({ note, routes: [drive] });
+      // at the top of the attack the mix is 0.9
+      expect(calls(slot.wet.gain, 'linearRampToValueAtTime')[0]).toEqual([
+        expect.closeTo(0.9, 9),
+        expect.closeTo(1.1, 9),
+      ]);
+      expect(calls(slot.dry.gain, 'linearRampToValueAtTime')[0]).toEqual([
+        expect.closeTo(0.1, 9),
+        expect.closeTo(1.1, 9),
+      ]);
+    });
+
+    it('moves an equal power mix by curves of both gains', () => {
+      const audioCtx = new AudioContext();
+      const slot = createFxSlot(audioCtx, createCore(audioCtx));
+      slot.setMix(0.5, true);
+      slot.setModulation({ note, routes: [mix] });
+      const [[curve]] = calls(slot.wet.gain, 'setValueCurveAtTime');
+      expect(curve.at(-1)).toBeCloseTo(Math.sin((0.9 * Math.PI) / 2), 5);
+    });
+
+    it('a knob of the mix without routes, bypassed or not ready glides to its value; the core gets null', () => {
+      const audioCtx = new AudioContext();
+      const core = createCore(audioCtx);
+      const slot = createFxSlot(audioCtx, core);
+      slot.setMix(0.5, true);
+      slot.setModulation({ note, routes: [mix] });
+      slot.setMix(0.5, false);
+      expect((slot.wet.gain.setTargetAtTime as jest.Mock).mock.lastCall?.[0]).toBe(0);
+      slot.setMix(0.5, true);
+      slot.setModulation(null);
+      expect(core.setModulation).toHaveBeenLastCalledWith(null);
+      expect((slot.wet.gain.setTargetAtTime as jest.Mock).mock.lastCall?.[0]).toBeCloseTo(Math.SQRT1_2, 9);
+    });
   });
 });

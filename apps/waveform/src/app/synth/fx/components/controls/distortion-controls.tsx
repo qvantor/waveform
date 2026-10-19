@@ -25,6 +25,7 @@ export const DistortionControls = ({ params, setParam, on, out }: FxControlsProp
       value={params[key]}
       onChange={(value) => setParam(key, value)}
       disabled={!on}
+      target={`distortion.${key}`}
     />
   );
   return (
