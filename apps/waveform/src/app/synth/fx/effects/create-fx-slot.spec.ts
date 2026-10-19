@@ -157,14 +157,17 @@ describe('createFxSlot', () => {
         expect(gain.cancelScheduledValues).not.toHaveBeenCalled();
         expect(gain.cancelAndHoldAtTime).not.toHaveBeenCalled();
       });
-      // the routes gone: their automation is left where it is once, then the ticks glide again
+      // the routes gone: their automation is left where it is once (at a point of its line now, what follows
+      // cancelled), then the ticks glide again
       slot.setModulation({ note, routes: [mix] });
       slot.setModulation(null);
-      const cancels = calls(slot.wet.gain, 'cancelAndHoldAtTime').length;
-      expect(calls(slot.wet.gain, 'cancelAndHoldAtTime').at(-1)).toEqual([audioCtx.currentTime]);
+      const cancels = calls(slot.wet.gain, 'cancelScheduledValues').length;
+      expect(calls(slot.wet.gain, 'cancelScheduledValues').at(-1)).toEqual([
+        expect.closeTo(audioCtx.currentTime + 1e-4, 9),
+      ]);
       slot.setMix(0.6, true);
       slot.setMix(0.7, true);
-      expect(calls(slot.wet.gain, 'cancelAndHoldAtTime')).toHaveLength(cancels);
+      expect(calls(slot.wet.gain, 'cancelScheduledValues')).toHaveLength(cancels);
       expect((slot.wet.gain.setTargetAtTime as jest.Mock).mock.lastCall?.[0]).toBeCloseTo(
         Math.sin((0.7 * Math.PI) / 2),
         9

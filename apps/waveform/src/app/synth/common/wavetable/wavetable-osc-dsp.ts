@@ -103,9 +103,10 @@ const SEGMENT = 32;
 // the render quantum, the buffers grow if a block is longer
 const BLOCK = 128;
 // seconds: the fade-in of a voice at a random phase, the fade-out of a stolen voice, the crossfade into a
-// new version of the table
+// new version of the table. The fade-out is a raised cosine over more than a period of a bass note (C2: 15
+// ms): a stolen pad still sounds, a linear 5 ms clicked (its splatter ~35 dB above this one's)
 export const FADE_IN = 0.0015;
-export const KILL_FADE = 0.005;
+export const KILL_FADE = 0.02;
 export const CROSSFADE = 0.01;
 // a position this close to a frame (in frames) plays the frame alone: an AudioParam is a float32, k / (N - 1)
 // times N - 1 is not exactly k
@@ -1381,10 +1382,10 @@ export const createVoiceDsp = (
           outR[i] = (right[i] + center[i]) * values[i];
         }
       }
-      // the fade of a stolen voice: from 1 at killFrom to 0 at the stop
+      // the fade of a stolen voice: a raised cosine from 1 at killFrom to 0 at the stop
       if (killFrom !== Infinity) {
         for (let i = Math.max(a, killFrom - frame); i < b; i++) {
-          const gain = 1 - (frame + i - killFrom) / killLength;
+          const gain = 0.5 + 0.5 * Math.cos((Math.PI * (frame + i - killFrom)) / killLength);
           outL[i] *= gain;
           outR[i] *= gain;
         }

@@ -284,6 +284,54 @@ describe('synth', () => {
       expect(gate(1)).toBeUndefined();
     });
 
+    it('steals the quietest released voice, not the oldest: the smallest step', async () => {
+      const { onPress, onRelease, voices, param, synthActions, envelopeModel, travel, wall } = await setup();
+      envelopeModel[1].setEnvelopeValue('env1', 'attack', 1);
+      envelopeModel[1].setEnvelopeValue('env1', 'release', 2);
+      synthActions.setMaxVoices(2);
+      // C released on its sustain (1), D in its attack (0.2)
+      onPress([4, 'C']);
+      await travel(1);
+      wall.mockReturnValue(1000);
+      onRelease([4, 'C']);
+      onPress([4, 'D']);
+      await travel(0.2);
+      wall.mockReturnValue(1200);
+      onRelease([4, 'D']);
+      // at 1.3 C is at 0.85, D at 0.19
+      await travel(0.1);
+      onPress([4, 'E']);
+      const [c, d] = voices();
+      expect(calls(param(d, 'gate'), 'setValueAtTime').at(-1)?.[0]).toBe(-1);
+      expect(calls(param(c, 'gate'), 'setValueAtTime')).toEqual([[RELEASE_GATE + 1, 1]]);
+    });
+
+    it('takes the level of a legato note from the start of its phrase', async () => {
+      const { onPress, onRelease, voices, param, synthActions, envelopeModel, travel, wall } = await setup();
+      envelopeModel[1].setEnvelopeValue('env1', 'attack', 1);
+      envelopeModel[1].setEnvelopeValue('env1', 'release', 2);
+      synthActions.setLegato(true);
+      synthActions.setMaxVoices(2);
+      // D joins the phrase of C at 0.9; C released at 1, D at 1.2, both at 1 (from its own start D would be
+      // at 0.3)
+      onPress([4, 'C']);
+      await travel(0.9);
+      wall.mockReturnValue(900);
+      onPress([4, 'D']);
+      await travel(0.1);
+      wall.mockReturnValue(1000);
+      onRelease([4, 'C']);
+      await travel(0.2);
+      wall.mockReturnValue(1200);
+      onRelease([4, 'D']);
+      // at 1.5 C is at 0.75, D at 0.85
+      await travel(0.3);
+      onPress([4, 'E']);
+      const [c, d] = voices();
+      expect(calls(param(c, 'gate'), 'setValueAtTime').at(-1)?.[0]).toBe(-1);
+      expect(calls(param(d, 'gate'), 'setValueAtTime').at(-1)?.[0]).toBeCloseTo(RELEASE_GATE + 0.3);
+    });
+
     it('does not count a released voice whose release is over', async () => {
       const { onPress, onRelease, voices, param, synthActions, travel, envelopeModel } = await setup();
       envelopeModel[1].setEnvelopeValue('env1', 'release', 1);

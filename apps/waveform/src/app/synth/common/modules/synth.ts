@@ -5,7 +5,7 @@ import { ENVELOPES, MOD_SOURCES } from '@waveform/preset-schema';
 import { getFq, stringToNote, noteToString } from '../../services';
 import { urlSnapshotPlugin } from '../../../app';
 import type { VoiceEndedMessage, VoiceOscOptions, VoiceStartedMessage } from '../wavetable/wavetable-osc-dsp';
-import type { EnvelopeParams } from '../envelope/envelope-curve';
+import { EnvelopeParams, envelopeValue } from '../envelope/envelope-curve';
 import type { VoiceRoute, VoiceRoutesMessage } from '../wavetable/voice-modulation';
 import type { VoiceFilterMessage, VoiceFilterOptions } from '../wavetable/voice-filter';
 import { amountInUnits, filterTargetScale, MOD_TARGETS } from '../modulation/modulation-targets';
@@ -277,6 +277,15 @@ class Voice {
     return at === null ? Infinity : at + this.config.phrase.envelopes[0].release;
   }
 
+  // the level of ENV 1 at `now` (seconds of the context) as its processor renders it: from the start of its
+  // phrase (its own, in legato the first note's; where they started, once processed late), released at
+  // releaseAt
+  level(now: number) {
+    const { envelopes, started } = this.config.phrase;
+    const at = this.releaseAt;
+    return envelopeValue(envelopes[0], now - started, at === null ? Infinity : at - started);
+  }
+
   // the key is released: the release of ENV 1 starts from the level it has reached, as long after the start as
   // the key was held (a note shorter than a device buffer would see the currentTime of its note on: released
   // at its start, silent). The gate tells the processor how long (from the first sample of the voice: it may
@@ -288,7 +297,7 @@ class Voice {
     this.stopped = { now, held };
   };
 
-  // a stolen voice: its node fades out (5 ms) instead of being cut
+  // a stolen voice: its node fades out (20 ms, a raised cosine) instead of being cut
   immediatelyStop() {
     setParam(this.gate, -1, this.config.audioCtx.currentTime);
   }
@@ -424,10 +433,20 @@ class Voicing {
     return index >= 0;
   }
 
-  // a voice above Poly is stolen (it fades out): the oldest released one, else the oldest held one
-  private steal() {
-    const released = this.released.shift();
-    if (released) {
+  // a voice above Poly is stolen (it fades out): the quietest released one at `now` (the smallest step; the
+  // oldest of equal ones), else the oldest held one
+  private steal(now: number) {
+    if (this.released.length) {
+      let quietest = 0;
+      let level = Infinity;
+      this.released.forEach((voice, index) => {
+        const value = voice.level(now);
+        if (value < level) {
+          level = value;
+          quietest = index;
+        }
+      });
+      const [released] = this.released.splice(quietest, 1);
       released.immediatelyStop();
       return;
     }
@@ -442,7 +461,7 @@ class Voicing {
     // the released voices whose release is over are not counted (their ended message is on its way)
     const now = this.config.audioCtx.currentTime;
     this.released = this.released.filter((voice) => voice.releaseEnd > now);
-    if (this.voicesCount >= this.config.$maxVoices.value) this.steal();
+    if (this.voicesCount >= this.config.$maxVoices.value) this.steal(now);
     const voice = this.getVoice(note);
     if (!voice) return;
     this.voices[noteToString(note)] = voice;

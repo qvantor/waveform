@@ -289,6 +289,12 @@ describe('delay', () => {
     // the order of the last call of a method of a param (-Infinity: none)
     const lastOrder = (param: AudioParam, method: keyof AudioParam) =>
       Math.max(-Infinity, ...(param[method] as jest.Mock).mock.invocationCallOrder);
+    // the order of its last hold: its automation left where it is (an automation of its own at a point of its
+    // line, then what follows cancelled; any other by cancelAndHoldAtTime)
+    const lastHold = (param: AudioParam) =>
+      Math.max(lastOrder(param, 'cancelScheduledValues'), lastOrder(param, 'cancelAndHoldAtTime'));
+    const holds = (param: AudioParam) =>
+      calls(param, 'cancelScheduledValues').length + calls(param, 'cancelAndHoldAtTime').length;
 
     it('a mode change leaves the automation of the feedback gains of the old mode: one loop feeds back', () => {
       const { core, feedbacks } = setup();
@@ -297,9 +303,7 @@ describe('delay', () => {
       core.setParam('mode', 1);
       // normal → ping-pong: the lines no longer feed themselves, from where they are to 0
       [feedbacks.ll, feedbacks.rr].forEach(({ gain }) => {
-        expect(lastOrder(gain, 'cancelAndHoldAtTime')).toBeGreaterThan(
-          lastOrder(gain, 'linearRampToValueAtTime')
-        );
+        expect(lastHold(gain)).toBeGreaterThan(lastOrder(gain, 'linearRampToValueAtTime'));
         expect(lastValue(gain)).toBe(0);
       });
       // they feed each other, moved by the envelope
@@ -323,9 +327,7 @@ describe('delay', () => {
         expect(lastValue(gain)).toBe(0);
       });
       [feedbacks.ll, feedbacks.rr].forEach(({ gain }) =>
-        expect(lastOrder(gain, 'cancelAndHoldAtTime')).toBeGreaterThan(
-          lastOrder(gain, 'linearRampToValueAtTime')
-        )
+        expect(lastHold(gain)).toBeGreaterThan(lastOrder(gain, 'linearRampToValueAtTime'))
       );
       // active again: moved on the gains of the mode
       core.setActive(true);
@@ -344,7 +346,8 @@ describe('delay', () => {
         expect.closeTo(1.1, 9),
       ]);
       core.setModulation(null);
-      expect(calls(lines[0].delayTime, 'cancelAndHoldAtTime').length).toBeGreaterThan(2);
+      // held for the note, the knob turned and the routes gone
+      expect(holds(lines[0].delayTime)).toBe(3);
       expect(lastValue(lines[0].delayTime)).toBe(0.3);
     });
   });

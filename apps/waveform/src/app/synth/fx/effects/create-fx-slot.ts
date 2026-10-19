@@ -2,7 +2,7 @@ import { BehaviorSubject } from 'rxjs';
 import { noop } from 'lodash';
 import { FxCore, FxStatus } from './types';
 import { FxModulation, FxNote, FxRoute } from './fx-modulation';
-import { holdParam, scheduleRouted } from './fx-automation';
+import { glideParam, holdParam, scheduleRouted, setParam } from './fx-automation';
 
 // smooths param changes, so mix, bypass and effect params don't click
 export const setSmooth = (
@@ -10,7 +10,7 @@ export const setSmooth = (
   param: AudioParam,
   value: number,
   timeConstant = 0.01
-) => param.setTargetAtTime(value, audioCtx.currentTime, timeConstant);
+) => glideParam(param, value, audioCtx.currentTime, timeConstant);
 
 export type FxSlot = ReturnType<typeof createFxSlot>;
 
@@ -47,8 +47,8 @@ export const createFxSlot = (audioCtx: BaseAudioContext, core: FxCore) => {
   drain.connect(audioCtx.destination);
   drain.gain.setValueAtTime(0, audioCtx.currentTime);
   // closed until the fx model activates the slot and sets the mix
-  send.gain.setValueAtTime(0, audioCtx.currentTime);
-  wet.gain.setValueAtTime(0, audioCtx.currentTime);
+  setParam(send.gain, 0, audioCtx.currentTime);
+  setParam(wet.gain, 0, audioCtx.currentTime);
 
   const setGain = (node: GainNode, value: number) => setSmooth(audioCtx, node.gain, value);
 

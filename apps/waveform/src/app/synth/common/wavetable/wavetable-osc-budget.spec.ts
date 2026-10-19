@@ -195,17 +195,17 @@ describe('the work of the voices', () => {
   );
 
   it.each([
-    [44100, 221],
-    [48000, 240],
-    [96000, 480],
-  ])('at %i Hz a stolen voice fades out in %i frames and ends', (rate, fade) => {
+    [44100, 882],
+    [48000, 960],
+    [96000, 1920],
+  ])('at %i Hz a stolen voice fades out in %i frames (20 ms) and ends', (rate, fade) => {
     expect(Math.round(KILL_FADE * rate)).toBe(fade);
     const { store } = storeWith({ a: FRAMES, b: FRAMES });
     const scope = createVoiceScope({ rate, store });
     const voice = scope.add(OSCS, params([4, 'A'] as Note));
     Array.from({ length: 4 }, () => scope.block());
     voice.params.gate = -1;
-    const blocks = Array.from({ length: 6 }, () => scope.block());
+    const blocks = Array.from({ length: 20 }, () => scope.block());
     expect(blocks.findIndex((block) => block.voices === 0)).toBe(Math.ceil(fade / BLOCK) - 1);
     expect(voice.ended).toBe(true);
   });

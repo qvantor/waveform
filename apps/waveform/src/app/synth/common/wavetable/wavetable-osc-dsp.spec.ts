@@ -621,7 +621,7 @@ describe('wavetable voice dsp', () => {
       expect(dsp.ended).toBe(true);
     });
 
-    it('fades a stolen voice out within 5 ms from where the gate drops below 0', () => {
+    it('fades a stolen voice out in 20 ms (a raised cosine) from where the gate drops below 0', () => {
       const { store } = storeWith({ a: [sine] });
       const { left, endedAt } = render({
         store,
@@ -629,10 +629,44 @@ describe('wavetable voice dsp', () => {
         params: { frequency: 10, gate: gateAt(256, -1) },
         frames: 2048,
       });
-      expect(left[255]).toBeCloseTo(Math.cos((2 * Math.PI * 10 * 255) / RATE), 4);
-      expect(left[256 + 120]).toBeCloseTo(0.5 * Math.cos((2 * Math.PI * 10 * 376) / RATE), 2);
-      expect(left.subarray(256 + 240).every((value) => value === 0)).toBe(true);
-      expect(endedAt).toBeLessThanOrEqual(512);
+      const wave = (frame: number) => Math.cos((2 * Math.PI * 10 * frame) / RATE);
+      expect(left[255]).toBeCloseTo(wave(255), 4);
+      // a quarter, a half and three quarters of the fade
+      [240, 480, 720].forEach((x) =>
+        expect(left[256 + x]).toBeCloseTo((0.5 + 0.5 * Math.cos((Math.PI * x) / 960)) * wave(256 + x), 3)
+      );
+      expect(left.subarray(256 + 960).every((value) => value === 0)).toBe(true);
+      expect(endedAt).toBe(1152);
+    });
+
+    // a sine of period 512 stolen at its peak (the worst case: a cut there steps from 1), through a Hann window
+    // of 4096 centred on the steal: the energy above 4 · f0 against a cut at the same sample
+    it('fades a stolen voice out with a splatter at least 50 dB below a cut', () => {
+      const { store } = storeWith({ a: [sine] });
+      const steal = 4096;
+      const size = 4096;
+      const { left } = render({
+        store,
+        oscs: [osc({ phase: 0.25 })],
+        params: { frequency: RATE / 512, gate: gateAt(steal, -1) },
+        frames: 8192,
+      });
+      const splatter = (signal: Float32Array) => {
+        const fft = new FFT(size);
+        const out = fft.createComplexArray();
+        const from = steal - size / 2;
+        const windowed = Array.from(
+          { length: size },
+          (_, i) => signal[from + i] * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / size))
+        );
+        fft.realTransform(out, windowed);
+        let sum = 0;
+        for (let k = (4 * size) / 512; k < size / 2; k++) sum += out[2 * k] ** 2 + out[2 * k + 1] ** 2;
+        return sum;
+      };
+      const cut = left.map((value, i) => (i < steal ? value : 0));
+      expect(left[steal - 1]).toBeCloseTo(1, 3);
+      expect(10 * Math.log10(splatter(left) / splatter(cut))).toBeLessThan(-50);
     });
 
     it('frees its versions when it ends', () => {
@@ -874,23 +908,25 @@ describe('wavetable voice dsp', () => {
       });
     });
 
-    it('fades a stolen voice out within 5 ms from the level it has', () => {
+    it('fades a stolen voice out in 20 ms from the level it has', () => {
       const { left, endedAt } = peak(8192, {
         envelope: env,
         params: { frequency: 0.01, gate: gateAt(3000, -1) },
       });
       expect(left[2999]).toBeCloseTo(0.5, 4);
-      expect(left[3000 + 120]).toBeCloseTo(0.25, 2);
-      expect(left.subarray(3240).every((value) => value === 0)).toBe(true);
-      expect(endedAt).toBe(3200);
+      expect(left[3000 + 480]).toBeCloseTo(0.25, 3);
+      expect(left.subarray(3960).every((value) => value === 0)).toBe(true);
+      expect(endedAt).toBe(3840);
     });
 
-    it('fades out a voice stolen in its release', () => {
+    it('fades out a voice stolen in its release: the fade on the release, over before its end', () => {
       const gate = (frame: number) => (frame < 3000 ? 1 : frame < 3100 ? 0 : -1);
       const { left, endedAt } = peak(8192, { envelope: env, params: { frequency: 0.01, gate } });
       expect(left[3099]).toBeCloseTo(0.5 * (1 - 99 / 1440), 3);
-      expect(left.subarray(3340).every((value) => value === 0)).toBe(true);
-      expect(endedAt).toBe(3328);
+      expect(left[3100 + 480]).toBeCloseTo(0.5 * 0.5 * (1 - 580 / 1440), 3);
+      // the release would end at 4440
+      expect(left.subarray(4060).every((value) => value === 0)).toBe(true);
+      expect(endedAt).toBe(3968);
     });
   });
 
