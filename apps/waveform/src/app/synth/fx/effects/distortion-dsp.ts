@@ -239,5 +239,12 @@ export const createDistortionDsp = (sampleRate: number, { params }: DistortionOp
     }
   };
 
-  return { set, process };
+  return {
+    set,
+    process,
+    // skipping its blocks (the specs count the work of a silent chain)
+    get idle() {
+      return idle;
+    },
+  };
 };

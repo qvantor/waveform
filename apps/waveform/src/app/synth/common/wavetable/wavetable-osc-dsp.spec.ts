@@ -1,4 +1,5 @@
 import FFT from 'fft.js';
+import { seeded, storeWith, VOICE_DEFAULTS } from '../../../../test-utils/voice-dsp';
 import { buildLevels } from './wavetable-mipmap';
 import {
   createTableStore,
@@ -13,14 +14,6 @@ import { VoiceParam } from './wavetable-osc-params';
 const RATE = 48000;
 const BLOCK = 128;
 
-// a seeded random() (mulberry32): the phases of a note are reproducible
-const seeded = (seed: number) => () => {
-  seed = (seed + 0x6d2b79f5) | 0;
-  let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-};
-
 const cycle = (size: number, harmonics: [number, number, number?][]) =>
   Array.from({ length: size }, (_, n) =>
     harmonics.reduce((sum, [k, a, phase = 0]) => sum + a * Math.sin((2 * Math.PI * k * n) / size + phase), 0)
@@ -33,27 +26,9 @@ const square = cycle(
   Array.from({ length: 512 }, (_, i): [number, number] => [2 * i + 1, 1 / (2 * i + 1)])
 );
 
-const storeWith = (tables: Record<string, number[][]>) => {
-  const freed: unknown[] = [];
-  const store = createTableStore((levels) => freed.push(levels));
-  Object.entries(tables).forEach(([id, frames]) => store.set(id, 1, buildLevels(frames)));
-  return { store, freed };
-};
-
 type ParamValue = number | ((frame: number) => number);
 type Params = Partial<Record<VoiceParam, ParamValue>>;
-const DEFAULTS: Record<VoiceParam, number> = {
-  frequency: 440,
-  gate: 1,
-  position1: 0,
-  position2: 0,
-  detune1: 0,
-  detune2: 0,
-  spread1: 0,
-  spread2: 0,
-  gain1: 1,
-  gain2: 1,
-};
+const DEFAULTS = VOICE_DEFAULTS;
 
 const osc = (config: Partial<VoiceOscOptions> = {}): VoiceOscOptions => ({
   table: 'a',
@@ -701,7 +676,147 @@ describe('wavetable voice dsp', () => {
     });
   });
 
+  describe('start frames', () => {
+    it('tells the frame it is scheduled at and the one it started at', () => {
+      const { store } = storeWith({ a: [saw] });
+      const before: number[] = [];
+      const { dsp } = render({
+        store,
+        start: 300.5 / RATE,
+        frames: 512,
+        before: (_, voice) => before.push(voice.startedAt),
+      });
+      expect(dsp.startFrame).toBe(301);
+      // not yet started before the block it starts in
+      expect(before.slice(0, 3)).toEqual([-1, -1, -1]);
+      expect(dsp.startedAt).toBe(301);
+    });
+
+    it('starts at its first block when it is processed after its start', () => {
+      const { store } = storeWith({ a: [saw] });
+      const dsp = createVoiceDsp(
+        RATE,
+        { osc: [osc()], start: 100 / RATE },
+        store,
+        seeded(1),
+        createVoiceShared()
+      );
+      const values = Object.fromEntries(
+        Object.entries(DEFAULTS).map(([name, value]) => [name, Float32Array.of(value)])
+      ) as Record<VoiceParam, Float32Array>;
+      dsp.process(1280, values, new Float32Array(BLOCK), new Float32Array(BLOCK));
+      expect(dsp.startFrame).toBe(100);
+      expect(dsp.startedAt).toBe(1280);
+    });
+  });
+
+  describe('stats', () => {
+    it('counts the voices playing and their unison voices until they end', () => {
+      const { store } = storeWith({ a: [saw] });
+      const shared = createVoiceShared();
+      const during: ReturnType<VoiceShared['stats']>[] = [];
+      render({
+        store,
+        shared,
+        // the second oscillator at detune 0 plays one voice
+        oscs: [osc({ unison: 3 }), osc({ unison: 2 })],
+        params: { spread1: 10, spread2: 0, gate: (frame) => (frame < 512 ? 1 : 0) },
+        frames: 1024,
+        before: (frame) => {
+          if (frame === 256) during.push(shared.stats());
+        },
+      });
+      expect(during[0]).toMatchObject({ voices: 1, unison: 4 });
+      expect(shared.stats()).toMatchObject({ voices: 0, unison: 0 });
+    });
+
+    it('counts the samples played directly and from the mix tables, and the mix builds', () => {
+      const { store } = storeWith({ a: [saw, square] });
+      const shared = createVoiceShared();
+      render({ store, shared, oscs: [osc({ unison: 2 })], params: { spread1: 10 }, frames: 4 * BLOCK });
+      const stats = shared.stats();
+      // the first block plays directly, the second builds the mixes and plays them, as do the next ones
+      expect(stats).toMatchObject({
+        directSamples: 2 * BLOCK,
+        mixSamples: 2 * 3 * BLOCK,
+        builds: 2,
+        refused: 0,
+      });
+      expect(stats.buildCost).toBeGreaterThan(0);
+    });
+
+    it('counts each sample once through a crossfade into a new version', () => {
+      const { store } = storeWith({ a: [saw, square] });
+      const shared = createVoiceShared();
+      render({
+        store,
+        shared,
+        oscs: [osc({ unison: 2 })],
+        params: { spread1: 10 },
+        frames: 8 * BLOCK,
+        before: (frame) => {
+          if (frame === 2 * BLOCK) store.set('a', 2, buildLevels([square, saw]));
+        },
+      });
+      const { mixSamples, directSamples } = shared.stats();
+      expect(mixSamples + directSamples).toBe(2 * 8 * BLOCK);
+    });
+
+    it('plays a moving position directly, without a mix', () => {
+      const { store } = storeWith({ a: [saw, square] });
+      const shared = createVoiceShared();
+      render({ store, shared, params: { position1: (frame) => frame / 4096 }, frames: 4 * BLOCK });
+      expect(shared.stats()).toMatchObject({ mixSamples: 0, directSamples: 4 * BLOCK, builds: 0 });
+    });
+
+    it('counts the builds the budget refuses and the peak cost of a block, read once', () => {
+      const { store } = storeWith({ a: [saw, square] });
+      const shared = createVoiceShared();
+      // 8 voices between two frames: their mixes take more than the budget of one block
+      render({
+        store,
+        shared,
+        oscs: [osc({ unison: 8 })],
+        params: { spread1: 20, position1: 0.5 },
+        frames: 3 * BLOCK,
+      });
+      const stats = shared.stats();
+      expect(stats.refused).toBeGreaterThan(0);
+      expect(stats.builds).toBeGreaterThan(1);
+      expect(stats.peakCost).toBeGreaterThan(0);
+      expect(shared.stats().peakCost).toBe(0);
+    });
+  });
+
   describe('table store', () => {
+    it('counts the versions it holds and their bytes, a replaced one until no voice holds it', () => {
+      const store = createTableStore();
+      const one = buildLevels([sine]);
+      const two = buildLevels([square]);
+      const [bytesOne, bytesTwo] = [one.data.byteLength, two.data.byteLength];
+      expect(store.stats()).toEqual({ tables: 0, versions: 0, bytes: 0 });
+      store.set('a', 1, one);
+      expect(store.stats()).toEqual({ tables: 1, versions: 1, bytes: bytesOne });
+      const held = store.acquire(store.latest('a') as NonNullable<ReturnType<typeof store.latest>>);
+      store.set('a', 2, two);
+      expect(store.stats()).toEqual({ tables: 1, versions: 2, bytes: bytesOne + bytesTwo });
+      // a stale version is freed at once, never counted
+      store.set('a', 1, buildLevels([saw]));
+      expect(store.stats()).toEqual({ tables: 1, versions: 2, bytes: bytesOne + bytesTwo });
+      store.release(held);
+      expect(store.stats()).toEqual({ tables: 1, versions: 1, bytes: bytesTwo });
+      store.remove('a');
+      expect(store.stats()).toEqual({ tables: 0, versions: 0, bytes: 0 });
+    });
+
+    it('counts a freed version off before it hands its buffer over', () => {
+      const seen: number[] = [];
+      const store = createTableStore(() => seen.push(store.stats().bytes));
+      store.set('a', 1, buildLevels([sine]));
+      store.remove('a');
+      expect(seen).toEqual([0]);
+    });
+
     it('keeps the latest version, a stale one is freed at once', () => {
       const freed: unknown[] = [];
       const store = createTableStore((levels) => freed.push(levels));

@@ -369,5 +369,9 @@ export const createReverbDsp = (sampleRate: number, { params, active: initialAct
       fade.set(value ? 1 : 0);
     },
     process,
+    // skipping its blocks (the specs count the work of a silent chain)
+    get idle() {
+      return idle;
+    },
   };
 };

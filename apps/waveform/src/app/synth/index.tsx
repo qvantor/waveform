@@ -6,6 +6,7 @@ import { DEFAULT_WAVETABLE_PATH } from '@waveform/preset-schema';
 import { useApp } from '../app';
 import { Header, HeaderSection } from '../common/components';
 import { PresetSection, PresetsProvider } from '../presets';
+import { PerfHook } from '../perf/perf-hook';
 import {
   SynthProvider,
   InputControllerProvider,
@@ -143,6 +144,8 @@ const Internal = () => {
               synthCore={synthCore}
             >
               <PresetsProvider initial={{}}>
+                {/* nothing but in the perf build (scripts/bench-perf): above the layout switch, never remounted */}
+                <PerfHook />
                 {isMobile ? (
                   <MobileLayout screen={screen} onScreenChange={setScreen} />
                 ) : (

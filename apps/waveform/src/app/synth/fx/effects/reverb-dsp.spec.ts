@@ -57,6 +57,8 @@ const render = (
   const frames = Math.ceil((seconds * SAMPLE_RATE) / BLOCK) * BLOCK;
   const [L, R] = [new Float32Array(frames), new Float32Array(frames)];
   const block = new Float32Array(BLOCK);
+  // per block: skipped after it
+  const idle: boolean[] = [];
   for (let start = 0; start < frames; start += BLOCK) {
     changes
       .filter(({ at }) => Math.floor((at * SAMPLE_RATE) / BLOCK) * BLOCK === start)
@@ -66,8 +68,9 @@ const render = (
       });
     for (let i = 0; i < BLOCK; i++) block[i] = input(start + i);
     dsp.process(block, block, L.subarray(start, start + BLOCK), R.subarray(start, start + BLOCK));
+    idle.push(dsp.idle);
   }
-  return { L, R, mono: Float32Array.from(L, (value, i) => value + R[i]) };
+  return { L, R, mono: Float32Array.from(L, (value, i) => value + R[i]), idle };
 };
 
 const frame = (seconds: number) => Math.round(seconds * SAMPLE_RATE);
@@ -336,6 +339,19 @@ describe('createReverbDsp', () => {
       const woken = rt60(mono.slice(frame(wake)));
       expect(woken).toBeGreaterThan(0.15);
       expect(woken).toBeLessThan(0.25);
+    });
+
+    it('created inactive: skips every block', () => {
+      const { idle } = render({}, 1, () => 0, [], false);
+      expect(idle.every(Boolean)).toBe(true);
+    });
+
+    it('created active: renders silence until its longest path has drained, then skips the blocks', () => {
+      // the predelay at its most, the last early reflection, the diffusers and the longest line of the
+      // largest room: 0.561 s, 211 blocks at 48 kHz (a reverb added to the chain renders them)
+      const { idle } = render({}, 1, () => 0);
+      expect(idle.indexOf(true)).toBe(210);
+      expect(idle.slice(210).every(Boolean)).toBe(true);
     });
 
     it('ignores unknown and missing params', () => {

@@ -60,7 +60,7 @@ const pulse =
     amplitude * PULSE(frame);
 
 // renders in render quanta like the worklet, the changes apply at the start of the block holding `at`
-// (in frames); the right input is the left one unless given
+// (in frames); the right input is the left one unless given; `idle`: per block, skipped after it
 const render = (
   params: Partial<DistortionDspParams>,
   frames: number,
@@ -71,6 +71,7 @@ const render = (
   const length = Math.ceil(frames / BLOCK) * BLOCK;
   const [L, R] = [new Float32Array(length), new Float32Array(length)];
   const [inL, inR] = [new Float32Array(BLOCK), new Float32Array(BLOCK)];
+  const idle: boolean[] = [];
   for (let start = 0; start < length; start += BLOCK) {
     changes
       .filter(({ at }) => Math.floor(at / BLOCK) * BLOCK === start)
@@ -80,8 +81,9 @@ const render = (
       inR[i] = right(start + i);
     }
     dsp.process(inL, inR, L.subarray(start, start + BLOCK), R.subarray(start, start + BLOCK));
+    idle.push(dsp.idle);
   }
-  return { L, R };
+  return { L, R, idle };
 };
 
 // the power spectrum of N samples from `from`; a tone of whole cycles in N falls on one bin
@@ -405,6 +407,28 @@ describe('distortion dsp', () => {
     expect(Math.abs(L[tail])).toBeGreaterThan(0.01);
     expect(maxStep(L, tail, loud + SAMPLE_RATE)).toBeLessThan(1e-4);
     L.subarray(L.length - 8192).forEach((value) => expect(value).toBe(0));
+  });
+
+  describe('the work of a silent chain', () => {
+    it('a new one skips every block of silence', () => {
+      const { idle } = render({ drive: 12 }, SAMPLE_RATE, () => 0);
+      expect(idle.every(Boolean)).toBe(true);
+    });
+
+    // the tails of the dc blocker (one pole at 5 Hz) and the tone after the step to silence: 0.57 s after a
+    // sine, 0.63 s after the DC the curve added to an asymmetric wave
+    it.each([
+      ['a sine', sine(440, 0.8)],
+      ['an asymmetric wave', pulse(0.5)],
+    ])('after %s it skips the blocks within 0.7 s of silence, and keeps skipping', (_, wave) => {
+      const loud = N;
+      const { idle } = render({ drive: 12 }, loud + SAMPLE_RATE, (frame) => (frame < loud ? wave(frame) : 0));
+      const first = idle.findIndex((skipped, block) => skipped && block * BLOCK >= loud);
+      expect(idle[loud / BLOCK - 1]).toBe(false);
+      expect(first).toBeGreaterThan(0);
+      expect((first + 1) * BLOCK - loud).toBeLessThanOrEqual(0.7 * SAMPLE_RATE);
+      expect(idle.slice(first).every(Boolean)).toBe(true);
+    });
   });
 
   it('soft clip of a saw with partials up to the nyquist: the curve gets no images of the top ones', () => {
