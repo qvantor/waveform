@@ -60,6 +60,18 @@ describe('createFxModulator', () => {
     expect(modulator.block(frame(2.2))).toBeNull();
   });
 
+  it('a knob that loses its route goes back to its value, also when routes change again before the block', () => {
+    const modulator = createFxModulator(RATE, { drive: 2, tone: 8000 });
+    const tone: FxRoute = { param: 'tone', env: 1, amount: -1, min: 500, max: 20000, log: true };
+    modulator.set({ note: note(), routes: [drive, tone] });
+    modulator.block(frame(2));
+    modulator.set({ note: note(), routes: [tone] });
+    // a new note within the same block
+    modulator.set({ note: { ...note(), start: 2 }, routes: [tone] });
+    expect(modulator.block(frame(2))).toEqual({ drive: 2, tone: 8000 });
+    expect(modulator.block(frame(2.1))).toEqual({ tone: expect.closeTo(4000, 6) });
+  });
+
   it('a new note starts the envelope again', () => {
     const modulator = createFxModulator(RATE, { drive: 2 });
     modulator.set({ note: note(), routes: [drive] });

@@ -83,7 +83,8 @@ export const createVoiceModulation = (
   let dropped = false;
   // the last block left every param one value as it was worked out (no glide, no moving envelope): until the
   // frame the flat stages of the envelopes the routes read last, they are not rendered and only the bases are
-  // compared (-Infinity: not quiet)
+  // compared (-Infinity: not quiet). A constant envelope is read by its value: its values[a] is of the block it
+  // was rendered in (the first one of the voice may start within it)
   let quietUntil = -Infinity;
   // some route moves a param, read every block: a field, not a getter
   const state = { active: false };
@@ -183,14 +184,14 @@ export const createVoiceModulation = (
           const route = routes[r];
           const envelope = envelopes[route.env];
           if (!envelope.constant || route.step !== 0) constant = same = false;
-          else if (envelope.values[a] !== route.level) same = false;
+          else if (envelope.value !== route.level) same = false;
         }
         if (same) continue;
         if (constant) {
           let sum = 0;
           for (let r = 0; r < routes.length; r++) {
             const route = routes[r];
-            route.level = envelopes[route.env].values[a];
+            route.level = envelopes[route.env].value;
             sum += route.amount * route.level;
           }
           const value = log ? base[0] * 2 ** sum : base[0] + sum;
@@ -220,7 +221,7 @@ export const createVoiceModulation = (
               amount += route.step * (p - a);
               if (route.step > 0 ? amount > route.target : amount < route.target) amount = route.target;
             }
-            sum += amount * envelope.values[envelope.constant ? a : p];
+            sum += amount * (envelope.constant ? envelope.value : envelope.values[p]);
           }
           const x = base.length > 1 ? base[p] : base[0];
           const value = log ? x * 2 ** sum : x + sum;

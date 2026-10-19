@@ -167,10 +167,9 @@ export const delay: FxDefinition<DelayParam> = {
         freq: () => [filters.l, filters.r].map((node) => [node.frequency, 'exponential']),
         q: () => [filters.l, filters.r].map((node) => [node.Q, 'exponential']),
       };
-    // every param a knob may move (the feedback gains of both modes)
+    // every param a knob may move (the feedback: routing)
     const paramsOf: Partial<Record<DelayParam, AudioParam[]>> = {
       time: [lines.l.delayTime, lines.r.delayTime],
-      fb: Object.values(feedbacks).map((node) => node.gain),
       pan: [offsets.l.delayTime, offsets.r.delayTime],
       freq: [filters.l.frequency, filters.r.frequency],
       q: [filters.l.Q, filters.r.Q],
@@ -185,11 +184,19 @@ export const delay: FxDefinition<DelayParam> = {
       if (modulation && routes.length > 0) automate(key, routes, modulation.note);
       else set(value);
     };
-    // the mode and the active flag set every feedback gain: a moved feedback is automated again
+    // the feedback gains follow the automation of the routes of Feedback
+    let fbRouted = false;
+    // the mode and the active flag set every feedback gain: a moved feedback leaves its automation on all of them
+    // first (after a mode change the gains of the old one would go on ramping: both loops would feed back), then
+    // it is automated again on the gains of the mode; inactive it isn't, the lines drain
     const routing = () => {
+      if (fbRouted) Object.values(feedbacks).forEach(({ gain }) => holdParam(gain, audioCtx.currentTime));
       applyRouting();
       const routes = routesOf('fb');
-      if (modulation && routes.length > 0) automate('fb', routes, modulation.note);
+      fbRouted = false;
+      if (!active || !modulation || routes.length === 0) return;
+      fbRouted = true;
+      automate('fb', routes, modulation.note);
     };
 
     const setParam = bind({
@@ -213,6 +220,7 @@ export const delay: FxDefinition<DelayParam> = {
       setModulation: (mod) => {
         const before = new Set(modulation?.routes.map(({ param }) => param));
         modulation = mod;
+        if (fbRouted || routesOf('fb').length > 0) routing();
         (Object.keys(paramsOf) as DelayParam[]).forEach((key) => {
           const routes = routesOf(key);
           if (mod && routes.length > 0) {
@@ -222,8 +230,7 @@ export const delay: FxDefinition<DelayParam> = {
           if (!before.has(key)) return;
           // its routes are gone: from where it is to its value
           paramsOf[key]?.forEach((param) => holdParam(param, audioCtx.currentTime));
-          if (key === 'fb') applyRouting();
-          else apply[key](values[key]);
+          apply[key](values[key]);
         });
       },
       destroy: () =>

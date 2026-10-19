@@ -4,13 +4,13 @@ import { FxNote, FxRoute, routedValue } from './fx-modulation';
 // note by automation: the envelopes are linear between their corners, so are the knobs they move (a log one is
 // exponential), the browser ramps them exactly; no new node, nothing computed per block on the main thread
 
-// the points of the curve of a stage that is no ramp (setValueCurveAtTime)
-const CURVE_POINTS = 16;
-// seconds between a curve and the event before it: no two events of a param may share the time of a curve
-const CURVE_GAP = 1e-5;
+// the linear segments of a stage that is no single ramp. Not setValueCurveAtTime: an event inside a curve
+// still running throws, and browsers differ in whether cancelScheduledValues removes it (a ramp it does: its
+// time is its end)
+const CURVE_SEGMENTS = 15;
 
 // linear: the param is linear in the knob (a linear ramp), exponential: the knob is a log one and the param is
-// the knob (an exponential ramp), curve: anything else (the equal power mix, the pan split at 0)
+// the knob (an exponential ramp), curve: anything else (the equal power mix, the pan split at 0), in segments
 export type FxRamp = 'linear' | 'exponential' | 'curve';
 
 // the times after `now` the envelopes the routes read have a corner at (within two of them each one is linear)
@@ -56,14 +56,11 @@ export const scheduleRouted = (
     else if (ramp === 'linear' && inside(start) && inside(end)) param.linearRampToValueAtTime(map(end), time);
     else if (ramp === 'exponential' && inside(start) && inside(end) && map(start) > 0 && map(end) > 0)
       param.exponentialRampToValueAtTime(map(end), time);
-    else if (time - from > 2 * CURVE_GAP) {
-      // after the event at its start
-      const begin = from + CURVE_GAP;
-      const curve = Float32Array.from({ length: CURVE_POINTS }, (_, i) =>
-        map(knob(begin + ((time - begin) * i) / (CURVE_POINTS - 1)))
-      );
-      param.setValueCurveAtTime(curve, begin, time - begin);
-    } else param.setValueAtTime(map(end), time);
+    else
+      for (let i = 1; i <= CURVE_SEGMENTS; i++) {
+        const at = i === CURVE_SEGMENTS ? time : from + ((time - from) * i) / CURVE_SEGMENTS;
+        param.linearRampToValueAtTime(map(knob(at)), at);
+      }
     from = time;
   });
 };

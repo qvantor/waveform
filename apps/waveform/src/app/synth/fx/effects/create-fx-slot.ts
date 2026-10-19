@@ -55,6 +55,8 @@ export const createFxSlot = (audioCtx: BaseAudioContext, core: FxCore) => {
   // the mix knob, on (not bypassed and ready) and the routes moving it with the note they follow
   let mix = { value: 0, on: false };
   let mixMod: { note: FxNote; routes: FxRoute[] } | null = null;
+  // the gains follow the automation of the routes
+  let routed = false;
   // the crossfade of mixGains: linear gains ramp, equal power ones are curves
   const applyMix = () => {
     const now = audioCtx.currentTime;
@@ -63,10 +65,16 @@ export const createFxSlot = (audioCtx: BaseAudioContext, core: FxCore) => {
       const ramp = linearMix ? 'linear' : 'curve';
       scheduleRouted(dry.gain, now, note, routes, mix.value, ramp, (value) => mixGains(value, linearMix)[0]);
       scheduleRouted(wet.gain, now, note, routes, mix.value, ramp, (value) => mixGains(value, linearMix)[1]);
+      routed = true;
       return;
     }
-    holdParam(dry.gain, now);
-    holdParam(wet.gain, now);
+    // the automation is left where it is once, not at every tick of the knob: the value read here is a block
+    // late, the glide would step back to it
+    if (routed) {
+      holdParam(dry.gain, now);
+      holdParam(wet.gain, now);
+      routed = false;
+    }
     const [dryGain, wetGain] = mix.on ? mixGains(mix.value, linearMix) : [1, 0];
     setGain(dry, dryGain);
     setGain(wet, wetGain);

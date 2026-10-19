@@ -51,26 +51,32 @@ describe('scheduleRouted', () => {
     ]);
   });
 
-  it('a stage that reaches the end of the range is a curve, clamped there', () => {
+  it('a stage that reaches the end of the range is a curve in linear segments, clamped there', () => {
     const { param, calls } = setup();
     scheduleRouted(param, 0, note(), [{ ...time, amount: 1 }], 0.5, 'linear');
-    const [[curve, start, duration]] = calls('setValueCurveAtTime');
-    expect(start).toBeGreaterThan(1);
-    expect(start + duration).toBeCloseTo(1.1, 9);
-    expect(Math.max(...curve)).toBe(1);
-    expect(curve[0]).toBeCloseTo(0.5, 3);
+    // the attack: up to 1.5, clamped at 1 from its middle on; the decay stays there
+    const segments = calls('linearRampToValueAtTime');
+    expect(segments).toHaveLength(15);
+    expect(segments[0]).toEqual([expect.closeTo(0.5 + 1 / 15, 6), expect.closeTo(1 + 0.1 / 15, 9)]);
+    expect(segments.at(-1)).toEqual([1, expect.closeTo(1.1, 9)]);
+    expect(Math.max(...segments.map(([value]) => value))).toBe(1);
+    expect(calls('setValueAtTime').at(-1)).toEqual([1, expect.closeTo(1.2, 9)]);
+    // a curve still running would throw at the next event scheduled inside it
+    expect(calls('setValueCurveAtTime')).toEqual([]);
   });
 
-  it('maps the knob to its param: a curve for a map that is not a ramp', () => {
+  it('maps the knob to its param: linear segments for a map that is not a ramp', () => {
     const { param, calls } = setup();
     scheduleRouted(param, 0, note(), [time], 0.2, 'curve', (value) => value * 2);
-    const curves = calls('setValueCurveAtTime');
-    expect(curves).toHaveLength(2);
-    expect(curves[0][0].at(-1)).toBeCloseTo(1.2, 5);
+    const segments = calls('linearRampToValueAtTime');
+    expect(segments).toHaveLength(30);
+    expect(segments[14]).toEqual([expect.closeTo(1.2, 6), expect.closeTo(1.1, 9)]);
+    expect(segments[29]).toEqual([expect.closeTo(0.8, 6), expect.closeTo(1.2, 9)]);
     expect(calls('setValueAtTime')).toEqual([
       [0.4, 0],
       [0.4, 1],
     ]);
+    expect(calls('setValueCurveAtTime')).toEqual([]);
   });
 });
 

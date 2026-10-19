@@ -133,13 +133,41 @@ describe('createFxSlot', () => {
       ]);
     });
 
-    it('moves an equal power mix by curves of both gains', () => {
+    it('moves an equal power mix by linear segments of both gains', () => {
       const audioCtx = new AudioContext();
       const slot = createFxSlot(audioCtx, createCore(audioCtx));
       slot.setMix(0.5, true);
       slot.setModulation({ note, routes: [mix] });
-      const [[curve]] = calls(slot.wet.gain, 'setValueCurveAtTime');
-      expect(curve.at(-1)).toBeCloseTo(Math.sin((0.9 * Math.PI) / 2), 5);
+      // the 15 segments of the attack, the mix at 0.9 at its top
+      expect(calls(slot.wet.gain, 'linearRampToValueAtTime')[14]).toEqual([
+        expect.closeTo(Math.sin((0.9 * Math.PI) / 2), 6),
+        expect.closeTo(1.1, 9),
+      ]);
+      expect(calls(slot.dry.gain, 'linearRampToValueAtTime')[14]).toEqual([
+        expect.closeTo(Math.cos((0.9 * Math.PI) / 2), 6),
+        expect.closeTo(1.1, 9),
+      ]);
+    });
+
+    it('a mix without routes glides from where it is: its ticks cancel nothing', () => {
+      const audioCtx = new AudioContext();
+      const slot = createFxSlot(audioCtx, createCore(audioCtx));
+      [0.2, 0.3, 0.4].forEach((value) => slot.setMix(value, true));
+      [slot.dry.gain, slot.wet.gain].forEach((gain) =>
+        expect(gain.cancelScheduledValues).not.toHaveBeenCalled()
+      );
+      // the routes gone: their automation is left where it is once, then the ticks glide again
+      slot.setModulation({ note, routes: [mix] });
+      slot.setModulation(null);
+      const cancels = calls(slot.wet.gain, 'cancelScheduledValues').length;
+      expect(calls(slot.wet.gain, 'setValueAtTime').at(-1)?.[1]).toBe(audioCtx.currentTime);
+      slot.setMix(0.6, true);
+      slot.setMix(0.7, true);
+      expect(calls(slot.wet.gain, 'cancelScheduledValues')).toHaveLength(cancels);
+      expect((slot.wet.gain.setTargetAtTime as jest.Mock).mock.lastCall?.[0]).toBeCloseTo(
+        Math.sin((0.7 * Math.PI) / 2),
+        9
+      );
     });
 
     it('a knob of the mix without routes, bypassed or not ready glides to its value; the core gets null', () => {

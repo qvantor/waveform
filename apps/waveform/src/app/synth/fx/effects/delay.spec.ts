@@ -276,9 +276,62 @@ describe('delay', () => {
         expect(calls(node.gain, 'linearRampToValueAtTime')).toEqual([])
       );
       // from 0 the pan moves right: the left channel is delayed
-      expect(calls(offsets[0].delayTime, 'setValueCurveAtTime').length).toBeGreaterThan(0);
-      const [[right]] = calls(offsets[1].delayTime, 'setValueCurveAtTime');
-      expect(Math.max(...right)).toBe(0);
+      expect(calls(offsets[0].delayTime, 'linearRampToValueAtTime')[14]).toEqual([
+        expect.closeTo(0.04, 9),
+        expect.closeTo(1.1, 9),
+      ]);
+      const right = calls(offsets[1].delayTime, 'linearRampToValueAtTime');
+      expect(right.length).toBeGreaterThan(0);
+      expect(Math.max(...right.map(([value]) => value))).toBe(0);
+    });
+
+    // the order of the last call of a method of a param (-Infinity: none)
+    const lastOrder = (param: AudioParam, method: keyof AudioParam) =>
+      Math.max(-Infinity, ...(param[method] as jest.Mock).mock.invocationCallOrder);
+
+    it('a mode change leaves the automation of the feedback gains of the old mode: one loop feeds back', () => {
+      const { core, feedbacks } = setup();
+      core.setModulation({ note, routes: [route('fb', 0.4, 0, 0.9)] });
+      expect(calls(feedbacks.ll.gain, 'linearRampToValueAtTime').length).toBeGreaterThan(0);
+      core.setParam('mode', 1);
+      // normal → ping-pong: the lines no longer feed themselves, from where they are to 0
+      [feedbacks.ll, feedbacks.rr].forEach(({ gain }) => {
+        expect(lastOrder(gain, 'cancelScheduledValues')).toBeGreaterThan(
+          lastOrder(gain, 'linearRampToValueAtTime')
+        );
+        expect(lastValue(gain)).toBe(0);
+      });
+      // they feed each other, moved by the envelope
+      [feedbacks.lr, feedbacks.rl].forEach(({ gain }) =>
+        expect(calls(gain, 'linearRampToValueAtTime')[0]).toEqual([
+          expect.closeTo(0.9, 9),
+          expect.closeTo(1.1, 9),
+        ])
+      );
+    });
+
+    it('does not move the feedback while inactive: the lines drain', () => {
+      const { core, feedbacks } = setup();
+      core.setModulation({ note, routes: [route('fb', 0.4, 0, 0.9)] });
+      core.setActive(false);
+      core.setModulation({ note: { ...note, start: 2 }, routes: [route('fb', 0.4, 0, 0.9)] });
+      Object.values(feedbacks).forEach(({ gain }) => {
+        expect(lastOrder(gain, 'setTargetAtTime')).toBeGreaterThan(
+          lastOrder(gain, 'linearRampToValueAtTime')
+        );
+        expect(lastValue(gain)).toBe(0);
+      });
+      [feedbacks.ll, feedbacks.rr].forEach(({ gain }) =>
+        expect(lastOrder(gain, 'cancelScheduledValues')).toBeGreaterThan(
+          lastOrder(gain, 'linearRampToValueAtTime')
+        )
+      );
+      // active again: moved on the gains of the mode
+      core.setActive(true);
+      expect(calls(feedbacks.ll.gain, 'linearRampToValueAtTime').at(-2)).toEqual([
+        expect.closeTo(0.9, 9),
+        expect.closeTo(2.1, 9),
+      ]);
     });
 
     it('builds the automation again when a knob turns, lets a knob go back to its value without its routes', () => {

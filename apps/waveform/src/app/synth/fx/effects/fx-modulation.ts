@@ -76,7 +76,8 @@ export const createFxModulator = (sampleRate: number, initial: Record<string, nu
       note = mod?.note ?? null;
       const groups = mod ? routesByParam(mod.routes) : {};
       moved = Object.keys(groups).map((param) => ({ param, routes: groups[param], last: NaN }));
-      pending = before.filter((param) => !(param in groups));
+      // the knobs that lost their routes, also in a set before the next block
+      pending = [...new Set([...pending, ...before])].filter((param) => !(param in groups));
     },
     bases: (params: Record<string, number>) => {
       let passed: Record<string, number> | null = null;

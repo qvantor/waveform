@@ -7,7 +7,7 @@ const BLOCK = 128;
 // sample (linear between the corners, a corner falls on its sample). `startFrame` is the frame of the
 // context the envelope starts at (the note on, in legato the start of the phrase); release(frame) starts the
 // release at that frame from the level reached there. A block within one flat stage (before the start, hold,
-// sustain, after the release) is constant: one value, values[a] (the others are not written)
+// sustain, after the release) is constant: one value, `value` and values[a] (the others are not written)
 export const createEnvelopeBlock = (params: EnvelopeParams, sampleRate: number, startFrame: number) => {
   const stage = new Float64Array(3);
   let releasedAt = Infinity;
@@ -20,6 +20,9 @@ export const createEnvelopeBlock = (params: EnvelopeParams, sampleRate: number, 
   const state = {
     values: new Float32Array(BLOCK),
     constant: false,
+    // the value of a constant block, also while the blocks after it within its stage are not rendered (their
+    // a may differ: values[a] is of the block rendered)
+    value: 0,
     get endFrame() {
       return endFrame;
     },
@@ -47,6 +50,7 @@ export const createEnvelopeBlock = (params: EnvelopeParams, sampleRate: number, 
       const { values } = state;
       if (frame + b <= flatUntil) {
         state.constant = true;
+        state.value = flatValue;
         values[a] = flatValue;
         return;
       }
@@ -63,6 +67,7 @@ export const createEnvelopeBlock = (params: EnvelopeParams, sampleRate: number, 
             : Math.min(b, Math.max(i + 1, Math.ceil(startFrame + stage[2] * sampleRate - frame - 1e-6)));
         if (i === a && end === b && step === 0) {
           state.constant = true;
+          state.value = value;
           values[a] = value;
           flatValue = value;
           flatUntil = stage[2] === Infinity ? Infinity : Math.ceil(startFrame + stage[2] * sampleRate - 1e-6);
