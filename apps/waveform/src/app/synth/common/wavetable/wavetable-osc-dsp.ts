@@ -811,10 +811,15 @@ export const createVoiceDsp = (
     });
   };
 
-  // the start of the note (its first sample, i): the unison collapses at detune 0, the phases are set
+  // the start of the note (its first sample, i): the unison collapses at detune 0, the phases are set. A voice
+  // processed after its start (its node came after the block of its start began: a device buffer late) starts
+  // its envelopes there, the attack is not skipped; in legato they go on from the start of the phrase
   const start = (params: Params, i: number) => {
     started = true;
     if (__PERF__) startedAt = blockFrame + i;
+    const late = blockFrame + i - startFrame;
+    if (late > 0 && envStartFrame >= startFrame)
+      envelopes.forEach((envelope) => envelope.startAt(envStartFrame + late));
     oscs.forEach((osc) => {
       const spread = params[osc.params.spread];
       // ENV → Detune would never spread the voices of a unison collapsed at a detune of 0
@@ -1254,6 +1259,8 @@ export const createVoiceDsp = (
         outR.fill(0);
         return true;
       }
+      // before the gate: a release in its first block counts from where its envelopes start
+      if (!started) start(params, a);
       // the gate: 0 starts the release of ENV 1 at that sample, below 0 the fade of a stolen voice
       const gate = params.gate;
       for (let i = a; gate && i < (gate.length > 1 ? n : a + 1); i++) {
@@ -1273,7 +1280,6 @@ export const createVoiceDsp = (
         break;
       }
       const b = Math.max(a, Math.min(n, stopFrame - frame));
-      if (!started) start(params, a);
       // the envelopes the volume and the routes read, then the params they move: the knobs of the filter, then
       // the params the routes move (their values replace the bases where they are read)
       amp.render(frame, a, b);

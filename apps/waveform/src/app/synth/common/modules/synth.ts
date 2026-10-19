@@ -89,6 +89,8 @@ interface VoiceConfig {
   createNode: SynthCoreModule[0]['wavetables']['createVoice'];
   outputNode: AudioNode;
   note: Note;
+  // the seconds of the context time of the note on (read once: out of legato envStart is the same)
+  start: number;
   oscillators: VoiceOscillator[];
   // the note it glides from and the seconds of the glide
   portamento?: [Note, number];
@@ -112,6 +114,7 @@ const createVoiceNode = ({
   audioCtx,
   createNode,
   note,
+  start: now,
   oscillators,
   portamento,
   envelopes,
@@ -120,7 +123,6 @@ const createVoiceNode = ({
   filter,
   onStarted,
 }: VoiceConfig) => {
-  const now = audioCtx.currentTime;
   const frequency = getFq(note);
   const from = portamento ? getFq(portamento[0]) : frequency;
   const parameterData: Partial<Record<VoiceParam, number>> = { frequency: from };
@@ -164,7 +166,8 @@ class Voice {
   private on: boolean[];
   // the end of the release, Infinity while the note is held
   releaseEnd = Infinity;
-  // its envelopes, as the fx follow them while it is the last note
+  // its envelopes, as the fx follow them while it is the last note (from the frame it is scheduled at: a voice
+  // processed later starts its own there, at most a device buffer after them)
   readonly fxNote: FxNote;
   // the routes its processor has (JSON): a change of the routes of other knobs sends nothing
   private routes: string;
@@ -316,6 +319,7 @@ class Voicing {
       createNode,
       outputNode,
       note,
+      start: now,
       oscillators,
       portamento: key && !$legato.value ? [stringToNote(key), $portamento.value / 1000] : undefined,
       envelopes: phrase?.envelopes ?? envelopes,

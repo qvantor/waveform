@@ -67,6 +67,8 @@ interface RenderOptions {
   filter?: VoiceFilterOptions | null;
   random?: () => number;
   rate?: number;
+  // the frame of the first block processed (its node came late), 0 by default
+  from?: number;
   // called before the block at that frame
   before?: (frame: number, dsp: ReturnType<typeof createVoiceDsp>) => void;
   // the resources the voices of a context share; a render has its own by default
@@ -88,6 +90,7 @@ const render = ({
   filter = null,
   random,
   rate = RATE,
+  from = 0,
   before,
   shared = createVoiceShared(),
 }: RenderOptions) => {
@@ -103,7 +106,7 @@ const render = ({
   const outL = new Float32Array(BLOCK);
   const outR = new Float32Array(BLOCK);
   let endedAt = -1;
-  for (let frame = 0; frame < frames; frame += BLOCK) {
+  for (let frame = from; frame < frames; frame += BLOCK) {
     before?.(frame, dsp);
     const values = Object.fromEntries(
       (Object.keys(DEFAULTS) as VoiceParam[]).map((name) => {
@@ -710,6 +713,26 @@ describe('wavetable voice dsp', () => {
       expect(left.subarray(0, start).every((value) => value === 0)).toBe(true);
       expect(left[start]).toBeCloseTo(1, 4);
       expect(left[start + 960]).toBeCloseTo(envelopeValue(env, 0.01 + sec(960)), 4);
+    });
+
+    it('processed after its start, starts its envelopes at its first sample, in legato goes on from the phrase', () => {
+      // scheduled at 100, its first block at 1280 (its node came a device buffer late): the attack is played
+      const { left } = peak(4096, { envelope: env, start: sec(100), from: 1280 });
+      for (let i = 1280; i < 4096; i += 7) expect(left[i]).toBeCloseTo(envelopeValue(env, sec(i - 1280)), 4);
+      expect(left[1280]).toBe(0);
+      expect(left[1280 + 480]).toBeCloseTo(1, 4);
+      // released in its first block: from the level reached since its first sample
+      const released = peak(8192, {
+        envelope: env,
+        start: sec(100),
+        from: 1280,
+        params: { frequency: 0.01, gate: gateAt(1280 + 240) },
+      });
+      expect(released.left[1280 + 240]).toBeCloseTo(0.5, 4);
+      expect(released.endedAt).toBe(Math.floor((1280 + 240 + 0.03 * RATE) / BLOCK) * BLOCK);
+      // a note of a phrase started 0.01 s before it: the level of the phrase at its first sample
+      const legato = peak(4096, { envelope: env, start: sec(100), envStart: sec(100) - 0.01, from: 1280 });
+      expect(legato.left[1280]).toBeCloseTo(envelopeValue(env, 0.01 + sec(1180)), 4);
     });
 
     it('fades a stolen voice out within 5 ms from the level it has', () => {

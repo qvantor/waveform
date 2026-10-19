@@ -17,28 +17,37 @@ describe('scheduleRouted', () => {
   it('ramps a linear knob from now through the corners of the envelope', () => {
     const { param, calls } = setup();
     scheduleRouted(param, 0.5, note(), [time], 0.2, 'linear');
-    expect(calls('cancelScheduledValues')).toEqual([[0.5]]);
+    expect(calls('cancelAndHoldAtTime')).toEqual([[0.5]]);
     // until the start of the note it stays
-    expect(calls('setValueAtTime')).toEqual([
-      [0.2, 0.5],
-      [0.2, 1],
-    ]);
+    expect(calls('setValueAtTime')).toEqual([[0.2, 1]]);
     expect(calls('linearRampToValueAtTime')).toEqual([
+      [0.2, 0.51],
       [expect.closeTo(0.6, 9), expect.closeTo(1.1, 9)],
       [expect.closeTo(0.4, 9), expect.closeTo(1.2, 9)],
     ]);
   });
 
-  it('from the value of the knob now, through the release', () => {
+  it('from where the param is to the knob in 10 ms, through the release', () => {
     const { param, calls } = setup();
     scheduleRouted(param, 1.05, note(2), [time], 0.2, 'linear');
-    expect(calls('setValueAtTime')).toEqual([[expect.closeTo(0.4, 9), 1.05]]);
+    expect(calls('setValueAtTime')).toEqual([]);
     expect(calls('linearRampToValueAtTime')).toEqual([
+      [expect.closeTo(0.44, 9), expect.closeTo(1.06, 9)],
       [expect.closeTo(0.6, 9), expect.closeTo(1.1, 9)],
       [expect.closeTo(0.4, 9), expect.closeTo(1.2, 9)],
       [expect.closeTo(0.4, 9), 2],
       [expect.closeTo(0.2, 9), 2.2],
     ]);
+  });
+
+  it('a new note does not step: the param glides from where it is into its attack', () => {
+    const { param, calls } = setup();
+    // the knob was moved up by the last note: it is held there, not set at the base the new attack starts at
+    scheduleRouted(param, 1, note(), [time], 0.2, 'linear');
+    expect(calls('cancelAndHoldAtTime')).toEqual([[1]]);
+    expect(calls('cancelScheduledValues')).toEqual([]);
+    expect(calls('setValueAtTime')).toEqual([]);
+    expect(calls('linearRampToValueAtTime')[0]).toEqual([expect.closeTo(0.24, 9), expect.closeTo(1.01, 9)]);
   });
 
   it('ramps a log knob exponentially', () => {
@@ -56,8 +65,9 @@ describe('scheduleRouted', () => {
     scheduleRouted(param, 0, note(), [{ ...time, amount: 1 }], 0.5, 'linear');
     // the attack: up to 1.5, clamped at 1 from its middle on; the decay stays there
     const segments = calls('linearRampToValueAtTime');
-    expect(segments).toHaveLength(15);
-    expect(segments[0]).toEqual([expect.closeTo(0.5 + 1 / 15, 6), expect.closeTo(1 + 0.1 / 15, 9)]);
+    // the glide, then the 15 segments of the attack
+    expect(segments).toHaveLength(16);
+    expect(segments[1]).toEqual([expect.closeTo(0.5 + 1 / 15, 6), expect.closeTo(1 + 0.1 / 15, 9)]);
     expect(segments.at(-1)).toEqual([1, expect.closeTo(1.1, 9)]);
     expect(Math.max(...segments.map(([value]) => value))).toBe(1);
     expect(calls('setValueAtTime').at(-1)).toEqual([1, expect.closeTo(1.2, 9)]);
@@ -69,23 +79,35 @@ describe('scheduleRouted', () => {
     const { param, calls } = setup();
     scheduleRouted(param, 0, note(), [time], 0.2, 'curve', (value) => value * 2);
     const segments = calls('linearRampToValueAtTime');
-    expect(segments).toHaveLength(30);
-    expect(segments[14]).toEqual([expect.closeTo(1.2, 6), expect.closeTo(1.1, 9)]);
-    expect(segments[29]).toEqual([expect.closeTo(0.8, 6), expect.closeTo(1.2, 9)]);
-    expect(calls('setValueAtTime')).toEqual([
-      [0.4, 0],
-      [0.4, 1],
-    ]);
+    expect(segments).toHaveLength(31);
+    expect(segments[0]).toEqual([0.4, 0.01]);
+    expect(segments[15]).toEqual([expect.closeTo(1.2, 6), expect.closeTo(1.1, 9)]);
+    expect(segments[30]).toEqual([expect.closeTo(0.8, 6), expect.closeTo(1.2, 9)]);
+    expect(calls('setValueAtTime')).toEqual([[0.4, 1]]);
     expect(calls('setValueCurveAtTime')).toEqual([]);
   });
 });
 
 describe('holdParam', () => {
-  it('cancels what is scheduled and stays where it is', () => {
+  it('cancels what is scheduled and stays where its automation is', () => {
     const { param, calls } = setup();
-    param.value = 0.3;
     holdParam(param, 2);
-    expect(calls('cancelScheduledValues')).toEqual([[2]]);
-    expect(calls('setValueAtTime')).toEqual([[0.3, 2]]);
+    expect(calls('cancelAndHoldAtTime')).toEqual([[2]]);
+    expect(calls('cancelScheduledValues')).toEqual([]);
+  });
+
+  it('without cancelAndHoldAtTime (Firefox) stays at the value read before the automation is cancelled', () => {
+    // after the cancel the value is that of the event before the ramp that was running
+    let value = 0.3;
+    const param = {
+      get value() {
+        return value;
+      },
+      cancelScheduledValues: jest.fn(() => (value = 0.1)),
+      setValueAtTime: jest.fn(),
+    } as unknown as AudioParam;
+    holdParam(param, 2);
+    expect(param.cancelScheduledValues).toHaveBeenCalledWith(2);
+    expect(param.setValueAtTime).toHaveBeenCalledWith(0.3, 2);
   });
 });

@@ -4,7 +4,7 @@ import { HandleModulation, HandleProps } from '@waveform/ui-kit';
 import { useObservable } from '@waveform/rxjs-react';
 import { number } from '@waveform/math';
 import { MOD_SOURCES, ModSource } from '@waveform/preset-schema';
-import { ModRoute, ModulationContext } from '../common/modules/modulation';
+import { knobFull, ModRoute, ModulationContext, routesFull } from '../common/modules/modulation';
 import { SynthContext } from '../common/modules/synth';
 import { SynthCoreContext } from '../common/modules/synth-core';
 import { envelopeValue } from '../common/envelope/envelope-curve';
@@ -29,8 +29,9 @@ interface KnobScale {
   range: [number, number];
 }
 
-// the modulation props of the knob of a target (modulation-targets.ts): the drop target of the ENV tabs, the arc
-// and the amount ring of each route on it. Without the modulation model (a spec of a section) the knob has none
+// the modulation props of the knob of a target (modulation-targets.ts): the drop target of the ENV tabs (none
+// once the routes or the sources of the knob are full), the arc and the amount ring of each route on it. Without the modulation model (a
+// spec of a section) the knob has none
 export const useKnobModulation = (
   target: string,
   knob?: KnobScale
@@ -80,6 +81,7 @@ export const useKnobModulation = (
           live,
         })
       );
-    return { modTarget: target, modulations };
+    const full = routesFull(routes) || knobFull(routes, target);
+    return { modTarget: full ? undefined : target, modulations };
   }, [module, actions, routes, target, scale, min, max, level, live]);
 };

@@ -1,5 +1,12 @@
+import { MOD_SOURCES, ModSource } from '@waveform/preset-schema';
 import { applySnapshot, getSnapshot } from '../../../app';
 import { createModulation } from '../../../../test-utils/models';
+import { MOD_TARGETS } from '../modulation/modulation-targets';
+
+// every route there can be: every envelope on every knob (87)
+const ALL = MOD_SOURCES.flatMap((source) =>
+  Object.keys(MOD_TARGETS).map((target) => [source, target] as const)
+);
 
 describe('modulation', () => {
   it('has no routes by default', () => {
@@ -19,6 +26,34 @@ describe('modulation', () => {
       { source: 'env2', target: 'osc1.wave', amount: -0.3 },
       { source: 'env3', target: 'osc1.wave', amount: 1 },
     ]);
+  });
+
+  it('adds no route past 64, the routes there still change and a removed one makes room', () => {
+    const [{ $routes }, { addRoute, setAmount, removeRoute }] = createModulation();
+    ALL.slice(0, 65).forEach(([source, target]) => addRoute(source, target));
+    expect($routes.value).toHaveLength(64);
+    expect($routes.value.at(-1)).toMatchObject({ source: ALL[63][0], target: ALL[63][1] });
+    const [source, target] = ALL[0];
+    setAmount(source, target, 0.2);
+    expect($routes.value[0].amount).toBe(0.2);
+    removeRoute(source, target);
+    addRoute(...ALL[64]);
+    expect($routes.value).toHaveLength(64);
+    expect($routes.value.at(-1)).toMatchObject({ source: ALL[64][0], target: ALL[64][1] });
+  });
+
+  it('puts at most 4 sources on a knob', () => {
+    const [{ $routes }, { addRoute }] = createModulation();
+    // 4 sources there are not yet (the LFOs to come)
+    const lfos = ['lfo1', 'lfo2', 'lfo3', 'lfo4'].map((source) => ({
+      source: source as ModSource,
+      target: 'osc1.gain',
+      amount: 0.5,
+    }));
+    $routes.next(lfos);
+    addRoute('env1', 'osc1.gain');
+    addRoute('env1', 'osc1.wave');
+    expect($routes.value).toEqual([...lfos, { source: 'env1', target: 'osc1.wave', amount: 0.5 }]);
   });
 
   it('adds no route to a knob it does not know', () => {
@@ -65,5 +100,12 @@ describe('modulation', () => {
     addRoute('env1', 'osc1.gain');
     applySnapshot({ mod: { 'env2:osc1.detune': -1, 'lfo1:osc1.wave': 0.5, 'env3:osc9.wave': 0.5, env1: 1 } });
     expect($routes.value).toEqual([{ source: 'env2', target: 'osc1.detune', amount: -1 }]);
+  });
+
+  it('keeps the first 64 routes of a snapshot', () => {
+    const [{ $routes }] = createModulation();
+    applySnapshot({ mod: Object.fromEntries(ALL.map(([source, target]) => [`${source}:${target}`, 0.5])) });
+    expect($routes.value).toHaveLength(64);
+    expect($routes.value.at(-1)).toMatchObject({ source: ALL[63][0], target: ALL[63][1] });
   });
 });

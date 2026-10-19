@@ -222,11 +222,21 @@ const envSchema = z
 // the envelopes for now, LFOs later
 export type ModSource = EnvelopeId;
 export const MOD_SOURCES: readonly ModSource[] = [...ENVELOPES];
+// the most routes of a preset (once there are as many, a dragged ENV tab adds none) and of the sources on one
+// knob (a full one takes none)
 export const MOD_ROUTES_MAX = 64;
+export const MOD_KNOB_SOURCES_MAX = 4;
 const modKeySchema = z.string().regex(/^env[1-3]:[a-z][a-z0-9]*\.[a-z][a-z0-9]*$/);
+const knobSources = (routes: Record<string, number>) =>
+  Object.keys(routes).reduce<Record<string, number>>((counts, key) => {
+    const target = key.slice(key.indexOf(':') + 1);
+    counts[target] = (counts[target] ?? 0) + 1;
+    return counts;
+  }, {});
 const modSchema = z
   .record(modKeySchema, range(-1, 1))
   .refine((routes) => Object.keys(routes).length <= MOD_ROUTES_MAX)
+  .refine((routes) => Object.values(knobSources(routes)).every((count) => count <= MOD_KNOB_SOURCES_MAX))
   .default({});
 
 const voicingSchema = z

@@ -1,9 +1,11 @@
 import React from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { AdsrEnvelope, formatTime } from '@waveform/ui-kit';
+import { MOD_SOURCES } from '@waveform/preset-schema';
 import { EnvelopesProvider, ModulationProvider, useEnvelopes, useModulation } from '../../common/modules';
 import { EnvelopesModule } from '../../common/modules/envelopes';
 import { ModulationModule } from '../../common/modules/modulation';
+import { MOD_TARGETS } from '../../common/modulation/modulation-targets';
 import { EnvelopeSection } from './envelope-section';
 
 jest.mock('@waveform/ui-kit', () => ({
@@ -89,6 +91,22 @@ describe('EnvelopeSection', () => {
     expect($routes.value).toEqual([{ source: 'env2', target: 'osc1.wave', amount: 0.2 }]);
     // the drag didn't select it
     expect(screen.getByRole('tab', { name: 'ENV 1' }).getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('with 64 routes a dragged tab adds none', () => {
+    const { modulation } = setup();
+    const [{ $routes }, { addRoute }] = modulation;
+    // every envelope on every knob but ENV 3 on Wave of OSC 1, up to 64
+    act(() =>
+      MOD_SOURCES.flatMap((source) => Object.keys(MOD_TARGETS).map((target) => [source, target] as const))
+        .filter(([source, target]) => source !== 'env3' || target !== 'osc1.wave')
+        .slice(0, 64)
+        .forEach(([source, target]) => addRoute(source, target))
+    );
+    const routes = $routes.value;
+    expect(routes).toHaveLength(64);
+    dragTab('ENV 3', screen.getByTestId('knob'));
+    expect($routes.value).toBe(routes);
   });
 
   it('has stages up to 32 s', () => {

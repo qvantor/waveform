@@ -2,8 +2,10 @@ import React from 'react';
 import { act, render, screen } from '@testing-library/react';
 import { Handle, HandleProps } from '@waveform/ui-kit';
 import { BehaviorSubject } from 'rxjs';
+import { MOD_SOURCES, ModSource } from '@waveform/preset-schema';
 import { createModulation, createOscillator } from '../../../test-utils/models';
 import { ModulationContext } from '../common/modules/modulation';
+import { MOD_TARGETS } from '../common/modulation/modulation-targets';
 import { SynthContext, SynthModule } from '../common/modules/synth';
 import { SynthCoreContext } from '../common/modules/synth-core';
 import { withElementSize } from '../../../test-utils/element-size';
@@ -74,6 +76,37 @@ describe('Oscillator', () => {
       expect(knob('Wave').modTarget).toBe('osc2.wave');
       expect(knob('Detune').modTarget).toBe('osc2.detune');
       expect(knob('Unison').modTarget).toBeUndefined();
+    });
+
+    it('with 64 routes the knobs take no envelope, their rings stay', () => {
+      const { knob, modulation } = setup();
+      const [{ $routes }, { addRoute }] = modulation;
+      act(() =>
+        MOD_SOURCES.forEach((source) =>
+          Object.keys(MOD_TARGETS).forEach((target) => addRoute(source, target))
+        )
+      );
+      expect($routes.value).toHaveLength(64);
+      ['Gain', 'Wave', 'Detune'].forEach((label) => expect(knob(label).modTarget).toBeUndefined());
+      expect(knob('Detune').modulations).toHaveLength(3);
+    });
+
+    it('a knob with 4 sources takes no other one, the others still do', () => {
+      const { knob, modulation } = setup();
+      const [{ $routes }] = modulation;
+      // 4 sources there are not yet (the LFOs to come)
+      act(() =>
+        $routes.next(
+          ['lfo1', 'lfo2', 'lfo3', 'lfo4'].map((source) => ({
+            source: source as ModSource,
+            target: 'osc1.detune',
+            amount: 0.5,
+          }))
+        )
+      );
+      expect(knob('Detune').modTarget).toBeUndefined();
+      expect(knob('Detune').modulations).toHaveLength(4);
+      expect(knob('Gain').modTarget).toBe('osc1.gain');
     });
 
     it('a knob shows its routes in the colors of their envelopes, its rings change and remove them', () => {

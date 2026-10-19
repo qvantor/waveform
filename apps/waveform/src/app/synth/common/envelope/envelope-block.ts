@@ -33,6 +33,12 @@ export const createEnvelopeBlock = (params: EnvelopeParams, sampleRate: number, 
     get flatUntil() {
       return state.constant ? flatUntil : -Infinity;
     },
+    // the envelope starts at `frame` instead (before it is rendered or released: a voice processed after its
+    // start)
+    startAt: (frame: number) => {
+      startFrame = frame;
+      flatUntil = -Infinity;
+    },
     // the release starts at `frame` (the first one counts)
     release: (frame: number) => {
       if (releasedAt !== Infinity) return;

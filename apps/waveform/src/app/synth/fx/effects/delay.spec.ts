@@ -230,8 +230,9 @@ describe('delay', () => {
     it('automates the time of both lines directly: ramps of base + amount × level', () => {
       const { core, lines } = setup();
       core.setModulation({ note, routes: [route('time', 0.4, 0.01, 1)] });
+      // after the glide into it
       lines.forEach((line) =>
-        expect(calls(line.delayTime, 'linearRampToValueAtTime')[0]).toEqual([
+        expect(calls(line.delayTime, 'linearRampToValueAtTime')[1]).toEqual([
           expect.closeTo(0.6, 9),
           expect.closeTo(1.1, 9),
         ])
@@ -267,7 +268,7 @@ describe('delay', () => {
       core.setModulation({ note, routes: [route('fb', 0.4, 0, 0.9), route('pan', 0.04, -0.05, 0.05)] });
       // ping-pong: the lines feed each other
       [feedbacks.lr, feedbacks.rl].forEach((node) =>
-        expect(calls(node.gain, 'linearRampToValueAtTime')[0]).toEqual([
+        expect(calls(node.gain, 'linearRampToValueAtTime')[1]).toEqual([
           expect.closeTo(0.9, 9),
           expect.closeTo(1.1, 9),
         ])
@@ -276,7 +277,7 @@ describe('delay', () => {
         expect(calls(node.gain, 'linearRampToValueAtTime')).toEqual([])
       );
       // from 0 the pan moves right: the left channel is delayed
-      expect(calls(offsets[0].delayTime, 'linearRampToValueAtTime')[14]).toEqual([
+      expect(calls(offsets[0].delayTime, 'linearRampToValueAtTime')[15]).toEqual([
         expect.closeTo(0.04, 9),
         expect.closeTo(1.1, 9),
       ]);
@@ -296,14 +297,14 @@ describe('delay', () => {
       core.setParam('mode', 1);
       // normal → ping-pong: the lines no longer feed themselves, from where they are to 0
       [feedbacks.ll, feedbacks.rr].forEach(({ gain }) => {
-        expect(lastOrder(gain, 'cancelScheduledValues')).toBeGreaterThan(
+        expect(lastOrder(gain, 'cancelAndHoldAtTime')).toBeGreaterThan(
           lastOrder(gain, 'linearRampToValueAtTime')
         );
         expect(lastValue(gain)).toBe(0);
       });
       // they feed each other, moved by the envelope
       [feedbacks.lr, feedbacks.rl].forEach(({ gain }) =>
-        expect(calls(gain, 'linearRampToValueAtTime')[0]).toEqual([
+        expect(calls(gain, 'linearRampToValueAtTime')[1]).toEqual([
           expect.closeTo(0.9, 9),
           expect.closeTo(1.1, 9),
         ])
@@ -322,7 +323,7 @@ describe('delay', () => {
         expect(lastValue(gain)).toBe(0);
       });
       [feedbacks.ll, feedbacks.rr].forEach(({ gain }) =>
-        expect(lastOrder(gain, 'cancelScheduledValues')).toBeGreaterThan(
+        expect(lastOrder(gain, 'cancelAndHoldAtTime')).toBeGreaterThan(
           lastOrder(gain, 'linearRampToValueAtTime')
         )
       );
@@ -343,7 +344,7 @@ describe('delay', () => {
         expect.closeTo(1.1, 9),
       ]);
       core.setModulation(null);
-      expect(calls(lines[0].delayTime, 'cancelScheduledValues').length).toBeGreaterThan(2);
+      expect(calls(lines[0].delayTime, 'cancelAndHoldAtTime').length).toBeGreaterThan(2);
       expect(lastValue(lines[0].delayTime)).toBe(0.3);
     });
   });

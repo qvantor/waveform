@@ -122,12 +122,12 @@ describe('createFxSlot', () => {
       slot.setMix(0.5, true);
       slot.setModulation({ note, routes: [mix, drive] });
       expect(core.setModulation).toHaveBeenLastCalledWith({ note, routes: [drive] });
-      // at the top of the attack the mix is 0.9
-      expect(calls(slot.wet.gain, 'linearRampToValueAtTime')[0]).toEqual([
+      // after the glide into it, at the top of the attack the mix is 0.9
+      expect(calls(slot.wet.gain, 'linearRampToValueAtTime')[1]).toEqual([
         expect.closeTo(0.9, 9),
         expect.closeTo(1.1, 9),
       ]);
-      expect(calls(slot.dry.gain, 'linearRampToValueAtTime')[0]).toEqual([
+      expect(calls(slot.dry.gain, 'linearRampToValueAtTime')[1]).toEqual([
         expect.closeTo(0.1, 9),
         expect.closeTo(1.1, 9),
       ]);
@@ -138,12 +138,12 @@ describe('createFxSlot', () => {
       const slot = createFxSlot(audioCtx, createCore(audioCtx));
       slot.setMix(0.5, true);
       slot.setModulation({ note, routes: [mix] });
-      // the 15 segments of the attack, the mix at 0.9 at its top
-      expect(calls(slot.wet.gain, 'linearRampToValueAtTime')[14]).toEqual([
+      // the glide, the 15 segments of the attack, the mix at 0.9 at its top
+      expect(calls(slot.wet.gain, 'linearRampToValueAtTime')[15]).toEqual([
         expect.closeTo(Math.sin((0.9 * Math.PI) / 2), 6),
         expect.closeTo(1.1, 9),
       ]);
-      expect(calls(slot.dry.gain, 'linearRampToValueAtTime')[14]).toEqual([
+      expect(calls(slot.dry.gain, 'linearRampToValueAtTime')[15]).toEqual([
         expect.closeTo(Math.cos((0.9 * Math.PI) / 2), 6),
         expect.closeTo(1.1, 9),
       ]);
@@ -153,17 +153,18 @@ describe('createFxSlot', () => {
       const audioCtx = new AudioContext();
       const slot = createFxSlot(audioCtx, createCore(audioCtx));
       [0.2, 0.3, 0.4].forEach((value) => slot.setMix(value, true));
-      [slot.dry.gain, slot.wet.gain].forEach((gain) =>
-        expect(gain.cancelScheduledValues).not.toHaveBeenCalled()
-      );
+      [slot.dry.gain, slot.wet.gain].forEach((gain) => {
+        expect(gain.cancelScheduledValues).not.toHaveBeenCalled();
+        expect(gain.cancelAndHoldAtTime).not.toHaveBeenCalled();
+      });
       // the routes gone: their automation is left where it is once, then the ticks glide again
       slot.setModulation({ note, routes: [mix] });
       slot.setModulation(null);
-      const cancels = calls(slot.wet.gain, 'cancelScheduledValues').length;
-      expect(calls(slot.wet.gain, 'setValueAtTime').at(-1)?.[1]).toBe(audioCtx.currentTime);
+      const cancels = calls(slot.wet.gain, 'cancelAndHoldAtTime').length;
+      expect(calls(slot.wet.gain, 'cancelAndHoldAtTime').at(-1)).toEqual([audioCtx.currentTime]);
       slot.setMix(0.6, true);
       slot.setMix(0.7, true);
-      expect(calls(slot.wet.gain, 'cancelScheduledValues')).toHaveLength(cancels);
+      expect(calls(slot.wet.gain, 'cancelAndHoldAtTime')).toHaveLength(cancels);
       expect((slot.wet.gain.setTargetAtTime as jest.Mock).mock.lastCall?.[0]).toBeCloseTo(
         Math.sin((0.7 * Math.PI) / 2),
         9
