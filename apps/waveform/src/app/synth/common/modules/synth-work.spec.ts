@@ -44,11 +44,35 @@ describe('the work of a note on the main thread', () => {
     expect(measure(() => onPress(note(0)))).toEqual({ nodes: 1, connects: 1, disconnects: 0, automation: 0 });
   });
 
-  it('a note while another is held also glides its pitch from it (even at portamento 0)', async () => {
-    const { onPress, measure } = await setup();
+  it('a note while another is held glides its pitch from it with portamento (at 0 nothing)', async () => {
+    const { onPress, synthActions, measure } = await setup();
     onPress(note(0));
-    // the frequency: from the note held, a ramp to its own
-    expect(measure(() => onPress(note(1)))).toEqual({ nodes: 1, connects: 1, disconnects: 0, automation: 2 });
+    expect(measure(() => onPress(note(1)))).toEqual({ nodes: 1, connects: 1, disconnects: 0, automation: 0 });
+    synthActions.setPortamento(100);
+    // the frequency: from the note held, the 8 ramps of the curve to its own
+    expect(measure(() => onPress(note(2)))).toEqual({ nodes: 1, connects: 1, disconnects: 0, automation: 9 });
+  });
+
+  it('mono: a note over the held one is only the glide of its voice, no node', async () => {
+    const { onPress, onRelease, synthActions, measure } = await setup();
+    synthActions.setMaxVoices(1);
+    synthActions.setLegato(true);
+    synthActions.setPortamento(100);
+    onPress(note(0));
+    // held where it is (a point, a cancel after it), the 8 ramps of the curve
+    expect(measure(() => onPress(note(1)))).toEqual({
+      nodes: 0,
+      connects: 0,
+      disconnects: 0,
+      automation: 10,
+    });
+    // back to the key below
+    expect(measure(() => onRelease(note(1)))).toEqual({
+      nodes: 0,
+      connects: 0,
+      disconnects: 0,
+      automation: 10,
+    });
   });
 
   it('a note connects the mod bus of each param a source plays into', async () => {
@@ -60,11 +84,12 @@ describe('the work of a note on the main thread', () => {
 
   it('a note over the polyphony fades the oldest voice out', async () => {
     const { onPress, synthActions, measure } = await setup();
-    synthActions.setMaxVoices(1);
+    synthActions.setMaxVoices(2);
     onPress(note(0));
+    onPress(note(1));
     // the stolen voice: its gate below 0 (a cancel, a set: its processor fades it out); the new one doesn't
-    // glide (none held)
-    expect(measure(() => onPress(note(1)))).toEqual({ nodes: 1, connects: 1, disconnects: 0, automation: 2 });
+    // glide (portamento 0)
+    expect(measure(() => onPress(note(2)))).toEqual({ nodes: 1, connects: 1, disconnects: 0, automation: 2 });
   });
 
   it('a note off sets the gate: its processor releases its envelopes', async () => {
@@ -100,12 +125,12 @@ describe('the work of a note on the main thread', () => {
   it('a chord of 12 at Poly 8 (in one task): 4 voices stolen as they start; its release', async () => {
     const { onPress, onRelease, measure } = await setup();
     const chord = Array.from({ length: 12 }, (_, i) => note(i));
-    // 0 + 7 · 2 for the first 8 (the glides), then 4 × (a steal 2 + a note 2)
+    // nothing for the first 8 (no portamento), then 4 steals of 2
     expect(measure(() => chord.forEach((n) => onPress(n)))).toEqual({
       nodes: 12,
       connects: 12,
       disconnects: 0,
-      automation: 30,
+      automation: 8,
     });
     // the gates of the 8 voices held
     expect(measure(() => chord.forEach((n) => onRelease(n)))).toEqual({
@@ -121,7 +146,7 @@ describe('the work of a note on the main thread', () => {
     synthActions.setMaxVoices(16);
     onPress(note(0));
     const each = Array.from({ length: 15 }, (_, i) => measure(() => onPress(note(i + 1))));
-    each.forEach((cost) => expect(cost).toEqual({ nodes: 1, connects: 1, disconnects: 0, automation: 2 }));
+    each.forEach((cost) => expect(cost).toEqual({ nodes: 1, connects: 1, disconnects: 0, automation: 0 }));
   });
 
   it('an ended voice takes its node and its buses off the graph', async () => {

@@ -1,4 +1,5 @@
-import { BehaviorSubject, pairwise, skip, Subject } from 'rxjs';
+import { BehaviorSubject, distinctUntilChanged, map, pairwise, skip, Subject } from 'rxjs';
+import { isEqual } from 'lodash';
 import { Note } from '@waveform/ui-kit';
 import { PrimitiveBS, rxModel, rxModelReact } from '@waveform/rxjs-react';
 import { ENVELOPES, MOD_SOURCES } from '@waveform/preset-schema';
@@ -12,6 +13,8 @@ import { amountInUnits, filterTargetScale, MOD_TARGETS } from '../modulation/mod
 import type { FilterModule } from '../../filter/modules/filter';
 import type { FxNote } from '../../fx/effects/fx-modulation';
 import {
+  HELD_AGAIN_GATE,
+  HELD_GATE,
   OSC_PARAMS,
   OscParam,
   oscParamName,
@@ -20,8 +23,9 @@ import {
   releaseStart,
   VoiceParam,
 } from '../wavetable/wavetable-osc-params';
+import { Glide, glideFrom, scheduleGlide, steady } from './glide';
 import { InputControllerModule } from './input-controller';
-import { EnvelopesModule } from './envelopes';
+import { Envelopes, EnvelopesModule } from './envelopes';
 import { ModRoute, ModulationModule } from './modulation';
 import { OscillatorModel, OscillatorModule } from './oscillator';
 import { SynthCoreModule } from './synth-core';
@@ -96,13 +100,19 @@ const voiceRoutes = (routes: ModRoute[], on: boolean[], filter: VoiceFilterOptio
 // the phrase by it: two of them may be scheduled at the same time), ENV 1–3 (read at the note on, in legato
 // at the start of the phrase), the seconds of the context time they are scheduled at (the note on of its
 // first note: they don't start again) and those they started at (later when the first voice was processed
-// late: it starts them at its first sample, and tells it)
+// late: it starts them at its first sample, and tells it). In mono a note that starts them again on the voice
+// that sounds gives it a phrase of its own from then on, with the levels they start their attacks from
 interface Phrase {
   id: number;
   envelopes: EnvelopeParams[];
   start: number;
   started: number;
+  from?: number[];
 }
+
+// the envelopes of a voice are those of the knobs (equal values: a preset applied again makes new objects)
+const sameEnvelopes = (envelopes: EnvelopeParams[], knobs: Envelopes) =>
+  ENVELOPES.every((id, k) => isEqual(envelopes[k], knobs[id]));
 
 // the numbers of the phrases, unique in the page (a model created again on the same context doesn't take the
 // number of a voice still playing)
@@ -116,8 +126,8 @@ interface VoiceConfig {
   // the seconds of the context time of the note on (read once: out of legato envStart is the same)
   start: number;
   oscillators: VoiceOscillator[];
-  // the note it glides from and the seconds of the glide
-  portamento?: [Note, number];
+  // the frequency of the note, with portamento a glide to it from the note before
+  pitch: Glide;
   // its envelopes (its own, in legato those of its phrase)
   phrase: Phrase;
   // the routes of the modulation (to its params: voiceRoutes) and the filter (null: off)
@@ -138,18 +148,15 @@ interface VoiceConfig {
 const createVoiceNode = ({
   audioCtx,
   createNode,
-  note,
   start: now,
   oscillators,
-  portamento,
+  pitch,
   phrase: { id: phrase, envelopes, start: envStart },
   routes,
   filter,
   onStarted,
 }: VoiceConfig) => {
-  const frequency = getFq(note);
-  const from = portamento ? getFq(portamento[0]) : frequency;
-  const parameterData: Partial<Record<VoiceParam, number>> = { frequency: from };
+  const parameterData: Partial<Record<VoiceParam, number>> = { frequency: pitch.from };
   const osc = oscillators.map((oscillator, index): VoiceOscOptions | null => {
     const params = oscillator.$params.value;
     OSC_PARAMS.forEach((param) => (parameterData[oscParamName(param, index)] = params[param]));
@@ -172,10 +179,10 @@ const createVoiceNode = ({
     },
     parameterData
   );
-  if (node && portamento) {
+  if (node && pitch.seconds > 0) {
     const param = node.parameters.get('frequency') as AudioParam;
-    param.setValueAtTime(from, now);
-    param.linearRampToValueAtTime(frequency, now + portamento[1]);
+    param.setValueAtTime(pitch.from, now);
+    scheduleGlide(param, pitch);
   }
   return node;
 };
@@ -199,6 +206,15 @@ class Voice {
   private stopped: { now: number; held: number } | null = null;
   // the routes its processor has (JSON): a change of the routes of other knobs sends nothing
   private routes: string;
+  // the note it plays (the key it is held under; in mono the top of the stack) and the glide of its pitch to it
+  note: Note;
+  private pitch: Glide;
+  // its envelopes: those of its note, in legato of its phrase, in mono from where a note started them again
+  private current: Phrase;
+  // the value of its gate while held: HELD_GATE and HELD_AGAIN_GATE in turn, another one starts the envelopes
+  // again; the time it was set at (none: the value of the node)
+  private heldGate = HELD_GATE;
+  private heldAt = -Infinity;
 
   // node: from createVoiceNode, the voicing creates a voice only for a node. Global sources (an LFO) come
   // through the mod buses of the oscillators
@@ -206,6 +222,9 @@ class Voice {
     this.config = config;
     this.node = node;
     this.startedAt = config.start;
+    this.note = config.note;
+    this.pitch = config.pitch;
+    this.current = config.phrase;
     this.on = config.oscillators.map(({ $active }) => $active.value);
     this.routes = JSON.stringify(voiceRoutes(config.routes, this.on, config.filter));
     node.connect(config.outputNode);
@@ -224,8 +243,9 @@ class Voice {
     node.port.onmessage = ({ data }: MessageEvent<VoiceEndedMessage | VoiceStartedMessage>) => {
       if ('started' in data) {
         if (__PERF__) config.onStarted?.(data);
+        // (a note that started its envelopes again before it is later still)
         if (data.started > data.scheduled) {
-          this.startedAt = data.started / config.audioCtx.sampleRate;
+          this.startedAt = Math.max(this.startedAt, data.started / config.audioCtx.sampleRate);
           config.onLate(this.startedAt);
         }
       } else if (data.ended) end();
@@ -258,8 +278,33 @@ class Voice {
     return this.node.parameters.get('gate') as AudioParam;
   }
 
+  // mono: the voice plays `note` instead, its pitch glides there in `seconds` along the curve from where it is
+  // (a glide the note interrupts goes on from its value now); 0: at once
+  glide = (note: Note, seconds: number) => {
+    const param = this.node.parameters.get('frequency') as AudioParam;
+    this.note = note;
+    this.pitch = glideFrom(param, this.pitch, getFq(note), this.config.audioCtx.currentTime, seconds);
+  };
+
+  // mono: a new note on the voice starts its envelopes again (out of legato, or from its release), now, each
+  // from the level it has reached (no step); its release is off, the time its key is held counts from now.
+  // The gate held at its other value tells its processor (automation: exact to the sample)
+  retrigger = () => {
+    const now = this.config.audioCtx.currentTime;
+    const from = this.current.envelopes.map((_, env) => this.level(now, env));
+    // at another value than its processor has seen: one set at this same time (two notes within a device
+    // buffer) is replaced before it is seen, the value stays
+    if (now !== this.heldAt) this.heldGate = this.heldGate === HELD_GATE ? HELD_AGAIN_GATE : HELD_GATE;
+    this.heldAt = now;
+    setParam(this.gate, this.heldGate, now);
+    this.current = { ...this.current, start: now, started: now, from };
+    this.pressedAt = performance.now();
+    this.startedAt = now;
+    this.stopped = null;
+  };
+
   get phrase() {
-    return this.config.phrase;
+    return this.current;
   }
 
   // the seconds of the context its release starts at, as its processor starts it (null while the key is
@@ -271,30 +316,34 @@ class Voice {
     return releaseStart(Math.max(now, this.startedAt), this.startedAt + held, RELEASE_LEAD);
   }
 
-  // the end of the release, Infinity while the note is held
+  // the end of the release, Infinity while the note is held; released at 0 it ends there, as its processor
   get releaseEnd() {
     const at = this.releaseAt;
-    return at === null ? Infinity : at + this.config.phrase.envelopes[0].release;
+    if (at === null) return Infinity;
+    return this.level(at) > 0 ? at + this.current.envelopes[0].release : at;
   }
 
-  // the level of ENV 1 at `now` (seconds of the context) as its processor renders it: from the start of its
-  // phrase (its own, in legato the first note's; where they started, once processed late), released at
-  // releaseAt
-  level(now: number) {
-    const { envelopes, started } = this.config.phrase;
+  // the level of an envelope (ENV 1: the volume) at `now` (seconds of the context) as its processor renders
+  // it: from the start of its phrase (its own, in legato the first note's; where they started, once processed
+  // late; in mono where a note started them again, from their levels then), released at releaseAt
+  level(now: number, env = 0) {
+    const { envelopes, started, from } = this.current;
     const at = this.releaseAt;
-    return envelopeValue(envelopes[0], now - started, at === null ? Infinity : at - started);
+    return envelopeValue(envelopes[env], now - started, at === null ? Infinity : at - started, from?.[env]);
   }
 
   // the key is released: the release of ENV 1 starts from the level it has reached, as long after the start as
   // the key was held (a note shorter than a device buffer would see the currentTime of its note on: released
   // at its start, silent). The gate tells the processor how long (from the first sample of the voice: it may
-  // be processed late), the fx release at that time (releaseAt)
+  // be processed late), the fx release at that time (releaseAt). A sample after a gate held at this same time
+  // (a note that started the envelopes again within this device buffer): at the same time it would replace it
+  // before its processor sees it, which would release the voice from its last release (and end it sooner)
   stop = () => {
     const now = this.config.audioCtx.currentTime;
     const held = (performance.now() - this.pressedAt) / 1000;
-    setParam(this.gate, RELEASE_GATE + held, now);
-    this.stopped = { now, held };
+    const at = this.heldAt === now ? now + 1 / this.config.audioCtx.sampleRate : now;
+    setParam(this.gate, RELEASE_GATE + held, at);
+    this.stopped = { now: at, held };
   };
 
   // a stolen voice: its node fades out (20 ms, a raised cosine) instead of being cut
@@ -362,19 +411,24 @@ class Voicing {
   // started; released with the release of `fxRelease` (the last note, in legato the last key of its phrase)
   private last: Voice | null = null;
   private fxRelease: Voice | null = null;
+  // Poly 1 (mono): its voice and the keys held, the last one pressed on top. A note pressed while another key
+  // is held takes the voice over (it glides there; in legato its envelopes go on), the key on top released
+  // hands it back to the key below, the last key releases it. Null until a note in mono, after the voice ended
+  // and once Poly leaves 1: the next note starts a voice
+  private mono: { voice: Voice; stack: string[] } | null = null;
 
   constructor(config: VoicingContext) {
     this.voices = {};
     this.config = config;
   }
 
-  // the voice of a note, null if the oscillator isn't ready (a note played meanwhile is not played later)
-  private getVoice = (note: Note): Voice | null => {
+  // the voice of a note, null if the oscillator isn't ready (a note played meanwhile is not played later); with
+  // portamento it glides from `from` (the last key held). In mono a note starts a phrase of its own: its voice
+  // takes the next notes over, no other voice joins it
+  private getVoice = (note: Note, from: Note | undefined): Voice | null => {
     const { audioCtx, outputNode, createNode, $legato, $portamento, $envelopes, $routes, oscillators } =
       this.config;
-    const { voiceFilter, $voiceStarts } = this.config;
-    const voicesArray = Object.keys(this.voices);
-    const key = voicesArray[voicesArray.length - 1];
+    const { voiceFilter, $voiceStarts, $maxVoices } = this.config;
     const now = audioCtx.currentTime;
     const own: Phrase = {
       id: ++phrases,
@@ -382,7 +436,8 @@ class Voicing {
       start: now,
       started: now,
     };
-    const phrase = $legato.value ? (this.phrase ??= own) : own;
+    const phrase = $legato.value && $maxVoices.value !== 1 ? (this.phrase ??= own) : own;
+    const frequency = getFq(note);
 
     const voiceConfig: VoiceConfig = {
       audioCtx,
@@ -391,7 +446,10 @@ class Voicing {
       note,
       start: now,
       oscillators,
-      portamento: key && !$legato.value ? [stringToNote(key), $portamento.value / 1000] : undefined,
+      pitch:
+        from && $portamento.value > 0
+          ? { from: getFq(from), to: frequency, start: now, seconds: $portamento.value / 1000 }
+          : steady(frequency, now),
       phrase,
       routes: $routes.value,
       filter: voiceFilter(),
@@ -401,6 +459,8 @@ class Voicing {
           : undefined,
       onEnded: (voice) => {
         this.sounding.delete(voice);
+        // the voice of mono ended by itself (its processor failed): the next note starts one
+        if (this.mono?.voice === voice) this.mono = null;
         if (this.forget(voice)) this.config.onCount();
       },
       // processed late: the envelopes of the first note of a phrase started with it; the fx follow them (and
@@ -418,12 +478,19 @@ class Voicing {
   // fxRelease
   private followFx() {
     if (!this.last) return;
-    const { envelopes, started } = this.last.phrase;
+    const { envelopes, started, from } = this.last.phrase;
     const release = this.fxRelease?.releaseAt ?? null;
-    // a note of the phrase, or a late voice that didn't move its start, changes nothing
+    // a note of the phrase, or a late voice that didn't move its start, changes nothing; a note that started
+    // the envelopes again does (also at the same time)
     const note = this.config.$fxNote.value;
-    if (note?.envelopes === envelopes && note.start === started && note.release === release) return;
-    this.config.$fxNote.next({ envelopes, start: started, release });
+    if (
+      note?.envelopes === envelopes &&
+      note.start === started &&
+      note.release === release &&
+      note.from === from
+    )
+      return;
+    this.config.$fxNote.next({ envelopes, start: started, release, from });
   }
 
   // a released voice is no longer counted: it has ended or it is stolen; true if it was
@@ -455,24 +522,92 @@ class Voicing {
     delete this.voices[key];
   }
 
+  // a new voice for a note, gliding from the last key held; the voices above Poly are stolen first (all of
+  // them when Poly went down)
+  private startVoice(note: Note) {
+    const keys = Object.keys(this.voices);
+    const from = keys.length > 0 ? stringToNote(keys[keys.length - 1]) : undefined;
+    const now = this.config.audioCtx.currentTime;
+    while (this.voicesCount > 0 && this.voicesCount >= this.config.$maxVoices.value) this.steal(now);
+    const voice = this.getVoice(note, from);
+    if (!voice) return null;
+    this.voices[noteToString(note)] = voice;
+    this.sounding.add(voice);
+    this.followNote(voice);
+    return voice;
+  }
+
+  // the fx follow the envelopes of `voice` from now (a new note), until its release
+  private followNote(voice: Voice) {
+    this.last = voice;
+    this.fxRelease = null;
+    this.followFx();
+  }
+
+  // mono: the voice takes over `note`, the key on top of the stack. While another key was held (`held`) it
+  // glides there from where it is, in legato its envelopes go on, else they start again; from its release it
+  // plays it at once (Always is off) and they start again. False when a new voice plays it: its release ends
+  // before its processor would see the gate (it would have ended), or its envelopes would start again as
+  // others than the knobs' (its processor reads them at its note on)
+  private takeOver(note: Note, held: boolean) {
+    const { mono } = this;
+    if (!mono) return false;
+    const { voice } = mono;
+    const again = !held || !this.config.$legato.value;
+    if (voice.releaseEnd <= this.config.audioCtx.currentTime + RELEASE_LEAD) return false;
+    if (again && !sameEnvelopes(voice.phrase.envelopes, this.config.$envelopes.value)) return false;
+    delete this.voices[noteToString(voice.note)];
+    this.voices[noteToString(note)] = voice;
+    this.forget(voice);
+    voice.glide(note, held ? this.config.$portamento.value / 1000 : 0);
+    if (!again) return true;
+    // a new note for the fx: from now, from the levels of the envelopes
+    voice.retrigger();
+    this.followNote(voice);
+    return true;
+  }
+
+  // mono: `note` on top of `stack`, its voice takes it over, else a new voice plays it
+  private playMono(note: Note, held: boolean, stack: string[]) {
+    if (this.takeOver(note, held)) return;
+    const voice = this.startVoice(note);
+    this.mono = voice && { voice, stack };
+  }
+
   // a note played before the oscillator is ready is not played (nor later)
   onPress = (note: Note) => {
     if (!this.config.isReady()) return;
     // the released voices whose release is over are not counted (their ended message is on its way)
     const now = this.config.audioCtx.currentTime;
     this.released = this.released.filter((voice) => voice.releaseEnd > now);
-    if (this.voicesCount >= this.config.$maxVoices.value) this.steal(now);
-    const voice = this.getVoice(note);
-    if (!voice) return;
-    this.voices[noteToString(note)] = voice;
-    this.sounding.add(voice);
-    this.last = voice;
-    this.fxRelease = null;
-    this.followFx();
+    if (this.config.$maxVoices.value !== 1) {
+      this.startVoice(note);
+      return;
+    }
+    // mono: the key goes on top of the stack (pressed again, from where it was)
+    const key = noteToString(note);
+    const stack = this.mono?.stack.filter((item) => item !== key) ?? [];
+    const held = stack.length > 0;
+    stack.push(key);
+    if (this.mono) this.mono.stack = stack;
+    this.playMono(note, held, stack);
   };
 
   onRelease = (note: Note) => {
     const stringNote = noteToString(note);
+    const { mono } = this;
+    const index = mono ? mono.stack.indexOf(stringNote) : -1;
+    if (mono && index >= 0) {
+      mono.stack.splice(index, 1);
+      // a key below the top: the voice plays on
+      if (index < mono.stack.length) return;
+      // the key on top: the voice goes back to the key below as if it were pressed, the last key releases it
+      const top = mono.stack[mono.stack.length - 1];
+      if (top !== undefined) {
+        this.playMono(stringToNote(top), true, mono.stack);
+        return;
+      }
+    }
     const voice = this.voices[stringNote];
     // the voice of a stolen note has already stopped, the held ones keep playing
     if (!voice) return;
@@ -489,6 +624,13 @@ class Voicing {
     // the last key of a legato phrase: the next note starts a new one
     if (held === 0) this.phrase = undefined;
   };
+
+  // Poly came to 1 or left it: the voice of mono plays on as a voice of its note (its other keys release
+  // nothing), the next note follows the new mode
+  leaveMono() {
+    this.mono = null;
+    this.phrase = undefined;
+  }
 
   // the sounding voices: held and released, the stolen ones fade out uncounted
   get voicesCount() {
@@ -551,7 +693,7 @@ export const synth = ({
       setLegato: (value: boolean) => $legato.next(value),
       setVoicesCount: (value: number) => $voicesCount.next(value),
     }))
-    .subscriptions(({ voicing }, { setVoicesCount }) => [
+    .subscriptions(({ voicing, $maxVoices }, { setVoicesCount }) => [
       $onRelease.subscribe((note) => {
         voicing.onRelease(note);
 
@@ -561,6 +703,14 @@ export const synth = ({
         voicing.onPress(note);
         setVoicesCount(voicing.voicesCount);
       }),
+      // Poly comes to 1 or leaves it while notes play
+      $maxVoices
+        .pipe(
+          map((max) => max === 1),
+          distinctUntilChanged(),
+          skip(1)
+        )
+        .subscribe(() => voicing.leaveMono()),
       // a mod bus that gets its first source or loses its last one: the playing notes connect it or let it go
       ...oscillators.map(([{ $busSources }], osc) =>
         $busSources.pipe(pairwise()).subscribe(([previous, sources]) =>

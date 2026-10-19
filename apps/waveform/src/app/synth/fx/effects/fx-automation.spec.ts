@@ -134,6 +134,17 @@ describe('scheduleRouted', () => {
     expect(calls('cancelAndHoldAtTime')).toEqual([]);
   });
 
+  it('a note that started the envelopes again from their levels (mono) glides on from there, no dip', () => {
+    const { param, calls } = setup();
+    scheduleRouted(param, 0.5, note(), [time], 0.2, 'linear');
+    // on the sustain (0.4), ENV 2 started again at 3 from 0.5: at 3.02 it is at 0.6 (from 0 it would be 0.2)
+    scheduleRouted(param, 3, { ...note(), start: 3, from: [1, 0.5, 1] }, [time], 0.2, 'linear');
+    expect(calls('setValueAtTime').at(-1)).toEqual([expect.closeTo(0.4, 9), 3.01]);
+    const ramps = calls('linearRampToValueAtTime').slice(3);
+    expect(ramps[0]).toEqual([expect.closeTo(0.44, 9), expect.closeTo(3.02, 9)]);
+    expect(ramps[1]).toEqual([expect.closeTo(0.6, 9), expect.closeTo(3.1, 9)]);
+  });
+
   it('a corner sooner than the glide ends it: a short attack and decay are not skipped', () => {
     const { param, calls } = setup();
     const short: EnvelopeParams = { attack: 0.002, hold: 0, decay: 0.008, sustain: 0, release: 0 };

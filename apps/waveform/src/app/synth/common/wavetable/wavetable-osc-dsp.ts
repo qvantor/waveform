@@ -1,7 +1,14 @@
 import type { EnvelopeParams } from '../envelope/envelope-curve';
 import { createEnvelopeBlock } from '../envelope/envelope-block';
 import { FRAME_GUARD, levelBase, WavetableLevels } from './wavetable-levels';
-import { oscParamName, RELEASE_GATE, RELEASE_LEAD, releaseStart, VoiceParam } from './wavetable-osc-params';
+import {
+  HELD_GATE,
+  oscParamName,
+  RELEASE_GATE,
+  RELEASE_LEAD,
+  releaseStart,
+  VoiceParam,
+} from './wavetable-osc-params';
 import { createVoiceModulation, ParamAccess, VoiceRoute } from './voice-modulation';
 import { createVoiceFilter, VoiceFilterOptions } from './voice-filter';
 
@@ -747,7 +754,10 @@ interface Osc {
 // options.envStart: in legato the start of the phrase, so it doesn't start again). Once its gate param is
 // released (RELEASE_GATE + the seconds the key was held, 0: at that sample) the release of ENV 1 starts, from
 // the level it has reached; the voice ends where ENV 1 is back at 0 (exactly, to the sample), or after the
-// fade of a stolen voice (gate below 0, KILL_FADE); process() returns false from then on
+// fade of a stolen voice (gate below 0, KILL_FADE); process() returns false from then on. A gate held at
+// another value (1 and 1.5 in turn) or held again after its release starts the envelopes again at that sample
+// (mono: a note on a voice that sounds), each from the level it has there; the oscillators, their phases and
+// the filter go on
 export const createVoiceDsp = (
   sampleRate: number,
   options: VoiceOptions,
@@ -767,6 +777,13 @@ export const createVoiceDsp = (
   let stopFrame = Infinity;
   // the frame the fade of a stolen voice starts at
   let killFrom = Infinity;
+  // the value of the gate while held (another one starts the envelopes again) and the frame the time the key
+  // is held counts from: the first sample, then the last start again
+  let heldGate = HELD_GATE;
+  let holdFrom = -1;
+  // the envelopes are released (amp.released, without a getter in the gate loop: Firefox gives the gate 128
+  // values every block)
+  let released = false;
   const killLength = Math.max(1, Math.round(KILL_FADE * sampleRate));
   const fadeLength = Math.max(1, Math.round(FADE_IN * sampleRate));
   const crossfadeLength = Math.max(1, Math.round(CROSSFADE * sampleRate));
@@ -865,6 +882,7 @@ export const createVoiceDsp = (
   const start = (params: Params, i: number) => {
     started = true;
     startedAt = blockFrame + i;
+    holdFrom = startedAt;
     const envFrame = inPhrase ? shared.phraseFrame(options.phrase, envStartFrame, blockFrame) : startedAt;
     if (envFrame > envStartFrame) envelopes.forEach((envelope) => envelope.startAt(envFrame));
     if (!inPhrase) shared.startPhrase(options.phrase, startedAt);
@@ -1276,6 +1294,17 @@ export const createVoiceDsp = (
     }
   };
 
+  // the gate is held again (another note on this voice, in mono): the envelopes start again at `at` from the
+  // levels they have there, a release is off. Not on a stolen voice
+  const retrigger = (at: number) => {
+    if (killFrom !== Infinity) return;
+    for (let k = 0; k < envelopes.length; k++) envelopes[k].retrigger(at, blockFrame);
+    holdFrom = at;
+    released = false;
+    stopFrame = Infinity;
+    modulation.wake();
+  };
+
   const end = () => {
     if (ended) return;
     ended = true;
@@ -1310,18 +1339,27 @@ export const createVoiceDsp = (
       }
       // before the gate: a release counts from the first sample
       if (!started) start(params, a);
-      // the gate: released, the release of ENV 1 starts; below 0 the fade of a stolen voice
+      // the gate: released, the release of ENV 1 starts; held at another value or again, the envelopes start
+      // again; below 0 the fade of a stolen voice. Not past the end of the voice (it doesn't sound again)
       const gate = params.gate;
-      for (let i = a; gate && i < (gate.length > 1 ? n : a + 1); i++) {
+      for (let i = a; gate && i < (gate.length > 1 ? n : a + 1) && frame + i < stopFrame; i++) {
         const value = gate.length > 1 ? gate[i] : gate[0];
-        if (value > 0 && value < RELEASE_GATE) continue;
+        if (value > 0 && value < RELEASE_GATE) {
+          if (value !== heldGate || released) {
+            retrigger(frame + i);
+            heldGate = value;
+          }
+          continue;
+        }
         if (value >= 0) {
-          // the release, once: the voice stops where ENV 1 is back at 0. As long after its first sample as the
-          // key was held, wherever the gate is seen (the node and the automation reach the audio thread each
-          // with a lag of its own), not before the sample it is seen at (the level would step), at most
-          // RELEASE_LEAD after it (a clock stalled while the key was held); 0: at that sample
-          if (!amp.released) {
-            const held = startedAt + Math.round(Math.max(0, value - RELEASE_GATE) * sampleRate);
+          // the release, once: the voice stops where ENV 1 is back at 0. As long after its first sample (or
+          // its last start again) as the key was held, wherever the gate is seen (the node and the automation
+          // reach the audio thread each with a lag of its own), not before the sample it is seen at (the level
+          // would step), at most RELEASE_LEAD after it (a clock stalled while the key was held); 0: at that
+          // sample
+          if (!released) {
+            released = true;
+            const held = holdFrom + Math.round(Math.max(0, value - RELEASE_GATE) * sampleRate);
             const at = releaseStart(frame + i, held, leadLength);
             for (let k = 0; k < envelopes.length; k++) envelopes[k].release(at);
             modulation.wake();

@@ -35,6 +35,22 @@ describe('noteCorners', () => {
     ]);
   });
 
+  it('started again from a level: from its point on the attack line to the top in the time of the attack', () => {
+    expect(noteCorners(env, null, 0.6)).toEqual([
+      [0, 0.15, 0.6],
+      [0.25, 0.25, 1],
+      [0.5, 0.5, 1],
+      [1, 1, 0.5],
+    ]);
+    // released in the attack at 0.8: on the line there
+    expect(noteCorners(env, 0.125, 0.6)).toEqual([
+      [0, 0.15, 0.6],
+      [0.125, expect.closeTo(0.2, 9), expect.closeTo(0.8, 9)],
+      [0.125, 1, 0.5],
+      [1.125, 2, 0],
+    ]);
+  });
+
   it('released in the attack', () => {
     expect(noteCorners(env, 0.125)).toEqual([
       [0, 0, 0],

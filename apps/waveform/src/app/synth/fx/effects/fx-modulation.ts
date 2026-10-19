@@ -5,11 +5,13 @@ import { EnvelopeParams, envelopeValue, envelopeValueBefore } from '../../common
 // thread and the fx worklets: no other imports
 
 // the envelopes of the last note (read when it was pressed), the seconds of the context they started at and
-// were released at (null: the key is held)
+// were released at (null: the key is held); a note that started them again on a voice that sounds (mono):
+// the levels they start their attacks from (0 without)
 export interface FxNote {
   envelopes: EnvelopeParams[];
   start: number;
   release: number | null;
+  from?: number[];
 }
 
 // a route to a knob of an effect: envelope `env` moves `param` by amount × its level, in the units of the
@@ -35,20 +37,21 @@ export interface FxModMessage {
   mod?: FxModulation | null;
 }
 
-// the levels of the envelopes of the note t seconds after its start (before: just before t): each route sums
-// amount × level
-const level = (note: FxNote, env: number, t: number, before: boolean) => {
+// the level of envelope `env` of the note t seconds after its start (before: just before t): each route sums
+// amount × level, the marks of the knobs show it
+export const noteLevel = (note: FxNote, env: number, t: number, before = false) => {
   const released = note.release === null ? Infinity : note.release - note.start;
+  const from = note.from?.[env];
   return before
-    ? envelopeValueBefore(note.envelopes[env], t, released)
-    : envelopeValue(note.envelopes[env], t, released);
+    ? envelopeValueBefore(note.envelopes[env], t, released, from)
+    : envelopeValue(note.envelopes[env], t, released, from);
 };
 
 // a knob moved by its routes t seconds after the start of the note (before: just before t, at a corner the end
 // of the stage before it), not clamped: base + Σ amount × level (base × 2^Σ for a log one)
 export const routedUnclamped = (base: number, routes: FxRoute[], note: FxNote, t: number, before = false) => {
   let sum = 0;
-  for (let r = 0; r < routes.length; r++) sum += routes[r].amount * level(note, routes[r].env, t, before);
+  for (let r = 0; r < routes.length; r++) sum += routes[r].amount * noteLevel(note, routes[r].env, t, before);
   return routes[0].log ? base * 2 ** sum : base + sum;
 };
 

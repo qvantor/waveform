@@ -8,8 +8,8 @@ import { knobFull, ModRoute, ModulationContext, routesFull } from '../common/mod
 import { EnvelopesContext } from '../common/modules/envelopes';
 import { SynthContext } from '../common/modules/synth';
 import { SynthCoreContext } from '../common/modules/synth-core';
-import { envelopeValue } from '../common/envelope/envelope-curve';
 import { amountInUnits, MOD_TARGETS, ModScale } from '../common/modulation/modulation-targets';
+import { noteLevel } from '../fx/effects/fx-modulation';
 import { ENVELOPE_COLORS, ENVELOPE_LABELS } from '../envelope/envelope-colors';
 
 const NO_ROUTES = new BehaviorSubject<ModRoute[]>([]);
@@ -69,9 +69,7 @@ export const useKnobModulation = (target: string, knob?: KnobScale): KnobModulat
     (source: ModSource) => () => {
       const note = synth?.[0].$fxNote.value;
       if (!note || !core) return null;
-      const env = note.envelopes[MOD_SOURCES.indexOf(source)];
-      const release = note.release === null ? Infinity : note.release - note.start;
-      return envelopeValue(env, core[0].audioCtx.currentTime - note.start, release);
+      return noteLevel(note, MOD_SOURCES.indexOf(source), core[0].audioCtx.currentTime - note.start);
     },
     [synth, core]
   );

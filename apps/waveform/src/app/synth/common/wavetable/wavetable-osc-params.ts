@@ -22,6 +22,11 @@ export interface ParamDescriptor {
 
 export const oscParamName = (param: OscParam, osc: number): VoiceParam => `${param}${osc === 0 ? 1 : 2}`;
 
+// the gate of a held key, and the value it is held at in turn with it: a note that takes the voice over (mono)
+// holds the gate at the other one, the processor starts the envelopes again where it changes
+export const HELD_GATE = 1;
+export const HELD_AGAIN_GATE = 1.5;
+
 // the gate of a released key: RELEASE_GATE + the seconds it was held. The processor starts the release that
 // long after the first sample of the voice: its node may come a device buffer after its start, its release
 // later or sooner than that, so neither is on time
@@ -60,7 +65,7 @@ const oscDescriptors = (osc: number): ParamDescriptor[] => [
 
 export const VOICE_PARAMETERS: ParamDescriptor[] = [
   { name: 'frequency', defaultValue: 440, minValue: 0, automationRate: 'a-rate' },
-  { name: 'gate', defaultValue: 1, automationRate: 'a-rate' },
+  { name: 'gate', defaultValue: HELD_GATE, automationRate: 'a-rate' },
   ...oscDescriptors(0),
   ...oscDescriptors(1),
 ];

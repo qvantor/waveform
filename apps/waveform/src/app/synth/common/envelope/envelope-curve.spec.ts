@@ -1,9 +1,15 @@
-import { EnvelopeParams, envelopeLevel, envelopeStage, envelopeValue } from './envelope-curve';
+import {
+  EnvelopeParams,
+  envelopeLevel,
+  envelopeStage,
+  envelopeValue,
+  envelopeValueBefore,
+} from './envelope-curve';
 
 const env: EnvelopeParams = { attack: 0.1, hold: 0.2, decay: 0.4, sustain: 0.5, release: 1 };
 
-const stage = (params: EnvelopeParams, t: number, releasedAt = Infinity) =>
-  Array.from(envelopeStage(params, t, releasedAt, new Float64Array(3)));
+const stage = (params: EnvelopeParams, t: number, releasedAt = Infinity, from = 0) =>
+  Array.from(envelopeStage(params, t, releasedAt, new Float64Array(3), from));
 
 describe('envelope curve', () => {
   it('goes through attack, hold, decay and sustain linearly', () => {
@@ -43,6 +49,20 @@ describe('envelope curve', () => {
     expect(envelopeValue(env, 0, -1)).toBe(0);
   });
 
+  it('started again from a level: the attack from there to 1 in its time, the stages after it as before', () => {
+    expect(envelopeLevel(env, 0, 0.6)).toBe(0.6);
+    expect(envelopeLevel(env, 0.05, 0.6)).toBeCloseTo(0.8);
+    expect(envelopeLevel(env, 0.1, 0.6)).toBe(1);
+    expect(envelopeLevel(env, 0.5, 0.6)).toBeCloseTo(0.75);
+    // released in the attack: from the level it has
+    expect(envelopeValue(env, 0.55, 0.05, 0.6)).toBeCloseTo(0.4);
+    // just before its start, its level
+    expect(envelopeValueBefore(env, 0, Infinity, 0.6)).toBe(0.6);
+    expect(envelopeValueBefore(env, 0.05, Infinity, 0.6)).toBeCloseTo(0.8);
+    // no attack: a step to 1
+    expect(envelopeLevel({ ...env, attack: 0 }, 0, 0.6)).toBe(1);
+  });
+
   it('ends at once with a release of 0', () => {
     const cut = { ...env, release: 0 };
     expect(envelopeValue(cut, 1, 1)).toBe(0);
@@ -66,17 +86,21 @@ describe('envelope curve', () => {
       expect(stage(env, 7, 6)).toEqual([0, 0, Infinity]);
     });
 
-    it('matches the values in every stage', () => {
-      for (const releasedAt of [Infinity, 0.05, 0.2, 0.5, 2]) {
-        for (let t = -0.1; t < 4; t += 0.013) {
-          const [value, slope, end] = stage(env, t, releasedAt);
-          expect(value).toBeCloseTo(envelopeValue(env, t, releasedAt), 9);
-          // linear up to its end
-          const next = Math.min(end, t + 0.01);
-          if (next > t)
-            expect(value + slope * (next - t)).toBeCloseTo(envelopeValue(env, next - 1e-12, releasedAt), 6);
+    it('matches the values in every stage, also started again from a level', () => {
+      for (const from of [0, 0.3, 1])
+        for (const releasedAt of [Infinity, 0.05, 0.2, 0.5, 2]) {
+          for (let t = -0.1; t < 4; t += 0.013) {
+            const [value, slope, end] = stage(env, t, releasedAt, from);
+            expect(value).toBeCloseTo(envelopeValue(env, t, releasedAt, from), 9);
+            // linear up to its end
+            const next = Math.min(end, t + 0.01);
+            if (next > t)
+              expect(value + slope * (next - t)).toBeCloseTo(
+                envelopeValue(env, next - 1e-12, releasedAt, from),
+                6
+              );
+          }
         }
-      }
     });
   });
 });

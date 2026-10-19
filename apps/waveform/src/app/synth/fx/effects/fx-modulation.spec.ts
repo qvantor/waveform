@@ -19,6 +19,14 @@ describe('routedValue', () => {
     expect(routedValue(2, [drive], note(3), 4)).toBe(2);
   });
 
+  it('follows a note that started the envelopes again from their levels: no step at its start', () => {
+    // ENV 2 started again at 1 from 0.5: up to 1 in its 100 ms
+    const again: FxNote = { ...note(), from: [1, 0.5, 1] };
+    expect(routedValue(2, [drive], again, 1)).toBeCloseTo(5);
+    expect(routedValue(2, [drive], again, 1.05)).toBeCloseTo(6.5);
+    expect(routedValue(2, [drive], again, 1.1)).toBeCloseTo(8);
+  });
+
   it('sums the routes, clamps to the range, a log knob moves by octaves', () => {
     const both = [drive, { ...drive, env: 0, amount: 5 }];
     expect(routedValue(2, both, note(), 1.1)).toBe(12);

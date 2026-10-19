@@ -2,7 +2,7 @@ import React from 'react';
 import { combineLatest, distinctUntilChanged, map } from 'rxjs';
 import { NoteDot } from '@waveform/ui-kit';
 import { useObservable } from '@waveform/rxjs-react';
-import { EnvelopeId } from '@waveform/preset-schema';
+import { EnvelopeId, ENVELOPES } from '@waveform/preset-schema';
 import { ModRoute } from '../../common/modules/modulation';
 import { useModulation, useSynth, useSynthCore } from '../../common/modules';
 import type { EnvelopeParams } from '../../common/envelope/envelope-curve';
@@ -39,7 +39,8 @@ export const EnvelopeDot = ({ id, env }: { id: EnvelopeId; env: EnvelopeParams }
   const path = React.useMemo(() => {
     if (!note || start === undefined) return null;
     const released = note.release === null ? null : note.release - note.start;
-    return { start, corners: noteCorners(env, released), held: released === null };
-  }, [note, start, env]);
+    const from = note.from?.[ENVELOPES.indexOf(id)];
+    return { start, corners: noteCorners(env, released, from), held: released === null };
+  }, [note, start, env, id]);
   return <NoteDot path={path} />;
 };

@@ -930,6 +930,120 @@ describe('wavetable voice dsp', () => {
     });
   });
 
+  describe('started again (mono: a note on a voice that sounds)', () => {
+    const env: EnvelopeParams = { attack: 0.01, hold: 0.005, decay: 0.02, sustain: 0.5, release: 0.03 };
+    // the volume: a sine at its peak, slower than the envelope
+    const peak = (frames: number, options: Partial<RenderOptions> = {}) => {
+      const { store } = storeWith({ a: [sine] });
+      return render({ store, oscs: [osc({ phase: 0.25 })], params: { frequency: 0.01 }, frames, ...options });
+    };
+    const sec = (frame: number) => frame / RATE;
+    // the gate held at 1, at `values[k]` from `frames[k]` on
+    const gateSteps =
+      (frames: number[], values: number[]) =>
+      (frame: number): number => {
+        let value = 1;
+        frames.forEach((from, k) => {
+          if (frame >= from) value = values[k];
+        });
+        return value;
+      };
+
+    it('starts its envelopes again where the held gate changes, from the level reached: exact to the sample', () => {
+      // in a block (1200), on its first sample (1280), twice within one block (1000 and 1010)
+      [[1200], [1280], [1000, 1010]].forEach((starts) => {
+        const { left, endedAt } = peak(4096, {
+          envelope: env,
+          params: { frequency: 0.01, gate: gateSteps(starts, [1.5, 1]) },
+        });
+        // the envelope a sample is on: the last start before it, from the level the one before had there
+        let level = (frame: number) => envelopeValue(env, sec(frame));
+        const levels = [level];
+        starts.forEach((at) => {
+          const before = level;
+          const from = before(at);
+          level = (frame: number) =>
+            frame < at ? before(frame) : envelopeValue(env, sec(frame - at), Infinity, from);
+          levels.push(level);
+        });
+        for (let i = 0; i < 4096; i++) expect(left[i]).toBeCloseTo(level(i), 4);
+        expect(endedAt).toBe(-1);
+      });
+    });
+
+    it('goes on without a step: its steps no larger than those of an attack from 0', () => {
+      const plain = peak(4096, { envelope: env });
+      const { left } = peak(4096, {
+        envelope: env,
+        params: { frequency: 0.01, gate: gateSteps([1200], [1.5]) },
+      });
+      // in the decay at 0.75: up to 1 in the attack's 10 ms
+      expect(left[1199]).toBeCloseTo(envelopeValue(env, sec(1199)), 4);
+      expect(left[1200]).toBeCloseTo(0.75, 4);
+      expect(maxStep(left)).toBeLessThanOrEqual(maxStep(plain.left) + 1e-6);
+    });
+
+    it('held again after its release: the release is off, its envelopes start again from the level of the release', () => {
+      // released at 2000 (on the sustain, 0.5), held again at 2600, at 1: the value of its note on
+      const { left, endedAt } = peak(8192, {
+        envelope: env,
+        params: { frequency: 0.01, gate: gateSteps([2000, 2600], [RELEASE_GATE, 1]) },
+      });
+      const from = envelopeValue(env, sec(2600), sec(2000));
+      expect(from).toBeCloseTo(0.5 * (1 - 600 / 1440), 6);
+      for (let i = 2600; i < 8192; i += 3)
+        expect(left[i]).toBeCloseTo(envelopeValue(env, sec(i - 2600), Infinity, from), 4);
+      expect(left[8191]).toBeCloseTo(0.5, 4);
+      expect(endedAt).toBe(-1);
+    });
+
+    it('releases as long after its last start again as its key was held', () => {
+      // started again at 1000, released at 3000 held 2400 frames: at 3400 (from the note on: at 3000)
+      const { left, endedAt } = peak(8192, {
+        envelope: env,
+        params: { frequency: 0.01, gate: gateSteps([1000, 3000], [1.5, RELEASE_GATE + sec(2400)]) },
+      });
+      const from = envelopeValue(env, sec(1000));
+      for (let i = 1000; i < 8192; i += 3)
+        expect(left[i]).toBeCloseTo(envelopeValue(env, sec(i - 1000), sec(2400), from), 4);
+      expect(endedAt).toBe(Math.floor((3400 + 1440) / BLOCK) * BLOCK);
+    });
+
+    it('moves the routes on from the levels of their envelopes, without a step', () => {
+      // ENV 2 lowers the gain: up in 5 ms, down to 0.2 in 20 ms; started again on a point the routes are worked
+      // out at (every 32 samples, linear in between: exact there)
+      const env2: EnvelopeParams = { attack: 0.005, hold: 0, decay: 0.02, sustain: 0.2, release: 0 };
+      const routes: VoiceRoute[] = [{ env: 1, param: 'gain1', amount: -0.5, min: 0, max: 1 }];
+      const plain = peak(4096, { envelopes: [env2, FLAT], routes });
+      const { left } = peak(4096, {
+        envelopes: [env2, FLAT],
+        routes,
+        params: { frequency: 0.01, gate: gateSteps([2016], [1.5]) },
+      });
+      const from = envelopeValue(env2, sec(2016));
+      for (let i = 2016; i < 4096; i += 32)
+        expect(left[i]).toBeCloseTo(1 - 0.5 * envelopeValue(env2, sec(i - 2016), Infinity, from), 4);
+      expect(maxStep(left)).toBeLessThanOrEqual(maxStep(plain.left) + 1e-6);
+    });
+
+    it('is not started again once stolen, nor after its end', () => {
+      // stolen at 1000, held again at 1100: the fade goes on to its end
+      const stolen = peak(4096, {
+        envelope: env,
+        params: { frequency: 0.01, gate: gateSteps([1000, 1100], [-1, 1.5]) },
+      });
+      expect(stolen.left.subarray(1960).every((value) => value === 0)).toBe(true);
+      expect(stolen.endedAt).toBe(1920);
+      // released at 1000, over at 2440, held again at 2450 (in the block it ends in)
+      const over = peak(4096, {
+        envelope: env,
+        params: { frequency: 0.01, gate: gateSteps([1000, 2450], [0, 1.5]) },
+      });
+      expect(over.left.subarray(2440).every((value) => value === 0)).toBe(true);
+      expect(over.endedAt).toBe(2432);
+    });
+  });
+
   describe('modulation', () => {
     // ENV 2: from 1 down to its sustain in 20 ms
     const decay = (sustain: number): EnvelopeParams => ({
