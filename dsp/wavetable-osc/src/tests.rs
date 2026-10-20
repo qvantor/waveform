@@ -65,10 +65,20 @@ fn the_mix_tables_are_pooled_by_length() {
 
 #[test]
 fn the_budget_lets_the_first_build_of_a_block_through() {
+    // the one of the TS
     let mut shared = Shared::default();
+    shared.set_budget(200000.0);
     assert!(shared.take_build(0.0, 300000.0));
     assert!(!shared.take_build(0.0, 1.0));
     assert!(shared.take_build(128.0, 150000.0));
     assert!(shared.take_build(128.0, 50000.0));
     assert!(!shared.take_build(128.0, 1.0));
+}
+
+#[test]
+fn the_budget_of_the_core_is_its_own() {
+    let mut shared = Shared::default();
+    assert!(shared.take_build(0.0, 300000.0));
+    assert!(shared.take_build(0.0, 60000.0));
+    assert!(!shared.take_build(0.0, 1.0));
 }

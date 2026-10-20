@@ -1,9 +1,18 @@
 // the envelopes ENV 1–3 as functions of time, shared by the voice worklet, the fx worklets, the main thread
 // and the specs: no imports. Times in seconds from the start of the envelope (the note on, in legato the
-// start of the phrase). The stages are linear: attack 0 → 1, hold at 1, decay 1 → sustain, sustain until
-// the release; the release goes from the level it starts at to 0 in `release` seconds, whatever that level.
-// An envelope started again on a voice that sounds (mono) starts its attack from the level it has reached,
-// `from`: to 1 in the same `attack` (its stages end where those of a new note do), no step
+// start of the phrase). The stages: attack 0 → 1, hold at 1, decay 1 → sustain, sustain until the release;
+// the release goes from the level it starts at to 0 in `release` seconds, whatever that level. An envelope
+// started again on a voice that sounds (mono) starts its attack from the level it has reached, `from`: to 1 in
+// the same `attack` (its stages end where those of a new note do), no step. The attack, the decay and the
+// release are linear, or curved by `curves` (k of curveShape; the Rust voice plays them, the TS one, the
+// rollback, plays every stage linear)
+
+// the curvature of the attack, the decay and the release: k of curveShape, 0 linear
+export interface EnvelopeCurves {
+  attack: number;
+  decay: number;
+  release: number;
+}
 
 export interface EnvelopeParams {
   attack: number;
@@ -11,14 +20,38 @@ export interface EnvelopeParams {
   decay: number;
   sustain: number;
   release: number;
+  curves?: EnvelopeCurves;
 }
 
+// the share of a stage done at the share x of its time: (1 - e^(-k·x)) / (1 - e^(-k)), x at k 0; k > 0 moves fast
+// at first, then slowly (a decay or a release falls fast, then settles), k < 0 the other way round
+export const curveShape = (k: number, x: number) =>
+  k === 0 ? x : (1 - Math.exp(-k * x)) / (1 - Math.exp(-k));
+
+// the default shape of the envelopes (rendered offline: dsp/measurements/envelopes.json): a linear
+// attack (its curve at 50%), the decay and the release at 66.6% (k 3.49: the exp fits its levels within 0.001)
+export const ENVELOPE_CURVES: EnvelopeCurves = { attack: 0, decay: 3.49, release: 3.49 };
+
+// the envelope of the knobs with the default shape (the knobs have no curves, they are not in the preset)
+export const withCurves = (env: EnvelopeParams): EnvelopeParams => ({ ...env, curves: ENVELOPE_CURVES });
+
+// from → to over `length` seconds, `done` of them done (the linear one as it was: its bits)
+const stage = (from: number, to: number, k: number, done: number, length: number) =>
+  k === 0 ? from + ((to - from) * done) / length : from + (to - from) * curveShape(k, done / length);
+// a release from `level`, r of its seconds done
+const releaseLevel = (level: number, k: number, r: number, release: number) =>
+  k === 0 ? level * (1 - r / release) : level * (1 - curveShape(k, r / release));
+
 // the level `t` seconds after the start while the key is held, the attack from `from`
-export const envelopeLevel = ({ attack, hold, decay, sustain }: EnvelopeParams, t: number, from = 0) => {
+export const envelopeLevel = (
+  { attack, hold, decay, sustain, curves }: EnvelopeParams,
+  t: number,
+  from = 0
+) => {
   if (t < 0) return from;
-  if (t < attack) return from + ((1 - from) * t) / attack;
+  if (t < attack) return stage(from, 1, curves?.attack ?? 0, t, attack);
   if (t < attack + hold) return 1;
-  if (t < attack + hold + decay) return 1 + ((sustain - 1) * (t - attack - hold)) / decay;
+  if (t < attack + hold + decay) return stage(1, sustain, curves?.decay ?? 0, t - attack - hold, decay);
   return sustain;
 };
 
@@ -28,27 +61,39 @@ export const envelopeValue = (env: EnvelopeParams, t: number, releasedAt = Infin
   if (t < releasedAt) return envelopeLevel(env, t, from);
   const level = envelopeLevel(env, releasedAt, from);
   const r = t - releasedAt;
-  return r < env.release ? level * (1 - r / env.release) : 0;
+  return r < env.release ? releaseLevel(level, env.curves?.release ?? 0, r, env.release) : 0;
 };
 
 // envelopeValue just before t: at a corner the end of the stage before it. They differ where the envelope
 // steps: an attack, a decay or a release of 0 (the automation of a knob holds a stage, then steps with it)
 export const envelopeValueBefore = (env: EnvelopeParams, t: number, releasedAt = Infinity, from = 0) => {
-  const { attack, hold, decay, sustain, release } = env;
+  const { attack, hold, decay, sustain, release, curves } = env;
   if (t <= releasedAt) {
     if (t <= 0) return from;
-    if (t <= attack) return from + ((1 - from) * t) / attack;
+    if (t <= attack) return stage(from, 1, curves?.attack ?? 0, t, attack);
     if (t <= attack + hold) return 1;
-    if (t <= attack + hold + decay) return 1 + ((sustain - 1) * (t - attack - hold)) / decay;
+    if (t <= attack + hold + decay) return stage(1, sustain, curves?.decay ?? 0, t - attack - hold, decay);
     return sustain;
   }
   const r = t - releasedAt;
-  return r <= release ? envelopeLevel(env, releasedAt, from) * (1 - r / release) : 0;
+  return r <= release
+    ? releaseLevel(envelopeLevel(env, releasedAt, from), curves?.release ?? 0, r, release)
+    : 0;
 };
 
-// the stage at `t`: out[0] its value at t, out[1] its slope (per second), out[2] the time it lasts until
-// (Infinity: for ever). Flat stages (before the start, hold, sustain, after the release) have the slope 0:
-// a block within one of them has one value. Released at `releasedAt`, the attack from `from`; returns out
+// the stage at `t` is curved (a corner and a curve of its own: the automation of a knob cuts it into lines)
+export const curvedAt = (env: EnvelopeParams, t: number, releasedAt = Infinity) => {
+  const { attack, hold, decay, release, curves } = env;
+  if (!curves) return false;
+  if (t >= releasedAt) return t - releasedAt < release && curves.release !== 0;
+  if (t < 0 || t >= attack + hold + decay) return false;
+  return t < attack ? curves.attack !== 0 : t >= attack + hold && curves.decay !== 0;
+};
+
+// the stage at `t` as a line (the TS voice: its stages are linear, `curves` are not read): out[0] its value at
+// t, out[1] its slope (per second), out[2] the time it lasts until (Infinity: for ever). Flat stages (before the
+// start, hold, sustain, after the release) have the slope 0: a block within one of them has one value. Released
+// at `releasedAt`, the attack from `from`; returns out
 export const envelopeStage = (
   env: EnvelopeParams,
   t: number,

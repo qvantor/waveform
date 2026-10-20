@@ -66,7 +66,7 @@ export const writeFrame = (levels: WavetableLevels, index: number, frame: ArrayL
   const { harmonics, lengths, offsets, data } = levels;
   const [real, imag] = wave.realWithImag(frame);
   const own = frameHarmonics(frame);
-  let scale = 1;
+  // at the volume of the frame (createPeriodicWave normalizes each wave by its peak)
   for (let r = 0; r < lengths.length; r++) {
     const length = lengths[r];
     const start = offsets[r] + index * (length + FRAME_GUARD);
@@ -76,12 +76,6 @@ export const writeFrame = (levels: WavetableLevels, index: number, frame: ArrayL
     }
     const samples = data.subarray(start + 1, start + 1 + length);
     wave.fromRealWithImag(real, imag, Math.min(own, harmonics[r]), length, samples);
-    if (r === 0) {
-      let peak = 0;
-      for (let i = 0; i < length; i++) peak = Math.max(peak, Math.abs(samples[i]));
-      scale = peak > 0 ? 1 / peak : 1;
-    }
-    for (let i = 0; i < length; i++) samples[i] *= scale;
     data[start] = samples[length - 1];
     data[start + 1 + length] = samples[0];
     data[start + 2 + length] = samples[1];

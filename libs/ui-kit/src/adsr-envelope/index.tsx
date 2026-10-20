@@ -45,19 +45,49 @@ interface LineProps {
   release: number;
 }
 
-const CustomLine = ({ attack, hold, decay, sustain, release }: LineProps) => {
+// the curvature of the attack, the decay and the release: k of (1 - e^(-k·x)) / (1 - e^(-k)) over the share x of
+// the stage, 0 a line (the envelope-curve.ts of the app)
+export interface AdsrCurves {
+  attack: number;
+  decay: number;
+  release: number;
+}
+const curveShape = (k: number, x: number) => (k === 0 ? x : (1 - Math.exp(-k * x)) / (1 - Math.exp(-k)));
+// the points of a curved stage (a line has its corners alone)
+export const CURVE_POINTS = 32;
+
+// the line of an envelope from its corners: a curved stage from one to the next in CURVE_POINTS points
+export const envelopeLine = (
+  { attack, hold, decay, sustain, release }: LineProps,
+  curves: AdsrCurves = { attack: 0, decay: 0, release: 0 }
+) => {
+  const corners: [number, number][] = [
+    [0, 0],
+    [attack, 1],
+    [attack + hold, 1],
+    [attack + hold + decay, sustain],
+    [attack + hold + decay + release, 0],
+  ];
+  const ks = [curves.attack, 0, curves.decay, curves.release];
+  const points: [number, number][] = [corners[0]];
+  ks.forEach((k, stage) => {
+    const [[x0, y0], [x1, y1]] = [corners[stage], corners[stage + 1]];
+    if (k !== 0)
+      for (let i = 1; i < CURVE_POINTS; i++)
+        points.push([x0 + ((x1 - x0) * i) / CURVE_POINTS, y0 + (y1 - y0) * curveShape(k, i / CURVE_POINTS)]);
+    points.push(corners[stage + 1]);
+  });
+  return { corners, points };
+};
+
+const CustomLine = ({ curves, ...stages }: LineProps & { curves?: AdsrCurves }) => {
   const { scaleX, scaleY } = useLineChartContext();
   const customLineFn = line<Vector2D>()
     .x((d) => scaleX(d[0]))
     .y((d) => scaleY(d[1]));
 
-  const data = [
-    vector2d.fromValues(0, 0),
-    vector2d.fromValues(attack, 1),
-    vector2d.fromValues(attack + hold, 1),
-    vector2d.fromValues(attack + hold + decay, sustain),
-    vector2d.fromValues(attack + hold + decay + release, 0),
-  ];
+  const { corners, points } = envelopeLine(stages, curves);
+  const data = points.map(([x, y]) => vector2d.fromValues(x, y));
 
   const dotSize = 4;
   return (
@@ -67,7 +97,7 @@ const CustomLine = ({ attack, hold, decay, sustain, release }: LineProps) => {
         data={data}
         style={{ strokeWidth: 1, fill: theme.colors.accent, fillOpacity: 0.1 }}
       />
-      {data.map((value, index) => (
+      {corners.map((value, index) => (
         <rect
           key={index}
           style={{ fill: theme.colors.accent }}
@@ -93,6 +123,8 @@ export const formatTime = (seconds: number) => {
 const TIME_PRECISION = 10000;
 
 type Props = LineProps & {
+  // the shape of the stages (none: lines)
+  curves?: AdsrCurves;
   onChange: (key: keyof LineProps, value: number) => void;
   // seconds of a stage at most
   maxTime: number;

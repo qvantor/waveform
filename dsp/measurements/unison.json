@@ -1,0 +1,451 @@
+{
+ "about": "Osc A of the init patch of the Audio Unit at C5 with a unison (Blend 0.75, Width 1, Detune 1 unless named): each voice its cents from the note and its level in each channel (dB against a single voice, null: not heard); scripts/renders/run.mjs",
+ "cases": {
+  "u2": [
+   {
+    "cents": -199.9,
+    "left": null,
+    "right": -1.8
+   },
+   {
+    "cents": 200.2,
+    "left": -1.9,
+    "right": null
+   }
+  ],
+  "u3": [
+   {
+    "cents": -199.9,
+    "left": null,
+    "right": -4.5
+   },
+   {
+    "cents": 0.2,
+    "left": -10.4,
+    "right": -10.4
+   },
+   {
+    "cents": 200.2,
+    "left": -4.6,
+    "right": null
+   }
+  ],
+  "u4": [
+   {
+    "cents": -199.9,
+    "left": null,
+    "right": -4.8
+   },
+   {
+    "cents": -66.5,
+    "left": -2.6,
+    "right": null
+   },
+   {
+    "cents": 66.8,
+    "left": null,
+    "right": -2.6
+   },
+   {
+    "cents": 200.2,
+    "left": -4.8,
+    "right": null
+   }
+  ],
+  "u5": [
+   {
+    "cents": -199.9,
+    "left": null,
+    "right": -5
+   },
+   {
+    "cents": -100.2,
+    "left": -5.1,
+    "right": null
+   },
+   {
+    "cents": 0.2,
+    "left": -10.9,
+    "right": -10.9
+   },
+   {
+    "cents": 100.2,
+    "left": null,
+    "right": -5.1
+   },
+   {
+    "cents": 200.2,
+    "left": -5.1,
+    "right": null
+   }
+  ],
+  "u7": [
+   {
+    "cents": -199.9,
+    "left": null,
+    "right": -5.5
+   },
+   {
+    "cents": -133.2,
+    "left": -5.5,
+    "right": null
+   },
+   {
+    "cents": -66.5,
+    "left": null,
+    "right": -5.6
+   },
+   {
+    "cents": 0.2,
+    "left": -11.4,
+    "right": -11.4
+   },
+   {
+    "cents": 66.8,
+    "left": -5.5,
+    "right": null
+   },
+   {
+    "cents": 133.1,
+    "left": null,
+    "right": -5.6
+   },
+   {
+    "cents": 200.2,
+    "left": -5.6,
+    "right": null
+   }
+  ],
+  "u4 blend 0": [
+   {
+    "cents": -199.9,
+    "left": null,
+    "right": -26.4
+   },
+   {
+    "cents": -66.5,
+    "left": 0.6,
+    "right": null
+   },
+   {
+    "cents": 66.8,
+    "left": null,
+    "right": 0.6
+   },
+   {
+    "cents": 200.2,
+    "left": -26.4,
+    "right": null
+   }
+  ],
+  "u5 blend 0": [
+   {
+    "cents": -199.9,
+    "left": null,
+    "right": -26.6
+   },
+   {
+    "cents": -100.2,
+    "left": -26.6,
+    "right": null
+   },
+   {
+    "cents": 0.2,
+    "left": -7.7,
+    "right": -7.7
+   },
+   {
+    "cents": 100.2,
+    "left": null,
+    "right": -26.7
+   },
+   {
+    "cents": 200.2,
+    "left": -26.7,
+    "right": null
+   }
+  ],
+  "u4 blend 0.25": [
+   {
+    "cents": -199.9,
+    "left": null,
+    "right": -17.6
+   },
+   {
+    "cents": -66.5,
+    "left": 0.3,
+    "right": null
+   },
+   {
+    "cents": 66.8,
+    "left": null,
+    "right": 0.3
+   },
+   {
+    "cents": 200.2,
+    "left": -17.7,
+    "right": null
+   }
+  ],
+  "u5 blend 0.25": [
+   {
+    "cents": -199.9,
+    "left": null,
+    "right": -17.9
+   },
+   {
+    "cents": -100.2,
+    "left": -17.9,
+    "right": null
+   },
+   {
+    "cents": 0.2,
+    "left": -8,
+    "right": -8
+   },
+   {
+    "cents": 100.2,
+    "left": null,
+    "right": -17.9
+   },
+   {
+    "cents": 200.2,
+    "left": -17.9,
+    "right": null
+   }
+  ],
+  "u4 blend 0.5": [
+   {
+    "cents": -199.9,
+    "left": null,
+    "right": -9.2
+   },
+   {
+    "cents": -66.5,
+    "left": -0.7,
+    "right": null
+   },
+   {
+    "cents": 66.8,
+    "left": null,
+    "right": -0.6
+   },
+   {
+    "cents": 200.2,
+    "left": -9.3,
+    "right": null
+   }
+  ],
+  "u5 blend 0.5": [
+   {
+    "cents": -199.9,
+    "left": null,
+    "right": -9.5
+   },
+   {
+    "cents": -100.2,
+    "left": -9.5,
+    "right": null
+   },
+   {
+    "cents": 0.2,
+    "left": -9,
+    "right": -9
+   },
+   {
+    "cents": 100.2,
+    "left": null,
+    "right": -9.5
+   },
+   {
+    "cents": 200.2,
+    "left": -9.5,
+    "right": null
+   }
+  ],
+  "u4 blend 1": [
+   {
+    "cents": -199.9,
+    "left": null,
+    "right": -3.9
+   },
+   {
+    "cents": -66.5,
+    "left": -6.4,
+    "right": null
+   },
+   {
+    "cents": 66.8,
+    "left": null,
+    "right": -6.4
+   },
+   {
+    "cents": 200.2,
+    "left": -3.9,
+    "right": null
+   }
+  ],
+  "u5 blend 1": [
+   {
+    "cents": -199.9,
+    "left": null,
+    "right": -4.2
+   },
+   {
+    "cents": -100.2,
+    "left": -4.2,
+    "right": null
+   },
+   {
+    "cents": 0.2,
+    "left": -14.7,
+    "right": -14.7
+   },
+   {
+    "cents": 100.2,
+    "left": null,
+    "right": -4.2
+   },
+   {
+    "cents": 200.2,
+    "left": -4.2,
+    "right": null
+   }
+  ],
+  "u5 width 0.5": [
+   {
+    "cents": -199.9,
+    "left": -13.1,
+    "right": -13.1
+   },
+   {
+    "cents": -100.2,
+    "left": -13.1,
+    "right": -13.1
+   },
+   {
+    "cents": 0.2,
+    "left": -10.9,
+    "right": -10.9
+   },
+   {
+    "cents": 100.2,
+    "left": -13.1,
+    "right": -13.1
+   },
+   {
+    "cents": 200.2,
+    "left": -13.1,
+    "right": -13.1
+   }
+  ],
+  "u5 width 0.75": [
+   {
+    "cents": -199.9,
+    "left": -20.3,
+    "right": -8.5
+   },
+   {
+    "cents": -100.2,
+    "left": -8.5,
+    "right": -20.3
+   },
+   {
+    "cents": 0.2,
+    "left": -10.9,
+    "right": -10.9
+   },
+   {
+    "cents": 100.2,
+    "left": -20.4,
+    "right": -8.5
+   },
+   {
+    "cents": 200.2,
+    "left": -8.5,
+    "right": -20.4
+   }
+  ],
+  "u5 detune 0.25": [
+   {
+    "cents": -6.5,
+    "left": -54.1,
+    "right": -5.1
+   },
+   {
+    "cents": -3.4,
+    "left": -5.1,
+    "right": -48.4
+   },
+   {
+    "cents": 0.2,
+    "left": -10.9,
+    "right": -10.9
+   },
+   {
+    "cents": 3.2,
+    "left": -59.3,
+    "right": -5
+   },
+   {
+    "cents": 6.3,
+    "left": -5,
+    "right": -57.3
+   }
+  ],
+  "u5 detune 0.5": [
+   {
+    "cents": -35.3,
+    "left": -99.4,
+    "right": -5
+   },
+   {
+    "cents": -17.4,
+    "left": -5.1,
+    "right": null
+   },
+   {
+    "cents": 0.2,
+    "left": -10.9,
+    "right": -10.9
+   },
+   {
+    "cents": 17.7,
+    "left": -102.3,
+    "right": -5
+   },
+   {
+    "cents": 35.6,
+    "left": -5.1,
+    "right": null
+   }
+  ],
+  "u5 detune 0.75": [
+   {
+    "cents": -97.6,
+    "left": null,
+    "right": -5.1
+   },
+   {
+    "cents": -48.9,
+    "left": -5.1,
+    "right": null
+   },
+   {
+    "cents": 0.2,
+    "left": -10.9,
+    "right": -10.9
+   },
+   {
+    "cents": 48.6,
+    "left": null,
+    "right": -5
+   },
+   {
+    "cents": 97.4,
+    "left": -5,
+    "right": null
+   }
+  ]
+ }
+}

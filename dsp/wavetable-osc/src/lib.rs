@@ -112,6 +112,7 @@ fn read_voice_options(reader: &mut Reader) -> VoiceOptions {
             decay: reader.next(),
             sustain: reader.next(),
             release: reader.next(),
+            curves: [reader.next(), reader.next(), reader.next()],
         })
         .collect();
     let filter = read_filter(reader);
@@ -142,6 +143,24 @@ pub unsafe extern "C" fn osc_store_free(store: *mut Store) {
 #[no_mangle]
 pub extern "C" fn osc_shared_new() -> *mut Shared {
     Box::into_raw(Box::default())
+}
+
+/// a voice at a random phase fades in, as the TS does (the parity specs)
+///
+/// # Safety
+/// `shared` comes from osc_shared_new and was not freed
+#[no_mangle]
+pub unsafe extern "C" fn osc_shared_random_phase_fade(shared: *mut Shared, on: bool) {
+    (*shared).random_phase_fade = on;
+}
+
+/// the budget of the mix builds of a block (MIX_BUDGET_WASM; the TS one, MIX_BUDGET, for the parity specs)
+///
+/// # Safety
+/// `shared` comes from osc_shared_new and was not freed
+#[no_mangle]
+pub unsafe extern "C" fn osc_shared_budget(shared: *mut Shared, budget: f64) {
+    (*shared).set_budget(budget);
 }
 
 /// # Safety

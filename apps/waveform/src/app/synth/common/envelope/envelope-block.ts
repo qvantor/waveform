@@ -16,8 +16,10 @@ interface Before {
 // context the envelope starts at (the note on, in legato the start of the phrase); release(frame) starts the
 // release at that frame from the level reached there, retrigger(frame) starts it again there from that level
 // (mono). A block within one flat stage (before the start, hold, sustain, after the release) is constant: one
-// value, `value` and values[a] (the others are not written)
-export const createEnvelopeBlock = (params: EnvelopeParams, sampleRate: number, startFrame: number) => {
+// value, `value` and values[a] (the others are not written). Its stages are linear: the curves of the envelope
+// are the Rust voice's (this voice is the rollback, it plays as it did)
+export const createEnvelopeBlock = (curved: EnvelopeParams, sampleRate: number, startFrame: number) => {
+  const params: EnvelopeParams = curved.curves ? { ...curved, curves: undefined } : curved;
   const stage = new Float64Array(3);
   let releasedAt = Infinity;
   // the level the attack starts from: 0, the level reached where it was started again

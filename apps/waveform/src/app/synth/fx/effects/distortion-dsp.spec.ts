@@ -164,7 +164,7 @@ const unblock = (data: Float32Array) => {
   return out;
 };
 
-describe.each(CORES)('distortion dsp, %s core', (_, coreOf) => {
+describe.each(CORES)('distortion dsp, %s core', (coreName, coreOf) => {
   beforeAll(() => {
     create = coreOf;
   });
@@ -259,9 +259,17 @@ describe.each(CORES)('distortion dsp, %s core', (_, coreOf) => {
   });
 
   it.each([
-    // a high note hit hard: its harmonics above the nyquist would fold back as inharmonic tones
-    { name: 'hard clip of 7 kHz', mode: HARD, k0: 1195, drive: 12, better: 20, below: -45 },
-    { name: 'soft clip of 2 kHz', mode: SOFT, k0: 341, drive: 12, better: 25, below: -95 },
+    // a high note hit hard: its harmonics above the nyquist would fold back as inharmonic tones. The Rust core
+    // oversamples the hard clip 8× (-62.8 dB, the TS 4×: -50.2 dB; at 10 kHz -56.7 and -44.5 dB)
+    {
+      name: 'hard clip of 7 kHz',
+      mode: HARD,
+      k0: 1195,
+      drive: 12,
+      better: 20,
+      below: { ts: -45, wasm: -60 },
+    },
+    { name: 'soft clip of 2 kHz', mode: SOFT, k0: 341, drive: 12, better: 25, below: { ts: -95, wasm: -95 } },
   ])('$name keeps the aliases far below the ones of a naive curve', ({ mode, k0, drive, better, below }) => {
     const input = sine(binFreq(k0), 0.5);
     const { L } = render({ mode, drive }, 2 * N, input);
@@ -270,7 +278,7 @@ describe.each(CORES)('distortion dsp, %s core', (_, coreOf) => {
     const naive = Array.from({ length: 2 * N }, (_value, i) => shape(input(i) * gain));
     const oversampled = aliasDb(L, N, k0);
     expect(oversampled).toBeLessThan(aliasDb(naive, N, k0) - better);
-    expect(oversampled).toBeLessThan(below);
+    expect(oversampled).toBeLessThan(below[coreName as 'ts' | 'wasm']);
   });
 
   it('level scales the output', () => {

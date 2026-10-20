@@ -2,7 +2,8 @@ import { stereoCore, StereoCoreExports } from '../../common/wasm/stereo-core';
 import { createView } from '../../common/wasm/wasm-core';
 import type { DistortionDspParams, DistortionOptions } from './distortion-dsp';
 
-// the Rust core of the distortion (dsp/distortion, distortion.wasm), with the API of createDistortionDsp
+// the Rust core of the distortion (dsp/distortion, distortion.wasm), with the API of createDistortionDsp. Its hard
+// clip is oversampled 8× (the TS one 4×); `hardRatio` 4 puts it on the 4× chain, as the TS (the parity specs)
 
 // the params in the order of the core (dsp/distortion/src/lib.rs)
 export const DISTORTION_KEYS: readonly (keyof DistortionDspParams)[] = ['mode', 'drive', 'tone', 'level'];
@@ -13,18 +14,21 @@ export interface DistortionExports extends StereoCoreExports {
   fx_new: (sampleRate: number) => number;
   fx_set: (handle: number) => void;
   fx_idle: (handle: number) => number;
+  fx_hard_ratio: (handle: number, ratio: number) => void;
 }
 
 export const createDistortionWasm = (
   exports: DistortionExports,
   sampleRate: number,
-  { params }: DistortionOptions
+  { params }: DistortionOptions,
+  { hardRatio = 8 }: { hardRatio?: 4 | 8 } = {}
 ) => {
   const view = createView(exports, Float64Array);
   const command = () => view(exports.fx_command(), DISTORTION_KEYS.length + 1);
   const options = command();
   DISTORTION_KEYS.forEach((key, i) => (options[1 + i] = params[key]));
   const handle = exports.fx_new(sampleRate);
+  if (hardRatio !== 8) exports.fx_hard_ratio(handle, hardRatio);
   return {
     ...stereoCore(exports, handle),
     set: (changes: Partial<DistortionDspParams>) => {

@@ -31,7 +31,7 @@ Offline renders (`OfflineAudioContext`) at 44.1, 48 and 96 kHz of a band-limited
 | Aliasing          | power outside the harmonics against the harmonics (Kaiser β 38 window, 65536 samples) | ≤ native + 1 dB                                                                                                                              |
 | Worst spur        | loudest bin outside the harmonics against the fundamental                             | ≤ native + 1 dB                                                                                                                              |
 | Brightness        | highest harmonic played at half its amplitude in the frame at least                   | ≥ native                                                                                                                                     |
-| Level             | RMS against the native render of the frame                                            | ±0.1 dB                                                                                                                                      |
+| Level             | RMS against the native render of the frame (`disableNormalization`: at its volume)    | ±0.1 dB                                                                                                                                      |
 | Pitch             | drift of the phase of the fundamental over 10 s                                       | ≤ 0.01 cent                                                                                                                                  |
 | Integer positions | `position` k / (N − 1) against a table of frame k alone                               | the same samples                                                                                                                             |
 | Morph             | `position` 0 → 1 in 1 s at 220 Hz                                                     | max step ≤ 1.1 × the steepest frame                                                                                                          |
@@ -46,9 +46,9 @@ Offline renders (`OfflineAudioContext`) at 44.1, 48 and 96 kHz of a band-limited
 The table switch needs `OfflineAudioContext.suspend`, which Firefox does not have: it is not measured there
 (the offline specs of the dsp cover it).
 
-Firefox normalizes a `PeriodicWave` per band-limited range (its level moves with the pitch, by up to −32 dB on
-a vocal frame), Chrome and WebKit by the full band, as the oscillator does: the level criterion holds against
-Chrome and WebKit.
+The native reference is a `PeriodicWave` without its normalization (`disableNormalization`): the oscillator plays
+a frame at its volume. Normalized, Firefox scales each band-limited range of its own (its level moved
+with the pitch, by up to −32 dB on a vocal frame): the level criterion now holds in the three engines.
 
 ## On the device
 

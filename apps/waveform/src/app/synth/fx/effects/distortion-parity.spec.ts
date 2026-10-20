@@ -2,7 +2,7 @@
 import '../../../../test-utils/js-math';
 import { FX_PARAMS } from '@waveform/preset-schema';
 import { pick, Random, randomBlocks, randomSignal, RATES, Signal } from '../../../../test-utils/fuzz-signals';
-import { createGoldens, FUZZ_SCALE, runStereo } from '../../../../test-utils/parity';
+import { createBitsHash, createGoldens, FUZZ_SCALE, runStereo } from '../../../../test-utils/parity';
 import { seeded } from '../../../../test-utils/seeded';
 import { wasmCore } from '../../../../test-utils/wasm';
 import { createDistortionDsp, DistortionDspParams, TONE_OPEN } from './distortion-dsp';
@@ -10,11 +10,17 @@ import { DISTORTION_MODES } from './distortion-modes';
 import { createDistortionWasm, DISTORTION_KEYS, DistortionExports } from './distortion-wasm';
 
 // the Rust core of the distortion (dsp/distortion) against the TS one: the bits of every output sample of every
-// block, on the golden scenarios (their hashes in dsp/goldens/distortion.json) and on random ones
+// block, on the golden scenarios (their hashes in dsp/goldens/distortion.json) and on random ones. Its hard clip on
+// the 4× chain, as the TS (`hardRatio`); the 8× one, its sound, has goldens of its own from the Rust core
+// (dsp/goldens/distortion-8x.json: the scenarios with the hard clip)
 
 const core = wasmCore<DistortionExports>('distortion');
 const goldens = createGoldens('distortion');
-afterAll(() => goldens.save());
+const goldens8 = createGoldens('distortion-8x');
+afterAll(() => {
+  goldens.save();
+  goldens8.save();
+});
 
 type Distortion = ReturnType<typeof createDistortionDsp>;
 interface Scenario {
@@ -29,7 +35,7 @@ interface Scenario {
 const run = (name: string, { rate, params, blocks, input, changes = {} }: Scenario) =>
   runStereo<Distortion>(name, {
     ts: createDistortionDsp(rate, { params }),
-    wasm: createDistortionWasm(core, rate, { params }) as Distortion,
+    wasm: createDistortionWasm(core, rate, { params }, { hardRatio: 4 }) as Distortion,
     blocks,
     input,
     before: (dsp, block) => changes[block]?.forEach((change) => dsp.set(change)),
@@ -145,7 +151,35 @@ const randomScenario = (random: Random): Scenario => {
   };
 };
 
+// the wasm core of production alone, block by block: the hash of its outputs
+const run8 = ({ rate, params, blocks, input, changes = {} }: Scenario) => {
+  const wasm = createDistortionWasm(core, rate, { params });
+  const hash = createBitsHash();
+  let frame = 0;
+  blocks.forEach((n, block) => {
+    const [inL, inR] = [0, 1].map((channel) =>
+      Float32Array.from({ length: n }, (_, i) => input(frame + i, channel))
+    );
+    const [outL, outR] = [new Float32Array(n), new Float32Array(n)];
+    changes[block]?.forEach((change) => wasm.set(change));
+    wasm.process(inL, inR, outL, outR);
+    hash.add(outL);
+    hash.add(outR, false);
+    frame += n;
+  });
+  wasm.free();
+  return hash.digest();
+};
+const HARD_GOLDEN = GOLDEN.filter(
+  ([, { params, changes = {} }]) =>
+    params.mode === 1 || Object.values(changes).some((list) => list.some(({ mode }) => mode === 1))
+);
+
 describe('distortion wasm core', () => {
+  it.each(HARD_GOLDEN)('%s: the 8× hard clip and its golden', (name, scenario) => {
+    goldens8.check(name, run8(scenario));
+  });
+
   it.each(GOLDEN)('%s: the bits of the TS core and its golden', (name, scenario) => {
     goldens.check(name, run(name, scenario));
   });
@@ -158,7 +192,7 @@ describe('distortion wasm core', () => {
   it('is idle as the TS core', () => {
     const [, scenario] = GOLDEN.find(([name]) => name.startsWith('idle')) as [string, Scenario];
     const ts = createDistortionDsp(RATE, { params: scenario.params });
-    const wasm = createDistortionWasm(core, RATE, { params: scenario.params });
+    const wasm = createDistortionWasm(core, RATE, { params: scenario.params }, { hardRatio: 4 });
     let frame = 0;
     let skipped = 0;
     scenario.blocks.forEach((n) => {

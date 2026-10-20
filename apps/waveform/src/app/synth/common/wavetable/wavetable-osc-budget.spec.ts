@@ -20,7 +20,7 @@ import {
   VoiceOscOptions,
   VoiceStats,
 } from './wavetable-osc-dsp';
-import { createOscScope, OscExports, TableStoreWasm } from './wavetable-osc-wasm';
+import { createOscScope, OscExports, TableStoreWasm, WASM_MIX_BUDGET } from './wavetable-osc-wasm';
 
 // the work of the voices on the audio thread as exact counts (it replaces the CPU scenes of the browser suite
 // but the heavy patch, S5): the samples each unison voice plays from its mix table or directly from the
@@ -69,12 +69,14 @@ const params = (note: Note): VoiceParams => ({
 });
 const UNISON = CHORD.length * 16;
 
-// the counts are those of both cores: the TS one and the Rust one (dsp/wavetable-osc)
+// the counts of both cores: the TS one and the Rust one (dsp/wavetable-osc), each under its budget of mix builds
+// (the Rust one builds twice as fast: 1.8 times the budget, the longest block of an attack as long)
 const oscScope = createOscScope(wasmCore<OscExports>('wavetable-osc'));
 const CORES = [
-  { name: 'ts', storeWith, createScope: createVoiceScope },
+  { name: 'ts', budget: MIX_BUDGET, storeWith, createScope: createVoiceScope },
   {
     name: 'wasm',
+    budget: WASM_MIX_BUDGET,
     storeWith: (tables: Record<string, number[][]>) => wasmStoreWith(oscScope, tables),
     createScope: ({ rate, store }: { rate: number; store: TableStoreWasm }) =>
       createWasmVoiceScope({ rate, scope: oscScope, store }),
@@ -116,22 +118,26 @@ describe.each(CORES)('the work of the voices, $name core', (coreOf) => {
   // next is 2048 long), 53,248 = 4096 + 2 · 6 · 4096 (both shorter: the high notes). At 48 kHz 120 unison voices
   // cost 12,288, 32 cost 32,768 and 40 cost 53,248: 4,653,056 in all
   it.each([
-    [44100, 5144576, 28],
-    [48000, 4653056, 25],
+    [44100, 5144576, { ts: 28, wasm: 16 }],
+    [48000, 4653056, { ts: 25, wasm: 15 }],
   ])(
-    'at %i Hz the heavy chord builds its 192 mix tables (%i multiply-adds) within the budget, the last in block %i',
-    (rate, cost, last) => {
+    'at %i Hz the heavy chord builds its 192 mix tables (%i multiply-adds) within the budget, the last in block %j',
+    (rate, cost, lasts) => {
+      const last = lasts[core.name];
       const { run } = chord(rate);
       const blocks = run(40);
       // the first block plays directly (the mixes are built in the second block of constant params)
       expect(blocks[0]).toMatchObject({ directSamples: UNISON * BLOCK, mixSamples: 0, builds: 0 });
       expect(total(blocks, 'builds')).toBe(UNISON);
       expect(total(blocks, 'buildCost')).toBe(cost);
-      // a block builds until its next mix would go over the budget: 16 of the cheapest in one block
-      expect(blocks[1]).toMatchObject({ builds: 16, peakCost: 16 * 3 * nativeTableLength(rate) });
-      blocks.forEach((block) => expect(block.peakCost).toBeLessThanOrEqual(MIX_BUDGET));
+      // a block builds until its next mix would go over the budget: 16 of the cheapest in one block (29 in the
+      // Rust core)
+      const cheapest = Math.floor(core.budget / (3 * nativeTableLength(rate)));
+      expect(cheapest).toBe(core.name === 'ts' ? 16 : 29);
+      expect(blocks[1]).toMatchObject({ builds: cheapest, peakCost: cheapest * 3 * nativeTableLength(rate) });
+      blocks.forEach((block) => expect(block.peakCost).toBeLessThanOrEqual(core.budget));
       expect(lastBuild(blocks) + 1).toBe(last);
-      expect(last - 1).toBeGreaterThanOrEqual(Math.ceil(cost / MIX_BUDGET));
+      expect(last - 1).toBeGreaterThanOrEqual(Math.ceil(cost / core.budget));
       // then every unison voice plays its mix table, nothing directly
       blocks
         .slice(last)
@@ -139,13 +145,14 @@ describe.each(CORES)('the work of the voices, $name core', (coreOf) => {
     }
   );
 
-  it('at 96 kHz a mix costs more than the budget: one build a block, the chord takes 192 blocks (F1)', () => {
+  it('at 96 kHz two mixes cost more than the budget: one build a block, the chord takes 192 blocks (F1)', () => {
     const { run } = chord(96000);
     const blocks = run(200);
     // 16384-sample mixes (nativeTableLength), both levels interpolated into them
     const each = (1 + 2 * UPSAMPLER_TAPS) * nativeTableLength(96000);
     expect(each).toBe(212992);
-    expect(each).toBeGreaterThan(MIX_BUDGET);
+    // (the TS budget is under one of them)
+    expect(2 * each).toBeGreaterThan(core.budget);
     expect(total(blocks, 'buildCost')).toBe(UNISON * each);
     blocks.slice(1, 193).forEach((block) => expect(block).toMatchObject({ builds: 1, peakCost: each }));
     expect(lastBuild(blocks) + 1).toBe(193);
@@ -187,8 +194,9 @@ describe.each(CORES)('the work of the voices, $name core', (coreOf) => {
       .slice(0, constant + 1)
       .forEach((block) => expect(block).toMatchObject({ builds: 0, mixSamples: 0 }));
     expect(blocks.findIndex((block) => block.builds > 0)).toBe(constant + 1);
-    // its 8 mixes over the next blocks: 3 of 53,248 multiply-adds a block (the levels of A4 are shorter than a mix)
-    expect(blocks[constant + 1].builds).toBe(3);
+    // its 8 mixes over the next blocks: 3 of 53,248 multiply-adds a block (the levels of A4 are shorter than a
+    // mix), 6 in the Rust core
+    expect(blocks[constant + 1].builds).toBe(Math.floor(core.budget / 53248));
     expect(total(blocks.slice(constant + 1), 'builds')).toBe(8);
   });
 
@@ -196,12 +204,13 @@ describe.each(CORES)('the work of the voices, $name core', (coreOf) => {
   // within TABLE_THROTTLE, the edits of a frame the oscillator sends at most, at 44.1 and 48 kHz. At 96 kHz
   // they take 268 ms (F1): a continuous edit keeps them on the direct path
   it.each([
-    [44100, 32],
-    [48000, 29],
-    [96000, 201],
+    [44100, { ts: 32, wasm: 20 }],
+    [48000, { ts: 29, wasm: 19 }],
+    [96000, { ts: 201, wasm: 201 }],
   ])(
-    'at %i Hz a new version of both tables under the heavy chord: on their mixes again after %i blocks',
-    (rate, back) => {
+    'at %i Hz a new version of both tables under the heavy chord: on their mixes again after %j blocks',
+    (rate, backs) => {
+      const back = backs[core.name];
       const { run, store, freed } = chord(rate);
       run(260);
       const levels = buildLevels(FRAMES.map((frame) => frame.map((v) => 0.9 * v)));

@@ -6,7 +6,13 @@ use crate::store::FRAME_GUARD;
 use alloc::{vec, vec::Vec};
 use jsmath::{ceil, max};
 
+/// the budget of the TS core (createVoiceShared: osc_shared_budget sets it, the parity specs)
 pub const MIX_BUDGET: f64 = 200000.0;
+/// the budget of this core: it builds a mix about twice as fast (the attack of a chord in Node, one shared:
+/// 0.105 against 0.215 µs per 1000 multiply-adds at 48 kHz, 0.138 against 0.30 at 96 kHz); the most whose
+/// longest block of the attack of a chord of 12 × 2 × u8 is not longer than the one of the TS (0.170 against
+/// 0.172 ms; 400000: 0.180), its 192 mixes built from block 26 on instead of 56
+pub const MIX_BUDGET_WASM: f64 = 360000.0;
 const SEGMENT: f64 = 32.0;
 pub const PARAMS: usize = 10;
 
@@ -44,9 +50,12 @@ struct Phrase {
 }
 
 pub struct Shared {
+    // a voice at a random phase fades in, as the TS (osc_shared_random_phase_fade: the parity specs)
+    pub random_phase_fade: bool,
     size: usize,
     pub scratch: Scratch,
     pool: Vec<(usize, Vec<Vec<f32>>)>,
+    budget: f64,
     budget_frame: f64,
     spent: f64,
     pub counts: [f64; 10],
@@ -63,9 +72,11 @@ pub struct Shared {
 impl Default for Shared {
     fn default() -> Self {
         Shared {
+            random_phase_fade: false,
             size: 0,
             scratch: Scratch::default(),
             pool: Vec::new(),
+            budget: MIX_BUDGET_WASM,
             budget_frame: -1.0,
             spent: 0.0,
             counts: [0.0; 10],
@@ -169,13 +180,18 @@ impl Shared {
         }
     }
 
+    /// the multiply-adds of mix builds a block may spend
+    pub fn set_budget(&mut self, budget: f64) {
+        self.budget = budget;
+    }
+
     /// a mix build of `cost` in the block at `frame`, if the budget allows (the first of a block always)
     pub fn take_build(&mut self, frame: f64, cost: f64) -> bool {
         if frame != self.budget_frame {
             self.budget_frame = frame;
             self.spent = 0.0;
         }
-        if self.spent > 0.0 && self.spent + cost > MIX_BUDGET {
+        if self.spent > 0.0 && self.spent + cost > self.budget {
             if cfg!(feature = "perf") {
                 self.counts[REFUSED] += 1.0;
             }

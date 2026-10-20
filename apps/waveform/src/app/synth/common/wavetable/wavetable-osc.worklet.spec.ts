@@ -68,11 +68,11 @@ describe('wavetable oscillator worklet', () => {
       data: { table: 'posted', version: 1, levels: buildLevels([sine.map((x) => x / 2)]) },
     });
     expect(store.port.postMessage).toHaveBeenCalledWith({ stored: 'posted', version: 1 });
-    // a frame is normalized to its peak: the halved sine plays at 1, from the phase 0.25 (its peak)
+    // a frame plays at its volume: the halved sine at 0.5, from the phase 0.25 (its peak)
     const { left, right, alive } = render(voice('posted'), 0);
     expect(alive).toBe(true);
-    expect(left[0]).toBeCloseTo(1, 4);
-    expect(right[0]).toBeCloseTo(1, 4);
+    expect(left[0]).toBeCloseTo(0.5, 4);
+    expect(right[0]).toBeCloseTo(0.5, 4);
   });
 
   it('takes the tables from the port of the worker', () => {

@@ -63,7 +63,7 @@ const nativeRender = async (
   const ctx = new OfflineAudioContext(1, length, rate);
   const [real, imag] = wave.realWithImag(frame);
   const osc = ctx.createOscillator();
-  osc.setPeriodicWave(ctx.createPeriodicWave(real, imag));
+  osc.setPeriodicWave(ctx.createPeriodicWave(real, imag, { disableNormalization: true }));
   osc.frequency.value = frequency;
   automate?.(osc);
   osc.connect(ctx.destination);
@@ -575,7 +575,7 @@ const cpu = async ({
   const native = async () => {
     const ctx = new OfflineAudioContext(2, seconds * rate, rate);
     const [real, imag] = wave.realWithImag(frames[frameOf(frames)]);
-    const periodic = ctx.createPeriodicWave(real, imag);
+    const periodic = ctx.createPeriodicWave(real, imag, { disableNormalization: true });
     const lfo = ctx.createOscillator();
     const depth = ctx.createGain();
     lfo.frequency.value = 5;

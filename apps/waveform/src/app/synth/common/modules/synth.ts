@@ -6,7 +6,7 @@ import { ENVELOPES, MOD_SOURCES } from '@waveform/preset-schema';
 import { getFq, stringToNote, noteToString } from '../../services';
 import { urlSnapshotPlugin } from '../../../app';
 import type { VoiceEndedMessage, VoiceOscOptions, VoiceStartedMessage } from '../wavetable/wavetable-osc-dsp';
-import { EnvelopeParams, envelopeValue } from '../envelope/envelope-curve';
+import { EnvelopeParams, envelopeValue, withCurves } from '../envelope/envelope-curve';
 import type { VoiceRoute, VoiceRoutesMessage } from '../wavetable/voice-modulation';
 import type { VoiceFilterMessage, VoiceFilterOptions } from '../wavetable/voice-filter';
 import { amountInUnits, filterTargetScale, MOD_TARGETS } from '../modulation/modulation-targets';
@@ -112,7 +112,7 @@ interface Phrase {
 
 // the envelopes of a voice are those of the knobs (equal values: a preset applied again makes new objects)
 const sameEnvelopes = (envelopes: EnvelopeParams[], knobs: Envelopes) =>
-  ENVELOPES.every((id, k) => isEqual(envelopes[k], knobs[id]));
+  ENVELOPES.every((id, k) => isEqual(envelopes[k], withCurves(knobs[id])));
 
 // the numbers of the phrases, unique in the page (a model created again on the same context doesn't take the
 // number of a voice still playing)
@@ -432,7 +432,8 @@ class Voicing {
     const now = audioCtx.currentTime;
     const own: Phrase = {
       id: ++phrases,
-      envelopes: ENVELOPES.map((id) => $envelopes.value[id]),
+      // the knobs with the default shape (the curves are not knobs)
+      envelopes: ENVELOPES.map((id) => withCurves($envelopes.value[id])),
       start: now,
       started: now,
     };

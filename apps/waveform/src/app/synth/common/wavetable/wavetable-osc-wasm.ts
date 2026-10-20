@@ -47,6 +47,8 @@ export interface OscExports extends CoreExports {
   osc_store_freed: (store: number) => number;
   osc_shared_new: () => number;
   osc_shared_free: (shared: number) => void;
+  osc_shared_budget: (shared: number, budget: number) => void;
+  osc_shared_random_phase_fade: (shared: number, on: boolean) => void;
   osc_shared_stats: (shared: number) => void;
   osc_io: (shared: number, frames: number) => number;
   osc_io_stride: (shared: number) => number;
@@ -244,9 +246,21 @@ export const createTableStoreWasm = (scope: OscScope, onFree?: (levels: Wavetabl
 };
 export type TableStoreWasm = ReturnType<typeof createTableStoreWasm>;
 
-// createVoiceShared in the core: the buffers, the mix tables, the budget and the counters of the voices of a scope
-export const createVoiceSharedWasm = (scope: OscScope) => {
+// the budget of the mix builds of a block of the core (MIX_BUDGET_WASM of dsp/wavetable-osc/src/shared.rs): it
+// builds a mix about twice as fast as the TS (MIX_BUDGET 200000); the most whose longest block of the attack of a
+// chord is not longer than the one of the TS
+export const WASM_MIX_BUDGET = 360000;
+
+// createVoiceShared in the core: the buffers, the mix tables, the budget and the counters of the voices of a scope;
+// `budget` another one, `randomPhaseFade` a voice at a random phase faded in: both as the
+// TS core for the parity specs
+export const createVoiceSharedWasm = (
+  scope: OscScope,
+  { budget, randomPhaseFade = false }: { budget?: number; randomPhaseFade?: boolean } = {}
+) => {
   const handle = scope.exports.osc_shared_new();
+  if (budget !== undefined) scope.exports.osc_shared_budget(handle, budget);
+  if (randomPhaseFade) scope.exports.osc_shared_random_phase_fade(handle, true);
   return {
     handle,
     stats: (): VoiceStats => {
@@ -308,12 +322,15 @@ const writeFilter = (command: Float64Array, at: number, filter: VoiceFilterOptio
 
 const writeEnvelopes = (command: Float64Array, at: number, envelopes: EnvelopeParams[]) => {
   command[at++] = envelopes.length;
-  envelopes.forEach(({ attack, hold, decay, sustain, release }) => {
+  envelopes.forEach(({ attack, hold, decay, sustain, release, curves }) => {
     command[at++] = attack;
     command[at++] = hold;
     command[at++] = decay;
     command[at++] = sustain;
     command[at++] = release;
+    command[at++] = curves?.attack ?? 0;
+    command[at++] = curves?.decay ?? 0;
+    command[at++] = curves?.release ?? 0;
   });
   return at;
 };

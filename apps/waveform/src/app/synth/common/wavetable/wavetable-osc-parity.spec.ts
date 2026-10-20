@@ -1,6 +1,6 @@
 // first: the Math of the wasm core for the TS one (test-utils/js-math.ts)
 import '../../../../test-utils/js-math';
-import type { EnvelopeParams } from '../envelope/envelope-curve';
+import { EnvelopeParams, withCurves } from '../envelope/envelope-curve';
 import { pick, Random } from '../../../../test-utils/fuzz-signals';
 import { createBitsHash, createGoldens, expectSameBits, FUZZ_SCALE } from '../../../../test-utils/parity';
 import { seeded } from '../../../../test-utils/seeded';
@@ -31,8 +31,15 @@ import {
 // every block; on the golden scenarios (dsp/goldens/wavetable-osc.json) and on random ones
 
 const core = wasmCore<OscExports>('wavetable-osc');
+// the wasm voice as the TS one: its budget of mix builds, a voice at a random phase faded in
+const TS_VOICE = { budget: MIX_BUDGET, randomPhaseFade: true };
 const goldens = createGoldens('wavetable-osc');
-afterAll(() => goldens.save());
+// the core of production, with its own budget of mix builds (WASM_MIX_BUDGET): the bits of its attacks differ
+const goldensProduction = createGoldens('wavetable-osc-production');
+afterAll(() => {
+  goldens.save();
+  goldensProduction.save();
+});
 
 // a param of a block: one value, or one per sample
 type ParamBlock = (frame: number, n: number) => number | ((frame: number) => number);
@@ -92,7 +99,8 @@ const run = (name: string, scenario: Scenario) => {
   const tsStore = createTableStore();
   const wasmStore = createTableStoreWasm(scope);
   const tsShared = createVoiceShared();
-  const wasmShared = createVoiceSharedWasm(scope);
+  // the voice of the TS: its budget (the same builds in the same blocks), a voice at a random phase faded in
+  const wasmShared = createVoiceSharedWasm(scope, TS_VOICE);
   const version: Record<string, number> = {};
   const setTable = (table: string, frames: number[][] | null) => {
     version[table] = (version[table] ?? 0) + 1;
@@ -160,6 +168,55 @@ const run = (name: string, scenario: Scenario) => {
   });
   expect(wasmShared.stats()).toEqual(tsShared.stats());
   expect(wasmStore.stats()).toEqual(tsStore.stats());
+  return hash.digest();
+};
+
+// the options of a voice of the app: its envelopes with the default shape (synth.ts)
+const production = (options: VoiceOptions): VoiceOptions => ({
+  ...options,
+  envelopes: options.envelopes.map(withCurves),
+});
+
+// the scenario on the wasm core alone, under its budget, its envelopes curved (production): the hash of its outputs
+const runProduction = (scenario: Scenario) => {
+  const { rate, blocks, tables, versions = {}, voices } = scenario;
+  const scope = createOscScope(core);
+  const store = createTableStoreWasm(scope);
+  const shared = createVoiceSharedWasm(scope);
+  const version: Record<string, number> = {};
+  const setTable = (table: string, frames: number[][] | null) => {
+    version[table] = (version[table] ?? 0) + 1;
+    if (frames) store.set(table, version[table], buildLevels(frames));
+    else store.remove(table);
+  };
+  Object.entries(tables).forEach(([table, frames]) => setTable(table, frames));
+  const random = seeded(scenario.seed);
+  const alive: { voice: ScenarioVoice; wasm: ReturnType<typeof createVoiceWasm> }[] = [];
+  const hash = createBitsHash();
+  let frame = 0;
+  blocks.forEach((n, block) => {
+    versions[block]?.forEach(([table, frames]) => setTable(table, frames));
+    voices.forEach((voice) => {
+      if (voice.at === block)
+        alive.push({
+          voice,
+          wasm: createVoiceWasm(scope, rate, production(voice.options), store, random, shared),
+        });
+    });
+    alive.forEach(({ voice, wasm }) => {
+      const routes = voice.routes?.[block];
+      if (routes) wasm.setRoutes(routes);
+      const filter = voice.filters?.[block];
+      if (filter !== undefined) wasm.setFilter(filter);
+      const [outL, outR] = [new Float32Array(n), new Float32Array(n)];
+      wasm.process(frame, blockParams(voice, frame, n), outL, outR);
+      hash.add(outL);
+      hash.add(outR, false);
+    });
+    for (let i = alive.length - 1; i >= 0; i--) if (alive[i].wasm.ended) alive.splice(i, 1);
+    frame += n;
+  });
+  alive.forEach(({ wasm }) => wasm.end());
   return hash.digest();
 };
 
@@ -627,6 +684,10 @@ describe('wavetable oscillator wasm core', () => {
 
   it.each(GOLDEN)('%s: the bits and the counters of the TS core, and its golden', (name, scenario) => {
     goldens.check(name, run(name, scenario));
+  });
+
+  it.each(GOLDEN)('%s: the core of production (its budget) and its golden', (name, scenario) => {
+    goldensProduction.check(name, runProduction(scenario));
   });
 
   const count = 150 * FUZZ_SCALE;

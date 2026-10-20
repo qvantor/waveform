@@ -2,7 +2,7 @@
 //! the mono block of the TS (dsp.ts, oversampler.ts) does it for its channel
 
 use crate::biquad::{coefficients_into, FilterType};
-use crate::consts::{DOWN_PHASES, UP_PHASES};
+use crate::consts::{DOWN8_PHASES, DOWN_PHASES, UP8_PHASES, UP_PHASES};
 use crate::oversampler::OVERSAMPLING;
 use crate::simd::F64x2;
 use core::ops::{Add, Div, Mul, Sub};
@@ -174,5 +174,122 @@ impl StereoOversampler {
     pub fn clear(&mut self) {
         self.history = [F64x2::default(); 2 * TAPS];
         self.streams = [[F64x2::default(); 2 * STREAM]; OVERSAMPLING];
+    }
+
+    /// the input up() has read: its last TAPS samples (the whole state of the interpolator)
+    pub fn input_history(&self) -> InputHistory {
+        InputHistory {
+            history: self.history,
+            pos: self.pos,
+        }
+    }
+
+    /// starts again on the input of another chain: its interpolator as if it had read that input, its decimator
+    /// at 0 (as after shaped points of 0)
+    pub fn warm(&mut self, input: &InputHistory) {
+        self.history = input.history;
+        self.pos = input.pos;
+        self.streams = [[F64x2::default(); 2 * STREAM]; OVERSAMPLING];
+    }
+}
+
+/// the last TAPS samples an interpolator read, written twice as its history keeps them
+#[derive(Clone, Copy)]
+pub struct InputHistory {
+    history: [F64x2; 2 * TAPS],
+    pos: usize,
+}
+
+/// the points per sample of StereoOversampler8
+pub const OVERSAMPLING8: usize = 8;
+
+/// the 8× chain of the hard clip (not in the TS core): StereoOversampler at 8×, 32 taps per phase at the input rate
+/// as its 4× (the same latency, OVERSAMPLER_LATENCY), the phases of UP8_PHASES and DOWN8_PHASES
+pub struct StereoOversampler8 {
+    history: [F64x2; 2 * TAPS],
+    pos: usize,
+    streams: [[F64x2; 2 * STREAM]; OVERSAMPLING8],
+    stream_pos: usize,
+}
+
+impl Default for StereoOversampler8 {
+    fn default() -> Self {
+        StereoOversampler8 {
+            history: [F64x2::default(); 2 * TAPS],
+            pos: 0,
+            streams: [[F64x2::default(); 2 * STREAM]; OVERSAMPLING8],
+            stream_pos: 0,
+        }
+    }
+}
+
+impl StereoOversampler8 {
+    /// 8 points per sample of input[0..frames) into points[0..8·frames)
+    pub fn up(&mut self, input: &[F64x2], frames: usize, points: &mut [F64x2]) {
+        for s in 0..frames {
+            self.pos = if self.pos == 0 { TAPS - 1 } else { self.pos - 1 };
+            let pos = self.pos;
+            self.history[pos] = input[s];
+            self.history[pos + TAPS] = input[s];
+            let window = &self.history[pos..pos + TAPS];
+            let mut y = [F64x2::default(); OVERSAMPLING8];
+            for j in 0..TAPS {
+                let h = window[j];
+                for (p, phase) in UP8_PHASES.iter().enumerate() {
+                    y[p] = y[p].add(h.mul(F64x2::splat(phase[j])));
+                }
+            }
+            points[OVERSAMPLING8 * s..OVERSAMPLING8 * (s + 1)].copy_from_slice(&y);
+        }
+    }
+
+    /// the (shaped) points of up() back at the input rate into output[0..frames): point q of a step weighed with
+    /// phase 8 - q of the sinc cut at the nyquist, phase 0 the center point alone, the 8 streams averaged
+    pub fn down(&mut self, points: &[F64x2], frames: usize, output: &mut [F64x2]) {
+        let eighth = F64x2::splat(OVERSAMPLING8 as f64);
+        for s in 0..frames {
+            let point = OVERSAMPLING8 * s;
+            self.stream_pos = if self.stream_pos == 0 {
+                STREAM - 1
+            } else {
+                self.stream_pos - 1
+            };
+            let sp = self.stream_pos;
+            for (q, stream) in self.streams.iter_mut().enumerate() {
+                stream[sp] = points[point + q];
+                stream[sp + STREAM] = points[point + q];
+            }
+            let mut sum = self.streams[0][sp + HALF];
+            for j in 0..TAPS {
+                let i = sp + j + 1;
+                let mut products = self.streams[1][i].mul(F64x2::splat(DOWN8_PHASES[OVERSAMPLING8 - 2][j]));
+                for q in 2..OVERSAMPLING8 {
+                    products = products
+                        .add(self.streams[q][i].mul(F64x2::splat(DOWN8_PHASES[OVERSAMPLING8 - 1 - q][j])));
+                }
+                sum = sum.add(products);
+            }
+            output[s] = sum.div(eighth);
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.history = [F64x2::default(); 2 * TAPS];
+        self.streams = [[F64x2::default(); 2 * STREAM]; OVERSAMPLING8];
+    }
+
+    /// as StereoOversampler::input_history
+    pub fn input_history(&self) -> InputHistory {
+        InputHistory {
+            history: self.history,
+            pos: self.pos,
+        }
+    }
+
+    /// as StereoOversampler::warm
+    pub fn warm(&mut self, input: &InputHistory) {
+        self.history = input.history;
+        self.pos = input.pos;
+        self.streams = [[F64x2::default(); 2 * STREAM]; OVERSAMPLING8];
     }
 }

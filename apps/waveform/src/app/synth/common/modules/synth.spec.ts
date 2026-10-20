@@ -6,6 +6,7 @@ import { withoutAudioWorklet } from '../../../../test-utils/no-audio-worklet';
 import { WorkerStub } from '../../../../test-utils/worker-stub';
 import { getFq } from '../../services';
 import { RELEASE_GATE, VOICE_PROCESSOR } from '../wavetable/wavetable-osc-params';
+import { envelopeValue, withCurves } from '../envelope/envelope-curve';
 import type { VoiceOptions } from '../wavetable/wavetable-osc-dsp';
 import { glideValue } from './glide';
 
@@ -83,7 +84,8 @@ describe('synth', () => {
     expect(voice.options.processorOptions).toEqual({
       osc: [{ table: osc1[0].id, unison: 2, phase: 0.5, phaseRand: 1 }, null],
       start: 0,
-      envelopes: [ENVELOPE_DEFAULTS.env1, ENVELOPE_DEFAULTS.env2, ENVELOPE_DEFAULTS.env3],
+      // the knobs with the default shape
+      envelopes: [ENVELOPE_DEFAULTS.env1, ENVELOPE_DEFAULTS.env2, ENVELOPE_DEFAULTS.env3].map(withCurves),
       envStart: 0,
       phrase: expect.any(Number),
       routes: [],
@@ -152,8 +154,12 @@ describe('synth', () => {
     onPress([4, 'E']);
 
     const [c, e] = voices();
-    expect(options(c)).toMatchObject({ envelopes: [env1, env2, env3], envStart: 1, start: 1 });
-    expect(options(e).envelopes[0]).toEqual({ ...env1, sustain: 0.5 });
+    expect(options(c)).toMatchObject({
+      envelopes: [env1, env2, env3].map(withCurves),
+      envStart: 1,
+      start: 1,
+    });
+    expect(options(e).envelopes[0]).toEqual(withCurves({ ...env1, sustain: 0.5 }));
   });
 
   it('releases a note: its gate tells the processor now how long its key was held', async () => {
@@ -645,13 +651,16 @@ describe('synth', () => {
         [1.5, expect.closeTo(1.2, 9)],
       ]);
       expect(synthModel.$voicesCount.value).toBe(1);
-      // the fx: a new note from now, ENV 1 from 0.8 (its release from 1 at 1 s), ENV 2 and 3 from 0 (decayed)
+      // the fx: a new note from now, ENV 1 from 0.48 (its release from 1 at 1 s, curved: linear 0.8),
+      // ENV 2 and 3 from 0 (decayed)
+      const curved = withCurves({ ...env1, release: 1 });
       expect(synthModel.$fxNote.value).toEqual({
-        envelopes: [{ ...env1, release: 1 }, env2, env3],
+        envelopes: [curved, withCurves(env2), withCurves(env3)],
         start: expect.closeTo(1.2, 9),
         release: null,
-        from: [expect.closeTo(0.8, 9), 0, 0],
+        from: [expect.closeTo(envelopeValue(curved, 1.2, 1), 9), 0, 0],
       });
+      expect(envelopeValue(curved, 1.2, 1)).toBeCloseTo(0.4818, 4);
     });
 
     it('a note on the voice in its release released at once: a sample after the gate held, not instead of it', async () => {
@@ -1074,7 +1083,7 @@ describe('synth', () => {
     it('are those of the last note pressed, released with it', async () => {
       const { onPress, onRelease, synthModel, envelopeModel, travel } = await setup();
       const { $envelopes } = envelopeModel[0];
-      const envelopes = [$envelopes.value.env1, $envelopes.value.env2, $envelopes.value.env3];
+      const envelopes = [$envelopes.value.env1, $envelopes.value.env2, $envelopes.value.env3].map(withCurves);
       expect(synthModel.$fxNote.value).toBeNull();
       await travel(1);
       onPress([4, 'C']);
@@ -1159,7 +1168,7 @@ describe('synth', () => {
     it('stay those of the last note when an earlier voice tells it started late', async () => {
       const { onPress, voices, synthModel, envelopeModel, audioCtx, travel } = await setup();
       const { $envelopes } = envelopeModel[0];
-      const envelopes = [$envelopes.value.env1, $envelopes.value.env2, $envelopes.value.env3];
+      const envelopes = [$envelopes.value.env1, $envelopes.value.env2, $envelopes.value.env3].map(withCurves);
       onPress([4, 'C']);
       await travel(1);
       onPress([4, 'E']);

@@ -1,8 +1,10 @@
+import { curvedAt } from '../../common/envelope/envelope-curve';
 import { FxNote, FxRoute, routedUnclamped } from './fx-modulation';
 
 // the knobs of the fx made of native nodes (the delay, the mix of every slot) follow the envelopes of the last
-// note by automation: the envelopes are linear between their corners, so are the knobs they move (a log one is
-// exponential), the browser ramps them exactly; no new node, nothing computed per block on the main thread
+// note by automation: a stage of an envelope is linear between its corners or curved (its curves), the knobs
+// they move are linear (a log one is exponential) where the stages are, the browser ramps them exactly; a curved
+// stage in linear segments; no new node, nothing computed per block on the main thread
 
 // the linear segments of a stage that is no single ramp. Not setValueCurveAtTime: an event inside a curve
 // still running throws, and browsers differ in whether cancelScheduledValues removes it (a ramp it does: its
@@ -137,7 +139,8 @@ export const holdParam = (param: AudioParam, now: number) => {
 
 // schedules on `param` the knob moved by its routes from LEAD after `now` on (the automation before is left
 // where it is then, GLIDE to the knob, or to its first corner if it comes sooner): map(the knob at t), base the
-// knob itself. A stage where the knob goes past the end of its range is a curve too: it is clamped there. A
+// knob itself. A stage where the knob goes past the end of its range is a curve too: it is clamped there, as a
+// curved stage of an envelope. A
 // stage goes up to its corner, where an envelope steps (an attack, a decay or a release of 0) the param steps
 // with it
 export const scheduleRouted = (
@@ -163,6 +166,10 @@ export const scheduleRouted = (
   // the glide ends at the first corner if it comes sooner (a short attack is not skipped), stepping there
   // with the envelope
   const glide = begin + GLIDE - note.start;
+  // a curved stage of an envelope a route reads (between two corners each one is in one stage)
+  const released = note.release === null ? Infinity : note.release - note.start;
+  const curved = (a: number, b: number) =>
+    routes.some(({ env }) => curvedAt(note.envelopes[env], (a + b) / 2, released));
   const [first = Infinity] = corners(note, routes, begin - note.start);
   let from = Math.min(glide, first);
   const glided = knob(from, true);
@@ -174,7 +181,7 @@ export const scheduleRouted = (
     const rawEnd = raw(time, true);
     const start = clamp(rawStart);
     const end = clamp(rawEnd);
-    const ramps = inside(rawStart) && inside(rawEnd);
+    const ramps = inside(rawStart) && inside(rawEnd) && !curved(from, time);
     // within a stage the knob goes one way: the same at both ends, it stays (an event marks where)
     if (start === end) set(map(end), at);
     else if (ramp === 'linear' && ramps) linear(map(end), at);

@@ -1,8 +1,10 @@
 //! apps/waveform/src/app/synth/common/envelope/envelope-curve.ts and envelope-block.ts: the envelopes of a note,
-//! rendered block by block, exact to the sample
+//! rendered block by block, exact to the sample. The attack, the decay and the release are curved by `curves` (k
+//! of curve_shape, 0 linear: the linear stages are worked out as the TS does, bit for bit); the TS voice plays
+//! every stage linear
 
 use alloc::{vec, vec::Vec};
-use jsmath::{ceil, max, min};
+use jsmath::{ceil, exp, max, min};
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct EnvelopeParams {
@@ -11,6 +13,39 @@ pub struct EnvelopeParams {
     pub decay: f64,
     pub sustain: f64,
     pub release: f64,
+    /// the curvature of the attack, the decay and the release (EnvelopeCurves)
+    pub curves: [f64; 3],
+}
+
+const ATTACK: usize = 0;
+const DECAY: usize = 1;
+const RELEASE: usize = 2;
+
+/// curveShape: the share of a stage done at the share x of its time, (1 - e^(-k·x)) / (1 - e^(-k)), x at k 0
+pub fn curve_shape(k: f64, x: f64) -> f64 {
+    if k == 0.0 {
+        x
+    } else {
+        (1.0 - exp(-k * x)) / (1.0 - exp(-k))
+    }
+}
+
+// from → to over `length` seconds, `done` of them done (the linear one as the TS: its bits)
+fn stage(from: f64, to: f64, k: f64, done: f64, length: f64) -> f64 {
+    if k == 0.0 {
+        from + ((to - from) * done) / length
+    } else {
+        from + (to - from) * curve_shape(k, done / length)
+    }
+}
+
+// a release from `level`, r of its seconds done
+fn release_level(level: f64, k: f64, r: f64, release: f64) -> f64 {
+    if k == 0.0 {
+        level * (1.0 - r / release)
+    } else {
+        level * (1.0 - curve_shape(k, r / release))
+    }
 }
 
 /// envelopeLevel: the level `t` seconds after the start while the key is held, the attack from `from`
@@ -20,19 +55,20 @@ pub fn envelope_level(env: &EnvelopeParams, t: f64, from: f64) -> f64 {
         hold,
         decay,
         sustain,
+        curves,
         ..
     } = *env;
     if t < 0.0 {
         return from;
     }
     if t < attack {
-        return from + ((1.0 - from) * t) / attack;
+        return stage(from, 1.0, curves[ATTACK], t, attack);
     }
     if t < attack + hold {
         return 1.0;
     }
     if t < attack + hold + decay {
-        return 1.0 + ((sustain - 1.0) * (t - attack - hold)) / decay;
+        return stage(1.0, sustain, curves[DECAY], t - attack - hold, decay);
     }
     sustain
 }
@@ -45,59 +81,101 @@ pub fn envelope_value(env: &EnvelopeParams, t: f64, released_at: f64, from: f64)
     let level = envelope_level(env, released_at, from);
     let r = t - released_at;
     if r < env.release {
-        level * (1.0 - r / env.release)
+        release_level(level, env.curves[RELEASE], r, env.release)
     } else {
         0.0
     }
 }
 
-/// envelopeStage: [its value at t, its slope per second, the time it lasts until (Infinity: for ever)]
-pub fn envelope_stage(env: &EnvelopeParams, t: f64, released_at: f64, out: &mut [f64; 3], from: f64) {
+/// the stage at a time: its value, its slope per second (0: flat), the time it lasts until (Infinity: for ever);
+/// a curved one from `from` to `to` over `length` seconds from `start`, its curvature `k` (0: a line)
+#[derive(Clone, Copy, Default)]
+pub struct Stage {
+    pub value: f64,
+    pub slope: f64,
+    pub end: f64,
+    pub k: f64,
+    pub from: f64,
+    pub to: f64,
+    pub start: f64,
+    pub length: f64,
+}
+
+impl Stage {
+    fn line(&mut self, value: f64, slope: f64, end: f64) {
+        self.value = value;
+        self.slope = slope;
+        self.end = end;
+        self.k = 0.0;
+    }
+
+    // the stage from → to over `length` seconds from `start`, `done` seconds of it at the time (worked out by the
+    // caller as the TS does); a linear one as envelopeStage of the TS
+    fn ramp(&mut self, done: f64, from: f64, to: f64, k: f64, start: f64, length: f64) {
+        self.slope = (to - from) / length;
+        self.end = start + length;
+        self.k = k;
+        if k == 0.0 {
+            self.value = from + self.slope * done;
+            return;
+        }
+        self.value = from + (to - from) * curve_shape(k, done / length);
+        self.from = from;
+        self.to = to;
+        self.start = start;
+        self.length = length;
+    }
+}
+
+/// envelopeStage: the stage at t (a curved one with its curve)
+pub fn envelope_stage(env: &EnvelopeParams, t: f64, released_at: f64, out: &mut Stage, from: f64) {
     let EnvelopeParams {
         attack,
         hold,
         decay,
         sustain,
         release,
+        curves,
     } = *env;
     if t >= released_at {
         let level = envelope_level(env, released_at, from);
         let r = t - released_at;
         if r < release && level > 0.0 {
-            out[1] = -level / release;
-            out[0] = level + out[1] * r;
-            out[2] = released_at + release;
+            if curves[RELEASE] == 0.0 {
+                // as the TS: level + slope · r
+                let slope = -level / release;
+                out.line(level + slope * r, slope, released_at + release);
+            } else {
+                out.ramp(r, level, 0.0, curves[RELEASE], released_at, release);
+            }
         } else {
-            out[0] = 0.0;
-            out[1] = 0.0;
-            out[2] = f64::INFINITY;
+            out.line(0.0, 0.0, f64::INFINITY);
         }
         return;
     }
     let decay_end = attack + hold + decay;
     if t < 0.0 {
-        out[0] = from;
-        out[1] = 0.0;
-        out[2] = 0.0;
+        out.line(from, 0.0, 0.0);
     } else if t < attack {
-        out[1] = (1.0 - from) / attack;
-        out[0] = from + out[1] * t;
-        out[2] = attack;
+        out.ramp(t, from, 1.0, curves[ATTACK], 0.0, attack);
+        out.end = attack;
     } else if t < attack + hold {
-        out[0] = 1.0;
-        out[1] = 0.0;
-        out[2] = attack + hold;
+        out.line(1.0, 0.0, attack + hold);
     } else if t < decay_end {
-        out[1] = (sustain - 1.0) / decay;
-        out[0] = 1.0 + out[1] * (t - attack - hold);
-        out[2] = decay_end;
+        out.ramp(
+            t - attack - hold,
+            1.0,
+            sustain,
+            curves[DECAY],
+            attack + hold,
+            decay,
+        );
+        out.end = decay_end;
     } else {
-        out[0] = sustain;
-        out[1] = 0.0;
-        out[2] = f64::INFINITY;
+        out.line(sustain, 0.0, f64::INFINITY);
     }
-    if released_at < out[2] {
-        out[2] = released_at;
+    if released_at < out.end {
+        out.end = released_at;
     }
 }
 
@@ -118,7 +196,7 @@ pub struct EnvelopeBlock {
     params: EnvelopeParams,
     sample_rate: f64,
     start_frame: f64,
-    stage: [f64; 3],
+    stage: Stage,
     released_at: f64,
     from: f64,
     end_frame: f64,
@@ -136,7 +214,7 @@ impl EnvelopeBlock {
             params,
             sample_rate,
             start_frame,
-            stage: [0.0; 3],
+            stage: Stage::default(),
             released_at: f64::INFINITY,
             from: 0.0,
             end_frame: f64::INFINITY,
@@ -220,29 +298,52 @@ impl EnvelopeBlock {
                 &mut self.stage,
                 level,
             );
-            let value = self.stage[0];
-            let step = self.stage[1] / rate;
-            let end = if self.stage[2] == f64::INFINITY {
+            let value = self.stage.value;
+            let step = self.stage.slope / rate;
+            let end = if self.stage.end == f64::INFINITY {
                 b
             } else {
-                min(b, max(i + 1.0, ceil(start + self.stage[2] * rate - frame - 1e-6)))
+                min(
+                    b,
+                    max(i + 1.0, ceil(start + self.stage.end * rate - frame - 1e-6)),
+                )
             };
             if whole && i == a && end == b && step == 0.0 {
                 self.constant = true;
                 self.value = value;
                 self.values[a as usize] = value as f32;
                 self.flat_value = value;
-                self.flat_until = if self.stage[2] == f64::INFINITY {
+                self.flat_until = if self.stage.end == f64::INFINITY {
                     f64::INFINITY
                 } else {
-                    ceil(start + self.stage[2] * rate - 1e-6)
+                    ceil(start + self.stage.end * rate - 1e-6)
                 };
                 return;
             }
             let mut s = i;
-            while s < end {
-                self.values[s as usize] = (value + step * (s - i)) as f32;
-                s += 1.0;
+            if self.stage.k != 0.0 {
+                // a curved stage: e^(-k·x) steps by a factor a sample (no exp per sample)
+                let Stage {
+                    k,
+                    from,
+                    to,
+                    start: begin,
+                    length,
+                    ..
+                } = self.stage;
+                let mut g = exp(-k * (((frame + i - start) / rate - begin) / length));
+                let factor = exp(-k / (rate * length));
+                let scale = (to - from) / (1.0 - exp(-k));
+                while s < end {
+                    self.values[s as usize] = (from + scale * (1.0 - g)) as f32;
+                    g *= factor;
+                    s += 1.0;
+                }
+            } else {
+                while s < end {
+                    self.values[s as usize] = (value + step * (s - i)) as f32;
+                    s += 1.0;
+                }
             }
             i = end;
         }
@@ -286,5 +387,73 @@ impl EnvelopeBlock {
         self.constant = false;
         let (start, released, from) = (self.start_frame, self.released_at, self.from);
         self.fill(frame, a, b, true, start, released, from);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_curved_stage_renders_its_curve() {
+        let env = EnvelopeParams {
+            attack: 0.01,
+            hold: 0.0,
+            decay: 0.5,
+            sustain: 0.25,
+            release: 0.3,
+            curves: [-2.0, 3.49, 3.49],
+        };
+        let rate = 48000.0;
+        let mut block = EnvelopeBlock::new(env, rate, 0.0);
+        let mut worst: f64 = 0.0;
+        let released = 40000.0;
+        for b in 0..600 {
+            let frame = (b * 128) as f64;
+            if frame <= released && released < frame + 128.0 {
+                block.release(released);
+            }
+            block.render(frame, 0.0, 128.0);
+            for s in 0..128 {
+                let t = (frame + s as f64) / rate;
+                let expected = envelope_value(
+                    &env,
+                    t,
+                    if block.released() {
+                        released / rate
+                    } else {
+                        f64::INFINITY
+                    },
+                    0.0,
+                );
+                let value = if block.constant {
+                    block.value
+                } else {
+                    block.values[s] as f64
+                };
+                worst = max(worst, (value - expected).abs());
+            }
+        }
+        // f32 values of the closed form; the recurrence drifts by far less
+        assert!(worst < 2e-7, "{worst}");
+    }
+
+    #[test]
+    fn a_linear_stage_is_the_one_of_the_ts() {
+        let env = EnvelopeParams {
+            attack: 0.01,
+            hold: 0.0,
+            decay: 0.5,
+            sustain: 0.25,
+            release: 0.3,
+            curves: [0.0; 3],
+        };
+        let mut stage = Stage::default();
+        envelope_stage(&env, 0.2, f64::INFINITY, &mut stage, 0.0);
+        // the TS: slope (sustain - 1) / decay, 1 + slope · (t - attack - hold)
+        let slope = (0.25 - 1.0) / 0.5;
+        assert_eq!(stage.slope, slope);
+        assert_eq!(stage.value, 1.0 + slope * (0.2 - 0.01));
+        assert_eq!(stage.k, 0.0);
     }
 }

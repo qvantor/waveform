@@ -2,7 +2,7 @@ import FFT from 'fft.js';
 import { frequencyResponseDb } from '@waveform/ui-kit';
 import * as biquad from '@waveform/math/biquad';
 import * as curve from '../envelope/envelope-curve';
-import { EnvelopeParams, envelopeValue } from '../envelope/envelope-curve';
+import { EnvelopeParams, envelopeValue, withCurves } from '../envelope/envelope-curve';
 import { seeded, storeWith, VOICE_DEFAULTS } from '../../../../test-utils/voice-dsp';
 import { wasmCore } from '../../../../test-utils/wasm';
 import { buildLevels } from './wavetable-mipmap';
@@ -356,11 +356,10 @@ describe.each(CORES)('wavetable voice dsp, %s core', (coreName, coreOf) => {
       const bin = 1428;
       const { left } = render({ store, params: { frequency: binPitch(bin) }, frames: SIZE + 4096 });
       const spectrum = powerSpectrum(left);
-      // the saw normalized by its peak: harmonic h at 1/h / peak (the levels below their crossfade)
-      const peak = Math.max(...saw.map(Math.abs));
+      // the saw at its volume: harmonic h at 1/h (the levels below their crossfade)
       for (const h of [1, 2, 5, 10]) {
         const amplitude = (2 * Math.sqrt(spectrum[h * bin])) / SIZE;
-        expect(amplitude).toBeCloseTo(1 / h / peak, 3);
+        expect(amplitude).toBeCloseTo(1 / h, 3);
       }
     });
 
@@ -443,9 +442,8 @@ describe.each(CORES)('wavetable voice dsp, %s core', (coreName, coreOf) => {
       const pitch = (x: number) => (RATE / 2 / 1024) * 2 ** ((x - 1) / 3);
       const play = (x: number) => render({ store, params: { frequency: pitch(x) }, frames: RATE / 2 }).left;
       // level 10 keeps 101 harmonics, level 11 80
-      const peak = Math.max(...saw.map(Math.abs));
       // harmonic h of the note at x, against its level in the saw
-      const harmonic = (x: number, h: number) => toneAmplitude(play(x), h * pitch(x)) * h * peak;
+      const harmonic = (x: number, h: number) => toneAmplitude(play(x), h * pitch(x)) * h;
       for (const h of [1, 50, 90, 101]) {
         expect(harmonic(10 - 0.002, h)).toBeCloseTo(1, 1);
         expect(harmonic(10 + 0.002, h)).toBeCloseTo(1, 1);
@@ -645,7 +643,9 @@ describe.each(CORES)('wavetable voice dsp, %s core', (coreName, coreOf) => {
       expect(Math.max(...right.subarray(1000).map(Math.abs))).toBeLessThan(1e-3);
     });
 
-    it('fades in within 1.5 ms', () => {
+    // the TS core fades a voice at a random phase in within 1.5 ms; the Rust one starts it at once (its
+    // click on a fast attack is part of the sound)
+    it('fades in within 1.5 ms in the TS core, starts at once in the Rust one', () => {
       const { store } = core.storeWith({ a: [sine] });
       const { left } = render({
         store,
@@ -654,9 +654,32 @@ describe.each(CORES)('wavetable voice dsp, %s core', (coreName, coreOf) => {
         frames: 256,
       });
       const wave = (i: number) => Math.sin(2 * Math.PI * (0.25 + (10 * i) / RATE));
-      expect(left[0]).toBe(0);
-      expect(left[36]).toBeCloseTo(0.5 * wave(36), 3);
+      if (coreName === 'ts') {
+        expect(left[0]).toBe(0);
+        expect(left[36]).toBeCloseTo(0.5 * wave(36), 3);
+      } else {
+        expect(left[0]).toBeCloseTo(wave(0), 3);
+        expect(left[36]).toBeCloseTo(wave(36), 3);
+      }
       expect(left[72]).toBeCloseTo(wave(72), 3);
+    });
+
+    it('fades a note of a legato phrase in within 1.5 ms (it would step to the level of the phrase)', () => {
+      const { store } = core.storeWith({ a: [sine] });
+      // its envelopes started 10 ms before it, at its phase without a random share
+      const { left } = render({
+        store,
+        oscs: [osc({ phase: 0.25, phaseRand: 0 })],
+        params: { frequency: 10 },
+        frames: 1024,
+        start: 512 / RATE,
+        envStart: 512 / RATE - 0.01,
+        from: 512,
+      });
+      const wave = (i: number) => Math.sin(2 * Math.PI * (0.25 + (10 * (i - 512)) / RATE));
+      expect(left[512]).toBe(0);
+      expect(left[548]).toBeCloseTo(0.5 * wave(548), 3);
+      expect(left[584]).toBeCloseTo(wave(584), 3);
     });
 
     it('shifts every voice by a random share of phaseRand, u1 too', () => {
@@ -797,6 +820,26 @@ describe.each(CORES)('wavetable voice dsp, %s core', (coreName, coreOf) => {
       expect(left[0]).toBe(0);
       expect(left[480]).toBeCloseTo(1, 4);
       expect(left[3000]).toBeCloseTo(0.5, 4);
+    });
+
+    // the Rust voice curves the decay and the release (by default), the TS one, the rollback, plays them
+    // linear as it did; the release still ends where it did
+    it('curves the decay and the release in the Rust core, linear in the TS one', () => {
+      const curved = withCurves(env);
+      // (its end within a block)
+      const release = 2300;
+      const { left, endedAt } = peak(8192, {
+        envelope: curved,
+        params: { frequency: 0.01, gate: gateAt(release) },
+      });
+      const played = coreName === 'ts' ? env : curved;
+      for (let i = 0; i < 8192; i += 5)
+        expect(left[i]).toBeCloseTo(envelopeValue(played, sec(i), sec(release)), 4);
+      // in the decay: below the line in the Rust core
+      const line = envelopeValue(env, sec(960));
+      if (coreName === 'ts') expect(left[960]).toBeCloseTo(line, 4);
+      else expect(left[960]).toBeLessThan(line - 0.05);
+      expect(endedAt).toBe(Math.floor((release + 0.03 * RATE) / BLOCK) * BLOCK);
     });
 
     it('releases from the level reached, in the attack and in the decay, and ends exactly at its end', () => {

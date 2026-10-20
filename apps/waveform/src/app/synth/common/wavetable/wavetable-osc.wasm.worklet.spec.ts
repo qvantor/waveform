@@ -94,8 +94,8 @@ describe('wavetable oscillator wasm worklet', () => {
     expect(store.port.postMessage).toHaveBeenCalledWith({ stored: 'posted', version: 1 });
     const { left, right, alive } = render(voice('posted'), 0);
     expect(alive).toBe(true);
-    expect(left[0]).toBeCloseTo(1, 4);
-    expect(right[0]).toBeCloseTo(1, 4);
+    expect(left[0]).toBeCloseTo(0.5, 4);
+    expect(right[0]).toBeCloseTo(0.5, 4);
   });
 
   it('asks the worker for chunks once it has its port, takes a version in chunks and acks each', () => {

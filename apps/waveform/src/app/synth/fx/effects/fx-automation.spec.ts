@@ -1,4 +1,4 @@
-import { EnvelopeParams } from '../../common/envelope/envelope-curve';
+import { EnvelopeParams, envelopeValue, withCurves } from '../../common/envelope/envelope-curve';
 import { FxNote, FxRoute } from './fx-modulation';
 import { glideParam, holdParam, scheduleRouted, setParam } from './fx-automation';
 
@@ -191,6 +191,25 @@ describe('scheduleRouted', () => {
     expect(calls('setValueAtTime').at(-1)).toEqual([1, expect.closeTo(1.2, 9)]);
     // a curve still running would throw at the next event scheduled inside it
     expect(calls('setValueCurveAtTime')).toEqual([]);
+  });
+
+  it('cuts a curved decay and release into linear segments on their curve, a linear attack one ramp', () => {
+    const { param, calls } = setup();
+    const curved = withCurves(ENV);
+    const fxNote: FxNote = { envelopes: [FLAT, curved, FLAT], start: 1, release: 1.3 };
+    scheduleRouted(param, 0.5, fxNote, [time], 0.2, 'linear');
+    const ramps = calls('linearRampToValueAtTime');
+    // the glide, the attack in one ramp (linear), the decay and the release in 15 segments each
+    expect(ramps).toHaveLength(1 + 1 + 15 + 15);
+    expect(ramps[1]).toEqual([expect.closeTo(0.6, 9), expect.closeTo(1.1, 9)]);
+    // every end of a segment on the curve of the envelope: base + amount × its level
+    ramps.slice(2).forEach(([value, at]) => {
+      const t = at - fxNote.start;
+      expect(value).toBeCloseTo(0.2 + 0.4 * envelopeValue(curved, t, 0.3), 9);
+    });
+    // the decay falls fast at first: its first segment does more than a 15th of it
+    const [[first]] = ramps.slice(2);
+    expect(0.6 - first).toBeGreaterThan(0.2 / 15);
   });
 
   it('maps the knob to its param: linear segments for a map that is not a ramp', () => {

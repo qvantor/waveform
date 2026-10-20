@@ -745,6 +745,7 @@ impl Voice {
         }
         let fade_length = self.fade_length;
         let in_phrase = self.in_phrase;
+        let random_phase_fade = shared.random_phase_fade;
         for osc in self.oscs.iter_mut() {
             let spread = params[osc.param(OSC_PARAM_SPREAD)];
             if read(spread, i) as f64 <= 0.0 && !self.modulation.raises(osc.target(OSC_PARAM_SPREAD)) {
@@ -754,7 +755,10 @@ impl Voice {
             for v in 0..osc.voices {
                 let phase = osc.phase + osc.random[v] * osc.phase_rand;
                 osc.phases[v] = phase - floor(phase);
-                osc.fades[v] = if osc.phase_rand > 0.0 || in_phrase {
+                // a note at a random phase starts at once (its click on a fast attack is part of the sound;
+                // the TS fades it in: Shared::random_phase_fade); a note of a legato phrase fades in, it would step
+                // to the level of the phrase
+                osc.fades[v] = if (osc.phase_rand > 0.0 && random_phase_fade) || in_phrase {
                     fade_length
                 } else {
                     0

@@ -52,6 +52,8 @@ const source = [
   ),
   table('UP_PHASES', ts.UP_PHASES, 'oversampler.ts: the phases 0..3 of up(), cut at 0.9 × the nyquist'),
   table('DOWN_PHASES', ts.DOWN_PHASES, 'oversampler.ts: the phases 1..3 of down(), cut at the nyquist'),
+  table('UP8_PHASES', ts.UP8_PHASES, 'the 8× up() of the hard clip: phases 0..7, cut at 0.9 × the nyquist'),
+  table('DOWN8_PHASES', ts.DOWN8_PHASES, 'the 8× down() of the hard clip: phases 1..7, cut at the nyquist'),
   table(
     'MAKEUP_TABLES',
     ts.MAKEUP_TABLES,
