@@ -93,6 +93,32 @@ const OSC_SCENES = [
       )
     ),
   }),
+  // (a linear detune: the worklet draws the shares of a random one with Math.random)
+  oscScene('wavetable, a shaped unison', {
+    frames: OSC_RATE / 2,
+    tables: { a: [saw(2048, 400), saw(2048, 60, 0.3), saw(1024, 200, 0.6)] },
+    voices: [
+      note(
+        [
+          {
+            table: 'a',
+            unison: 7,
+            phase: 0.2,
+            phaseRand: 0,
+            unisonShape: { blend: 0.8, width: 0.35, stack: 'fifth', detune: 'linear', positionSpread: 0.5 },
+          },
+          {
+            table: 'a',
+            unison: 4,
+            phase: 0,
+            phaseRand: 0,
+            unisonShape: { blend: 0.2, width: 1, stack: 'center-12', detune: 'linear', positionSpread: 0 },
+          },
+        ],
+        { frequency: 147, spread1: 30, spread2: 0, position1: 0.5, gain1: 0.4, gain2: 0.3 }
+      ),
+    ],
+  }),
   oscScene('wavetable, released, stolen, filtered and routed', {
     frames: OSC_RATE / 2,
     tables: { a: [saw(2048, 200), saw(1024, 300, 0.7), saw(2048, 50)] },

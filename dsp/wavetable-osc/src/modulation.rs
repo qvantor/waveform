@@ -3,6 +3,7 @@
 //! is in a flat stage
 
 use crate::envelope::EnvelopeBlock;
+use crate::voice::is_constant;
 use alloc::{vec, vec::Vec};
 use jsmath::{max, min, pow, round};
 
@@ -226,7 +227,7 @@ impl Modulation {
         if frame + b <= self.quiet_until {
             let still = self.targets.iter().all(|target| {
                 let base = bases[target.param];
-                base.len() == 1 && base[0] as f64 == target.base
+                base[0] as f64 == target.base && is_constant(base)
             });
             if still {
                 return;
@@ -237,7 +238,8 @@ impl Modulation {
         for target in self.targets.iter_mut() {
             let (min_value, max_value, log) = (target.min, target.max, target.log);
             let base = bases[target.param];
-            let mut constant = base.len() == 1;
+            // (128 equal values in Firefox are one value too: the per-sample path cost +19% of a voice there)
+            let mut constant = is_constant(base);
             let mut same = constant && base[0] as f64 == target.base && target.current == Current::One;
             for route in &target.routes {
                 let envelope = &envelopes[route.env];

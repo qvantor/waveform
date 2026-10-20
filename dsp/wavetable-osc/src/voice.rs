@@ -10,7 +10,7 @@ use crate::modulation::{
 use crate::shared::{Scratch, Shared, DIRECT_SAMPLES, MIX_SAMPLES, PARAMS, UNISON, VOICES};
 use crate::store::{EntryRef, Levels, Store, FRAME_GUARD};
 use alloc::{vec, vec::Vec};
-use jsmath::{ceil, cos, floor, log2, max, min, pow, round, sqrt, PI};
+use jsmath::{ceil, cos, floor, log2, max, min, pow, round, sin, sqrt, PI};
 
 pub const MAX_UNISON: usize = 8;
 const SEGMENT: usize = 32;
@@ -43,6 +43,62 @@ pub struct OscOptions {
     pub phase: f64,
     pub phase_rand: f64,
     pub random: [f64; MAX_UNISON],
+    pub shape: UnisonShape,
+}
+
+/// the stacks of a unison: the semitones of the voices by their pair from the centre (UnisonStack)
+pub const STACK_OFF: u32 = 0;
+pub const STACK_OCTAVE: u32 = 1;
+pub const STACK_TWO_OCTAVES: u32 = 2;
+pub const STACK_FIFTH: u32 = 3;
+pub const STACK_CENTER_DOWN: u32 = 4;
+pub const STACK_CENTER_DOWN_2: u32 = 5;
+
+/// how the unison voices of an oscillator sound (UnisonShape): the defaults (blend 0.5, width 1,
+/// no stack, linear, no position spread) play as the voice did before them, bit for bit
+#[derive(Clone, Copy, Debug)]
+pub struct UnisonShape {
+    // 0 only the centre voices (the middle one of an odd count, the middle two of an even one), 0.5 all at one
+    // level, 1 only the others; the power of the unison stays
+    pub blend: f64,
+    // the stereo of the side voices: 1 hard left and right, 0 mono (equal power)
+    pub width: f64,
+    pub stack: u32,
+    // the detune of the voices: false linear over the spread, true at random shares of it (drawn per note)
+    pub random_detune: bool,
+    pub detune_random: [f64; MAX_UNISON],
+    // the voices play the position spread over this share of the table, as they are spread in pitch
+    pub position_spread: f64,
+}
+
+impl Default for UnisonShape {
+    fn default() -> UnisonShape {
+        UnisonShape {
+            blend: 0.5,
+            width: 1.0,
+            stack: STACK_OFF,
+            random_detune: false,
+            detune_random: [0.0; MAX_UNISON],
+            position_spread: 0.0,
+        }
+    }
+}
+
+// the pair of voice v of n from the centre: 0 the middle one (odd n) or two (even n), then 1, 2… outwards
+fn pair_of_voice(v: usize, n: usize) -> usize {
+    floor((v as f64 - (n as f64 - 1.0) / 2.0).abs()) as usize
+}
+
+// the semitones a stack moves the voices of a pair by
+fn stack_semitones(stack: u32, pair: usize) -> f64 {
+    match stack {
+        STACK_OCTAVE => [0.0, 12.0][pair % 2],
+        STACK_TWO_OCTAVES => [0.0, 12.0, 24.0][pair % 3],
+        STACK_FIFTH => [0.0, 7.0, 12.0][pair % 3],
+        STACK_CENTER_DOWN if pair == 0 => -12.0,
+        STACK_CENTER_DOWN_2 if pair == 0 => -24.0,
+        _ => 0.0,
+    }
 }
 
 /// VoiceOptions
@@ -76,8 +132,9 @@ fn level_base(harmonics: i32) -> f64 {
     pow(2.0, ceil(log2(harmonics as f64 + 1.0)))
 }
 
-// a param of the block: one value or all equal
-fn is_constant(values: &[f32]) -> bool {
+// a param of the block: one value or all equal (Firefox gives a param without automation as 128 equal values,
+// Chromium and WebKit as one)
+pub(crate) fn is_constant(values: &[f32]) -> bool {
     let first = values[0];
     values[1..].iter().all(|value| *value == first)
 }
@@ -176,7 +233,7 @@ fn render11_pair(
     len_b: f64,
     phases: (f64, f64),
     incs: (f64, f64),
-    g: f64,
+    gains: (f64, f64),
     out_a: &mut [f32],
     out_b: Option<&mut [f32]>,
     s0: usize,
@@ -187,19 +244,19 @@ fn render11_pair(
     match out_b {
         Some(out_b) => {
             let out_b = &mut out_b[..s1];
-            pair_loop(wa, len_a, wb, len_b, phases, incs, g, s0, s1, |s, va, vb| {
+            pair_loop(wa, len_a, wb, len_b, phases, incs, gains, s0, s1, |s, va, vb| {
                 out_a[s] = (out_a[s] as f64 + va) as f32;
                 out_b[s] = (out_b[s] as f64 + vb) as f32;
             })
         }
-        None => pair_loop(wa, len_a, wb, len_b, phases, incs, g, s0, s1, |s, va, vb| {
+        None => pair_loop(wa, len_a, wb, len_b, phases, incs, gains, s0, s1, |s, va, vb| {
             let after_a = (out_a[s] as f64 + va) as f32;
             out_a[s] = (after_a as f64 + vb) as f32;
         }),
     }
 }
 
-// the loop of render11_pair: `add` takes g · v of each voice at sample s (in the lanes of f64x2 it was no faster:
+// the loop of render11_pair: `add` takes the gain × v of each voice at sample s (in the lanes of f64x2 it was no faster:
 // the loop is bound by its loads and stores, not by its arithmetic)
 #[inline(always)]
 fn pair_loop(
@@ -209,7 +266,7 @@ fn pair_loop(
     len_b: f64,
     phases: (f64, f64),
     incs: (f64, f64),
-    g: f64,
+    (ga, gb): (f64, f64),
     s0: usize,
     s1: usize,
     mut add: impl FnMut(usize, f64, f64),
@@ -222,7 +279,7 @@ fn pair_loop(
         let va = lerp(wa, i, f);
         let (j, h) = split(ph_b * len_b, last_b);
         let vb = lerp(wb, j, h);
-        add(s, g * va, g * vb);
+        add(s, ga * va, gb * vb);
         ph_a += inc_a;
         if ph_a >= 1.0 {
             ph_a = wrap(ph_a);
@@ -310,6 +367,12 @@ fn render21_same(
 }
 
 // (not inlined: a loop of its own keeps its values in registers, inlined into render_voices they spilled)
+// two frames (k, k + 1 at m) of two levels of one length (at w): the four windows in the lanes of an f32x4, each
+// read at i and i + 1 at once (a load of 64 bits), one lerp for the four, their weights in lanes with the gain:
+// g(1 - m)(1 - w), gm(1 - w), g(1 - m)w, gmw, stepped by a sum each sample (at a constant w: their product is
+// linear) or as the product of the morph and the level lanes (w moves). In f32, not as the TS (which read the
+// four one by one in f64, as fast as V8's code of it): 3.3× this loop, a voice with a moving position 1.4× the
+// TS core
 #[inline(never)]
 fn render22_same(
     t: &[f32],
@@ -318,9 +381,9 @@ fn render22_same(
     len1: f64,
     o2: usize,
     stride2: usize,
-    mut m: f64,
+    m: f64,
     dm: f64,
-    mut w: f64,
+    w: f64,
     dw: f64,
     mut ph: f64,
     mut inc: f64,
@@ -331,30 +394,168 @@ fn render22_same(
     s1: usize,
 ) -> f64 {
     let len = len1 as usize;
-    let (a1w, b1w) = (window(t, o1, len), window(t, o1 + stride1, len));
-    let (a2w, b2w) = (window(t, o2, len), window(t, o2 + stride2, len));
+    let windows = [
+        window(t, o1, len),
+        window(t, o1 + stride1, len),
+        window(t, o2, len),
+        window(t, o2 + stride2, len),
+    ];
     let last = len1 as i32 - 1;
     let out = &mut out[..s1];
-    phase_loop!(
-        ph,
-        inc,
-        d_inc,
-        s0,
-        s1,
-        |s| {
-            let (i, f1) = split(ph * len1, last);
-            let a1 = lerp(a1w, i, f1);
-            let b1 = lerp(b1w, i, f1);
-            let v1 = a1 + (b1 - a1) * m;
-            let a2 = lerp(a2w, i, f1);
-            let b2 = lerp(b2w, i, f1);
-            let v2 = a2 + (b2 - a2) * m;
-            out[s] = (out[s] as f64 + g * (v1 + (v2 - v1) * w)) as f32;
-        },
-        w += dw,
-        m += dm
-    );
+    let mut lanes = Lanes4::new(windows, m, dm, w, dw, g);
+    if dw == 0.0 {
+        phase_loop!(ph, inc, d_inc, s0, s1, |s| {
+            let (i, f) = split(ph * len1, last);
+            out[s] += lanes.sample_linear(i, f as f32);
+        });
+    } else {
+        phase_loop!(ph, inc, d_inc, s0, s1, |s| {
+            let (i, f) = split(ph * len1, last);
+            out[s] += lanes.sample(i, f as f32);
+        });
+    }
     ph
+}
+
+// the four windows of render22_same and their weights (with the gain), in the lanes of wasm SIMD: `morph`
+// (1 - m, m, 1 - m, m) and `level` g(1 - w, 1 - w, w, w), their product `weights` and its step at a constant w
+#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+struct Lanes4<'a> {
+    windows: [&'a [f32]; 4],
+    morph: core::arch::wasm32::v128,
+    d_morph: core::arch::wasm32::v128,
+    level: core::arch::wasm32::v128,
+    d_level: core::arch::wasm32::v128,
+    weights: core::arch::wasm32::v128,
+    d_weights: core::arch::wasm32::v128,
+}
+
+#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+impl<'a> Lanes4<'a> {
+    #[inline(always)]
+    fn new(windows: [&'a [f32]; 4], m: f64, dm: f64, w: f64, dw: f64, g: f64) -> Lanes4<'a> {
+        use core::arch::wasm32::*;
+        let (m, dm, w, dw, g) = (m as f32, dm as f32, w as f32, dw as f32, g as f32);
+        let morph = f32x4(1.0 - m, m, 1.0 - m, m);
+        let d_morph = f32x4(-dm, dm, -dm, dm);
+        let level = f32x4(g * (1.0 - w), g * (1.0 - w), g * w, g * w);
+        Lanes4 {
+            windows,
+            morph,
+            d_morph,
+            level,
+            d_level: f32x4(-g * dw, -g * dw, g * dw, g * dw),
+            weights: f32x4_mul(morph, level),
+            d_weights: f32x4_mul(d_morph, level),
+        }
+    }
+
+    // the four windows at i and f of the way to i + 1
+    #[inline(always)]
+    fn values(&self, i: usize, f: f32) -> core::arch::wasm32::v128 {
+        use core::arch::wasm32::*;
+        // SAFETY: i = xi + 1 with xi in [-1, len - 1], a window of len + 3 samples: i + 1 < its length
+        let at = |k: usize| unsafe { self.windows[k].as_ptr().add(i) as *const u64 };
+        let zero = f32x4_splat(0.0);
+        // [x0[i], x0[i + 1], x1[i], x1[i + 1]] and of the windows 2 and 3
+        let (first, second) = unsafe {
+            (
+                v128_load64_lane::<1>(v128_load64_lane::<0>(zero, at(0)), at(1)),
+                v128_load64_lane::<1>(v128_load64_lane::<0>(zero, at(2)), at(3)),
+            )
+        };
+        let now = i32x4_shuffle::<0, 2, 4, 6>(first, second);
+        let next = i32x4_shuffle::<1, 3, 5, 7>(first, second);
+        f32x4_add(now, f32x4_mul(f32x4_sub(next, now), f32x4_splat(f)))
+    }
+
+    // (p0 + p2) + (p1 + p3)
+    #[inline(always)]
+    fn sum(p: core::arch::wasm32::v128) -> f32 {
+        use core::arch::wasm32::*;
+        let halves = f32x4_add(p, i32x4_shuffle::<2, 3, 0, 1>(p, p));
+        f32x4_extract_lane::<0>(halves) + f32x4_extract_lane::<1>(halves)
+    }
+
+    // the sample at a constant w (its weights linear), the weights step on
+    #[inline(always)]
+    fn sample_linear(&mut self, i: usize, f: f32) -> f32 {
+        use core::arch::wasm32::*;
+        let p = f32x4_mul(self.values(i, f), self.weights);
+        self.weights = f32x4_add(self.weights, self.d_weights);
+        Self::sum(p)
+    }
+
+    // the sample while w moves too, the morph and the level step on
+    #[inline(always)]
+    fn sample(&mut self, i: usize, f: f32) -> f32 {
+        use core::arch::wasm32::*;
+        let p = f32x4_mul(self.values(i, f), f32x4_mul(self.morph, self.level));
+        self.morph = f32x4_add(self.morph, self.d_morph);
+        self.level = f32x4_add(self.level, self.d_level);
+        Self::sum(p)
+    }
+}
+
+// the same lanes one by one, in the same order (the native build: cargo test)
+#[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
+struct Lanes4<'a> {
+    windows: [&'a [f32]; 4],
+    morph: [f32; 4],
+    d_morph: [f32; 4],
+    level: [f32; 4],
+    d_level: [f32; 4],
+    weights: [f32; 4],
+    d_weights: [f32; 4],
+}
+
+#[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
+impl<'a> Lanes4<'a> {
+    fn new(windows: [&'a [f32]; 4], m: f64, dm: f64, w: f64, dw: f64, g: f64) -> Lanes4<'a> {
+        let (m, dm, w, dw, g) = (m as f32, dm as f32, w as f32, dw as f32, g as f32);
+        let morph = [1.0 - m, m, 1.0 - m, m];
+        let d_morph = [-dm, dm, -dm, dm];
+        let level = [g * (1.0 - w), g * (1.0 - w), g * w, g * w];
+        Lanes4 {
+            windows,
+            morph,
+            d_morph,
+            level,
+            d_level: [-g * dw, -g * dw, g * dw, g * dw],
+            weights: core::array::from_fn(|k| morph[k] * level[k]),
+            d_weights: core::array::from_fn(|k| d_morph[k] * level[k]),
+        }
+    }
+
+    fn values(&self, i: usize, f: f32) -> [f32; 4] {
+        core::array::from_fn(|k| {
+            let (a, b) = (self.windows[k][i], self.windows[k][i + 1]);
+            a + (b - a) * f
+        })
+    }
+
+    fn sum(p: [f32; 4]) -> f32 {
+        (p[0] + p[2]) + (p[1] + p[3])
+    }
+
+    fn sample_linear(&mut self, i: usize, f: f32) -> f32 {
+        let values = self.values(i, f);
+        let p = core::array::from_fn(|k| values[k] * self.weights[k]);
+        for k in 0..4 {
+            self.weights[k] += self.d_weights[k];
+        }
+        Self::sum(p)
+    }
+
+    fn sample(&mut self, i: usize, f: f32) -> f32 {
+        let values = self.values(i, f);
+        let p = core::array::from_fn(|k| values[k] * (self.morph[k] * self.level[k]));
+        for k in 0..4 {
+            self.morph[k] += self.d_morph[k];
+            self.level[k] += self.d_level[k];
+        }
+        Self::sum(p)
+    }
 }
 
 // (not inlined: a loop of its own keeps its values in registers, inlined into render_voices they spilled)
@@ -573,6 +774,14 @@ struct Osc {
     mix_ids: [i32; MAX_UNISON],
     // the index of the oscillator in VoiceOptions.osc: its params
     index: usize,
+    shape: UnisonShape,
+    // per unison voice (set at the start): its share of the spread (-0.5..0.5), the cents of its stack, its gain
+    // (the blend)
+    shares: [f64; MAX_UNISON],
+    stack_cents: [f64; MAX_UNISON],
+    gains: [f64; MAX_UNISON],
+    // a width below 1: each side channel takes the other one × sin, itself × cos (of the pan)
+    width: Option<(f64, f64)>,
 }
 
 impl Osc {
@@ -588,6 +797,49 @@ impl Osc {
                 _ => GAIN1,
             }
     }
+}
+
+// the voices of the unison of an oscillator at the start: their shares of the spread (linear from the lowest, or
+// at random sorted from it), the cents of the stack, the gains of the blend and the pan of the width
+fn shape_unison(osc: &mut Osc) {
+    let n = osc.voices;
+    let shape = osc.shape;
+    for v in 0..n {
+        osc.shares[v] = if n == 1 {
+            0.0
+        } else if shape.random_detune {
+            shape.detune_random[v] - 0.5
+        } else {
+            v as f64 / (n as f64 - 1.0) - 0.5
+        };
+    }
+    if shape.random_detune {
+        osc.shares[..n].sort_unstable_by(f64::total_cmp);
+    }
+    let sides = ceil(n as f64 / 2.0) - 1.0;
+    let blend = min(1.0, max(0.0, shape.blend));
+    let (center, side) = if sides == 0.0 || blend == 0.5 {
+        (1.0, 1.0)
+    } else {
+        // each channel has one centre voice and `sides` others: the power of all of them at 1
+        let (c, s) = (min(1.0, 2.0 * (1.0 - blend)), min(1.0, 2.0 * blend));
+        let k = sqrt((1.0 + sides) / (c * c + sides * s * s));
+        (c * k, s * k)
+    };
+    for v in 0..n {
+        let pair = pair_of_voice(v, n);
+        osc.stack_cents[v] = if n > 1 {
+            100.0 * stack_semitones(shape.stack, pair)
+        } else {
+            0.0
+        };
+        osc.gains[v] = if pair == 0 { center } else { side };
+    }
+    let width = min(1.0, max(0.0, shape.width));
+    osc.width = (width < 1.0).then(|| {
+        let pan = (1.0 - width) * PI / 4.0;
+        (cos(pan), sin(pan))
+    });
 }
 
 pub struct Voice {
@@ -664,6 +916,11 @@ impl Voice {
                 mixes: Default::default(),
                 mix_ids: [-1; MAX_UNISON],
                 index,
+                shape: config.shape,
+                shares: [0.0; MAX_UNISON],
+                stack_cents: [0.0; MAX_UNISON],
+                gains: [1.0; MAX_UNISON],
+                width: None,
             });
         }
         if cfg!(feature = "perf") {
@@ -747,10 +1004,16 @@ impl Voice {
         let in_phrase = self.in_phrase;
         for osc in self.oscs.iter_mut() {
             let spread = params[osc.param(OSC_PARAM_SPREAD)];
-            if read(spread, i) as f64 <= 0.0 && !self.modulation.raises(osc.target(OSC_PARAM_SPREAD)) {
+            // (a stack or a position spread sound at no detune too)
+            if read(spread, i) as f64 <= 0.0
+                && !self.modulation.raises(osc.target(OSC_PARAM_SPREAD))
+                && osc.shape.stack == STACK_OFF
+                && osc.shape.position_spread == 0.0
+            {
                 osc.voices = 1;
             }
             osc.level = 1.0 / sqrt(ceil(osc.voices as f64 / 2.0));
+            shape_unison(osc);
             for v in 0..osc.voices {
                 let phase = osc.phase + osc.random[v] * osc.phase_rand;
                 osc.phases[v] = phase - floor(phase);
@@ -840,7 +1103,8 @@ impl Voice {
             self.start(params, a as usize, shared);
         }
         let gate = params[GATE];
-        let end = if gate.len() > 1 { nf } else { a + 1.0 };
+        // (a constant gate is seen at its first sample: the others change nothing)
+        let end = if is_constant(gate) { a + 1.0 } else { nf };
         let mut i = a;
         while i < end && frame + i < self.stop_frame {
             let value = read(gate, i as usize) as f64;
@@ -1019,12 +1283,10 @@ fn pitch_points(
         last = [f, d, sp];
         let log2_f = if f > 0.0 { log2(f) } else { f64::NEG_INFINITY };
         for v in 0..voices {
-            let cents = d
-                + (if voices > 1 {
-                    sp * (v as f64 / (voices as f64 - 1.0) - 0.5)
-                } else {
-                    0.0
-                });
+            let mut cents = d + (if voices > 1 { sp * osc.shares[v] } else { 0.0 });
+            if osc.shape.stack != STACK_OFF {
+                cents += osc.stack_cents[v];
+            }
             let log = min(ctx.log2_nyquist, log2_f + cents / 1200.0);
             let index = v * ctx.points_length + p;
             osc.logs[index] = log;
@@ -1329,26 +1591,47 @@ fn render_voices(
     }
     // x = 1 + 3·log2(base · f / nyquist) = offset + 3·log2(f)
     let offset = 1.0 + 3.0 * (log2(level_base(levels.harmonics[0])) - ctx.log2_nyquist);
-    // the position in frames: one (snapped to a frame within SNAP) or at each point
+    // the position in frames: one (snapped to a frame within SNAP) or at each point; the position spread moves
+    // voice v by its share of the spread × `spread_frames`
     let moving = n > 1 && !is_constant(position);
+    let last_frame = n as f64 - 1.0;
+    let spread_frames = if n > 1 {
+        osc.shape.position_spread * last_frame
+    } else {
+        0.0
+    };
+    let spread_of = |p: f64, share: f64| min(last_frame, max(0.0, p + spread_frames * share));
+    // the frames k, k + 1 and the share m of k + 1 (of each voice under a position spread)
     let mut k = 0usize;
     let mut m = 0.0;
+    let mut spread: Option<[(usize, f64); MAX_UNISON]> = None;
     if !moving {
+        let frame_of = |p: f64| {
+            let mut m = 0.0;
+            let mut whole = round(p);
+            if (p - whole).abs() >= SNAP {
+                whole = floor(p);
+                m = p - whole;
+            }
+            if whole >= last_frame {
+                whole = last_frame;
+                m = 0.0;
+            }
+            (whole as usize, m)
+        };
         let p = if n == 1 {
             0.0
         } else {
-            min(1.0, max(0.0, position[0] as f64)) * (n as f64 - 1.0)
+            min(1.0, max(0.0, position[0] as f64)) * last_frame
         };
-        let mut whole = round(p);
-        if (p - whole).abs() >= SNAP {
-            whole = floor(p);
-            m = p - whole;
+        (k, m) = frame_of(p);
+        if spread_frames != 0.0 {
+            let mut frames = [(0, 0.0); MAX_UNISON];
+            for v in 0..osc.voices {
+                frames[v] = frame_of(spread_of(p, osc.shares[v]));
+            }
+            spread = Some(frames);
         }
-        if whole >= n as f64 - 1.0 {
-            whole = n as f64 - 1.0;
-            m = 0.0;
-        }
-        k = whole as usize;
     } else {
         let Scratch {
             points, positions, ..
@@ -1364,6 +1647,7 @@ fn render_voices(
         }
     }
 
+    let frame_of_voice = |v: usize| spread.as_ref().map_or((k, m), |frames| frames[v]);
     // the middle voice of an odd count plays in both channels, the others take turns around it
     let voices = osc.voices;
     let middle: i64 = if voices % 2 == 1 {
@@ -1410,6 +1694,7 @@ fn render_voices(
                 continue;
             };
             decided[v] = true;
+            let (k, m) = frame_of_voice(v);
             if osc.mix_ids[v] != osc.stable_id
                 && shared.take_build(ctx.block_frame, build_cost(ctx, levels, level, w0, m))
             {
@@ -1454,7 +1739,7 @@ fn render_voices(
                 (mix_b.len() - FRAME_GUARD) as f64,
                 (osc.phases[v], osc.phases[v + 1]),
                 (osc.incs[v * points_length], osc.incs[(v + 1) * points_length]),
-                g,
+                (g * osc.gains[v], g * osc.gains[v + 1]),
                 out_a,
                 out_b,
                 s0,
@@ -1470,6 +1755,8 @@ fn render_voices(
         }
         let fade_left = osc.fades[v];
         let channel = channel_of_voice(v);
+        let g = g * osc.gains[v];
+        let (k, m) = frame_of_voice(v);
         if fade_left > 0 {
             shared.scratch.fading[a..b].fill(0.0);
         }
@@ -1530,8 +1817,14 @@ fn render_voices(
             }
             // the position from its point to the next, split where it crosses a frame
             let mut sample = s0;
-            let mut at = shared.scratch.positions[p];
-            let dp = (shared.scratch.positions[p + 1] - at) / length;
+            let (mut at, dp) = if spread_frames != 0.0 {
+                let from = spread_of(shared.scratch.positions[p], osc.shares[v]);
+                let to = spread_of(shared.scratch.positions[p + 1], osc.shares[v]);
+                (from, (to - from) / length)
+            } else {
+                let at = shared.scratch.positions[p];
+                (at, (shared.scratch.positions[p + 1] - at) / length)
+            };
             while sample < s1 {
                 let mut frame = min(floor(at), n as f64 - 2.0);
                 // going down from a frame: the frame below and its next one
@@ -1691,7 +1984,7 @@ fn render_osc(
 
     let next = osc.next;
     let constant_gain = is_constant(gain);
-    if next.is_none() && constant_gain {
+    if next.is_none() && constant_gain && osc.width.is_none() {
         // straight into the channels of the voice
         let g = gain[0] as f64 * osc.level;
         render_voices(
@@ -1783,11 +2076,49 @@ fn render_osc(
             osc.next = None;
         }
     }
-    let s = &mut shared.scratch;
-    for i in a..b {
-        let g = (if constant_gain { gain[0] } else { gain[i] }) as f64;
-        s.left[i] = (s.left[i] as f64 + s.a_left[i] as f64 * g) as f32;
-        s.right[i] = (s.right[i] as f64 + s.a_right[i] as f64 * g) as f32;
-        s.center[i] = (s.center[i] as f64 + s.a_center[i] as f64 * g) as f32;
+    if constant_gain {
+        let g = gain[0] as f64;
+        mix_osc(&mut shared.scratch, a, b, osc.width, |_| g);
+    } else {
+        let gain = &gain[a..b];
+        mix_osc(&mut shared.scratch, a, b, osc.width, |i| gain[i] as f64);
+    }
+}
+
+// the channels of an oscillator over a..b × its gain at i (from a) added to those of the voice; a width narrows
+// the side voices: each channel × cos plus the other × sin. Over slices of one length (no check per sample, the
+// gain once per loop: the loop was a quarter of a held u8 note at a width)
+#[inline(always)]
+fn mix_osc(s: &mut Scratch, a: usize, b: usize, width: Option<(f64, f64)>, gain: impl Fn(usize) -> f64) {
+    let Scratch {
+        left,
+        right,
+        center,
+        a_left,
+        a_right,
+        a_center,
+        ..
+    } = s;
+    let n = b - a;
+    let (left, right, center) = (&mut left[a..b], &mut right[a..b], &mut center[a..b]);
+    let (al, ar, ac) = (&a_left[a..b], &a_right[a..b], &a_center[a..b]);
+    match width {
+        Some((cos, sin)) => {
+            for i in 0..n {
+                let g = gain(i);
+                let (l, r) = (al[i] as f64, ar[i] as f64);
+                left[i] = (left[i] as f64 + (l * cos + r * sin) * g) as f32;
+                right[i] = (right[i] as f64 + (r * cos + l * sin) * g) as f32;
+                center[i] = (center[i] as f64 + ac[i] as f64 * g) as f32;
+            }
+        }
+        None => {
+            for i in 0..n {
+                let g = gain(i);
+                left[i] = (left[i] as f64 + al[i] as f64 * g) as f32;
+                right[i] = (right[i] as f64 + ar[i] as f64 * g) as f32;
+                center[i] = (center[i] as f64 + ac[i] as f64 * g) as f32;
+            }
+        }
     }
 }

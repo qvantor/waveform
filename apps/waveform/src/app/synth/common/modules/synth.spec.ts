@@ -7,7 +7,7 @@ import { WorkerStub } from '../../../../test-utils/worker-stub';
 import { getFq } from '../../services';
 import { RELEASE_GATE, VOICE_PROCESSOR } from '../wavetable/wavetable-osc-params';
 import { envelopeValue, withCurves } from '../envelope/envelope-curve';
-import type { VoiceOptions } from '../wavetable/voice-options';
+import { UNISON_SHAPE, VoiceOptions } from '../wavetable/voice-options';
 import { glideValue } from './glide';
 
 interface VoiceNode extends AudioWorkletNode {
@@ -82,7 +82,7 @@ describe('synth', () => {
     expect(voices()).toHaveLength(1);
     // osc1 is active with unison 2, osc2 is inactive
     expect(voice.options.processorOptions).toEqual({
-      osc: [{ table: osc1[0].id, unison: 2, phase: 0.5, phaseRand: 1 }, null],
+      osc: [{ table: osc1[0].id, unison: 2, phase: 0.5, phaseRand: 1, unisonShape: UNISON_SHAPE }, null],
       start: 0,
       // the knobs with the default shape
       envelopes: [ENVELOPE_DEFAULTS.env1, ENVELOPE_DEFAULTS.env2, ENVELOPE_DEFAULTS.env3].map(withCurves),
@@ -112,13 +112,21 @@ describe('synth', () => {
       [0, -1, 0, 1],
     ]);
     osc2[1].setPosition(1);
+    osc2[1].setUnisonShape({ blend: 0.8, stack: 'fifth' });
 
     onPress([4, 'A']);
 
     const [voice] = voices();
     expect((voice.options.processorOptions as { osc: unknown[] }).osc).toEqual([
-      { table: osc1[0].id, unison: 2, phase: 0.5, phaseRand: 1 },
-      { table: osc2[0].id, unison: 4, phase: 0.5, phaseRand: 1 },
+      { table: osc1[0].id, unison: 2, phase: 0.5, phaseRand: 1, unisonShape: UNISON_SHAPE },
+      {
+        table: osc2[0].id,
+        unison: 4,
+        phase: 0.5,
+        phaseRand: 1,
+        // the shape of its unison as it is at the note on
+        unisonShape: { ...UNISON_SHAPE, blend: 0.8, stack: 'fifth' },
+      },
     ]);
     // the octave in cents, the position as a share of the table
     expect(param(voice, 'detune2').value).toBe(-1200);

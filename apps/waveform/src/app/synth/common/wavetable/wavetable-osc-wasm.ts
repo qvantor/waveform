@@ -7,10 +7,12 @@ import type {
   StoreChunkMessage,
   StoreChunksMessage,
 } from './wavetable-builder';
-import type {
+import {
   StatsRequest,
   StoreTableMessage,
   TableStoreStats,
+  UNISON_SHAPE,
+  UNISON_STACKS,
   VoiceFilterOptions,
   VoiceOptions,
   VoiceRoute,
@@ -327,7 +329,7 @@ const writeEnvelopes = (command: Float64Array, at: number, envelopes: EnvelopePa
 };
 
 // createVoiceDsp in the core: random() draws the start phases of the unison voices of each oscillator on, in
-// their order, as the TS voice draws them
+// their order, as the TS voice drew them, then the shares of a random detune
 export const createVoiceWasm = (
   scope: OscScope,
   sampleRate: number,
@@ -350,6 +352,15 @@ export const createVoiceWasm = (
     command[at++] = osc?.phase ?? 0;
     command[at++] = osc?.phaseRand ?? 0;
     for (let v = 0; v < MAX_UNISON; v++) command[at++] = osc ? random() : 0;
+    const shape = osc?.unisonShape ?? UNISON_SHAPE;
+    command[at++] = shape.blend;
+    command[at++] = shape.width;
+    command[at++] = UNISON_STACKS.indexOf(shape.stack);
+    const randomDetune = osc !== null && shape.detune === 'random';
+    command[at++] = randomDetune ? 1 : 0;
+    command[at++] = shape.positionSpread;
+    // (drawn after the phases, only for a random detune: the phases of a linear one stay those of before)
+    for (let v = 0; v < MAX_UNISON; v++) command[at++] = randomDetune ? random() : 0;
   }
   at = writeEnvelopes(command, at, options.envelopes);
   at = writeFilter(command, at, options.filter);

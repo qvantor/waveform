@@ -71,7 +71,10 @@ const setParam = (param: AudioParam, value: number, now: number) => {
   param.setValueAtTime(value, now);
 };
 
-type VoiceOscillator = Pick<OscillatorModel, 'id' | '$active' | '$osc' | '$params' | 'buses' | '$busSources'>;
+type VoiceOscillator = Pick<
+  OscillatorModel,
+  'id' | '$active' | '$osc' | '$unisonShape' | '$params' | 'buses' | '$busSources'
+>;
 
 // the routes of a note to its params: of the oscillators on for it and of the filter while it is on, in the
 // range of its type (a knob its type doesn't use is left out); an amount of 0 is left out (its envelope isn't
@@ -149,8 +152,8 @@ interface VoiceConfig {
 }
 
 // the node of a note: both oscillators (off: not active when it was pressed) with their unison voices and its
-// envelopes (ENV 1 is its volume); the knobs are the base of its params (oscillator $params), the unison, the
-// phases, on/off and the envelopes are read now
+// envelopes (ENV 1 is its volume); the knobs are the base of its params (oscillator $params), the unison and its
+// shape, the phases, on/off and the envelopes are read now
 const createVoiceNode = ({
   audioCtx,
   createNode,
@@ -167,9 +170,10 @@ const createVoiceNode = ({
     const params = oscillator.$params.value;
     OSC_PARAMS.forEach((param) => (parameterData[oscParamName(param, index)] = params[param]));
     if (!oscillator.$active.value) return null;
-    // the phases at the note on: options, not params (an AudioParam costs every block, ~2% of a held note)
+    // the phases and the shape of the unison at the note on: options, not params (an AudioParam costs every
+    // block, ~2% of a held note)
     const { unison, phase, phaseRand } = oscillator.$osc.value;
-    return { table: oscillator.id, unison, phase, phaseRand };
+    return { table: oscillator.id, unison, phase, phaseRand, unisonShape: oscillator.$unisonShape.value };
   });
   const on = oscillators.map(({ $active }) => $active.value);
   const node = createNode(

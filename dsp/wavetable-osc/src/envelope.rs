@@ -349,10 +349,11 @@ impl EnvelopeBlock {
         }
     }
 
-    /// values[a..b) of the block at `frame`
+    /// values[a..b) of the block at `frame` (values[a] even when b is a: a voice that stops there reads it)
     pub fn render(&mut self, frame: f64, a: f64, b: f64) {
-        if (self.values.len() as f64) < b {
-            self.values = vec![0.0; b as usize];
+        let length = max(b, a + 1.0);
+        if (self.values.len() as f64) < length {
+            self.values = vec![0.0; length as usize];
         }
         if !self.before.is_empty() {
             let mut i = a;
@@ -436,6 +437,24 @@ mod tests {
         }
         // f32 values of the closed form; the recurrence drifts by far less
         assert!(worst < 2e-7, "{worst}");
+    }
+
+    #[test]
+    fn a_block_that_stops_where_it_starts_has_its_first_value() {
+        // a block longer than 128 samples, its voice stopped at sample 300 of it: the flat stage writes values[a]
+        let env = EnvelopeParams {
+            attack: 0.0,
+            hold: 0.0,
+            decay: 0.0,
+            sustain: 1.0,
+            release: 0.0,
+            curves: [0.0; 3],
+        };
+        let mut block = EnvelopeBlock::new(env, 48000.0, 0.0);
+        block.render(0.0, 0.0, 128.0);
+        block.render(512.0, 300.0, 300.0);
+        assert!(block.values.len() > 300);
+        assert_eq!(block.values[300], 1.0);
     }
 
     #[test]

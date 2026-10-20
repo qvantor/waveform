@@ -7,7 +7,14 @@ import { createBitsHash, createGoldens, expectFinite, FUZZ_SCALE } from '../../.
 import { seeded } from '../../../../test-utils/seeded';
 import { wasmCore } from '../../../../test-utils/wasm';
 import { buildLevels } from './wavetable-mipmap';
-import type { VoiceFilterOptions, VoiceOptions, VoiceOscOptions, VoiceRoute } from './voice-options';
+import {
+  UNISON_SHAPE,
+  UNISON_STACKS,
+  VoiceFilterOptions,
+  VoiceOptions,
+  VoiceOscOptions,
+  VoiceRoute,
+} from './voice-options';
 import { HELD_AGAIN_GATE, RELEASE_GATE, VoiceParam } from './wavetable-osc-params';
 import {
   createOscScope,
@@ -136,6 +143,9 @@ const run = (name: string, scenario: Scenario) => {
   alive.forEach(({ wasm }) => wasm.end());
   expect({ name, ...shared.stats() }).toMatchObject({ name, voices: 0, unison: 0 });
   expect({ name, ...store.stats() }).toMatchObject({ name, tables: live.size, versions: live.size });
+  // (thousands of scopes in one instance: its memory would grow past 2 GiB)
+  store.free();
+  shared.free();
   return hash.digest();
 };
 
@@ -425,6 +435,43 @@ const GOLDEN: [string, Scenario][] = [
       seed: 7,
     },
   ],
+  [
+    'a shaped unison: blend, width, a stack, a random detune, a position spread; into a new version',
+    {
+      rate: RATE,
+      blocks: quanta(0.15),
+      tables: { a: [SAW, SQUARE, SINE] },
+      versions: { 20: [['a', [SQUARE, SAW, SINE]]] },
+      voices: [
+        {
+          at: 0,
+          options: note({
+            osc: [
+              osc({
+                unison: 7,
+                phaseRand: 1,
+                unisonShape: {
+                  blend: 0.8,
+                  width: 0.4,
+                  stack: 'fifth',
+                  detune: 'random',
+                  positionSpread: 0.6,
+                },
+              }),
+              osc({ unison: 4, unisonShape: { ...UNISON_SHAPE, blend: 0.1, stack: 'center-12' } }),
+            ],
+          }),
+          params: {
+            spread1: constant(40),
+            spread2: constant(0),
+            position1: perSample((frame) => 0.5 + 0.4 * Math.sin(frame / 2000)),
+            gain2: perSample((frame) => 0.5 + 0.5 * Math.cos(frame / 700)),
+          },
+        },
+      ],
+      seed: 8,
+    },
+  ],
 ];
 
 // --- random scenarios ---
@@ -560,6 +607,15 @@ const randomScenario = (random: Random, seed: number): Scenario => {
             unison: 1 + Math.floor(random() * 8),
             phase: random(),
             phaseRand: random() < 0.5 ? 0 : random(),
+            ...(random() < 0.3 && {
+              unisonShape: {
+                blend: random(),
+                width: random(),
+                stack: pick(random, [...UNISON_STACKS]),
+                detune: random() < 0.5 ? 'linear' : 'random',
+                positionSpread: random() < 0.5 ? 0 : random(),
+              },
+            }),
           };
     const routes = randomRoutes(random);
     const message: Record<number, VoiceRoute[]> = {};
@@ -603,6 +659,14 @@ describe('wavetable oscillator wasm core', () => {
 
   const count = 150 * FUZZ_SCALE;
   it(`renders ${count} random scopes, finite, every voice ending`, () => {
-    for (let seed = 1; seed <= count; seed++) run(`seed ${seed}`, randomScenario(seeded(seed * 7919), seed));
+    for (let seed = 1; seed <= count; seed++) {
+      const name = `seed ${seed}`;
+      try {
+        run(name, randomScenario(seeded(seed * 7919), seed));
+      } catch (error) {
+        // (a trap of the core says nothing of its scenario)
+        throw new Error(`${name}: ${(error as Error).message}`);
+      }
+    }
   });
 });

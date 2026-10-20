@@ -24,7 +24,7 @@ use filter::FilterOptions;
 use modulation::VoiceRoute;
 use shared::{Shared, PARAMS};
 use store::Store;
-use voice::{OscOptions, Params, Voice, VoiceOptions, MAX_UNISON};
+use voice::{OscOptions, Params, UnisonShape, Voice, VoiceOptions, MAX_UNISON};
 
 const COMMAND_SIZE: usize = 4096;
 static mut COMMAND: [f64; COMMAND_SIZE] = [0.0; COMMAND_SIZE];
@@ -84,7 +84,8 @@ fn read_filter(reader: &mut Reader) -> Option<FilterOptions> {
 }
 
 // VoiceOptions: start, envStart, phrase; per oscillator present, table, unison, phase, phaseRand and its 8 random
-// shares; the envelopes (count, then 5 each), the filter, the routes
+// shares, its UnisonShape (blend, width, stack, random detune, position spread and the 8 random shares of the
+// detune); the envelopes (count, then 5 each), the filter, the routes
 fn read_voice_options(reader: &mut Reader) -> VoiceOptions {
     let start = reader.next();
     let env_start = reader.next();
@@ -96,12 +97,21 @@ fn read_voice_options(reader: &mut Reader) -> VoiceOptions {
         let phase = reader.next();
         let phase_rand = reader.next();
         let random: [f64; MAX_UNISON] = core::array::from_fn(|_| reader.next());
+        let shape = UnisonShape {
+            blend: reader.next(),
+            width: reader.next(),
+            stack: reader.next() as u32,
+            random_detune: reader.next() != 0.0,
+            position_spread: reader.next(),
+            detune_random: core::array::from_fn(|_| reader.next()),
+        };
         present.then_some(OscOptions {
             table,
             unison,
             phase,
             phase_rand,
             random,
+            shape,
         })
     });
     let count = reader.next() as usize;

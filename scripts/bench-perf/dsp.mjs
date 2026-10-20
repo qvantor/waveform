@@ -189,9 +189,12 @@ const createCases = (dsp) => {
     wasm: (options, shared = createShared.wasm()) =>
       dsp.createVoiceWasm(oscScope, RATE, options, wasmStore, Math.random, shared),
   };
-  const voiceOf = (core) => (oscs, params) => () => {
+  // (a unison shape: a tree before it plays the unison plain)
+  const voiceOf = (core, unisonShape) => (oscs, params) => () => {
     const options = {
-      osc: oscs.map((unison) => (unison ? { table: 'a', unison, phase: 0, phaseRand: 1 } : null)),
+      osc: oscs.map((unison) =>
+        unison ? { table: 'a', unison, phase: 0, phaseRand: 1, ...(unisonShape && { unisonShape }) } : null
+      ),
       start: 0,
       // ENV 1 at full level, no route, no filter: the oscillators as they play
       envelopes: [0, 1, 2].map(() => ({ attack: 0, hold: 0, decay: 0, sustain: 1, release: 0 })),
@@ -237,14 +240,19 @@ const createCases = (dsp) => {
     };
   };
   const held = constant(BASE);
-  // a position that moves in every block: the direct path
+  // a position that moves in every block: the direct path. Its blocks over a period of the LFO (2 s) are worked
+  // out once, not in the call: making them there (Float32Array.from, 128 sines) cost 34 ns/sample, more than the
+  // core itself
   const moving = { ...held };
-  const movingPosition = (frameAt) => {
-    const phase = (frameAt / RATE) * 0.5;
-    moving.position1 = Float32Array.from(
+  const PERIOD = (2 * RATE) / BLOCK;
+  const positions = Array.from({ length: PERIOD }, (_, block) =>
+    Float32Array.from(
       { length: BLOCK },
-      (_, i) => 0.5 + 0.5 * Math.sin(2 * Math.PI * (phase + i / RATE / 2))
-    );
+      (_, i) => 0.5 + 0.5 * Math.sin(2 * Math.PI * (((block * BLOCK) / RATE) * 0.5 + i / RATE / 2))
+    )
+  );
+  const movingPosition = (frameAt) => {
+    moving.position1 = positions[(frameAt / BLOCK) % PERIOD];
     return moving;
   };
   // the effects over noise, block by block
@@ -273,6 +281,14 @@ const createCases = (dsp) => {
       },
       oscScope && voiceOf('wasm'),
       store && voiceOf('ts')
+    ),
+    // blend, width (the channels of the oscillator and their pan), a stack and a position spread (a frame per
+    // voice); its cost over `voice u8 held`
+    ...withTs(
+      { 'voice u8 shaped unison': [[8, null], held] },
+      oscScope &&
+        voiceOf('wasm', { blend: 0.75, width: 0.5, stack: 'fifth', detune: 'linear', positionSpread: 0.3 }),
+      null
     ),
     ...withTs(
       { 'voice chord attack': [] },

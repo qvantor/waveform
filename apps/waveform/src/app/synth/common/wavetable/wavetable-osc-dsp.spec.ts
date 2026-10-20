@@ -5,8 +5,11 @@ import { seeded, VOICE_DEFAULTS } from '../../../../test-utils/voice-dsp';
 import { wasmCore } from '../../../../test-utils/wasm';
 import { buildLevels } from './wavetable-mipmap';
 import type { WavetableLevels } from './wavetable-levels';
-import type {
+import {
   TableStoreStats,
+  UNISON_SHAPE,
+  UnisonShape,
+  UnisonStack,
   VoiceFilterOptions,
   VoiceOptions,
   VoiceOscOptions,
@@ -575,6 +578,238 @@ describe('the wavetable voice', () => {
         });
         expect(toneAmplitude(left, unison === 1 ? 300 : 300 * 2 ** -2)).toBeCloseTo(level, 2);
       }
+    });
+  });
+
+  describe('unison shape', () => {
+    const shaped = (unison: number, shape: Partial<UnisonShape>, config: Partial<VoiceOscOptions> = {}) =>
+      osc({ unison, unisonShape: { ...UNISON_SHAPE, ...shape }, ...config });
+    // the amplitude of each voice in each channel: [pitch, left, right]
+    const expectVoices = (
+      { left, right }: { left: Float32Array; right: Float32Array },
+      voices: [number, number, number][]
+    ) =>
+      voices.forEach(([pitch, inLeft, inRight]) => {
+        expect(toneAmplitude(left, pitch)).toBeCloseTo(inLeft, 2);
+        expect(toneAmplitude(right, pitch)).toBeCloseTo(inRight, 2);
+      });
+
+    describe('blend', () => {
+      // u5 an octave below to an octave above: 200 left, 283 right, 400 both (the centre), 566 left, 800 right
+      const u5 = (blend: number) => {
+        const { store } = core.storeWith({ a: [sine] });
+        return render({
+          store,
+          oscs: [shaped(5, { blend })],
+          params: { frequency: 400, spread1: 2400 },
+          frames: RATE,
+        });
+      };
+      const pitch = (cents: number) => 400 * 2 ** (cents / 1200);
+
+      it.each([
+        // the centre and the others at 1/√3 × their gain: c = min(1, 2(1 - b)), s = min(1, 2b), × √(3 / (c² + 2s²))
+        [0, 1, 0],
+        [0.25, Math.sqrt(2 / 3), Math.sqrt(1 / 6)],
+        [0.5, 1 / Math.sqrt(3), 1 / Math.sqrt(3)],
+        [0.75, 1 / 3, 2 / 3],
+        [1, 0, 1 / Math.sqrt(2)],
+      ])(
+        'at %s plays the centre and the others at their gains, the power of one voice',
+        (blend, center, side) => {
+          const out = u5(blend);
+          expectVoices(out, [
+            [pitch(-1200), side, 0],
+            [pitch(-600), 0, side],
+            [pitch(0), center, center],
+            [pitch(600), side, 0],
+            [pitch(1200), 0, side],
+          ]);
+          expect(center ** 2 + 2 * side ** 2).toBeCloseTo(1, 6);
+        }
+      );
+
+      it('has the middle two voices of an even count as its centre', () => {
+        const { store } = core.storeWith({ a: [sine] });
+        // u4: 200 left, 317 right (the centre), 504 left (the centre), 800 right, at 1/√2 × their gain
+        const out = render({
+          store,
+          oscs: [shaped(4, { blend: 0 })],
+          params: { frequency: 400, spread1: 2400 },
+          frames: RATE,
+        });
+        expectVoices(out, [
+          [pitch(-1200), 0, 0],
+          [pitch(-400), 0, 1],
+          [pitch(400), 1, 0],
+          [pitch(1200), 0, 0],
+        ]);
+      });
+
+      it('changes nothing in a unison of 2: it is all centre', () => {
+        const { store } = core.storeWith({ a: [saw] });
+        const play = (blend: number) =>
+          render({ store, oscs: [shaped(2, { blend })], params: { spread1: 20 }, frames: 2048 });
+        expect(play(0).left).toEqual(play(0.5).left);
+        expect(play(1).right).toEqual(play(0.5).right);
+      });
+    });
+
+    describe('width', () => {
+      // u3: 200 left, 400 both, 800 right at 1/√2
+      const u3 = (width: number) => {
+        const { store } = core.storeWith({ a: [sine] });
+        return render({
+          store,
+          oscs: [shaped(3, { width })],
+          params: { frequency: 400, spread1: 2400 },
+          frames: RATE,
+        });
+      };
+
+      it('pans the side voices to the middle at equal power, the centre stays', () => {
+        const level = 1 / Math.sqrt(2);
+        const [own, other] = [Math.cos(Math.PI / 8) * level, Math.sin(Math.PI / 8) * level];
+        expectVoices(u3(0.5), [
+          [200, own, other],
+          [400, level, level],
+          [800, other, own],
+        ]);
+        expectVoices(u3(0), [
+          [200, 0.5, 0.5],
+          [400, level, level],
+          [800, 0.5, 0.5],
+        ]);
+      });
+
+      it('is mono at 0: both channels the same', () => {
+        const { left, right } = u3(0);
+        left.forEach((value, i) => expect(value).toBeCloseTo(right[i], 6));
+      });
+    });
+
+    describe('stack', () => {
+      const stacked = (unison: number, stack: UnisonStack) => {
+        const { store } = core.storeWith({ a: [sine] });
+        // no detune: the voices stay for the stack
+        return render({ store, oscs: [shaped(unison, { stack })], params: { frequency: 400 }, frames: RATE });
+      };
+      const level3 = 1 / Math.sqrt(3);
+
+      it('moves every other pair from the centre an octave up', () => {
+        // u5: pair 1 (voices 1, 3) at 800, the centre and pair 2 at 400 (voices 0 and 2 in phase in the left)
+        expectVoices(stacked(5, 'octave'), [
+          [400, 2 * level3, 2 * level3],
+          [800, level3, level3],
+        ]);
+      });
+
+      it('stacks a fifth and an octave over the pairs', () => {
+        expectVoices(stacked(5, 'fifth'), [
+          [400, level3, level3],
+          [400 * 2 ** (7 / 12), level3, level3],
+          [800, level3, level3],
+        ]);
+      });
+
+      it('moves the centre an octave or two down', () => {
+        const level = 1 / Math.sqrt(2);
+        expectVoices(stacked(3, 'center-12'), [
+          [200, level, level],
+          [400, level, level],
+        ]);
+        expectVoices(stacked(3, 'center-24'), [
+          [100, level, level],
+          [400, level, level],
+        ]);
+      });
+
+      it('leaves a single voice at the note', () => {
+        const { store } = core.storeWith({ a: [saw] });
+        const one = render({ store, oscs: [shaped(1, { stack: 'center-24' })], frames: 2048 });
+        expect(one.left).toEqual(render({ store, oscs: [osc()], frames: 2048 }).left);
+      });
+    });
+
+    describe('detune', () => {
+      it('detunes the voices at random shares of the spread, sorted from the lowest, drawn after the phases', () => {
+        const { store } = core.storeWith({ a: [sine] });
+        const out = render({
+          store,
+          oscs: [shaped(4, { detune: 'random' })],
+          params: { frequency: 400, spread1: 1200 },
+          frames: RATE,
+          random: seeded(3),
+        });
+        const random = seeded(3);
+        Array.from({ length: 8 }, random);
+        const shares = Array.from({ length: 4 }, random).sort((a, b) => a - b);
+        // even: from the lowest left, right, left, right at 1/√2
+        expectVoices(
+          out,
+          shares.map((share, j): [number, number, number] => {
+            const level = 1 / Math.sqrt(2);
+            return [400 * 2 ** (share - 0.5), j % 2 === 0 ? level : 0, j % 2 === 1 ? level : 0];
+          })
+        );
+      });
+
+      it('draws 8 shares more per oscillator only for a random detune', () => {
+        const { store } = core.storeWith({ a: [saw] });
+        const calls = (detune: UnisonShape['detune']) => {
+          let count = 0;
+          const random = () => (count++ % 10) / 10;
+          render({ store, oscs: [shaped(8, { detune }), null], frames: 0, random });
+          return count;
+        };
+        expect(calls('linear')).toBe(8);
+        expect(calls('random')).toBe(16);
+      });
+    });
+
+    describe('position spread', () => {
+      // frame 0 the fundamental, 1 the 2nd harmonic, 2 the 3rd
+      const table = [cycle(2048, [[1, 1]]), cycle(2048, [[2, 1]]), cycle(2048, [[3, 1]])];
+
+      it('plays the positions of the voices spread as their pitch, within the table', () => {
+        const { store } = core.storeWith({ a: table });
+        // u3 at frame 1 and a spread of the whole table: voice 0 (left) frame 0, the middle one 1, voice 2 (right)
+        // frame 2; at frame 2 voice 2 stays on the last frame
+        const level = 1 / Math.sqrt(2);
+        const at = (position: number) =>
+          render({
+            store,
+            oscs: [shaped(3, { positionSpread: 1 })],
+            params: { frequency: 400, position1: position },
+            frames: RATE,
+          });
+        expectVoices(at(0.5), [
+          [400, level, 0],
+          [800, level, level],
+          [1200, 0, level],
+        ]);
+        expectVoices(at(1), [
+          [400, 0, 0],
+          [800, level, 0],
+          [1200, level, 2 * level],
+        ]);
+      });
+
+      it('spreads a moving position the same way', () => {
+        const { store } = core.storeWith({ a: table });
+        const play = (position1: ParamValue) =>
+          render({
+            store,
+            oscs: [shaped(3, { positionSpread: 0.5 })],
+            params: { frequency: 400, position1 },
+            frames: 4096,
+          });
+        // (moving by less than a float32 step of 0.5 in a few samples: every block is played as moving)
+        const moving = play((frame) => 0.5 + (frame % 2) * 6e-8);
+        const still = play(0.5);
+        moving.left.forEach((value, i) => expect(value).toBeCloseTo(still.left[i], 4));
+        moving.right.forEach((value, i) => expect(value).toBeCloseTo(still.right[i], 4));
+      });
     });
   });
 
@@ -1160,6 +1395,27 @@ describe('the wavetable voice', () => {
       const { store } = core.storeWith({ a: [sine] });
       return render({ store, oscs: [osc({ phase: 0.25 })], params: { frequency: 0.01 }, frames, ...options });
     };
+
+    // Firefox gives a param without automation as 128 equal values, Chromium and WebKit as one
+    it('plays params of 128 equal values as one, routes on their sustain too: the same bits', () => {
+      const { store } = core.storeWith({ a: [saw, square, sine] });
+      const values: Params = { frequency: 220, position1: 0.3, spread1: 20, gain1: 0.6, gate: 1 };
+      const play = (params: Params) =>
+        render({
+          store,
+          oscs: [osc({ unison: 4 })],
+          params,
+          frames: 8192,
+          envelopes: [decay(0.5), FLAT],
+          routes: [route('position1', 0.5), route('spread1', 50, 0, 100), route('gain1', -0.05)],
+        });
+      const one = play(values);
+      const equal = play(
+        Object.fromEntries(Object.entries(values).map(([name, value]) => [name, () => value as number]))
+      );
+      expect(equal.left).toEqual(one.left);
+      expect(equal.right).toEqual(one.right);
+    });
 
     it('moves the gain by amount × the envelope, sample by sample', () => {
       const env = decay(0);

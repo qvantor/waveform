@@ -18,7 +18,8 @@ type ViewType = Float32ArrayConstructor | Float64ArrayConstructor | Int32ArrayCo
 
 // a typed array (a Float32Array by default) on the memory of a core, made again when the block moved or the
 // memory has grown: memory.grow detaches the old buffer, a view on it has the length 0 (the getter of
-// memory.buffer is not called per block). No array is created per block
+// memory.buffer is not called per block). No array is created per block. A pointer comes as an i32: above 2 GiB
+// it is negative, read unsigned
 export const createView = <T extends ViewType = Float32ArrayConstructor>(
   exports: CoreExports,
   type: T = Float32Array as T
@@ -28,7 +29,7 @@ export const createView = <T extends ViewType = Float32ArrayConstructor>(
   return (pointer: number, length: number) => {
     if (view.length !== length || pointer !== at) {
       at = pointer;
-      view = new type(exports.memory.buffer, pointer, length) as InstanceType<T>;
+      view = new type(exports.memory.buffer, pointer >>> 0, length) as InstanceType<T>;
     }
     return view;
   };

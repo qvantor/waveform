@@ -18,6 +18,7 @@ import { DEFAULT_PHASE, withLegacyPhase } from '@waveform/preset-schema';
 import { generateId, Vector2D } from '@waveform/math';
 import { urlSnapshotPlugin } from '../../../app';
 import { loadWavetable, LoadWavetable, wavetableId } from '../../services';
+import { UNISON_SHAPE, UnisonShape } from '../wavetable/voice-options';
 import { OSC_PARAMS, OscParam } from '../wavetable/wavetable-osc-params';
 import { SynthCoreModule } from './synth-core';
 
@@ -68,6 +69,9 @@ export const oscillator = ({
       phaseRand: 1,
       octave: 0,
     });
+    // how the unison voices sound (Blend, Width, Stack, the detune, the position spread): no knobs
+    // and not in the snapshot yet (the specs and the perf hook set it), read when a note is pressed
+    const $unisonShape = new ObjectBS<UnisonShape>(UNISON_SHAPE);
     const $waveTablePath = new ArrayBS<(string | number)[]>(initialWavePath);
     const $waveTable = new BehaviorSubject<BehaviorSubject<number[]>[]>([
       new BehaviorSubject(PLACEHOLDER_WAVE),
@@ -120,6 +124,7 @@ export const oscillator = ({
       $waveTable,
       $position,
       $osc,
+      $unisonShape,
       $wave,
       $morphWave,
       $gain,
@@ -154,6 +159,9 @@ export const oscillator = ({
         $waveTable.next(wavetable.map((value) => new BehaviorSubject(value)));
       },
       setWaveTablePath: (path: (string | number)[]) => $waveTablePath.next(path),
+    }))
+    .actions(({ $unisonShape }) => ({
+      setUnisonShape: (shape: Partial<UnisonShape>) => $unisonShape.next({ ...$unisonShape.value, ...shape }),
     }))
     // the table goes to the wavetable oscillator under the id of the model: a new table at once, an edited
     // frame at most every TABLE_THROTTLE ms (the last edit is sent too)

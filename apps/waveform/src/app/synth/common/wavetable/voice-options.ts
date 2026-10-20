@@ -14,7 +14,41 @@ export interface VoiceOscOptions {
   // shares of a period: the start phase of every unison voice and the most of its random shift (1: any phase)
   phase: number;
   phaseRand: number;
+  // how its unison voices sound, UNISON_SHAPE without it
+  unisonShape?: UnisonShape;
 }
+
+// the stacks of a unison: the voices by their pair from the centre (the middle one of an odd count, the middle two
+// of an even one: pair 0, then outwards) moved in pitch: every other pair an octave up, the pairs 0, +12, +24
+// semitones in turn, or 0, +7, +12; the centre an octave or two down. A unison of 2 is only its centre
+export const UNISON_STACKS = ['off', 'octave', 'two-octaves', 'fifth', 'center-12', 'center-24'] as const;
+export type UnisonStack = typeof UNISON_STACKS[number];
+
+// the unison of an oscillator (in the engine: no knobs, not in the presets yet; a type: an ObjectBS
+// holds it)
+export type UnisonShape = {
+  // the level of the centre voices against the others: 0 only the centre, 0.5 all at one level, 1 only the others;
+  // the power of the unison stays
+  blend: number;
+  // the stereo of the side voices: 1 hard left and right in turn, 0 mono (equal power: as loud)
+  width: number;
+  stack: UnisonStack;
+  // the detune of the voices over the spread: linear from the lowest, or at random shares of it, drawn again at
+  // every note on
+  detune: 'linear' | 'random';
+  // the voices play positions spread over this share of the table (0..1) as they are spread in pitch: the lowest
+  // at the position - half of it, the highest + half (within the table)
+  positionSpread: number;
+};
+
+// the unison as it was before its shape: the same sound bit for bit
+export const UNISON_SHAPE: UnisonShape = {
+  blend: 0.5,
+  width: 1,
+  stack: 'off',
+  detune: 'linear',
+  positionSpread: 0,
+};
 
 export interface VoiceOptions {
   osc: (VoiceOscOptions | null)[];
