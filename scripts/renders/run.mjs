@@ -17,7 +17,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { readEnv } from '../bench-common.mjs';
-import { stateWithTable, tables, writeTable } from './state.mjs';
+import { editedState, tables, writeTable } from './state.mjs';
 
 const require = createRequire(import.meta.url);
 const FFT = require('fft.js');
@@ -48,6 +48,44 @@ const render = (name, params, notes, seconds) => {
   const bytes = readFileSync(file);
   const samples = new Float32Array(bytes.buffer, bytes.byteOffset, bytes.length / 4);
   return [0, 1].map((channel) => samples.filter((_, i) => i % 2 === channel));
+};
+
+// a job of the host in a pool of 8 processes: its stereo output, channel by channel
+let running = 0;
+const waiting = [];
+const hostRender = (name, job) =>
+  new Promise((resolve, reject) => {
+    const start = () => {
+      running++;
+      const file = join(work, `${name}.json`);
+      const output = join(work, `${name}.f32`);
+      writeFileSync(file, JSON.stringify({ rate: RATE, ...job }));
+      spawn(host, ['render', file, output]).on('exit', (code) => {
+        running--;
+        waiting.shift()?.();
+        if (code !== 0) return reject(new Error(`the host failed on ${name}`));
+        const bytes = readFileSync(output);
+        const samples = new Float32Array(bytes.buffer, bytes.byteOffset, bytes.length / 4);
+        resolve([0, 1].map((channel) => samples.filter((_, i) => i % 2 === channel)));
+      });
+    };
+    if (running < 8) start();
+    else waiting.push(start);
+  });
+const init = join(work, 'init-state.bin');
+execFileSync(host, ['state', init]);
+
+// the magnitude spectrum of 2^18 samples from 0.2 s (Hann), the amplitude of a sine at its peak
+const N = 1 << 18;
+const hann = Float64Array.from({ length: N }, (_, i) => 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / N));
+const spectrum = (x) => {
+  const fft = new FFT(N);
+  const bins = fft.createComplexArray();
+  fft.realTransform(
+    bins,
+    Array.from({ length: N }, (_, i) => x[i + 9600] * hann[i])
+  );
+  return Float64Array.from({ length: N / 2 }, (_, k) => Math.hypot(bins[2 * k], bins[2 * k + 1]) / (N / 4));
 };
 
 // --- envelopes ---
@@ -116,17 +154,6 @@ if (runs('envelopes')) {
 if (runs('unison')) {
   const NOTE = 72;
   const F0 = 440 * 2 ** ((NOTE - 69) / 12);
-  const N = 1 << 18;
-  const hann = Float64Array.from({ length: N }, (_, i) => 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / N));
-  const spectrum = (x) => {
-    const fft = new FFT(N);
-    const bins = fft.createComplexArray();
-    fft.realTransform(
-      bins,
-      Array.from({ length: N }, (_, i) => x[i + 9600] * hann[i])
-    );
-    return Float64Array.from({ length: N / 2 }, (_, k) => Math.hypot(bins[2 * k], bins[2 * k + 1]) / (N / 4));
-  };
   // the voices around the fundamental: their cents and their amplitude in each channel (the main lobe of a Hann)
   const voices = (channels) => {
     const [l, r] = channels.map(spectrum);
@@ -188,43 +215,134 @@ if (runs('unison')) {
   console.log(`dsp/measurements: ${Object.keys(cases).length} unisons`);
 }
 
+// --- unison modes ---
+// the detune modes (kParamDetuneMode of the plain params of osc A: no parameter of the AU sets it) and the stacks
+// (A Uni Stack, 9 values: floor(v·9)) of a unison of a sine (a table of ours: its harmonics would hide the
+// stacked voices), merged into unison.json: each voice its cents (modes, Detune 1: ±200), and its semitones of
+// the stack, its cents of the detune and its side (stacks, Detune 0.5: ±35 cents)
+if (runs('unison-modes')) {
+  const table = join(tables(), 'User', 'waveform-test-sine.wav');
+  writeTable(table, [Array.from({ length: 2048 }, (_, i) => Math.sin((2 * Math.PI * i) / 2048))], '00000000');
+  const C4 = 440 * 2 ** ((60 - 69) / 12);
+  const stateOf = (name, params) => {
+    const file = join(work, `state-${name}.bin`);
+    writeFileSync(file, editedState(init, { path: 'User/waveform-test-sine.wav', frames: 1, params }));
+    return file;
+  };
+  // the peaks from `low` to `high` cents of C4, the cents refined by the parabola of their three bins
+  const peaks = (channels, low, high) => {
+    const [l, r] = channels.map(spectrum);
+    const bin = (cents) => (C4 * 2 ** (cents / 1200) * N) / RATE;
+    const found = [];
+    for (let k = Math.floor(bin(low)) + 1; k < Math.ceil(bin(high)); k++) {
+      const [y0, y1, y2] = [l[k - 1] + r[k - 1], l[k] + r[k], l[k + 1] + r[k + 1]];
+      if (y1 > y0 && y1 >= y2 && y1 > 0.001) {
+        const d = (0.5 * (y0 - y2)) / (y0 - 2 * y1 + y2);
+        const amplitude = (s) => Math.hypot(s[k - 1], s[k], s[k + 1]);
+        found.push({
+          cents: 1200 * Math.log2(((k + d) * RATE) / N / C4),
+          left: amplitude(l),
+          right: amplitude(r),
+        });
+      }
+    }
+    return found;
+  };
+  const note = (name, state, params) =>
+    hostRender(name, {
+      seconds: 6.5,
+      state,
+      params: { 'A Rand Phase': 0, 'Env 1 Attack': 0, 'Env 1 Sustain': 1, ...params },
+      notes: [{ note: 60, on: 0, off: 6.5 }],
+    });
+  const modes = {};
+  const stacks = {};
+  const STACKS = [
+    'off',
+    '12 (1x)',
+    '12 (2x)',
+    '12 (3x)',
+    '12+7 (1x)',
+    '12+7 (2x)',
+    '12+7 (3x)',
+    'Center-12',
+    'Center-24',
+  ];
+  const STEPS = [-24, -12, 0, 7, 12, 19, 24, 31, 36];
+  try {
+    const jobs = [];
+    for (const mode of ['kDetuneLinear', 'kDetuneSuper', 'kDetuneExp', 'kDetuneInv']) {
+      const state = stateOf(mode, { kParamDetuneMode: mode });
+      for (const count of [3, 4, 5, 6, 7, 8, 9, 10, 12, 16])
+        jobs.push(
+          note(`${mode}-${count}`, state, { 'A Unison': (count - 1) / 15, 'A Uni Detune': 1 }).then((x) => {
+            modes[`${mode.slice(7).toLowerCase()} u${count}`] = peaks(x, -300, 300).map((p) =>
+              Number(p.cents.toFixed(2))
+            );
+          })
+        );
+    }
+    const linear = stateOf('linear', { kParamDetuneMode: 'kDetuneLinear' });
+    STACKS.forEach((name, i) => {
+      for (const count of [1, 2, 3, 4, 5, 6, 7, 8, 16])
+        jobs.push(
+          note(`stack-${i}-${count}`, linear, {
+            'A Unison': (count - 1) / 15,
+            'A Uni Detune': 0.5,
+            'A Uni Stack': (i + 0.5) / 9,
+          }).then((x) => {
+            stacks[`${name} u${count}`] = peaks(x, -2500, 4000)
+              .map(({ cents, left, right }) => {
+                const st = cents / 100;
+                const step = STEPS.reduce((a, b) => (Math.abs(st - b) < Math.abs(st - a) ? b : a));
+                const side = left > 2 * right ? 'L' : right > 2 * left ? 'R' : 'C';
+                return { step, detune: Math.round((st - step) * 100), side };
+              })
+              .sort((a, b) => a.detune - b.detune);
+          })
+        );
+    });
+    await Promise.all(jobs);
+  } finally {
+    rmSync(table, { force: true });
+  }
+  const file = join(out, 'unison.json');
+  const unison = JSON.parse(readFileSync(file, 'utf8'));
+  const sorted = (o) =>
+    Object.fromEntries(Object.entries(o).sort(([a], [b]) => a.localeCompare(b, 'en', { numeric: true })));
+  writeFileSync(
+    file,
+    `${JSON.stringify(
+      {
+        ...unison,
+        about_modes:
+          'Osc A of the Audio Unit on a sine (a table of ours) at C4: `modes` the cents of each voice by detune mode (kParamDetuneMode of its state) at Detune 1 and 3..16 voices; `stacks` each voice by A Uni Stack at Detune 0.5 and 1..16 voices: the semitones of its stack, its detune (cents) and its side (L, R, C both); scripts/renders/run.mjs --only=unison-modes',
+        modes: sorted(modes),
+        stacks: sorted(stacks),
+      },
+      null,
+      1
+    )}\n`
+  );
+  console.log(
+    `dsp/measurements: ${Object.keys(modes).length} detune modes, ${Object.keys(stacks).length} stacks`
+  );
+}
+
 // --- frames ---
 if (runs('frames')) {
   const FRAMES_NOTE = 36;
   const FRAMES_F0 = 440 * 2 ** ((FRAMES_NOTE - 69) / 12);
-  const init = join(work, 'init-state.bin');
-  execFileSync(host, ['state', init]);
-  // a job of the host in a pool (each one a process): its left channel
-  let running = 0;
-  const waiting = [];
-  const renderAsync = (name, state, params) =>
-    new Promise((resolve, reject) => {
-      const start = () => {
-        running++;
-        const job = join(work, `${name}.json`);
-        const file = join(work, `${name}.f32`);
-        writeFileSync(
-          job,
-          JSON.stringify({
-            rate: RATE,
-            seconds: 0.5,
-            state,
-            params: { 'A Rand Phase': 0, 'A Phase': 0, 'Env 1 Attack': 0, 'Env 1 Sustain': 1, ...params },
-            notes: [{ note: FRAMES_NOTE, on: 0, off: 0.5 }],
-          })
-        );
-        spawn(host, ['render', job, file]).on('exit', (code) => {
-          running--;
-          waiting.shift()?.();
-          if (code !== 0) return reject(new Error(`the host failed on ${name}`));
-          const bytes = readFileSync(file);
-          const samples = new Float32Array(bytes.buffer, bytes.byteOffset, bytes.length / 4);
-          resolve(samples.filter((_, i) => i % 2 === 0));
-        });
-      };
-      if (running < 8) start();
-      else waiting.push(start);
-    });
+  // a note of osc A: its left channel
+  const renderAsync = async (name, state, params) =>
+    (
+      await hostRender(name, {
+        seconds: 0.5,
+        state,
+        params: { 'A Rand Phase': 0, 'A Phase': 0, 'Env 1 Attack': 0, 'Env 1 Sustain': 1, ...params },
+        notes: [{ note: FRAMES_NOTE, on: 0, off: 0.5 }],
+      })
+    )[0];
   // the complex amplitude of harmonic h over 0.15..0.45 s (Hann), its phase against a sine from the note on
   const harmonic = (x, h) => {
     const from = Math.round(0.15 * RATE);
@@ -249,7 +367,7 @@ if (runs('frames')) {
     writeTable(file, frames, flags);
     written.push(file);
     const state = join(work, `state-${name}.bin`);
-    writeFileSync(state, stateWithTable(init, `User/waveform-test-${name}.wav`, count));
+    writeFileSync(state, editedState(init, { path: `User/waveform-test-${name}.wav`, frames: count }));
     return state;
   };
   // the shares of the source frames (the amplitudes of their harmonics, summing to 1) at a position

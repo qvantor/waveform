@@ -18,11 +18,29 @@ export interface VoiceOscOptions {
   unisonShape?: UnisonShape;
 }
 
-// the stacks of a unison: the voices by their pair from the centre (the middle one of an odd count, the middle two
-// of an even one: pair 0, then outwards) moved in pitch: every other pair an octave up, the pairs 0, +12, +24
-// semitones in turn, or 0, +7, +12; the centre an octave or two down. A unison of 2 is only its centre
-export const UNISON_STACKS = ['off', 'octave', 'two-octaves', 'fifth', 'center-12', 'center-24'] as const;
+// the stacks of a unison (12 (1x, 2x, 3x), 12+7 (1x, 2x, 3x), Center-12, Center-24; the measurements in
+// dsp/measurements): voice j of n at d = j - floor(n/2) from the middle; the centre (the middle one of an
+// odd count, the middle two of an even one) moves only by the centre stacks, a single voice too; the others by
+// a = |d|: 12 (kx) up 12·(a mod (k + 1)), 12+7 (kx) up 7 at a mod 4 = 2 and 12 ((k - 1)x). A voice of an even
+// count and its mirror move apart (d and -d - 1)
+export const UNISON_STACKS = [
+  'off',
+  '12x1',
+  '12x2',
+  '12x3',
+  '12+7x1',
+  '12+7x2',
+  '12+7x3',
+  'center-12',
+  'center-24',
+] as const;
 export type UnisonStack = typeof UNISON_STACKS[number];
+
+// how the voices share the spread (dsp/measurements/unison.json): of x = 2j/(n - 1) - 1 from the lowest,
+// x (linear), tan(x)/tan(1) (super: the inner voices closer), x·|x| (exp: closer still), sin(x·π/2) (inv: out to the
+// edges), or at random shares of it, drawn again at every note on
+export const UNISON_DETUNES = ['linear', 'super', 'exp', 'inv', 'random'] as const;
+export type UnisonDetune = typeof UNISON_DETUNES[number];
 
 // the unison of an oscillator (in the engine: no knobs, not in the presets yet; a type: an ObjectBS
 // holds it)
@@ -33,9 +51,7 @@ export type UnisonShape = {
   // the stereo of the side voices: 1 hard left and right in turn, 0 mono (equal power: as loud)
   width: number;
   stack: UnisonStack;
-  // the detune of the voices over the spread: linear from the lowest, or at random shares of it, drawn again at
-  // every note on
-  detune: 'linear' | 'random';
+  detune: UnisonDetune;
   // the voices play positions spread over this share of the table (0..1) as they are spread in pitch: the lowest
   // at the position - half of it, the highest + half (within the table)
   positionSpread: number;

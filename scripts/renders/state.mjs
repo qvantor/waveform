@@ -1,11 +1,15 @@
 // the processor state of the Audio Unit (`host state`) and the tables it plays: a magic (9 bytes),
 // the length of a JSON header (u64), the header (its `hash` the md5 of the zstd frame), the size of
-// the payload (u32), 2 (u32), a zstd frame of the payload: the CBOR of its modules. Oscillator A plays the table at
-// its `relativePathToWT` (in the folder of its tables, RENDERS_TABLES): a state with that path swapped plays
-// a table of ours, written into User of that folder
+// the payload (u32), 2 (u32), a zstd frame of the payload: the CBOR of its modules (cbor.mjs). Oscillator A
+// (`Oscillator0`) plays the table at the `relativePathToWT` of its `WTOsc0` (under the folder of its tables,
+// RENDERS_TABLES) and has its `plainParams` ("default", or a map of the ones not at their default:
+// kParamDetuneMode…).
+// A state with them swapped plays a table of ours, written into User of that folder (the tables of its
+// user), with the params we set
 import crypto from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import zlib from 'node:zlib';
+import { decode, encode, get, set } from './cbor.mjs';
 
 // the folder of the tables of the Audio Unit: RENDERS_TABLES of .env (run.mjs reads it)
 export const tables = () => {
@@ -13,33 +17,21 @@ export const tables = () => {
     throw new Error('RENDERS_TABLES of .env: the folder of the tables of the Audio Unit');
   return process.env.RENDERS_TABLES;
 };
-const INIT_TABLE = 'S2 Tables/Default Shapes.wav';
 
-// a CBOR text string
-const text = (value) => {
-  const bytes = Buffer.from(value);
-  if (bytes.length > 255) throw new Error(`${value} is too long`);
-  return Buffer.concat([
-    Buffer.from(bytes.length < 24 ? [0x60 + bytes.length] : [0x78, bytes.length]),
-    bytes,
-  ]);
-};
-
-// the init state (`host state`) with osc A on `Tables/<path>`, a table of `frames` frames of 2048 samples
-export const stateWithTable = (initFile, path, frames) => {
+// the init state (`host state`) with osc A on `Tables/<path>` (a table of `frames` frames of 2048 samples) and
+// with its plain params `params`
+export const editedState = (initFile, { path, frames, params } = {}) => {
   const init = readFileSync(initFile);
   const length = Number(init.readBigUInt64LE(9));
   const header = JSON.parse(init.subarray(17, 17 + length).toString());
-  const rest = init.subarray(17 + length);
-  let payload = zlib.zstdDecompressSync(rest.subarray(8));
-  const from = text(INIT_TABLE);
-  const at = payload.indexOf(from);
-  if (at < 0) throw new Error(`the state has no ${INIT_TABLE}`);
-  payload = Buffer.concat([payload.subarray(0, at), text(path), payload.subarray(at + from.length)]);
-  // numFrames: the samples of the table (18432, a u16 in CBOR)
-  const key = Buffer.concat([text('numFrames'), Buffer.from([0x19])]);
-  const k = payload.indexOf(key);
-  if (k >= 0) payload.writeUInt16BE(frames * 2048, k + key.length);
+  const doc = decode(zlib.zstdDecompressSync(init.subarray(17 + length + 8)));
+  const osc = get(doc, 'Oscillator0');
+  if (path) {
+    set(get(osc, 'WTOsc0'), 'relativePathToWT', path);
+    set(get(osc, 'WTOsc0'), 'numFrames', frames * 2048);
+  }
+  if (params) set(osc, 'plainParams', { map: Object.entries(params) });
+  const payload = encode(doc);
   const zstd = zlib.zstdCompressSync(payload);
   header.hash = crypto.createHash('md5').update(zstd).digest('hex');
   const json = Buffer.from(JSON.stringify(header));

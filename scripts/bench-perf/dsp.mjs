@@ -287,7 +287,7 @@ const createCases = (dsp) => {
     ...withTs(
       { 'voice u8 shaped unison': [[8, null], held] },
       oscScope &&
-        voiceOf('wasm', { blend: 0.75, width: 0.5, stack: 'fifth', detune: 'linear', positionSpread: 0.3 }),
+        voiceOf('wasm', { blend: 0.75, width: 0.5, stack: '12+7x2', detune: 'linear', positionSpread: 0.3 }),
       null
     ),
     ...withTs(

@@ -86,6 +86,10 @@ const core: Core = {
 const RATE = 48000;
 const BLOCK = 128;
 // an Audio Unit playing tables of ours (scripts/renders/run.mjs)
+const MEASURED_UNISON: {
+  modes: Record<string, number[]>;
+  stacks: Record<string, { step: number; detune: number; side: string }[]>;
+} = JSON.parse(readFileSync(join(__dirname, '../../../../../../../dsp/measurements/unison.json'), 'utf8'));
 const MEASURED_FRAMES: {
   played: Record<'3' | '4', { edge: number; below: number; above: number }[]>;
 } = JSON.parse(readFileSync(join(__dirname, '../../../../../../../dsp/measurements/frames.json'), 'utf8'));
@@ -477,7 +481,8 @@ describe('the wavetable voice', () => {
   describe('unison', () => {
     it('detunes the voices evenly from -spread/2 to +spread/2, the middle one of an odd count both', () => {
       const { store } = core.storeWith({ a: [sine] });
-      // an octave below and above the note and the note itself: voice 0 left, the middle one both, 2 right
+      // an octave below and above the note and the note itself: voice 0 right, the middle one both,
+      // 2 left
       const { left, right } = render({
         store,
         oscs: [osc({ unison: 3 })],
@@ -485,12 +490,12 @@ describe('the wavetable voice', () => {
         frames: RATE,
       });
       const level = 1 / Math.sqrt(2);
-      expect(toneAmplitude(left, 200)).toBeCloseTo(level, 2);
-      expect(toneAmplitude(left, 400)).toBeCloseTo(level, 2);
-      expect(toneAmplitude(left, 800)).toBeCloseTo(0, 2);
-      expect(toneAmplitude(right, 200)).toBeCloseTo(0, 2);
+      expect(toneAmplitude(right, 200)).toBeCloseTo(level, 2);
       expect(toneAmplitude(right, 400)).toBeCloseTo(level, 2);
-      expect(toneAmplitude(right, 800)).toBeCloseTo(level, 2);
+      expect(toneAmplitude(right, 800)).toBeCloseTo(0, 2);
+      expect(toneAmplitude(left, 200)).toBeCloseTo(0, 2);
+      expect(toneAmplitude(left, 400)).toBeCloseTo(level, 2);
+      expect(toneAmplitude(left, 800)).toBeCloseTo(level, 2);
     });
 
     it.each([3, 5, 7])(
@@ -509,10 +514,10 @@ describe('the wavetable voice', () => {
         const cents = (j: number) => spread * (j / (unison - 1) - 0.5);
         for (let j = 0; j < unison; j++) {
           const pitch = 400 * 2 ** (cents(j) / 1200);
-          // the voices below the middle from the left, the ones above it continue the turns
+          // the voices below the middle from the right, the ones above it continue the turns
           const side = j > middle ? j - 1 : j;
-          const inLeft = j === middle || side % 2 === 0;
-          const inRight = j === middle || side % 2 === 1;
+          const inLeft = j === middle || side % 2 === 1;
+          const inRight = j === middle || side % 2 === 0;
           expect(toneAmplitude(left, pitch)).toBeCloseTo(inLeft ? level : 0, 2);
           expect(toneAmplitude(right, pitch)).toBeCloseTo(inRight ? level : 0, 2);
           // its mirror (the same detune, the other way) is on the other side
@@ -533,7 +538,7 @@ describe('the wavetable voice', () => {
       // voice j at 400 · 2^((j / 7 - 1/2) · 1400 / 1200)
       const pitch = (j: number) => 400 * 2 ** (((j / 7 - 0.5) * 1400) / 1200);
       for (let j = 0; j < 8; j++) {
-        const [own, other] = j % 2 === 0 ? [left, right] : [right, left];
+        const [own, other] = j % 2 === 0 ? [right, left] : [left, right];
         expect(toneAmplitude(own, pitch(j))).toBeCloseTo(0.5, 2);
         expect(toneAmplitude(other, pitch(j))).toBeCloseTo(0, 2);
       }
@@ -585,13 +590,14 @@ describe('the wavetable voice', () => {
         [8, 0.5],
       ]) {
         // far apart: no beats between the voices
-        const { left } = render({
+        // (the lowest voice on the right)
+        const { right } = render({
           store,
           oscs: [osc({ unison })],
           params: { frequency: 300, spread1: 4800 },
           frames: RATE,
         });
-        expect(toneAmplitude(left, unison === 1 ? 300 : 300 * 2 ** -2)).toBeCloseTo(level, 2);
+        expect(toneAmplitude(right, unison === 1 ? 300 : 300 * 2 ** -2)).toBeCloseTo(level, 2);
       }
     });
   });
@@ -610,7 +616,7 @@ describe('the wavetable voice', () => {
       });
 
     describe('blend', () => {
-      // u5 an octave below to an octave above: 200 left, 283 right, 400 both (the centre), 566 left, 800 right
+      // u5 an octave below to an octave above: 200 right, 283 left, 400 both (the centre), 566 right, 800 left
       const u5 = (blend: number) => {
         const { store } = core.storeWith({ a: [sine] });
         return render({
@@ -634,11 +640,11 @@ describe('the wavetable voice', () => {
         (blend, center, side) => {
           const out = u5(blend);
           expectVoices(out, [
-            [pitch(-1200), side, 0],
-            [pitch(-600), 0, side],
+            [pitch(-1200), 0, side],
+            [pitch(-600), side, 0],
             [pitch(0), center, center],
-            [pitch(600), side, 0],
-            [pitch(1200), 0, side],
+            [pitch(600), 0, side],
+            [pitch(1200), side, 0],
           ]);
           expect(center ** 2 + 2 * side ** 2).toBeCloseTo(1, 6);
         }
@@ -646,7 +652,7 @@ describe('the wavetable voice', () => {
 
       it('has the middle two voices of an even count as its centre', () => {
         const { store } = core.storeWith({ a: [sine] });
-        // u4: 200 left, 317 right (the centre), 504 left (the centre), 800 right, at 1/√2 × their gain
+        // u4: 200 right, 317 left (the centre), 504 right (the centre), 800 left, at 1/√2 × their gain
         const out = render({
           store,
           oscs: [shaped(4, { blend: 0 })],
@@ -655,8 +661,8 @@ describe('the wavetable voice', () => {
         });
         expectVoices(out, [
           [pitch(-1200), 0, 0],
-          [pitch(-400), 0, 1],
-          [pitch(400), 1, 0],
+          [pitch(-400), 1, 0],
+          [pitch(400), 0, 1],
           [pitch(1200), 0, 0],
         ]);
       });
@@ -671,7 +677,7 @@ describe('the wavetable voice', () => {
     });
 
     describe('width', () => {
-      // u3: 200 left, 400 both, 800 right at 1/√2
+      // u3: 200 right, 400 both, 800 left at 1/√2
       const u3 = (width: number) => {
         const { store } = core.storeWith({ a: [sine] });
         return render({
@@ -686,9 +692,9 @@ describe('the wavetable voice', () => {
         const level = 1 / Math.sqrt(2);
         const [own, other] = [Math.cos(Math.PI / 8) * level, Math.sin(Math.PI / 8) * level];
         expectVoices(u3(0.5), [
-          [200, own, other],
+          [200, other, own],
           [400, level, level],
-          [800, other, own],
+          [800, own, other],
         ]);
         expectVoices(u3(0), [
           [200, 0.5, 0.5],
@@ -703,50 +709,106 @@ describe('the wavetable voice', () => {
       });
     });
 
-    describe('stack', () => {
-      const stacked = (unison: number, stack: UnisonStack) => {
-        const { store } = core.storeWith({ a: [sine] });
-        // no detune: the voices stay for the stack
-        return render({ store, oscs: [shaped(unison, { stack })], params: { frequency: 400 }, frames: RATE });
+    // the voices as measured (scripts/renders/run.mjs --only=unison-modes): the peaks of a sine
+    // at C4 over 2^18 samples (Hann), their cents refined by the parabola of their bins, the side of each
+    const C4 = 440 * 2 ** ((60 - 69) / 12);
+    const PEAKS = 1 << 18;
+    const peaksOf = (
+      { left, right }: { left: Float32Array; right: Float32Array },
+      low: number,
+      high: number
+    ) => {
+      const spectrum = (x: Float32Array) => {
+        const fft = new FFT(PEAKS);
+        const bins = fft.createComplexArray();
+        fft.realTransform(
+          bins,
+          Array.from(
+            { length: PEAKS },
+            (_, i) => x[i + 9600] * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / PEAKS))
+          )
+        );
+        return Float64Array.from({ length: PEAKS / 2 }, (_, k) => Math.hypot(bins[2 * k], bins[2 * k + 1]));
       };
-      const level3 = 1 / Math.sqrt(3);
-
-      it('moves every other pair from the centre an octave up', () => {
-        // u5: pair 1 (voices 1, 3) at 800, the centre and pair 2 at 400 (voices 0 and 2 in phase in the left)
-        expectVoices(stacked(5, 'octave'), [
-          [400, 2 * level3, 2 * level3],
-          [800, level3, level3],
-        ]);
+      const [l, r] = [spectrum(left), spectrum(right)];
+      const bin = (cents: number) => (C4 * 2 ** (cents / 1200) * PEAKS) / RATE;
+      const found: { cents: number; side: string }[] = [];
+      for (let k = Math.floor(bin(low)) + 1; k < Math.ceil(bin(high)); k++) {
+        const [y0, y1, y2] = [l[k - 1] + r[k - 1], l[k] + r[k], l[k + 1] + r[k + 1]];
+        if (y1 > y0 && y1 >= y2 && y1 > 0.001 * (PEAKS / 4)) {
+          const d = (0.5 * (y0 - y2)) / (y0 - 2 * y1 + y2);
+          const [a, b] = [Math.hypot(l[k - 1], l[k], l[k + 1]), Math.hypot(r[k - 1], r[k], r[k + 1])];
+          found.push({
+            cents: 1200 * Math.log2(((k + d) * RATE) / PEAKS / C4),
+            side: a > 2 * b ? 'L' : b > 2 * a ? 'R' : 'C',
+          });
+        }
+      }
+      return found;
+    };
+    const sineVoices = (unison: number, shape: Partial<UnisonShape>, spread: number) => {
+      const { store } = core.storeWith({ a: [sine] });
+      return render({
+        store,
+        oscs: [shaped(unison, shape)],
+        params: { frequency: C4, spread1: spread },
+        frames: PEAKS + 9600,
       });
+    };
 
-      it('stacks a fifth and an octave over the pairs', () => {
-        expectVoices(stacked(5, 'fifth'), [
-          [400, level3, level3],
-          [400 * 2 ** (7 / 12), level3, level3],
-          [800, level3, level3],
-        ]);
-      });
+    describe('stack', () => {
+      const STACKS: Record<string, UnisonStack> = {
+        off: 'off',
+        '12 (1x)': '12x1',
+        '12 (2x)': '12x2',
+        '12 (3x)': '12x3',
+        '12+7 (1x)': '12+7x1',
+        '12+7 (2x)': '12+7x2',
+        '12+7 (3x)': '12+7x3',
+        'Center-12': 'center-12',
+        'Center-24': 'center-24',
+      };
+      const STEPS = [-24, -12, 0, 7, 12, 19, 24, 31, 36];
+      // measured at Detune 0.5 (the voices at ±35 cents), up to the 8 voices of ours
+      const cases = Object.entries(MEASURED_UNISON.stacks).filter(([key]) => Number(key.split(' u')[1]) <= 8);
 
-      it('moves the centre an octave or two down', () => {
-        const level = 1 / Math.sqrt(2);
-        expectVoices(stacked(3, 'center-12'), [
-          [200, level, level],
-          [400, level, level],
-        ]);
-        expectVoices(stacked(3, 'center-24'), [
-          [100, level, level],
-          [400, level, level],
-        ]);
-      });
-
-      it('leaves a single voice at the note', () => {
-        const { store } = core.storeWith({ a: [saw] });
-        const one = render({ store, oscs: [shaped(1, { stack: 'center-24' })], frames: 2048 });
-        expect(one.left).toEqual(render({ store, oscs: [osc()], frames: 2048 }).left);
+      it.each(cases)('moves the voices as measured: %s', (key, measured) => {
+        const [name, n] = key.split(' u');
+        const voices = peaksOf(sineVoices(Number(n), { stack: STACKS[name] }, 70), -2500, 4000)
+          .map(({ cents, side }) => {
+            const step = STEPS.reduce((a, b) =>
+              Math.abs(cents / 100 - b) < Math.abs(cents / 100 - a) ? b : a
+            );
+            return { step, detune: Math.round(cents - 100 * step), side };
+          })
+          .sort((a, b) => a.detune - b.detune);
+        expect(voices.map(({ step }) => step)).toEqual(measured.map(({ step }) => step));
+        voices.forEach(({ detune }, j) =>
+          expect(Math.abs(detune - measured[j].detune)).toBeLessThanOrEqual(7)
+        );
+        // (two centre voices close together show as one peak on both sides)
+        voices.forEach(
+          ({ side }, j) => measured[j].side !== 'C' && side !== 'C' && expect(side).toBe(measured[j].side)
+        );
       });
     });
 
     describe('detune', () => {
+      // measured at Detune 1 (the outer voices at ±200 cents), up to the 8 voices of ours
+      const cases = Object.entries(MEASURED_UNISON.modes).filter(([key]) => Number(key.split(' u')[1]) <= 8);
+
+      it.each(cases)('shares the spread as measured: %s', (key, measured) => {
+        const [mode, n] = key.split(' u');
+        const cents = peaksOf(
+          sineVoices(Number(n), { detune: mode as UnisonShape['detune'] }, 400),
+          -300,
+          300
+        ).map((peak) => peak.cents);
+        expect(cents).toHaveLength(measured.length);
+        // (the measured voices 0.05 cents above ours: their note, ours at 440 · 2^(-9/12) exactly)
+        cents.forEach((c, j) => expect(Math.abs(c - measured[j])).toBeLessThan(0.3));
+      });
+
       it('detunes the voices at random shares of the spread, sorted from the lowest, drawn after the phases', () => {
         const { store } = core.storeWith({ a: [sine] });
         const out = render({
@@ -759,12 +821,12 @@ describe('the wavetable voice', () => {
         const random = seeded(3);
         Array.from({ length: 8 }, random);
         const shares = Array.from({ length: 4 }, random).sort((a, b) => a - b);
-        // even: from the lowest left, right, left, right at 1/√2
+        // even: from the lowest right, left, right, left at 1/√2
         expectVoices(
           out,
           shares.map((share, j): [number, number, number] => {
             const level = 1 / Math.sqrt(2);
-            return [400 * 2 ** (share - 0.5), j % 2 === 0 ? level : 0, j % 2 === 1 ? level : 0];
+            return [400 * 2 ** (share - 0.5), j % 2 === 1 ? level : 0, j % 2 === 0 ? level : 0];
           })
         );
       });
@@ -788,7 +850,7 @@ describe('the wavetable voice', () => {
 
       it('plays the positions of the voices spread as their pitch, within the table', () => {
         const { store } = core.storeWith({ a: table });
-        // u3 at frame 1 and a spread of the whole table: voice 0 (left) frame 0, the middle one 1, voice 2 (right)
+        // u3 at frame 1 and a spread of the whole table: voice 0 (right) frame 0, the middle one 1, voice 2 (left)
         // frame 2; at frame 2 voice 2 stays on the last frame
         const level = 1 / Math.sqrt(2);
         const at = (position: number) =>
@@ -799,14 +861,14 @@ describe('the wavetable voice', () => {
             frames: RATE,
           });
         expectVoices(at(0.5), [
-          [400, level, 0],
+          [400, 0, level],
           [800, level, level],
-          [1200, 0, level],
+          [1200, level, 0],
         ]);
         expectVoices(at(1), [
           [400, 0, 0],
-          [800, level, 0],
-          [1200, level, 2 * level],
+          [800, 0, level],
+          [1200, 2 * level, level],
         ]);
       });
 

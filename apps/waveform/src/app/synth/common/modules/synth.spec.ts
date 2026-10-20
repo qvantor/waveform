@@ -112,7 +112,7 @@ describe('synth', () => {
       [0, -1, 0, 1],
     ]);
     osc2[1].setPosition(1);
-    osc2[1].setUnisonShape({ blend: 0.8, stack: 'fifth' });
+    osc2[1].setUnisonShape({ blend: 0.8, stack: '12+7x2' });
 
     onPress([4, 'A']);
 
@@ -125,7 +125,7 @@ describe('synth', () => {
         phase: 0.5,
         phaseRand: 1,
         // the shape of its unison as it is at the note on
-        unisonShape: { ...UNISON_SHAPE, blend: 0.8, stack: 'fifth' },
+        unisonShape: { ...UNISON_SHAPE, blend: 0.8, stack: '12+7x2' },
       },
     ]);
     // the octave in cents, the position as a share of the table

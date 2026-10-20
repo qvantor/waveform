@@ -105,7 +105,7 @@ const OSC_SCENES = [
             unison: 7,
             phase: 0.2,
             phaseRand: 0,
-            unisonShape: { blend: 0.8, width: 0.35, stack: 'fifth', detune: 'linear', positionSpread: 0.5 },
+            unisonShape: { blend: 0.8, width: 0.35, stack: '12+7x2', detune: 'super', positionSpread: 0.5 },
           },
           {
             table: 'a',

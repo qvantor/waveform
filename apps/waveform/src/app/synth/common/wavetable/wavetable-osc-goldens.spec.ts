@@ -9,6 +9,7 @@ import { wasmCore } from '../../../../test-utils/wasm';
 import { expandFrames } from './wavetable-frames';
 import { buildLevels } from './wavetable-mipmap';
 import {
+  UNISON_DETUNES,
   UNISON_SHAPE,
   UNISON_STACKS,
   VoiceFilterOptions,
@@ -473,7 +474,7 @@ const GOLDEN: [string, Scenario][] = [
                 unisonShape: {
                   blend: 0.8,
                   width: 0.4,
-                  stack: 'fifth',
+                  stack: '12+7x2',
                   detune: 'random',
                   positionSpread: 0.6,
                 },
@@ -632,7 +633,7 @@ const randomScenario = (random: Random, seed: number): Scenario => {
                 blend: random(),
                 width: random(),
                 stack: pick(random, [...UNISON_STACKS]),
-                detune: random() < 0.5 ? 'linear' : 'random',
+                detune: pick(random, [...UNISON_DETUNES]),
                 positionSpread: random() < 0.5 ? 0 : random(),
               },
             }),

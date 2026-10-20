@@ -45,13 +45,18 @@ pub struct OscOptions {
     pub shape: UnisonShape,
 }
 
-/// the stacks of a unison: the semitones of the voices by their pair from the centre (UnisonStack)
+/// the stacks of a unison (UNISON_STACKS): 12 (1x, 2x, 3x), 12+7 (1x, 2x, 3x), the centre -12 and -24
 pub const STACK_OFF: u32 = 0;
-pub const STACK_OCTAVE: u32 = 1;
-pub const STACK_TWO_OCTAVES: u32 = 2;
-pub const STACK_FIFTH: u32 = 3;
-pub const STACK_CENTER_DOWN: u32 = 4;
-pub const STACK_CENTER_DOWN_2: u32 = 5;
+const STACK_OCTAVES: u32 = 1;
+const STACK_FIFTHS: u32 = 4;
+const STACK_CENTER_DOWN: u32 = 7;
+const STACK_CENTER_DOWN_2: u32 = 8;
+
+/// the detunes of a unison (UNISON_DETUNES)
+const DETUNE_SUPER: u32 = 1;
+const DETUNE_EXP: u32 = 2;
+const DETUNE_INV: u32 = 3;
+const DETUNE_RANDOM: u32 = 4;
 
 /// how the unison voices of an oscillator sound (UnisonShape): the defaults (blend 0.5, width 1,
 /// no stack, linear, no position spread) play as the voice did before them, bit for bit
@@ -63,8 +68,8 @@ pub struct UnisonShape {
     // the stereo of the side voices: 1 hard left and right, 0 mono (equal power)
     pub width: f64,
     pub stack: u32,
-    // the detune of the voices: false linear over the spread, true at random shares of it (drawn per note)
-    pub random_detune: bool,
+    // how the voices share the spread: linear, super, exp, inv or at random (drawn per note)
+    pub detune: u32,
     pub detune_random: [f64; MAX_UNISON],
     // the voices play the position spread over this share of the table, as they are spread in pitch
     pub position_spread: f64,
@@ -76,7 +81,7 @@ impl Default for UnisonShape {
             blend: 0.5,
             width: 1.0,
             stack: STACK_OFF,
-            random_detune: false,
+            detune: 0,
             detune_random: [0.0; MAX_UNISON],
             position_spread: 0.0,
         }
@@ -88,15 +93,40 @@ fn pair_of_voice(v: usize, n: usize) -> usize {
     floor((v as f64 - (n as f64 - 1.0) / 2.0).abs()) as usize
 }
 
-// the semitones a stack moves the voices of a pair by
-fn stack_semitones(stack: u32, pair: usize) -> f64 {
+// the semitones a stack moves voice v of n by (dsp/measurements/unison.json: stacks of 1..16 voices): at
+// d = v - floor(n / 2) from the middle, the centre (d 0, and -1 of an even count: pair 0) only by the centre
+// stacks, a single voice too; the others by a = |d|: 12 (kx) 12·(a mod (k + 1)), 12+7 (kx) 7 at a mod 4 = 2 and
+// 12 ((k - 1)x). Of an even count a voice and its mirror differ (d and -d - 1)
+fn stack_semitones(stack: u32, v: usize, n: usize) -> f64 {
+    let d = v as i64 - (n / 2) as i64;
+    if d == 0 || (n.is_multiple_of(2) && d == -1) {
+        return match stack {
+            STACK_CENTER_DOWN => -12.0,
+            STACK_CENTER_DOWN_2 => -24.0,
+            _ => 0.0,
+        };
+    }
+    let a = d.unsigned_abs();
+    let octaves = |k: u64| 12.0 * (a % (k + 1)) as f64;
+    let fifth = if a % 4 == 2 { 7.0 } else { 0.0 };
     match stack {
-        STACK_OCTAVE => [0.0, 12.0][pair % 2],
-        STACK_TWO_OCTAVES => [0.0, 12.0, 24.0][pair % 3],
-        STACK_FIFTH => [0.0, 7.0, 12.0][pair % 3],
-        STACK_CENTER_DOWN if pair == 0 => -12.0,
-        STACK_CENTER_DOWN_2 if pair == 0 => -24.0,
+        STACK_OCTAVES..=3 => octaves((stack - STACK_OCTAVES + 1) as u64),
+        STACK_FIFTHS => fifth,
+        5 | 6 => fifth + octaves((stack - STACK_FIFTHS) as u64),
         _ => 0.0,
+    }
+}
+
+// the share of the spread of voice v of n (-0.5..0.5) by the detune (dsp/measurements, 3..16 voices
+// at Detune 1): of x = 2v / (n - 1) - 1, x (linear: as before them, to the bit), tan(x) / tan(1) (super), x·|x|
+// (exp), sin(x·π/2) (inv), each half
+fn detune_share(detune: u32, v: usize, n: usize) -> f64 {
+    let x = 2.0 * v as f64 / (n as f64 - 1.0) - 1.0;
+    match detune {
+        DETUNE_SUPER => sin(x) / cos(x) / (sin(1.0) / cos(1.0)) / 2.0,
+        DETUNE_EXP => x * x.abs() / 2.0,
+        DETUNE_INV => sin(x * PI / 2.0) / 2.0,
+        _ => v as f64 / (n as f64 - 1.0) - 0.5,
     }
 }
 
@@ -495,21 +525,21 @@ impl Osc {
     }
 }
 
-// the voices of the unison of an oscillator at the start: their shares of the spread (linear from the lowest, or
-// at random sorted from it), the cents of the stack, the gains of the blend and the pan of the width
+// the voices of the unison of an oscillator at the start: their shares of the spread (by the detune mode from
+// the lowest, or at random sorted from it), the cents of the stack, the gains of the blend and the pan of the width
 fn shape_unison(osc: &mut Osc) {
     let n = osc.voices;
     let shape = osc.shape;
     for v in 0..n {
         osc.shares[v] = if n == 1 {
             0.0
-        } else if shape.random_detune {
+        } else if shape.detune == DETUNE_RANDOM {
             shape.detune_random[v] - 0.5
         } else {
-            v as f64 / (n as f64 - 1.0) - 0.5
+            detune_share(shape.detune, v, n)
         };
     }
-    if shape.random_detune {
+    if shape.detune == DETUNE_RANDOM {
         osc.shares[..n].sort_unstable_by(f64::total_cmp);
     }
     let sides = ceil(n as f64 / 2.0) - 1.0;
@@ -523,13 +553,8 @@ fn shape_unison(osc: &mut Osc) {
         (c * k, s * k)
     };
     for v in 0..n {
-        let pair = pair_of_voice(v, n);
-        osc.stack_cents[v] = if n > 1 {
-            100.0 * stack_semitones(shape.stack, pair)
-        } else {
-            0.0
-        };
-        osc.gains[v] = if pair == 0 { center } else { side };
+        osc.stack_cents[v] = 100.0 * stack_semitones(shape.stack, v, n);
+        osc.gains[v] = if pair_of_voice(v, n) == 0 { center } else { side };
     }
     let width = min(1.0, max(0.0, shape.width));
     osc.width = (width < 1.0).then(|| {
@@ -1257,7 +1282,8 @@ fn render_voices(
     }
 
     let frame_of_voice = |v: usize| spread.as_ref().map_or(k, |frames| frames[v]);
-    // the middle voice of an odd count plays in both channels, the others take turns around it
+    // the middle voice of an odd count plays in both channels, the others take turns around it from the lowest on
+    // the right (dsp/measurements/unison.json: the stacks of an even count move one side)
     let voices = osc.voices;
     let middle: i64 = if voices % 2 == 1 {
         ((voices - 1) / 2) as i64
@@ -1273,9 +1299,9 @@ fn render_voices(
         if v as i64 == middle {
             2
         } else if side % 2 == 0 {
-            0
-        } else {
             1
+        } else {
+            0
         }
     };
     // the level and the weights of voice v over segment p (None: above the fundamental's nyquist, silent)

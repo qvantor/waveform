@@ -12,6 +12,7 @@ import {
   StoreTableMessage,
   TableStoreStats,
   UNISON_SHAPE,
+  UNISON_DETUNES,
   UNISON_STACKS,
   VoiceFilterOptions,
   VoiceOptions,
@@ -356,8 +357,8 @@ export const createVoiceWasm = (
     command[at++] = shape.blend;
     command[at++] = shape.width;
     command[at++] = UNISON_STACKS.indexOf(shape.stack);
+    command[at++] = UNISON_DETUNES.indexOf(shape.detune);
     const randomDetune = osc !== null && shape.detune === 'random';
-    command[at++] = randomDetune ? 1 : 0;
     command[at++] = shape.positionSpread;
     // (drawn after the phases, only for a random detune: the phases of a linear one stay those of before)
     for (let v = 0; v < MAX_UNISON; v++) command[at++] = randomDetune ? random() : 0;

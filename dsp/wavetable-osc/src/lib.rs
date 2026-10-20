@@ -84,7 +84,7 @@ fn read_filter(reader: &mut Reader) -> Option<FilterOptions> {
 }
 
 // VoiceOptions: start, envStart, phrase; per oscillator present, table, unison, phase, phaseRand and its 8 random
-// shares, its UnisonShape (blend, width, stack, random detune, position spread and the 8 random shares of the
+// shares, its UnisonShape (blend, width, stack, detune, position spread and the 8 random shares of a random
 // detune); the envelopes (count, then 5 each), the filter, the routes
 fn read_voice_options(reader: &mut Reader) -> VoiceOptions {
     let start = reader.next();
@@ -101,7 +101,7 @@ fn read_voice_options(reader: &mut Reader) -> VoiceOptions {
             blend: reader.next(),
             width: reader.next(),
             stack: reader.next() as u32,
-            random_detune: reader.next() != 0.0,
+            detune: reader.next() as u32,
             position_spread: reader.next(),
             detune_random: core::array::from_fn(|_| reader.next()),
         };
