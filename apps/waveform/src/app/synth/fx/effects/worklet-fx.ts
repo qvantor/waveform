@@ -41,7 +41,7 @@ export const createWorkletFx = (
   };
 
   const load = () => {
-    if (!isWorkletSupported(audioCtx)) {
+    if (!isWorkletSupported(audioCtx, name)) {
       $status.next('unsupported');
       return;
     }

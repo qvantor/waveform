@@ -105,7 +105,7 @@ export const createWavetableEngine = (
   };
 
   const load = () => {
-    if (!isWorkletSupported(audioCtx) || typeof Worker === 'undefined' || !createChannel) {
+    if (!isWorkletSupported(audioCtx, WAVETABLE_WORKLET) || typeof Worker === 'undefined' || !createChannel) {
       $status.next('unsupported');
       return;
     }

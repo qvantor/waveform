@@ -1,0 +1,22 @@
+# the DSP of the audio worklets in Rust → wasm32 (scripts/wasm.mjs, `npm run wasm`): one .wasm per worklet
+# bundle, the JS of a worklet only wraps its processor. jsmath and dsp-core are shared; every value is worked out
+# as the TS cores do it (the specs compare the bits)
+[workspace]
+resolver = "2"
+members = ["jsmath", "jsmath-check", "wasm-rt", "dsp-core", "limiter", "reverb", "distortion", "wavetable-osc"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+# the ports keep the loops and the arguments of the TS: indexes over several arrays, the render loops of the voice
+[workspace.lints.clippy]
+needless_range_loop = "allow"
+too_many_arguments = "allow"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"

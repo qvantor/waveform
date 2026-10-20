@@ -8,6 +8,7 @@ import { withoutAudioWorklet } from '../../../../test-utils/no-audio-worklet';
 import { workletLoads } from '../../../../test-utils/worklet-loads';
 import { applySnapshot } from '../../../app';
 import { FX_REGISTRY } from '../effects';
+import { workletBundle } from '../../common/wasm/dsp-mode';
 import { FxList } from './fx-list';
 import { FX_COLORS } from './fx-colors';
 import { FxScreen } from './fx-screen';
@@ -26,7 +27,7 @@ const failFirstWorkletLoad = () => {
   jest.spyOn(console, 'error').mockImplementation(() => undefined);
   let failed = false;
   const addModule = jest.fn((url: string) => {
-    if (failed || !url.endsWith('/reverb.js')) return Promise.resolve();
+    if (failed || !url.endsWith(`/${workletBundle('reverb')}.js`)) return Promise.resolve();
     failed = true;
     return Promise.reject(new Error('404'));
   });

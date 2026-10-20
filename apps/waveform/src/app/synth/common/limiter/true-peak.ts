@@ -14,16 +14,17 @@ const KAISER_BETA = 5;
 export const TRUE_PEAK_DELAY = TRUE_PEAK_TAPS / 2;
 
 // phase p interpolates the point p/4 of a sample after the center (the sample written DELAY steps ago);
-// every phase sums to 1, so DC reads exactly. Phase 0 is the center sample itself
-const PHASES = Array.from({ length: OVERSAMPLING - 1 }, (_, i) =>
+// every phase sums to 1, so DC reads exactly. Phase 0 is the center sample itself. The Rust core reads them
+// from dsp-core/src/consts.rs (dsp/gen/consts.mjs)
+export const TRUE_PEAK_PHASES = Array.from({ length: OVERSAMPLING - 1 }, (_, i) =>
   fir.sincPhase(i + 1, OVERSAMPLING, TRUE_PEAK_TAPS, KAISER_BETA)
 );
-const [PHASE1, PHASE2, PHASE3] = PHASES;
+const [PHASE1, PHASE2, PHASE3] = TRUE_PEAK_PHASES;
 
 // a point between the samples is a weighted sum of the last TAPS of them: it is at most this many times
 // the loudest of them (+8.1 dB, the sum of the absolute taps of the half sample phase)
 export const TRUE_PEAK_BOUND = Math.max(
-  ...PHASES.map((taps) => taps.reduce((sum, tap) => sum + Math.abs(tap), 0))
+  ...TRUE_PEAK_PHASES.map((taps) => taps.reduce((sum, tap) => sum + Math.abs(tap), 0))
 );
 
 // threshold: only the peaks from it up are needed (a limiter only cares about the ones over its ceiling).

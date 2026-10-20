@@ -38,15 +38,25 @@ const setup = () => {
 };
 
 describe('createMasterLimiter', () => {
-  it('plays through the compressor while the limiter module loads', () => {
+  it('plays through the compressor while the limiter module loads (with its Rust core)', () => {
     const { audioCtx, limiter, statuses } = setup();
     expect(statuses).toEqual(['loading']);
     expect(audioCtx.audioWorklet.addModule).toHaveBeenCalledWith(
-      expect.stringMatching(/\/assets\/worklets\/limiter\.js$/)
+      expect.stringMatching(/\/assets\/worklets\/limiter\.wasm\.js$/)
     );
     expect(lastTarget(limiter.input)).toBe(limiter.compressor);
     expect(limiter.compressor.connect).toHaveBeenCalledWith(limiter.compensation);
     expect(limiter.compensation.connect).toHaveBeenCalledWith(limiter.output);
+  });
+
+  it('stays on the compressor without wasm SIMD (Safari before 16.4)', async () => {
+    const validate = jest.spyOn(WebAssembly, 'validate').mockReturnValue(false);
+    const { audioCtx, limiter, statuses } = setup();
+    validate.mockRestore();
+    await flush();
+    expect(statuses).toEqual(['unsupported']);
+    expect(audioCtx.audioWorklet.addModule).not.toHaveBeenCalled();
+    expect(lastTarget(limiter.input)).toBe(limiter.compressor);
   });
 
   it('switches the input to the limiter worklet once it is ready', async () => {

@@ -1,7 +1,15 @@
 import { Note } from '@waveform/ui-kit';
 import { getFq } from '../../services';
 import { TABLE_THROTTLE } from '../modules/oscillator';
-import { BLOCK, createVoiceScope, storeWith, VoiceParams } from '../../../../test-utils/voice-dsp';
+import {
+  BLOCK,
+  createVoiceScope,
+  createWasmVoiceScope,
+  storeWith,
+  VoiceParams,
+  wasmStoreWith,
+} from '../../../../test-utils/voice-dsp';
+import { wasmCore } from '../../../../test-utils/wasm';
 import { buildLevels } from './wavetable-mipmap';
 import {
   CROSSFADE,
@@ -12,6 +20,7 @@ import {
   VoiceOscOptions,
   VoiceStats,
 } from './wavetable-osc-dsp';
+import { createOscScope, OscExports, TableStoreWasm } from './wavetable-osc-wasm';
 
 // the work of the voices on the audio thread as exact counts (it replaces the CPU scenes of the browser suite
 // but the heavy patch, S5): the samples each unison voice plays from its mix table or directly from the
@@ -60,9 +69,28 @@ const params = (note: Note): VoiceParams => ({
 });
 const UNISON = CHORD.length * 16;
 
+// the counts are those of both cores: the TS one and the Rust one (dsp/wavetable-osc)
+const oscScope = createOscScope(wasmCore<OscExports>('wavetable-osc'));
+const CORES = [
+  { name: 'ts', storeWith, createScope: createVoiceScope },
+  {
+    name: 'wasm',
+    storeWith: (tables: Record<string, number[][]>) => wasmStoreWith(oscScope, tables),
+    createScope: ({ rate, store }: { rate: number; store: TableStoreWasm }) =>
+      createWasmVoiceScope({ rate, scope: oscScope, store }),
+  },
+] as const;
+// the core of the describe.each
+let core: typeof CORES[number] = CORES[0];
+const coreStoreWith = (tables: Record<string, number[][]>) => core.storeWith(tables);
+const coreScope = (rate: number, store: ReturnType<typeof coreStoreWith>['store']) =>
+  core.name === 'ts'
+    ? CORES[0].createScope({ rate, store: store as Parameters<typeof createVoiceScope>[0]['store'] })
+    : CORES[1].createScope({ rate, store: store as TableStoreWasm });
+
 const chord = (rate: number, notes = CHORD, oscs = OSCS) => {
-  const { store, freed } = storeWith({ a: FRAMES, b: FRAMES });
-  const scope = createVoiceScope({ rate, store });
+  const { store, freed } = coreStoreWith({ a: FRAMES, b: FRAMES });
+  const scope = coreScope(rate, store);
   notes.forEach((note) => scope.add(oscs, params(note)));
   const run = (blocks: number) => Array.from({ length: blocks }, () => scope.block());
   return { store, freed, scope, run };
@@ -77,7 +105,11 @@ const settled = (blocks: VoiceStats[]) =>
     blocks.slice(i).every((block) => block.directSamples === 0 && block.builds === 0)
   );
 
-describe('the work of the voices', () => {
+describe.each(CORES)('the work of the voices, $name core', (coreOf) => {
+  beforeAll(() => {
+    core = coreOf;
+  });
+
   // the multiply-adds of a mix (wavetable-osc-dsp buildCost): its fill (4096 at 44.1 and 48 kHz) and each of
   // the 2 levels it reads, added as it is when as long, interpolated at 6 points a sample when shorter; one
   // frame. 12,288 = 3 · 4096 (both levels 4096 long: the low notes), 32,768 = 4096 + 4096 + 6 · 4096 (the
@@ -141,8 +173,8 @@ describe('the work of the voices', () => {
   );
 
   it('a gliding pitch plays directly, its mixes are built in the second block after it settles', () => {
-    const { store } = storeWith({ a: FRAMES, b: FRAMES });
-    const scope = createVoiceScope({ rate: 48000, store });
+    const { store } = coreStoreWith({ a: FRAMES, b: FRAMES });
+    const scope = coreScope(48000, store);
     // a portamento of 100 ms: 37.5 blocks
     const glide = 4800;
     scope.add([OSCS[0], null], {
@@ -200,8 +232,8 @@ describe('the work of the voices', () => {
     [96000, 1920],
   ])('at %i Hz a stolen voice fades out in %i frames (20 ms) and ends', (rate, fade) => {
     expect(Math.round(KILL_FADE * rate)).toBe(fade);
-    const { store } = storeWith({ a: FRAMES, b: FRAMES });
-    const scope = createVoiceScope({ rate, store });
+    const { store } = coreStoreWith({ a: FRAMES, b: FRAMES });
+    const scope = coreScope(rate, store);
     const voice = scope.add(OSCS, params([4, 'A'] as Note));
     Array.from({ length: 4 }, () => scope.block());
     voice.params.gate = -1;

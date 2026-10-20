@@ -1,8 +1,9 @@
 import { createTruePeak, TRUE_PEAK_DELAY } from './true-peak';
 
-// the master limiter runs in an audio worklet (limiter.worklet.ts), this is its signal processing
+// the master limiter runs in an audio worklet (limiter.worklet.ts), this is its signal processing (and the
+// reference of its Rust core, dsp/limiter: limiter.wasm.worklet.ts)
 
-export const LIMITER_PROCESSOR = 'waveform-limiter';
+export { LIMITER_PROCESSOR } from '../processors';
 
 // the true peak of the output never goes over it (dBTP)
 export const CEILING_DB = -0.5;

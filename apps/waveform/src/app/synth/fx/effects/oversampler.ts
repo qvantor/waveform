@@ -21,14 +21,14 @@ const UP_CUTOFF = 0.9;
 export const OVERSAMPLER_LATENCY = 2 * HALF;
 
 // phase p (0..3) of up() reads the point p/4 of a sample after the center: tap j weighs the sample j steps
-// back
-const [UP0, UP1, UP2, UP3] = [0, 1, 2, 3].map((phase) =>
+// back. The Rust core reads them and those of down() from dsp-core/src/consts.rs (dsp/gen/consts.mjs)
+export const UP_PHASES = [0, 1, 2, 3].map((phase) =>
   fir.sincPhase(phase, OVERSAMPLING, TAPS, KAISER_BETA, UP_CUTOFF)
 );
+const [UP0, UP1, UP2, UP3] = UP_PHASES;
 // the ones of down(), cut at the nyquist (its phase 0 is the center point alone)
-const [PHASE1, PHASE2, PHASE3] = [1, 2, 3].map((phase) =>
-  fir.sincPhase(phase, OVERSAMPLING, TAPS, KAISER_BETA)
-);
+export const DOWN_PHASES = [1, 2, 3].map((phase) => fir.sincPhase(phase, OVERSAMPLING, TAPS, KAISER_BETA));
+const [PHASE1, PHASE2, PHASE3] = DOWN_PHASES;
 // the decimator reads its 4 streams of points one step further back than up() reads the samples (the
 // newest points are HALF + 1/4·q after the output point, their taps are 0)
 const STREAM = TAPS + 1;

@@ -4,11 +4,19 @@ import { isWorkletSupported, loadWorklet, WORKLETS_PATH } from './load-worklet';
 const addModuleOf = (audioCtx: AudioContext) => audioCtx.audioWorklet.addModule as jest.Mock;
 
 describe('loadWorklet', () => {
+  it('adds the bundle of a module with its wasm core', async () => {
+    const audioCtx = new AudioContext();
+    await loadWorklet(audioCtx, 'limiter');
+    expect(addModuleOf(audioCtx)).toHaveBeenCalledWith(
+      new URL(`${WORKLETS_PATH}limiter.wasm.js`, document.baseURI).href
+    );
+  });
+
   it('adds the module from the worklets path', async () => {
     const audioCtx = new AudioContext();
-    await loadWorklet(audioCtx, 'reverb');
+    await loadWorklet(audioCtx, 'chorus');
     expect(addModuleOf(audioCtx)).toHaveBeenCalledWith(
-      new URL(`${WORKLETS_PATH}reverb.js`, document.baseURI).href
+      new URL(`${WORKLETS_PATH}chorus.js`, document.baseURI).href
     );
   });
 
@@ -62,6 +70,18 @@ describe('loadWorklet', () => {
 describe('isWorkletSupported', () => {
   it('is true with audioWorklet and AudioWorkletNode', () => {
     expect(isWorkletSupported(new AudioContext())).toBe(true);
+  });
+
+  it('a module with its wasm core needs wasm SIMD too', () => {
+    const audioCtx = new AudioContext();
+    expect(isWorkletSupported(audioCtx, 'limiter')).toBe(true);
+    const validate = jest.spyOn(WebAssembly, 'validate').mockReturnValue(false);
+    expect(isWorkletSupported(audioCtx, 'limiter')).toBe(false);
+    // its TS core doesn't
+    window.history.replaceState(null, '', '/?dsp=js');
+    expect(isWorkletSupported(audioCtx, 'limiter')).toBe(true);
+    window.history.replaceState(null, '', '/');
+    validate.mockRestore();
   });
 
   it('is false in old browsers and outside secure contexts', () => {

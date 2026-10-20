@@ -1,6 +1,7 @@
 import { mapValues } from 'lodash';
 import { FX_PARAMS } from '@waveform/preset-schema';
 import { withoutAudioWorklet } from '../../../../test-utils/no-audio-worklet';
+import { workletBundle } from '../../common/wasm/dsp-mode';
 import { distortion } from './distortion';
 import { DISTORTION_LATENCY, DISTORTION_PROCESSOR } from './distortion-dsp';
 import { DISTORTION_MODES } from './distortion-modes';
@@ -48,7 +49,7 @@ describe('distortion', () => {
     expect(node()).toBeUndefined();
     await flush();
     expect(audioCtx.audioWorklet.addModule).toHaveBeenCalledWith(
-      new URL(`${WORKLETS_PATH}distortion.js`, document.baseURI).href
+      new URL(`${WORKLETS_PATH}${workletBundle('distortion')}.js`, document.baseURI).href
     );
     expect(node()?.name).toBe(DISTORTION_PROCESSOR);
     expect(node()?.connect).toHaveBeenCalledWith(output);

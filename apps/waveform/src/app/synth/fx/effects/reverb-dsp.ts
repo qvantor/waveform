@@ -22,7 +22,7 @@ import { BODY_FREQ, BODY_Q, tube } from './reverb-era';
 
 // the reverb runs in an audio worklet (reverb.worklet.ts), this is its signal processing
 
-export const REVERB_PROCESSOR = 'waveform-reverb';
+export { REVERB_PROCESSOR } from '../../common/processors';
 
 // the reverb params (FX_PARAMS.reverb) with the era resolved to the values of its input stage
 export interface ReverbDspParams {

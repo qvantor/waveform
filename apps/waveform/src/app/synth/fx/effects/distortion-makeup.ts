@@ -29,14 +29,15 @@ const makeupDb = (shape: (x: number) => number, drive: number) => {
   return 20 * Math.log10(REFERENCE_RMS / Math.sqrt(sum / POINTS));
 };
 
-// by mode, from 0 dB up to MAX_DRIVE
-const TABLES = DISTORTION_MODES.map(({ shape }) =>
+// dB by mode, from 0 dB up to MAX_DRIVE every STEP (the Rust core reads them from dsp-core/src/consts.rs,
+// dsp/gen/consts.mjs)
+export const MAKEUP_TABLES = DISTORTION_MODES.map(({ shape }) =>
   Float64Array.from({ length: MAX_DRIVE / STEP + 1 }, (_, i) => makeupDb(shape, i * STEP))
 );
 
 // the output gain of the mode (an index, as the param) at the drive (dB, clamped to its range)
 export const makeupGain = (mode: number, drive: number) => {
-  const table = TABLES[modeIndex(mode)];
+  const table = MAKEUP_TABLES[modeIndex(mode)];
   const position = number.thresholds(drive, 0, MAX_DRIVE) / STEP;
   const i = Math.min(Math.floor(position), table.length - 2);
   const db = table[i] + (table[i + 1] - table[i]) * (position - i);

@@ -5,7 +5,7 @@ import { createOversampler, OVERSAMPLER_LATENCY, OVERSAMPLING } from './oversamp
 
 // the distortion runs in an audio worklet (distortion.worklet.ts), this is its signal processing
 
-export const DISTORTION_PROCESSOR = 'waveform-distortion';
+export { DISTORTION_PROCESSOR } from '../../common/processors';
 
 // the distortion params (FX_PARAMS.distortion): mode index, drive (dB), tone (Hz), level (dB, on top of the
 // makeup gain)

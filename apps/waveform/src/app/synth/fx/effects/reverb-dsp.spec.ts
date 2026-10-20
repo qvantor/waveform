@@ -1,9 +1,21 @@
+// first: the Math of the wasm core for both
+import '../../../../test-utils/js-math';
 import FFT from 'fft.js';
 import { FX_PARAMS } from '@waveform/preset-schema';
+import { wasmCore } from '../../../../test-utils/wasm';
 import { DECAY_CHART_FREQS, decayCurve } from '../components/controls/reverb-decay-curve';
 import { createBiquad } from './dsp';
 import { createReverbDsp, MAX_PREDELAY, MAX_SIZE, ReverbDspParams } from './reverb-dsp';
 import { HF_RATIO } from './reverb-decay';
+import { createReverbWasm, ReverbExports } from './reverb-wasm';
+
+type CreateReverb = typeof createReverbDsp;
+// both cores: the TS one and the Rust one (dsp/reverb), one instance of it for the spec (a scope)
+const core = wasmCore<ReverbExports>('reverb');
+const CORES: [string, CreateReverb][] = [
+  ['ts', createReverbDsp],
+  ['wasm', (sampleRate, options) => createReverbWasm(core, sampleRate, options)],
+];
 
 const SAMPLE_RATE = 48000;
 const BLOCK = 128;
@@ -48,6 +60,9 @@ const sine =
     amplitude * Math.sin((2 * Math.PI * freq * frame) / SAMPLE_RATE);
 
 // renders in render quanta like the worklet, the changes apply at the start of the block holding `at`
+// the core the specs run (describe.each sets it)
+let create: CreateReverb = createReverbDsp;
+
 const render = (
   params: Partial<ReverbDspParams>,
   seconds: number,
@@ -55,7 +70,7 @@ const render = (
   changes: Change[] = [],
   active = true
 ) => {
-  const dsp = createReverbDsp(SAMPLE_RATE, { params: { ...BASE, ...params }, active });
+  const dsp = create(SAMPLE_RATE, { params: { ...BASE, ...params }, active });
   const frames = Math.ceil((seconds * SAMPLE_RATE) / BLOCK) * BLOCK;
   const [L, R] = [new Float32Array(frames), new Float32Array(frames)];
   const block = new Float32Array(BLOCK);
@@ -146,7 +161,11 @@ const maxStep = (data: Float32Array, from: number, to: number) => {
   return max;
 };
 
-describe('createReverbDsp', () => {
+describe.each(CORES)('createReverbDsp, %s core', (_, coreOf) => {
+  beforeAll(() => {
+    create = coreOf;
+  });
+
   it('allocates the buffers for the whole param ranges', () => {
     expect(MAX_PREDELAY).toBe(FX_PARAMS.reverb.pre.max);
     expect(MAX_SIZE).toBe(FX_PARAMS.reverb.size.max);
@@ -374,7 +393,7 @@ describe('createReverbDsp', () => {
     });
 
     it('ignores unknown and missing params', () => {
-      const dsp = createReverbDsp(SAMPLE_RATE, { params: BASE, active: true });
+      const dsp = create(SAMPLE_RATE, { params: BASE, active: true });
       expect(() => dsp.set({ time: 1, decay: undefined } as never)).not.toThrow();
     });
   });

@@ -1,5 +1,8 @@
+// first: the Math of the wasm core for both
+import '../../../../test-utils/js-math';
 import FFT from 'fft.js';
 import { FX_PARAMS } from '@waveform/preset-schema';
+import { wasmCore } from '../../../../test-utils/wasm';
 import {
   createDistortionDsp,
   DC_CUTOFF,
@@ -9,7 +12,18 @@ import {
 } from './distortion-dsp';
 import { makeupGain, REFERENCE_PEAK } from './distortion-makeup';
 import { DISTORTION_MODES } from './distortion-modes';
+import { createDistortionWasm, DistortionExports } from './distortion-wasm';
 import { createDcBlocker } from './dsp';
+
+type CreateDistortion = typeof createDistortionDsp;
+// both cores: the TS one and the Rust one (dsp/distortion), one instance of it for the spec (a scope)
+const core = wasmCore<DistortionExports>('distortion');
+const CORES: [string, CreateDistortion][] = [
+  ['ts', createDistortionDsp],
+  ['wasm', (sampleRate, options) => createDistortionWasm(core, sampleRate, options)],
+];
+// the core the specs run (describe.each sets it)
+let create: CreateDistortion = createDistortionDsp;
 
 const SAMPLE_RATE = 48000;
 const BLOCK = 128;
@@ -67,7 +81,7 @@ const render = (
   left: Input,
   { changes = [], right = left }: { changes?: Change[]; right?: Input } = {}
 ) => {
-  const dsp = createDistortionDsp(SAMPLE_RATE, { params: { ...BASE, ...params } });
+  const dsp = create(SAMPLE_RATE, { params: { ...BASE, ...params } });
   const length = Math.ceil(frames / BLOCK) * BLOCK;
   const [L, R] = [new Float32Array(length), new Float32Array(length)];
   const [inL, inR] = [new Float32Array(BLOCK), new Float32Array(BLOCK)];
@@ -150,7 +164,11 @@ const unblock = (data: Float32Array) => {
   return out;
 };
 
-describe('distortion dsp', () => {
+describe.each(CORES)('distortion dsp, %s core', (_, coreOf) => {
+  beforeAll(() => {
+    create = coreOf;
+  });
+
   it('the open tone is the top of the tone range', () => {
     expect(TONE_OPEN).toBe(FX_PARAMS.distortion.tone.max);
   });

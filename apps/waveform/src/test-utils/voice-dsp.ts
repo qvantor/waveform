@@ -10,6 +10,15 @@ import {
 } from '../app/synth/common/wavetable/wavetable-osc-dsp';
 import type { EnvelopeParams } from '../app/synth/common/envelope/envelope-curve';
 import { VoiceParam } from '../app/synth/common/wavetable/wavetable-osc-params';
+import {
+  createTableStoreWasm,
+  createVoiceSharedWasm,
+  createVoiceWasm,
+  OscScope,
+  TableStoreWasm,
+  VoiceSharedWasm,
+} from '../app/synth/common/wavetable/wavetable-osc-wasm';
+import { seeded } from './seeded';
 
 // the voice dsp of the wavetable oscillator run offline, as the worklet runs it: tables in a store, the
 // voices of a scope one after another every block of 128 frames
@@ -21,17 +30,20 @@ export const BLOCK = 128;
 const FLAT: EnvelopeParams = { attack: 0, hold: 0, decay: 0, sustain: 1, release: 0 };
 
 // a seeded random() (mulberry32): the phases of a note are reproducible
-export const seeded = (seed: number) => () => {
-  seed = (seed + 0x6d2b79f5) | 0;
-  let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-};
+export { seeded };
 
 // a store with version 1 of each table (frames of samples), the levels it frees
 export const storeWith = (tables: Record<string, number[][]>) => {
   const freed: unknown[] = [];
   const store = createTableStore((levels) => freed.push(levels));
+  Object.entries(tables).forEach(([id, frames]) => store.set(id, 1, buildLevels(frames)));
+  return { store, freed };
+};
+
+// the same in the store of the Rust core (in the instance `scope`)
+export const wasmStoreWith = (scope: OscScope, tables: Record<string, number[][]>) => {
+  const freed: unknown[] = [];
+  const store = createTableStoreWasm(scope, (levels) => freed.push(levels));
   Object.entries(tables).forEach(([id, frames]) => store.set(id, 1, buildLevels(frames)));
   return { store, freed };
 };
@@ -66,8 +78,18 @@ const blockValues = (params: VoiceParams, frame: number) =>
     })
   ) as Record<VoiceParam, Float32Array>;
 
+// a voice of either core
+interface VoiceDsp {
+  process: (
+    frame: number,
+    params: Record<VoiceParam, Float32Array>,
+    outL: Float32Array,
+    outR: Float32Array
+  ) => boolean;
+}
+
 export interface ScopeVoice {
-  dsp: ReturnType<typeof createVoiceDsp>;
+  dsp: VoiceDsp;
   // read every block: change them between blocks
   params: VoiceParams;
   ended: boolean;
@@ -86,7 +108,28 @@ export const createVoiceScope = ({
   store: TableStore;
   shared?: VoiceShared;
   random?: () => number;
-}) => {
+}) => scopeOf(rate, shared, (options) => createVoiceDsp(rate, options, store, random, shared));
+
+// the same with the voices of the Rust core (wavetable-osc-wasm.ts): its store and shared in the instance `scope`
+export const createWasmVoiceScope = ({
+  rate,
+  scope,
+  store,
+  shared = createVoiceSharedWasm(scope),
+  random = seeded(1),
+}: {
+  rate: number;
+  scope: OscScope;
+  store: TableStoreWasm;
+  shared?: VoiceSharedWasm;
+  random?: () => number;
+}) => scopeOf(rate, shared, (options) => createVoiceWasm(scope, rate, options, store, random, shared));
+
+const scopeOf = <Shared extends { stats: () => VoiceStats }>(
+  rate: number,
+  shared: Shared,
+  createVoice: (options: VoiceOptions) => VoiceDsp
+) => {
   const voices: ScopeVoice[] = [];
   const outL = new Float32Array(BLOCK);
   const outR = new Float32Array(BLOCK);
@@ -100,22 +143,16 @@ export const createVoiceScope = ({
     },
     add: (osc: VoiceOptions['osc'], params: VoiceParams = {}, start = frame / rate) => {
       const voice: ScopeVoice = {
-        dsp: createVoiceDsp(
-          rate,
-          // a phrase of its own: the voices of a scope are notes, not of a legato phrase
-          {
-            osc,
-            start,
-            envelopes: [FLAT, FLAT, FLAT],
-            envStart: start,
-            phrase: voices.length,
-            routes: [],
-            filter: null,
-          },
-          store,
-          random,
-          shared
-        ),
+        // a phrase of its own: the voices of a scope are notes, not of a legato phrase
+        dsp: createVoice({
+          osc,
+          start,
+          envelopes: [FLAT, FLAT, FLAT],
+          envStart: start,
+          phrase: voices.length,
+          routes: [],
+          filter: null,
+        }),
         // its own: a spec changes them for this voice
         params: { ...params },
         ended: false,

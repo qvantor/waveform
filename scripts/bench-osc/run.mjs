@@ -4,6 +4,8 @@
 // Chromium, WebKit and Firefox through Playwright, which is not a dependency of the project:
 //   npx -y -p playwright@1.50.1 node scripts/bench-osc/run.mjs [--browsers=chromium,webkit,firefox]
 //     [--rates=44100,48000,96000] [--only=sound,pitch,continuity,switch,stereo,unison,cpu,biquad,delivery,build]
+//     [--dsp=js]
+// The worklet is the one of production, on the wasm core (tmp/wasm: `npm run wasm` first); --dsp=js the TS one
 import fs from 'fs';
 import http from 'http';
 import path from 'path';
@@ -18,6 +20,7 @@ const browsers = (args.browsers ?? 'chromium,webkit,firefox').split(',');
 const rates = (args.rates ?? '44100,48000,96000').split(',').map(Number);
 const only = args.only ? args.only.split(',') : null;
 const runs = (step) => !only || only.includes(step);
+const dsp = args.dsp === 'js' ? 'js' : 'wasm';
 
 const TABLES = [
   'ESW Core Tables/Basics/ESW Basics - Saw Collection.wav',
@@ -42,12 +45,19 @@ const bundle = async () => {
     entryPoints: { bench: path.join(root, 'scripts/bench-osc/bench-page.ts') },
     outdir: site,
   });
+  if (dsp === 'wasm' && !fs.existsSync(path.join(root, 'tmp/wasm/wavetable-osc.wasm')))
+    throw new Error('tmp/wasm/wavetable-osc.wasm is missing: run `npm run wasm` first');
   await esbuild.build({
     ...common,
+    // the bytes of the core inlined, as `npm run worklets` does
+    loader: { '.wasm': 'binary' },
+    supported: { 'from-base64': false },
     entryPoints: {
       'wavetable-osc': path.join(
         root,
-        'apps/waveform/src/app/synth/common/wavetable/wavetable-osc.worklet.ts'
+        `apps/waveform/src/app/synth/common/wavetable/wavetable-osc${
+          dsp === 'wasm' ? '.wasm' : ''
+        }.worklet.ts`
       ),
       'wavetable-worker': path.join(root, 'apps/waveform/src/app/synth/common/wavetable/wavetable.worker.ts'),
     },
@@ -90,11 +100,25 @@ const check = (failures, ok, text) => {
 
 const runBrowser = async (playwright, name, port) => {
   const browser = await playwright[name].launch();
-  const page = await browser.newPage();
-  page.on('pageerror', (error) => console.log(`[${name}] ${error.message}`));
-  await page.goto(`http://localhost:${port}/`);
-  await page.waitForFunction(() => window.bench);
-  const call = (fn, arg) => page.evaluate(([fn, arg]) => window.bench[fn](arg), [fn, arg]);
+  try {
+    return await runPages(browser, name, port);
+  } finally {
+    await browser.close();
+  }
+};
+
+const runPages = async (browser, name, port) => {
+  let page = null;
+  // a page of its own for every call: the contexts of the last one go with it (each holds its worklet, a wasm
+  // core with a table of up to 64 MB in its memory; Chromium stopped making new ones within a page)
+  const call = async (fn, arg) => {
+    await page?.close();
+    page = await browser.newPage();
+    page.on('pageerror', (error) => console.log(`[${name}] ${error.message}`));
+    await page.goto(`http://localhost:${port}/`);
+    await page.waitForFunction(() => window.bench);
+    return page.evaluate(([fn, arg]) => window.bench[fn](arg), [fn, arg]);
+  };
   const report = { browser: name, version: browser.version(), results: {} };
   const failures = [];
   const lines = [`## ${name} ${browser.version()}`];
@@ -180,11 +204,13 @@ const runBrowser = async (playwright, name, port) => {
   if (runs('stereo')) {
     const { u3, u8 } = await call('stereo', { rate });
     report.results.stereo = { u3, u8 };
+    // the lowest voice left, the middle one of an odd count both channels, the highest right; each at
+    // 1/√⌈n/2⌉
     const level = 1 / Math.sqrt(2);
     const expected3 = [
       [level, 0],
-      [0, level],
       [level, level],
+      [0, level],
     ];
     const ok3 = u3.every((pair, i) => pair.every((value, c) => Math.abs(value - expected3[i][c]) < 0.01));
     const ok8 = u8.every(([l, r], j) => Math.abs((j % 2 ? r : l) - 0.5) < 0.01 && (j % 2 ? l : r) < 0.01);
@@ -284,7 +310,6 @@ const runBrowser = async (playwright, name, port) => {
   }
 
   log(failures.length ? `FAILED: ${failures.join('; ')}` : 'all criteria passed');
-  await browser.close();
   return { report, lines, failures };
 };
 
@@ -295,7 +320,7 @@ const main = async () => {
   const server = await serve();
   const { port } = server.address();
   const reports = [];
-  const lines = ['# Wavetable oscillator benchmark', '', new Date().toISOString(), ''];
+  const lines = [`# Wavetable oscillator benchmark (the ${dsp} core)`, '', new Date().toISOString(), ''];
   let failed = 0;
   for (const name of browsers) {
     try {

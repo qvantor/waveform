@@ -1,5 +1,9 @@
+// first: the Math of the wasm core for both (the skipping detector is compared with the exact one of the TS core)
+import '../../../../test-utils/js-math';
+import { wasmCore } from '../../../../test-utils/wasm';
 import { createBiquad } from '../../fx/effects/dsp';
 import { CEILING, CEILING_DB, createLimiterDsp, LOOKAHEAD } from './limiter-dsp';
+import { createLimiterWasm, LimiterExports } from './limiter-wasm';
 import { TRUE_PEAK_DELAY } from './true-peak';
 
 const SAMPLE_RATE = 48000;
@@ -11,8 +15,22 @@ const db = (gain: number) => 20 * Math.log10(gain);
 
 type Input = (frame: number, channel: number) => number;
 
+type CreateLimiter = (sampleRate: number) => Pick<ReturnType<typeof createLimiterDsp>, 'process' | 'latency'>;
+
+// both cores: the TS one and the Rust one (dsp/limiter), one instance of it for the spec (a scope)
+const core = wasmCore<LimiterExports>('limiter');
+const CORES: [string, CreateLimiter][] = [
+  ['ts', createLimiterDsp],
+  ['wasm', (sampleRate) => createLimiterWasm(core, sampleRate)],
+];
+
 // renders in render quanta like the worklet
-const render = (input: Input, seconds: number, sampleRate = SAMPLE_RATE, create = createLimiterDsp) => {
+const render = (
+  input: Input,
+  seconds: number,
+  sampleRate = SAMPLE_RATE,
+  create: CreateLimiter = createLimiterDsp
+) => {
   const dsp = create(sampleRate);
   const frames = Math.ceil((seconds * sampleRate) / BLOCK) * BLOCK;
   const inputs = [0, 1].map((channel) => Float32Array.from({ length: frames }, (_, i) => input(i, channel)));
@@ -130,21 +148,24 @@ const bandNoise = (amplitude: number): Input => {
   };
 };
 
-describe('createLimiterDsp', () => {
+describe.each(CORES)('createLimiterDsp, %s core', (_, create) => {
+  const renderCore = (input: Input, seconds: number, sampleRate = SAMPLE_RATE) =>
+    render(input, seconds, sampleRate, create);
+
   it.each([
     [44100, 88],
     [48000, 96],
     [96000, 192],
   ])('at %s Hz delays the sound by the lookahead (%s frames) and the detector', (sampleRate, lookahead) => {
     expect(Math.round(LOOKAHEAD * sampleRate)).toBe(lookahead);
-    expect(createLimiterDsp(sampleRate).latency).toBe(lookahead + TRUE_PEAK_DELAY);
+    expect(create(sampleRate).latency).toBe(lookahead + TRUE_PEAK_DELAY);
   });
 
   it('passes a sound below the ceiling bit for bit, only delayed', () => {
     // a chord of saws with its true peak 1.5 dB below the ceiling
     const [a, e, a2] = [220, 330, 440].map(createSaw);
     const chord: Input = (n) => (a(n) + e(n, 1, 0.2) + a2(n, 1, 0.4)) / 3.6;
-    const { L, R, inputs, latency } = render(chord, 0.3);
+    const { L, R, inputs, latency } = renderCore(chord, 0.3);
     expect(truePeakDb(inputs[0])).toBeLessThan(CEILING_DB - 1);
     expect(L.subarray(0, latency)).toEqual(new Float32Array(latency));
     expect(L.subarray(latency)).toEqual(inputs[0].subarray(0, L.length - latency));
@@ -162,7 +183,7 @@ describe('createLimiterDsp', () => {
       ['a sine 12 dB over after silence', sine(1000, 4, frame(0.1))],
     ])('%s', (_, input) => {
       [44100, 48000].forEach((sampleRate) => {
-        const { L, R } = render(input, 0.3, sampleRate);
+        const { L, R } = renderCore(input, 0.3, sampleRate);
         expect(samplePeak(L)).toBeLessThanOrEqual(MAX_SAMPLE);
         expect(samplePeak(R)).toBeLessThanOrEqual(MAX_SAMPLE);
         // it is limiting, not muting
@@ -182,7 +203,7 @@ describe('createLimiterDsp', () => {
       ['a 20 kHz sine 10 dB over', sine(20000, 3), 0.4],
       ['a sine at 0.45·fs 10 dB over', (n) => 3 * Math.sin(2 * Math.PI * 0.45 * n + 0.3), 0.5],
     ])('%s', (_, input, error) => {
-      const { L, R } = render(input, 0.2);
+      const { L, R } = renderCore(input, 0.2);
       [L, R].forEach((data) => {
         const peak = truePeakDb(data);
         expect(peak).toBeLessThan(0);
@@ -196,7 +217,7 @@ describe('createLimiterDsp', () => {
   it.each([30, 50, 1000, 5000])(
     'holds a steady tone 12 dB over at the ceiling, the gain does not move inside the %s Hz wave',
     (freq) => {
-      const { L, gain } = render(sine(freq, 4), 0.6);
+      const { L, gain } = renderCore(sine(freq, 4), 0.6);
       const { min, max } = gainRange(gain, 0.05, 0.6);
       expect(max - min).toBeLessThan(0.001);
       expect(max).toBeCloseTo(CEILING_DB - db(4), 1);
@@ -207,7 +228,7 @@ describe('createLimiterDsp', () => {
   it('turns the gain down along an S-curve over the lookahead before a peak, no step', () => {
     // a quiet constant, then 12 dB over
     const step = frame(0.1);
-    const { gain, latency } = render((n) => (n < step ? 0.1 : 4), 0.2);
+    const { gain, latency } = renderCore((n) => (n < step ? 0.1 : 4), 0.2);
     const onset = step + latency;
     const lookahead = latency - TRUE_PEAK_DELAY;
     const gains = Array.from({ length: 3 * lookahead }, (_, i) => gain(onset - 2 * lookahead + i));
@@ -227,7 +248,7 @@ describe('createLimiterDsp', () => {
     // after `end` (s)
     const gainsAfter = (loud: (n: number) => boolean, end: number, times: number[]) => {
       const tone = sine(440, 0.25);
-      const { gain, latency } = render(
+      const { gain, latency } = renderCore(
         (n, channel) => tone(n, channel) + (loud(n) ? 4 * Math.sin(n / 76.4) : 0),
         end + Math.max(...times) + 0.05
       );
@@ -269,7 +290,7 @@ describe('createLimiterDsp', () => {
     it('lets a long loud part go down to what a quieter part over the ceiling needs, not below', () => {
       // 12 dB over, then 2.9 dB
       const end = frame(1.6);
-      const { L, gain } = render((n) => (n < end ? 4 : 1.4 * CEILING) * Math.sin(n / 76.4), 2.6);
+      const { L, gain } = renderCore((n) => (n < end ? 4 : 1.4 * CEILING) * Math.sin(n / 76.4), 2.6);
       const { min, max } = gainRange(gain, 2, 2.6);
       expect(max - min).toBeLessThan(0.001);
       expect(max).toBeCloseTo(-db(1.4), 2);
@@ -278,7 +299,7 @@ describe('createLimiterDsp', () => {
 
     it('comes back to bit for bit once released', () => {
       const end = frame(1.5);
-      const { L, inputs, latency } = render(
+      const { L, inputs, latency } = renderCore(
         (n) => (n < end ? 4 * Math.sin(n / 7.64) : 0.5 * Math.sin(n / 7.64)),
         3
       );
@@ -288,7 +309,7 @@ describe('createLimiterDsp', () => {
   });
 
   it('links the sides: a loud left side turns the right one down by the same gain', () => {
-    const { L, R, gain } = render(
+    const { L, R, gain } = renderCore(
       (n, channel) => (channel ? 0.25 : 4) * Math.sin(n / (channel ? 11 : 7.64)),
       0.3
     );
@@ -321,8 +342,8 @@ describe('createLimiterDsp', () => {
           10 ** ((-56 + 52 * Math.sin((Math.PI * n) / frame(1))) / 20);
     const input: Input = (n, channel) =>
       n < frame(1) ? swell(n, channel) : 1.2 * Math.sin((Math.PI / 2) * n + Math.PI / 4);
-    const skipping = render(input, 1.2);
-    const exact = render(input, 1.2, SAMPLE_RATE, exactDsp);
+    const skipping = renderCore(input, 1.2);
+    const exact = render(input, 1.2, SAMPLE_RATE, exactDsp as CreateLimiter);
     const sineOut = skipping.L.subarray(frame(1.1));
     expect(samplePeak(skipping.inputs[0].subarray(frame(1)))).toBeLessThan(CEILING);
     expect(samplePeak(sineOut)).toBeLessThan(0.85 * (CEILING / 1.2) + 0.01);
@@ -339,7 +360,7 @@ describe('createLimiterDsp', () => {
       [frame(0.06), Infinity],
       [frame(0.07), -Infinity],
     ]);
-    const { L, inputs, latency } = render((n, channel) => broken.get(n) ?? tone(n, channel), 0.2);
+    const { L, inputs, latency } = renderCore((n, channel) => broken.get(n) ?? tone(n, channel), 0.2);
     expect(L.every((value) => Number.isFinite(value))).toBe(true);
     broken.forEach((_, n) => expect(L[n + latency]).toBe(0));
     const from = frame(0.1);

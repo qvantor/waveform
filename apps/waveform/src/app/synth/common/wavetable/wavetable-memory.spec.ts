@@ -1,5 +1,6 @@
 import { createSynth } from '../../../../test-utils/models';
-import { BLOCK, createVoiceScope } from '../../../../test-utils/voice-dsp';
+import { BLOCK, createVoiceScope, createWasmVoiceScope } from '../../../../test-utils/voice-dsp';
+import { wasmCore } from '../../../../test-utils/wasm';
 import { WorkerStub } from '../../../../test-utils/worker-stub';
 import { createTableBuilder } from './wavetable-builder';
 import { FRAME_GUARD } from './wavetable-levels';
@@ -18,6 +19,13 @@ import {
   StoreTableMessage,
   VoiceOscOptions,
 } from './wavetable-osc-dsp';
+import {
+  createOscScope,
+  createStoreReceiver,
+  createTableStoreWasm,
+  OscExports,
+  STORE_CHUNK,
+} from './wavetable-osc-wasm';
 
 // the memory of the wavetable oscillator worked out (it replaces the memory checks of the browser suite but the
 // footprint of the heavy patch, S5): the bytes of a table, the versions the store holds while voices play a
@@ -191,5 +199,104 @@ describe('the memory of the wavetable oscillator', () => {
     const tables = worker.postMessage.mock.calls.map(([message]) => (message as { table?: string }).table);
     expect(tables).toContain(osc2[0].id);
     expect(tables).not.toContain(osc1[0].id);
+  });
+});
+
+// the store of the wasm core: the worker's builder in chunks and the store of the worklet (createStoreReceiver) on
+// the two ends of their channel, a fresh instance of the core each (its memory is measured)
+const createWasmTables = () => {
+  const queue: (() => void)[] = [];
+  const reply = jest.fn();
+  const builder = createTableBuilder((run) => queue.push(run), reply);
+  const scope = createOscScope(wasmCore<OscExports>('wavetable-osc'));
+  const store = createTableStoreWasm(scope);
+  const chunks: number[] = [];
+  type End = {
+    onmessage: null | ((event: { data: unknown }) => void);
+    postMessage: (message: unknown) => void;
+  };
+  const workerEnd: End = {
+    onmessage: null,
+    postMessage: (message) => storeEnd.onmessage?.({ data: message }),
+  };
+  const storeEnd: End = {
+    onmessage: null,
+    postMessage: (message) => {
+      if ((message as { ack?: ArrayBuffer }).ack) chunks.push(1);
+      workerEnd.onmessage?.({ data: message });
+    },
+  };
+  builder.receive({ port: workerEnd as unknown as MessagePort });
+  const stored: unknown[] = [];
+  const receive = createStoreReceiver(
+    store,
+    (message) => stored.push(message),
+    () => undefined
+  );
+  receive({ data: { port: storeEnd } } as MessageEvent);
+  const setTable = (table: string, version: number) => {
+    builder.receive({ table, version, frames: frames(version) });
+    // the chunks go through the stub ports at once, each after the ack of the last
+    while (queue.length) queue.splice(0).forEach((run) => run());
+  };
+  const pool = () => {
+    reply.mockClear();
+    builder.receive({ stats: true });
+    return reply.mock.calls[0][0].stats as { pooled: number; pool: number };
+  };
+  const memory = () => scope.exports.memory.buffer.byteLength;
+  return { scope, store, setTable, pool, memory, stored, chunks };
+};
+
+describe('the memory of the wasm store', () => {
+  it('a version arrives in chunks of 1 MB, each acked, the store holds it in the memory of its core', () => {
+    const { store, setTable, stored, chunks, memory } = createWasmTables();
+    const before = memory();
+    setTable('a', 1);
+    const bytes = tableBytes(frames(1));
+    expect(chunks).toHaveLength(Math.ceil(bytes / 4 / STORE_CHUNK));
+    expect(stored).toEqual([{ stored: 'a', version: 1 }]);
+    expect(store.stats()).toEqual({ tables: 1, versions: 1, bytes });
+    expect(memory() - before).toBeGreaterThanOrEqual(bytes);
+  });
+
+  it('a new version of both tables under a note: 2 versions a table during the crossfade, then 1', () => {
+    const { scope, store, setTable } = createWasmTables();
+    const bytes = tableBytes(frames(1));
+    setTable('a', 1);
+    setTable('b', 1);
+    const voices = createWasmVoiceScope({ rate: RATE, scope, store });
+    const voice = voices.add(OSCS, NOTE);
+    Array.from({ length: 10 }, voices.block);
+    setTable('a', 2);
+    setTable('b', 2);
+    expect(store.stats()).toEqual({ tables: 2, versions: 4, bytes: 4 * bytes });
+    const crossfade = Math.ceil((CROSSFADE * RATE) / BLOCK);
+    Array.from({ length: crossfade }, voices.block);
+    expect(store.stats()).toEqual({ tables: 2, versions: 2, bytes: 2 * bytes });
+    voice.params.gate = 0;
+    voices.block();
+    expect(voices.alive()).toBe(0);
+  });
+
+  it('later versions reuse the slots of the freed ones: the memory of the core stops growing', () => {
+    const { scope, store, setTable, pool, memory } = createWasmTables();
+    const bytes = tableBytes(frames(1));
+    setTable('a', 1);
+    setTable('b', 1);
+    const voices = createWasmVoiceScope({ rate: RATE, scope, store });
+    voices.add(OSCS, NOTE);
+    const sizes: number[] = [];
+    for (let version = 2; version <= 8; version++) {
+      setTable('a', version);
+      setTable('b', version);
+      Array.from({ length: 8 }, voices.block);
+      sizes.push(memory());
+      // the worker keeps the levels it built (two at most) for the next build of their size
+      expect(pool().pool).toBeLessThanOrEqual(2 * bytes);
+    }
+    // the store holds 2 versions, its pool the 2 freed ones: from the second switch on nothing is allocated
+    expect(new Set(sizes.slice(1)).size).toBe(1);
+    expect(store.stats()).toMatchObject({ tables: 2, versions: 2, bytes: 2 * bytes });
   });
 });

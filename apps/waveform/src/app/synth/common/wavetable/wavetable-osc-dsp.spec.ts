@@ -4,18 +4,100 @@ import * as biquad from '@waveform/math/biquad';
 import * as curve from '../envelope/envelope-curve';
 import { EnvelopeParams, envelopeValue } from '../envelope/envelope-curve';
 import { seeded, storeWith, VOICE_DEFAULTS } from '../../../../test-utils/voice-dsp';
+import { wasmCore } from '../../../../test-utils/wasm';
 import { buildLevels } from './wavetable-mipmap';
+import type { WavetableLevels } from './wavetable-levels';
 import {
   createTableStore,
   createVoiceDsp,
   createVoiceShared,
   TableStore,
+  TableStoreStats,
+  VoiceOptions,
   VoiceOscOptions,
   VoiceShared,
+  VoiceStats,
 } from './wavetable-osc-dsp';
 import { RELEASE_GATE, VoiceParam } from './wavetable-osc-params';
+import {
+  createOscScope,
+  createTableStoreWasm,
+  createVoiceSharedWasm,
+  createVoiceWasm,
+  OscExports,
+  TableStoreWasm,
+  VoiceSharedWasm,
+} from './wavetable-osc-wasm';
 import type { VoiceRoute } from './voice-modulation';
 import type { VoiceFilterOptions } from './voice-filter';
+
+// the specs run on both cores: the TS one and the Rust one (dsp/wavetable-osc), its stores and shareds in one
+// instance for the spec (a scope); the core of a describe.each through `core`
+interface CoreEntry {
+  levels: WavetableLevels;
+}
+interface CoreStore {
+  set(table: string, version: number, levels: WavetableLevels): unknown;
+  remove(table: string): void;
+  latest(table: string): CoreEntry | null;
+  acquire(entry: CoreEntry): CoreEntry;
+  release(entry: CoreEntry): void;
+  stats(): TableStoreStats;
+}
+interface CoreShared {
+  stats(): VoiceStats;
+}
+interface CoreVoice {
+  process(
+    frame: number,
+    params: Record<VoiceParam, Float32Array>,
+    outL: Float32Array,
+    outR: Float32Array
+  ): boolean;
+  setRoutes(routes: VoiceRoute[]): void;
+  setFilter(filter: VoiceFilterOptions | null): void;
+  end(): void;
+  readonly ended: boolean;
+  startFrame: number;
+  readonly startedAt: number;
+}
+interface Core {
+  storeWith(tables: Record<string, number[][]>): { store: CoreStore; freed: unknown[] };
+  createTableStore(onFree?: (levels: WavetableLevels) => void): CoreStore;
+  createVoiceShared(): CoreShared;
+  createVoiceDsp(
+    rate: number,
+    options: VoiceOptions,
+    store: CoreStore,
+    random: () => number,
+    shared: CoreShared
+  ): CoreVoice;
+}
+const TS_CORE: Core = {
+  storeWith,
+  createTableStore,
+  createVoiceShared,
+  createVoiceDsp: (rate, options, store, random, shared) =>
+    createVoiceDsp(rate, options, store as TableStore, random, shared as VoiceShared),
+};
+const scope = createOscScope(wasmCore<OscExports>('wavetable-osc'));
+const WASM_CORE: Core = {
+  storeWith: (tables) => {
+    const freed: unknown[] = [];
+    const store = createTableStoreWasm(scope, (levels) => freed.push(levels));
+    Object.entries(tables).forEach(([id, frames]) => store.set(id, 1, buildLevels(frames)));
+    return { store, freed };
+  },
+  createTableStore: (onFree) => createTableStoreWasm(scope, onFree ?? (() => undefined)),
+  createVoiceShared: () => createVoiceSharedWasm(scope),
+  createVoiceDsp: (rate, options, store, random, shared) =>
+    createVoiceWasm(scope, rate, options, store as TableStoreWasm, random, shared as VoiceSharedWasm),
+};
+const CORES: [string, Core][] = [
+  ['ts', TS_CORE],
+  ['wasm', WASM_CORE],
+];
+let core = TS_CORE;
 
 const RATE = 48000;
 const BLOCK = 128;
@@ -55,7 +137,7 @@ const gateAt =
 const FLAT: EnvelopeParams = { attack: 0, hold: 0, decay: 0, sustain: 1, release: 0 };
 
 interface RenderOptions {
-  store: TableStore;
+  store: CoreStore;
   oscs?: (VoiceOscOptions | null)[];
   params?: Params;
   frames: number;
@@ -73,9 +155,9 @@ interface RenderOptions {
   // the frame of the first block processed (its node came late), 0 by default
   from?: number;
   // called before the block at that frame
-  before?: (frame: number, dsp: ReturnType<typeof createVoiceDsp>) => void;
+  before?: (frame: number, dsp: CoreVoice) => void;
   // the resources the voices of a context share; a render has its own by default
-  shared?: VoiceShared;
+  shared?: CoreShared;
 }
 
 // renders a voice block by block: a param is a number (one value per block) or a function of the frame (one
@@ -96,9 +178,9 @@ const render = ({
   rate = RATE,
   from = 0,
   before,
-  shared = createVoiceShared(),
+  shared = core.createVoiceShared(),
 }: RenderOptions) => {
-  const dsp = createVoiceDsp(
+  const dsp = core.createVoiceDsp(
     rate,
     { osc: oscs, start, envelopes: [envelope, ...envelopes], envStart, phrase, routes, filter },
     store,
@@ -204,23 +286,29 @@ const measureFrequency = (signal: Float32Array, rate = RATE) => {
   return ((crossings.length - 1) * rate) / (crossings[crossings.length - 1] - crossings[0]);
 };
 
-describe('wavetable voice dsp', () => {
+describe.each(CORES)('wavetable voice dsp, %s core', (coreName, coreOf) => {
+  beforeAll(() => {
+    core = coreOf;
+  });
+  // a spec of what the TS core does inside (its calls), not of the sound
+  const itTs = coreName === 'ts' ? it : it.skip;
+
   describe('pitch', () => {
     it.each([55, 440, 3520])('plays %s Hz within 0.01 cent', (frequency) => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       const { left } = render({ store, params: { frequency }, frames: 10 * RATE });
       const cents = 1200 * Math.log2(measureFrequency(left) / frequency);
       expect(Math.abs(cents)).toBeLessThan(0.01);
     });
 
     it('adds the detune of the oscillator in cents', () => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       const { left } = render({ store, params: { frequency: 220, detune1: 1200 }, frames: RATE });
       expect(measureFrequency(left)).toBeCloseTo(440, 2);
     });
 
     it('steps a changing pitch every 32 samples within 0.1 cent', () => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       // a vibrato of ±100 cents at 6 Hz against the same pitch per sample
       const detune = (frame: number) => 100 * Math.sin((2 * Math.PI * 6 * frame) / RATE);
       const { left } = render({ store, params: { frequency: 440, detune1: detune }, frames: RATE });
@@ -253,7 +341,7 @@ describe('wavetable voice dsp', () => {
     it.each(NATIVE)(
       'keeps the aliasing of a saw at bin %s within 1 dB of a native oscillator, as bright',
       (bin, aliasing, spur, highest) => {
-        const { store } = storeWith({ a: [saw] });
+        const { store } = core.storeWith({ a: [saw] });
         const { left } = render({ store, params: { frequency: binPitch(bin) }, frames: SIZE + 4096 });
         const result = harmonicAnalysis(left, bin);
         expect(result.aliasing).toBeLessThanOrEqual(aliasing + 1);
@@ -264,7 +352,7 @@ describe('wavetable voice dsp', () => {
     );
 
     it('plays the harmonics of the additive synthesis at their level', () => {
-      const { store } = storeWith({ a: [saw] });
+      const { store } = core.storeWith({ a: [saw] });
       const bin = 1428;
       const { left } = render({ store, params: { frequency: binPitch(bin) }, frames: SIZE + 4096 });
       const spectrum = powerSpectrum(left);
@@ -277,7 +365,7 @@ describe('wavetable voice dsp', () => {
     });
 
     it('fades a fundamental above the nyquist out to silence', () => {
-      const { store } = storeWith({ a: [saw] });
+      const { store } = core.storeWith({ a: [saw] });
       const { left } = render({ store, params: { frequency: 30000 }, frames: 4096 });
       expect(rms(left)).toBe(0);
     });
@@ -292,7 +380,7 @@ describe('wavetable voice dsp', () => {
     );
 
     it('plays exactly frame k at k / (N - 1)', () => {
-      const { store } = storeWith({ a: table, b: [table[100]] });
+      const { store } = core.storeWith({ a: table, b: [table[100]] });
       const position = Math.fround(100 / 255);
       const { left } = render({ store, params: { position1: position }, frames: 4096 });
       const { left: alone } = render({ store, oscs: [osc({ table: 'b' })], frames: 4096 });
@@ -300,7 +388,7 @@ describe('wavetable voice dsp', () => {
     });
 
     it('morphs two frames linearly', () => {
-      const { store } = storeWith({ a: [sine, square], s: [sine], q: [square] });
+      const { store } = core.storeWith({ a: [sine, square], s: [sine], q: [square] });
       const { left } = render({ store, params: { position1: 0.25 }, frames: 1024 });
       const { left: a } = render({ store, oscs: [osc({ table: 's' })], frames: 1024 });
       const { left: b } = render({ store, oscs: [osc({ table: 'q' })], frames: 1024 });
@@ -309,7 +397,7 @@ describe('wavetable voice dsp', () => {
     });
 
     it('morphs through the table without clicks', () => {
-      const { store } = storeWith({ a: table.slice(0, 32) });
+      const { store } = core.storeWith({ a: table.slice(0, 32) });
       const { left: morph } = render({ store, params: { position1: (frame) => frame / RATE }, frames: RATE });
       const stationary = Array.from({ length: 32 }, (_, k) =>
         maxStep(render({ store, params: { position1: k / 31 }, frames: 2048 }).left)
@@ -318,7 +406,7 @@ describe('wavetable voice dsp', () => {
     });
 
     it('clamps a position outside 0..1', () => {
-      const { store } = storeWith({ a: [sine, square], s: [sine], q: [square] });
+      const { store } = core.storeWith({ a: [sine, square], s: [sine], q: [square] });
       const below = render({ store, params: { position1: -0.5 }, frames: 512 }).left;
       const above = render({ store, params: { position1: (frame) => 2 + frame }, frames: 512 }).left;
       expect(below).toEqual(render({ store, params: { position1: 0 }, frames: 512 }).left);
@@ -329,7 +417,7 @@ describe('wavetable voice dsp', () => {
     });
 
     it('plays a table of one frame at any position', () => {
-      const { store } = storeWith({ a: [square], q: [square] });
+      const { store } = core.storeWith({ a: [square], q: [square] });
       const { left } = render({ store, params: { position1: (frame) => frame / 512 }, frames: 512 });
       expect(left).toEqual(render({ store, oscs: [osc({ table: 'q' })], frames: 512 }).left);
     });
@@ -337,7 +425,7 @@ describe('wavetable voice dsp', () => {
 
   describe('glide', () => {
     it('glides 55 Hz to 7 kHz without steps of the waveform', () => {
-      const { store } = storeWith({ a: [saw] });
+      const { store } = core.storeWith({ a: [saw] });
       const seconds = 2;
       const frequency = (frame: number) => 55 * (7000 / 55) ** Math.min(1, frame / (seconds * RATE));
       const { left } = render({ store, params: { frequency }, frames: seconds * RATE });
@@ -351,7 +439,7 @@ describe('wavetable voice dsp', () => {
     // level q is the whole tone from pitch range x = q (1 + 3·log2(1024 · f / nyquist)) on, crossfaded into
     // level q + 1 up to x = q + 1: a harmonic between their counts fades out over a third of an octave
     it('crossfades the levels: no step of the harmonics at a level boundary', () => {
-      const { store } = storeWith({ a: [saw] });
+      const { store } = core.storeWith({ a: [saw] });
       const pitch = (x: number) => (RATE / 2 / 1024) * 2 ** ((x - 1) / 3);
       const play = (x: number) => render({ store, params: { frequency: pitch(x) }, frames: RATE / 2 }).left;
       // level 10 keeps 101 harmonics, level 11 80
@@ -370,7 +458,7 @@ describe('wavetable voice dsp', () => {
 
   describe('table versions', () => {
     it('crossfades a playing voice into a new version within 10 ms', () => {
-      const { store, freed } = storeWith({ a: [sine], q: [square] });
+      const { store, freed } = core.storeWith({ a: [sine], q: [square] });
       const old = store.latest('a');
       const switchAt = 4096;
       const { left } = render({
@@ -389,9 +477,9 @@ describe('wavetable voice dsp', () => {
     });
 
     it('starts with a sine until the table arrives', () => {
-      const store = createTableStore();
+      const store = core.createTableStore();
       const { left } = render({ store, params: { frequency: 375 }, frames: 1024 });
-      const { store: sineStore } = storeWith({ a: [sine] });
+      const { store: sineStore } = core.storeWith({ a: [sine] });
       const { left: expected } = render({ store: sineStore, params: { frequency: 375 }, frames: 1024 });
       left.forEach((value, i) => expect(value).toBeCloseTo(expected[i], 4));
     });
@@ -399,7 +487,7 @@ describe('wavetable voice dsp', () => {
 
   describe('unison', () => {
     it('detunes the voices evenly from -spread/2 to +spread/2, the middle one of an odd count both', () => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       // an octave below and above the note and the note itself: voice 0 left, the middle one both, 2 right
       const { left, right } = render({
         store,
@@ -419,7 +507,7 @@ describe('wavetable voice dsp', () => {
     it.each([3, 5, 7])(
       'puts the voices of u%s around the middle one: the channels mirror each other',
       (unison) => {
-        const { store } = storeWith({ a: [sine] });
+        const { store } = core.storeWith({ a: [sine] });
         const spread = 2400;
         const { left, right } = render({
           store,
@@ -446,7 +534,7 @@ describe('wavetable voice dsp', () => {
     );
 
     it('pairs 8 voices into the channels at the level of 4 per channel', () => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       const { left, right } = render({
         store,
         oscs: [osc({ unison: 8 })],
@@ -463,7 +551,7 @@ describe('wavetable voice dsp', () => {
     });
 
     it('plays one voice at detune 0', () => {
-      const { store } = storeWith({ a: [saw] });
+      const { store } = core.storeWith({ a: [saw] });
       const unison = render({ store, oscs: [osc({ unison: 8 })], frames: 4096 });
       const single = render({ store, oscs: [osc({ unison: 1 })], frames: 4096 });
       expect(unison.left).toEqual(single.left);
@@ -473,7 +561,7 @@ describe('wavetable voice dsp', () => {
     // the start of a note over many notes: at Phase rand 1 the voices start at random phases and add up to
     // the power of one voice
     it.each([2, 3, 8])('keeps the level of u%s at that of one voice at Phase rand 1', (unison) => {
-      const { store } = storeWith({ a: [saw] });
+      const { store } = core.storeWith({ a: [saw] });
       const frames = 0.1 * RATE;
       const measure = (voices: number) => {
         let power = 0;
@@ -500,7 +588,7 @@ describe('wavetable voice dsp', () => {
     });
 
     it('gives a channel 1/√ceil(n/2) per voice', () => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       for (const [unison, level] of [
         [1, 1],
         [2, 1],
@@ -527,7 +615,7 @@ describe('wavetable voice dsp', () => {
       // 4 voices at 1/2 a channel
       [8, 2],
     ])('starts all u%s voices at the phase at Phase rand 0, without a fade', (unison, peak) => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       const { left, right } = render({
         store,
         oscs: [osc({ unison, phase: 0.25 })],
@@ -539,7 +627,7 @@ describe('wavetable voice dsp', () => {
     });
 
     it('shifts each voice by a random share of its own, fading in', () => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       // voices 0 and 2 at the phase, voice 1 (the middle: both channels, at 1/√2 as the others) half a
       // period off
       const shares = [0, 0.5, 0];
@@ -558,7 +646,7 @@ describe('wavetable voice dsp', () => {
     });
 
     it('fades in within 1.5 ms', () => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       const { left } = render({
         store,
         oscs: [osc({ phase: 0.25, phaseRand: 1e-9 })],
@@ -572,7 +660,7 @@ describe('wavetable voice dsp', () => {
     });
 
     it('shifts every voice by a random share of phaseRand, u1 too', () => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       // 0.5 · 0.5: a quarter period after the phase
       const { left } = render({
         store,
@@ -585,7 +673,7 @@ describe('wavetable voice dsp', () => {
     });
 
     it('draws the random shares only at the note on', () => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       const random = jest.fn(seeded(3));
       const { dsp } = render({ store, oscs: [osc({ unison: 8, phaseRand: 1 })], frames: 0, random });
       const calls = random.mock.calls.length;
@@ -601,14 +689,14 @@ describe('wavetable voice dsp', () => {
 
   describe('lifecycle', () => {
     it('starts exactly at the start time', () => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       const { left } = render({ store, oscs: [osc({ phase: 0.25 })], start: 300.5 / RATE, frames: 512 });
       expect(left.subarray(0, 301).every((value) => value === 0)).toBe(true);
       expect(left[301]).toBeCloseTo(1, 4);
     });
 
     it('stops exactly where the gate drops to 0 without a release and ends', () => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       const { left, endedAt, dsp } = render({
         store,
         oscs: [osc({ phase: 0.25 })],
@@ -622,7 +710,7 @@ describe('wavetable voice dsp', () => {
     });
 
     it('fades a stolen voice out in 20 ms (a raised cosine) from where the gate drops below 0', () => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       const { left, endedAt } = render({
         store,
         oscs: [osc({ phase: 0.25 })],
@@ -642,7 +730,7 @@ describe('wavetable voice dsp', () => {
     // a sine of period 512 stolen at its peak (the worst case: a cut there steps from 1), through a Hann window
     // of 4096 centred on the steal: the energy above 4 · f0 against a cut at the same sample
     it('fades a stolen voice out with a splatter at least 50 dB below a cut', () => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       const steal = 4096;
       const size = 4096;
       const { left } = render({
@@ -670,7 +758,7 @@ describe('wavetable voice dsp', () => {
     });
 
     it('frees its versions when it ends', () => {
-      const { store, freed } = storeWith({ a: [sine] });
+      const { store, freed } = core.storeWith({ a: [sine] });
       const entry = store.latest('a');
       render({ store, frames: 512, params: { gate: gateAt(100) } });
       store.set('a', 2, buildLevels([square]));
@@ -678,7 +766,7 @@ describe('wavetable voice dsp', () => {
     });
 
     it('stays silent and ends at a gate closed before its start', () => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       const { left, endedAt } = render({
         store,
         start: 500 / RATE,
@@ -695,7 +783,7 @@ describe('wavetable voice dsp', () => {
     // a constant level: a table of 1 (the DC and the nyquist are dropped from a frame, so a square at 1/2 the
     // rate can't be used): the voice of a sine at its peak, slower than the envelope
     const peak = (frames: number, options: Partial<RenderOptions> = {}) => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       return render({ store, oscs: [osc({ phase: 0.25 })], params: { frequency: 0.01 }, frames, ...options });
     };
     const sec = (frame: number) => frame / RATE;
@@ -780,7 +868,7 @@ describe('wavetable voice dsp', () => {
     it('starts the envelopes of a note of a phrase where its first voice, processed late, started them', () => {
       // the first note scheduled at 100 is processed from 1280, the second one of the phrase from 2048: it is in
       // the decay of the phrase started at 1280 (in its sustain from 100)
-      const shared = createVoiceShared();
+      const shared = core.createVoiceShared();
       peak(4096, { envelope: env, start: sec(100), from: 1280, shared });
       const { left } = peak(4096, {
         envelope: env,
@@ -796,9 +884,9 @@ describe('wavetable voice dsp', () => {
 
     it('starts the envelopes of a note of a phrase where its first voice will, processed after it in a block', () => {
       // both are processed from 1280 on, the second one first: the first voice starts there in this block
-      const shared = createVoiceShared();
-      const { store } = storeWith({ a: [sine] });
-      const first = createVoiceDsp(
+      const shared = core.createVoiceShared();
+      const { store } = core.storeWith({ a: [sine] });
+      const first = core.createVoiceDsp(
         RATE,
         {
           osc: [osc()],
@@ -828,7 +916,7 @@ describe('wavetable voice dsp', () => {
     it('keeps the phrase of a held note when a note out of legato starts its own meanwhile', () => {
       // the first note scheduled at 100 is processed from 1280; legato off, a note starts its envelopes at
       // 1536; legato on again, a note of the first phrase from 2048: in the decay of the phrase started at 1280
-      const shared = createVoiceShared();
+      const shared = core.createVoiceShared();
       peak(4096, { envelope: env, start: sec(100), from: 1280, shared });
       peak(4096, { envelope: env, start: sec(1536), from: 1536, phrase: 1, shared });
       const { left } = peak(4096, {
@@ -847,7 +935,7 @@ describe('wavetable voice dsp', () => {
       // a key released and the next one pressed within a device buffer: both phrases are scheduled at 100, the
       // first one processed from 1280 (still playing), the next one from 1792; a note of the next one from 2048
       // goes on from 1792 (in its attack), not from the first one
-      const shared = createVoiceShared();
+      const shared = core.createVoiceShared();
       peak(4096, { envelope: env, start: sec(100), from: 1280, shared });
       peak(4096, { envelope: env, start: sec(100), from: 1792, phrase: 1, shared });
       const { left } = peak(4096, {
@@ -866,7 +954,7 @@ describe('wavetable voice dsp', () => {
     it('forgets a phrase once its voices have ended: a note of it goes on from its start', () => {
       // the only voice of the phrase, processed from 1280, released at 1400, has ended (a release of 1 ms)
       const short = { ...env, release: 0.001 };
-      const shared = createVoiceShared();
+      const shared = core.createVoiceShared();
       const first = peak(4096, {
         envelope: short,
         start: sec(100),
@@ -934,7 +1022,7 @@ describe('wavetable voice dsp', () => {
     const env: EnvelopeParams = { attack: 0.01, hold: 0.005, decay: 0.02, sustain: 0.5, release: 0.03 };
     // the volume: a sine at its peak, slower than the envelope
     const peak = (frames: number, options: Partial<RenderOptions> = {}) => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       return render({ store, oscs: [osc({ phase: 0.25 })], params: { frequency: 0.01 }, frames, ...options });
     };
     const sec = (frame: number) => frame / RATE;
@@ -1063,7 +1151,7 @@ describe('wavetable voice dsp', () => {
     });
     // a sine at its peak, slower than the envelope: the output is the gain
     const peak = (frames: number, options: Partial<RenderOptions> = {}) => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       return render({ store, oscs: [osc({ phase: 0.25 })], params: { frequency: 0.01 }, frames, ...options });
     };
 
@@ -1089,7 +1177,7 @@ describe('wavetable voice dsp', () => {
     });
 
     it('moves the wave as a share of the table, like the knob there', () => {
-      const { store } = storeWith({ a: [sine, square, saw] });
+      const { store } = core.storeWith({ a: [sine, square, saw] });
       const routed = render({
         store,
         envelopes: [decay(0.5), FLAT],
@@ -1102,7 +1190,7 @@ describe('wavetable voice dsp', () => {
     });
 
     it('moves the unison detune in cents, a unison at detune 0 is not collapsed with a route raising it', () => {
-      const { store } = storeWith({ a: [saw] });
+      const { store } = core.storeWith({ a: [saw] });
       const env = decay(0.5);
       const routed = render({
         store,
@@ -1131,9 +1219,9 @@ describe('wavetable voice dsp', () => {
       lowered.left.forEach((value, i) => expect(value).toBeCloseTo(one.left[i], 4));
     });
 
-    it('plays from its mix tables again once its envelopes are in a flat stage', () => {
-      const { store } = storeWith({ a: [sine, square, saw] });
-      const shared = createVoiceShared();
+    itTs('plays from its mix tables again once its envelopes are in a flat stage', () => {
+      const { store } = core.storeWith({ a: [sine, square, saw] });
+      const shared = core.createVoiceShared() as VoiceShared;
       const builds: number[] = [];
       const takeBuild = shared.takeBuild;
       shared.takeBuild = (frame, cost) => {
@@ -1153,8 +1241,8 @@ describe('wavetable voice dsp', () => {
       expect(Math.min(...builds)).toBeLessThanOrEqual(1152);
     });
 
-    it('renders only the envelopes routes read', () => {
-      const { store } = storeWith({ a: [sine] });
+    itTs('renders only the envelopes routes read', () => {
+      const { store } = core.storeWith({ a: [sine] });
       const [env2, env3] = [decay(0.3), decay(0.2)];
       const stage = jest.spyOn(curve, 'envelopeStage');
       const rendered = (env: EnvelopeParams) => stage.mock.calls.filter(([params]) => params === env).length;
@@ -1189,7 +1277,7 @@ describe('wavetable voice dsp', () => {
     const lowpass: VoiceFilterOptions = { type: 'lowpass', cutoff: 1000, resonance: 6, gain: 0 };
     // the steady tone of a sine at `frequency` through the voice (the second half: the filter has settled)
     const tone = (frequency: number, options: Partial<RenderOptions> = {}) => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       const { left, right } = render({ store, params: { frequency }, frames: 16384, ...options });
       return { left: left.subarray(8192), right: right.subarray(8192) };
     };
@@ -1213,7 +1301,7 @@ describe('wavetable voice dsp', () => {
     });
 
     it('filters both channels of a unison, the middle voice in both', () => {
-      const { store } = storeWith({ a: [saw] });
+      const { store } = core.storeWith({ a: [saw] });
       const { left, right } = render({
         store,
         oscs: [osc({ unison: 3 })],
@@ -1227,7 +1315,7 @@ describe('wavetable voice dsp', () => {
     });
 
     it('passes the sound unchanged when off', () => {
-      const { store } = storeWith({ a: [saw] });
+      const { store } = core.storeWith({ a: [saw] });
       const off = render({ store, oscs: [osc({ unison: 3 })], params: { spread1: 30 }, frames: 2048 });
       const on = render({
         store,
@@ -1261,9 +1349,9 @@ describe('wavetable voice dsp', () => {
       routed.left.forEach((value, i) => expect(value).toBeCloseTo(knob.left[i], 4));
     });
 
-    it('works the coefficients out once while the values stay, every 32 samples while one moves', () => {
+    itTs('works the coefficients out once while the values stay, every 32 samples while one moves', () => {
       const into = jest.spyOn(biquad, 'coefficientsInto');
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       render({ store, filter: lowpass, frames: 2048 });
       expect(into).toHaveBeenCalledTimes(1);
       into.mockClear();
@@ -1277,7 +1365,7 @@ describe('wavetable voice dsp', () => {
     });
 
     it('glides a changed knob on a playing note in about 10 ms, starts a filter turned on from silence', () => {
-      const { store } = storeWith({ a: [saw] });
+      const { store } = core.storeWith({ a: [saw] });
       const play = (filter: VoiceFilterOptions, before?: RenderOptions['before']) =>
         render({ store, params: { frequency: 220 }, filter, frames: 8192, before }).left;
       const low = play(lowpass);
@@ -1301,7 +1389,7 @@ describe('wavetable voice dsp', () => {
     it('takes the knobs of another type at once: the units of the resonance differ', () => {
       // the Q of a bandpass is linear, that of a lowpass in dB: gliding from 1000 to 20 would pass through
       // a lowpass of several hundred dB
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       const bandpass: VoiceFilterOptions = { type: 'bandpass', cutoff: 1000, resonance: 1000, gain: 0 };
       const resonant: VoiceFilterOptions = { type: 'lowpass', cutoff: 1000, resonance: 20, gain: 0 };
       const play = (filter: VoiceFilterOptions, before?: RenderOptions['before']) =>
@@ -1315,7 +1403,7 @@ describe('wavetable voice dsp', () => {
 
   describe('oscillators', () => {
     it('adds both oscillators with their gains', () => {
-      const { store } = storeWith({ a: [sine], b: [square] });
+      const { store } = core.storeWith({ a: [sine], b: [square] });
       const both = render({
         store,
         oscs: [osc(), osc({ table: 'b' })],
@@ -1328,13 +1416,13 @@ describe('wavetable voice dsp', () => {
     });
 
     it('skips an oscillator that is off', () => {
-      const { store } = storeWith({ a: [sine], b: [square] });
+      const { store } = core.storeWith({ a: [sine], b: [square] });
       const second = render({ store, oscs: [null, osc({ table: 'b' })], frames: 512 });
       expect(second.left).toEqual(render({ store, oscs: [osc({ table: 'b' })], frames: 512 }).left);
     });
 
     it('follows a changing gain per sample', () => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       const { left } = render({ store, params: { gain1: (frame) => frame / 512 }, frames: 512 });
       const full = render({ store, frames: 512 }).left;
       left.forEach((value, i) => expect(value).toBeCloseTo((full[i] * i) / 512, 5));
@@ -1349,7 +1437,7 @@ describe('wavetable voice dsp', () => {
       ['a negative spread', { spread1: -50 }],
       ['a changing frequency up to 1 MHz', { frequency: (frame: number) => frame * 10 }],
     ])('renders %s without NaN', (_, params) => {
-      const { store } = storeWith({ a: [saw, sine] });
+      const { store } = core.storeWith({ a: [saw, sine] });
       const { left, right } = render({
         store,
         oscs: [osc({ unison: 4 })],
@@ -1360,7 +1448,7 @@ describe('wavetable voice dsp', () => {
     });
 
     it('renders a table of silent frames as silence', () => {
-      const { store } = storeWith({ a: [[0, 0]] });
+      const { store } = core.storeWith({ a: [[0, 0]] });
       const { left } = render({ store, frames: 256 });
       expect(left.every((value) => value === 0)).toBe(true);
     });
@@ -1368,7 +1456,7 @@ describe('wavetable voice dsp', () => {
 
   describe('start frames', () => {
     it('tells the frame it is scheduled at and the one it started at', () => {
-      const { store } = storeWith({ a: [saw] });
+      const { store } = core.storeWith({ a: [saw] });
       const before: number[] = [];
       const { dsp } = render({
         store,
@@ -1383,8 +1471,8 @@ describe('wavetable voice dsp', () => {
     });
 
     it('starts at its first block when it is processed after its start', () => {
-      const { store } = storeWith({ a: [saw] });
-      const dsp = createVoiceDsp(
+      const { store } = core.storeWith({ a: [saw] });
+      const dsp = core.createVoiceDsp(
         RATE,
         {
           osc: [osc()],
@@ -1397,7 +1485,7 @@ describe('wavetable voice dsp', () => {
         },
         store,
         seeded(1),
-        createVoiceShared()
+        core.createVoiceShared()
       );
       const values = Object.fromEntries(
         Object.entries(DEFAULTS).map(([name, value]) => [name, Float32Array.of(value)])
@@ -1410,9 +1498,9 @@ describe('wavetable voice dsp', () => {
 
   describe('stats', () => {
     it('counts the voices playing and their unison voices until they end', () => {
-      const { store } = storeWith({ a: [saw] });
-      const shared = createVoiceShared();
-      const during: ReturnType<VoiceShared['stats']>[] = [];
+      const { store } = core.storeWith({ a: [saw] });
+      const shared = core.createVoiceShared();
+      const during: VoiceStats[] = [];
       render({
         store,
         shared,
@@ -1429,8 +1517,8 @@ describe('wavetable voice dsp', () => {
     });
 
     it('counts the samples played directly and from the mix tables, and the mix builds', () => {
-      const { store } = storeWith({ a: [saw, square] });
-      const shared = createVoiceShared();
+      const { store } = core.storeWith({ a: [saw, square] });
+      const shared = core.createVoiceShared();
       render({ store, shared, oscs: [osc({ unison: 2 })], params: { spread1: 10 }, frames: 4 * BLOCK });
       const stats = shared.stats();
       // the first block plays directly, the second builds the mixes and plays them, as do the next ones
@@ -1444,8 +1532,8 @@ describe('wavetable voice dsp', () => {
     });
 
     it('counts each sample once through a crossfade into a new version', () => {
-      const { store } = storeWith({ a: [saw, square] });
-      const shared = createVoiceShared();
+      const { store } = core.storeWith({ a: [saw, square] });
+      const shared = core.createVoiceShared();
       render({
         store,
         shared,
@@ -1461,15 +1549,15 @@ describe('wavetable voice dsp', () => {
     });
 
     it('plays a moving position directly, without a mix', () => {
-      const { store } = storeWith({ a: [saw, square] });
-      const shared = createVoiceShared();
+      const { store } = core.storeWith({ a: [saw, square] });
+      const shared = core.createVoiceShared();
       render({ store, shared, params: { position1: (frame) => frame / 4096 }, frames: 4 * BLOCK });
       expect(shared.stats()).toMatchObject({ mixSamples: 0, directSamples: 4 * BLOCK, builds: 0 });
     });
 
     it('counts the builds the budget refuses and the peak cost of a block, read once', () => {
-      const { store } = storeWith({ a: [saw, square] });
-      const shared = createVoiceShared();
+      const { store } = core.storeWith({ a: [saw, square] });
+      const shared = core.createVoiceShared();
       // 8 voices between two frames: their mixes take more than the budget of one block
       render({
         store,
@@ -1488,7 +1576,7 @@ describe('wavetable voice dsp', () => {
 
   describe('table store', () => {
     it('counts the versions it holds and their bytes, a replaced one until no voice holds it', () => {
-      const store = createTableStore();
+      const store = core.createTableStore();
       const one = buildLevels([sine]);
       const two = buildLevels([square]);
       const [bytesOne, bytesTwo] = [one.data.byteLength, two.data.byteLength];
@@ -1509,7 +1597,7 @@ describe('wavetable voice dsp', () => {
 
     it('counts a freed version off before it hands its buffer over', () => {
       const seen: number[] = [];
-      const store = createTableStore(() => seen.push(store.stats().bytes));
+      const store = core.createTableStore(() => seen.push(store.stats().bytes));
       store.set('a', 1, buildLevels([sine]));
       store.remove('a');
       expect(seen).toEqual([0]);
@@ -1517,7 +1605,7 @@ describe('wavetable voice dsp', () => {
 
     it('keeps the latest version, a stale one is freed at once', () => {
       const freed: unknown[] = [];
-      const store = createTableStore((levels) => freed.push(levels));
+      const store = core.createTableStore((levels) => freed.push(levels));
       const one = buildLevels([sine]);
       const two = buildLevels([square]);
       store.set('a', 2, two);
@@ -1528,7 +1616,7 @@ describe('wavetable voice dsp', () => {
 
     it('frees a replaced version once no voice holds it', () => {
       const freed: unknown[] = [];
-      const store = createTableStore((levels) => freed.push(levels));
+      const store = core.createTableStore((levels) => freed.push(levels));
       const one = buildLevels([sine]);
       store.set('a', 1, one);
       const held = store.acquire(store.latest('a') as NonNullable<ReturnType<typeof store.latest>>);
@@ -1540,7 +1628,7 @@ describe('wavetable voice dsp', () => {
 
     it('frees a removed table', () => {
       const freed: unknown[] = [];
-      const store = createTableStore((levels) => freed.push(levels));
+      const store = core.createTableStore((levels) => freed.push(levels));
       const one = buildLevels([sine]);
       store.set('a', 1, one);
       store.remove('a');

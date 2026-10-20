@@ -1,0 +1,17 @@
+[package]
+name = "jsmath-check"
+description = "jsmath exported to wasm: the specs compare it with the Math of Node"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+wasm-rt = { path = "../wasm-rt" }
+jsmath = { path = "../jsmath" }

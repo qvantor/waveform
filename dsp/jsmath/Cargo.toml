@@ -1,0 +1,12 @@
+[package]
+name = "jsmath"
+description = "The Math functions of JS (V8 in Node 24), bit for bit"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[dependencies]

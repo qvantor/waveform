@@ -10,7 +10,10 @@ npx -y playwright@1.50.1 install chromium webkit firefox   # once, if the browse
 ```
 
 Options: `--browsers=chromium,webkit,firefox`, `--rates=44100,48000,96000`,
-`--only=sound,pitch,continuity,switch,stereo,unison,cpu,delivery,build`.
+`--only=sound,pitch,continuity,switch,stereo,unison,cpu,delivery,build`, `--dsp=js`: the worklet of production
+by default, on the wasm core (`tmp/wasm`: `npm run wasm` first), the TS one with `--dsp=js`. Every call of the
+page runs on a page of its own: the OfflineAudioContexts of a page keep their worklets (with the wasm core a
+table of up to 64 MB each in its memory) and Chromium stopped making new instances.
 
 `run.mjs` bundles `bench-page.ts` and the worklet module with esbuild, downloads 3 tables of the bucket
 (the S3 keys of `.env`) into `tmp/bench-osc/tables`, serves both on localhost (a secure context: AudioWorklet)

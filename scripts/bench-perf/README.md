@@ -94,9 +94,13 @@ output's; a page whose context runs at another rate errors).
   voice was scheduled at and the one it started at (posted by its processor, matched to its press), the onsets
   an extra worklet (`probe.worklet.ts`, served by the runner) hears before the filter and after the limiter
   (L1).
-- **The DSP** (Node): voices, table building, reverb, distortion, limiter, ns per sample divided by the ns of a
+- **The DSP** (Node): voices (held, a moving position, a chord of 12 notes × 2 × u8 struck every 40 blocks:
+  its attack, the direct path and the mix builds under the budget), table building, reverb, distortion,
+  limiter, ns per sample divided by the ns of a
   fixed multiply-add of the same run (the speed of the machine out), 7 samples each. V8, not JSC: it catches
-  algorithmic regressions (a hot loop that boxes doubles) the operation counts of the specs can't.
+  algorithmic regressions (a hot loop that boxes doubles) the operation counts of the specs can't. A module with
+  a Rust core (`dsp/`, `tmp/wasm` of the tree) runs it under the names of its cases and its TS core as
+  `<case> (ts)`: `--against=main` compares the wasm cores with the TS ones of main.
 
 ## What the report shows
 
