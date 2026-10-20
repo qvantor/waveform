@@ -1,19 +1,22 @@
-import { merge, cloneDeep } from 'lodash';
-import { map } from 'rxjs';
+import { combineLatest, distinctUntilChanged, map, Observable, shareReplay } from 'rxjs';
+import { isEqual } from 'lodash';
 import { FilterRanges, FilterParams } from '@waveform/ui-kit';
 import { ObjectBS, PrimitiveBS, rxModel, rxModelReact } from '@waveform/rxjs-react';
 import { number } from '@waveform/math';
 import { SynthCoreModule } from '../../common/modules/synth-core';
+import type { VoiceFilterOptions } from '../../common/wavetable/voice-filter';
 import { urlSnapshotPlugin } from '../../../app';
-import { defaultFilterRanges, filterRanges } from '../constants';
+import { defaultFilterRanges, rangesOf } from '../constants';
 
 interface Dependencies {
   synthCore: SynthCoreModule;
 }
 
-export const filter = ({ synthCore: [{ audioCtx }, { addMidNode, removeMidNode }] }: Dependencies) =>
+// the filter of the voices: each note filters its oscillators (voice-filter.ts), before its volume, so its
+// envelopes move its own filter; the synth sends them $voiceFilter
+export const filter = ({ synthCore: [{ audioCtx }] }: Dependencies) =>
   rxModel(() => {
-    const filterNode = audioCtx.createBiquadFilter();
+    const { sampleRate } = audioCtx;
     const $active = new PrimitiveBS<boolean>(false);
     const $ranges = new ObjectBS<FilterRanges>(defaultFilterRanges);
     const $filterType = new PrimitiveBS<BiquadFilterType>('lowpass');
@@ -22,7 +25,15 @@ export const filter = ({ synthCore: [{ audioCtx }, { addMidNode, removeMidNode }
       resonance: 0,
       gain: 1,
     });
-    return { $active, $filter, $filterType, $ranges, filterNode };
+    // what the voices play: the knobs of the filter, null while it is off
+    const voiceFilter = (): VoiceFilterOptions | null =>
+      $active.value ? { type: $filterType.value, ...$filter.value } : null;
+    const $voiceFilter: Observable<VoiceFilterOptions | null> = combineLatest([
+      $active,
+      $filterType,
+      $filter,
+    ]).pipe(map(voiceFilter), distinctUntilChanged(isEqual), shareReplay({ bufferSize: 1, refCount: true }));
+    return { $active, $filter, $filterType, $ranges, voiceFilter, $voiceFilter, sampleRate };
   })
     .actions(({ $active, $filter, $filterType, $ranges }) => ({
       toggleActive: () => $active.next(!$active.value),
@@ -38,35 +49,17 @@ export const filter = ({ synthCore: [{ audioCtx }, { addMidNode, removeMidNode }
 
       setRanges: (ranges: FilterRanges) => $ranges.next(ranges),
     }))
-    .subscriptions(
-      ({ $active, $filter, $filterType, $ranges, filterNode }, { setRanges, setFilterValues }) => [
-        $active.subscribe((value) => {
-          if (value) addMidNode(filterNode);
-          else removeMidNode(filterNode);
-        }),
-        $filterType.subscribe((type) => (filterNode.type = type)),
-        $filter.subscribe((value) => {
-          filterNode.frequency.setValueAtTime(value.cutoff, audioCtx.currentTime);
-          filterNode.Q.setValueAtTime(value.resonance, audioCtx.currentTime);
-          filterNode.gain.setValueAtTime(value.gain, audioCtx.currentTime);
-        }),
-
-        $filterType
-          .pipe(
-            map((type) => filterRanges[type]),
-            map((ranges) => merge(cloneDeep(defaultFilterRanges), ranges))
-          )
-          .subscribe(setRanges),
-        $ranges.pipe(map(() => $filter.value)).subscribe((filter) => {
-          const { cutoff, resonance, gain } = $ranges.value;
-          setFilterValues({
-            cutoff: number.thresholds(filter.cutoff, cutoff.min, cutoff.max),
-            resonance: number.thresholds(filter.resonance, resonance.min, resonance.max),
-            gain: number.thresholds(filter.gain, gain.min, gain.max),
-          });
-        }),
-      ]
-    )
+    .subscriptions(({ $filter, $filterType, $ranges }, { setRanges, setFilterValues }) => [
+      $filterType.pipe(map(rangesOf)).subscribe(setRanges),
+      $ranges.pipe(map(() => $filter.value)).subscribe((filter) => {
+        const { cutoff, resonance, gain } = $ranges.value;
+        setFilterValues({
+          cutoff: number.thresholds(filter.cutoff, cutoff.min, cutoff.max),
+          resonance: number.thresholds(filter.resonance, resonance.min, resonance.max),
+          gain: number.thresholds(filter.gain, gain.min, gain.max),
+        });
+      }),
+    ])
     .plugins(
       urlSnapshotPlugin({
         modelToSnap: ({ $active, $filterType, $filter }) => ({
@@ -89,3 +82,5 @@ export const filter = ({ synthCore: [{ audioCtx }, { addMidNode, removeMidNode }
       })
     );
 export const { ModelProvider: FilterProvider, useModel: useFilter } = rxModelReact('filter', filter);
+
+export type FilterModule = ReturnType<typeof useFilter>;

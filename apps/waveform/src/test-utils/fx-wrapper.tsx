@@ -1,7 +1,14 @@
 import React from 'react';
+import { BehaviorSubject } from 'rxjs';
 import { render } from '@testing-library/react';
 import { AppProvider } from '../app/app';
-import { SynthCoreProvider, useSynthCore } from '../app/synth/common/modules';
+import {
+  ModulationProvider,
+  SynthCoreProvider,
+  useModulation,
+  useSynthCore,
+} from '../app/synth/common/modules';
+import type { SynthModule } from '../app/synth/common/modules/synth';
 import { FxProvider, useFx } from '../app/synth/fx/modules';
 
 type FxModule = ReturnType<typeof useFx>;
@@ -11,8 +18,11 @@ const Capture = ({ onModel }: { onModel: (module: FxModule) => void }) => {
   return null;
 };
 
+// no note played: the fx knobs are at their values
+const synth = [{ $fxNote: new BehaviorSubject(null) }, {}] as unknown as SynthModule;
+
 const Fx = ({ children }: React.PropsWithChildren) => (
-  <FxProvider initial={{}} synthCore={useSynthCore()}>
+  <FxProvider initial={{}} synthCore={useSynthCore()} synth={synth} modulation={useModulation()}>
     {children}
   </FxProvider>
 );
@@ -23,10 +33,12 @@ export const renderWithFx = (ui: React.ReactElement) => {
   const result = render(
     <AppProvider initial={{}}>
       <SynthCoreProvider initial={undefined}>
-        <Fx>
-          <Capture onModel={(module) => (fx = module)} />
-          {ui}
-        </Fx>
+        <ModulationProvider initial={undefined}>
+          <Fx>
+            <Capture onModel={(module) => (fx = module)} />
+            {ui}
+          </Fx>
+        </ModulationProvider>
       </SynthCoreProvider>
     </AppProvider>
   );

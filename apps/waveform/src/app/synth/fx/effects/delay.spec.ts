@@ -213,4 +213,142 @@ describe('delay', () => {
     expect(format?.(440)).toBe('440Hz');
     expect(format?.(2500)).toBe('2.5kHz');
   });
+
+  describe('modulation', () => {
+    const ENV = { attack: 0.1, hold: 0, decay: 0.1, sustain: 0.5, release: 0.2 };
+    const note = { envelopes: [ENV, ENV, ENV], start: 1, release: null };
+    const calls = (param: AudioParam, method: keyof AudioParam) => (param[method] as jest.Mock).mock.calls;
+    const route = (param: string, amount: number, min: number, max: number, log = false) => ({
+      param,
+      env: 1,
+      amount,
+      min,
+      max,
+      ...(log && { log }),
+    });
+
+    it('automates the time of both lines directly: ramps of base + amount × level', () => {
+      const { core, lines } = setup();
+      core.setModulation({ note, routes: [route('time', 0.4, 0.01, 1)] });
+      // after the glide into it
+      lines.forEach((line) =>
+        expect(calls(line.delayTime, 'linearRampToValueAtTime')[1]).toEqual([
+          expect.closeTo(0.6, 9),
+          expect.closeTo(1.1, 9),
+        ])
+      );
+    });
+
+    it('works the bandpass out once per block: its Freq and Q are k-rate', () => {
+      const { filters } = setup();
+      filters.forEach((filter) => {
+        expect(filter.frequency.automationRate).toBe('k-rate');
+        expect(filter.Q.automationRate).toBe('k-rate');
+      });
+    });
+
+    it('ramps the frequency and the Q of the bandpass exponentially', () => {
+      const { core, filters } = setup();
+      core.setModulation({
+        note,
+        routes: [route('freq', 2, 50, 17000, true), route('q', -1, 0.01, 3, true)],
+      });
+      filters.forEach((filter) => {
+        expect(calls(filter.frequency, 'exponentialRampToValueAtTime')[0]).toEqual([
+          expect.closeTo(4000, 6),
+          expect.closeTo(1.1, 9),
+        ]);
+        expect(calls(filter.Q, 'setValueAtTime').length).toBeGreaterThan(1);
+      });
+    });
+
+    it('moves the feedback on the gains of the mode, the pan on the delay of its side', () => {
+      const { core, feedbacks, offsets } = setup();
+      core.setParam('mode', 1);
+      core.setModulation({ note, routes: [route('fb', 0.4, 0, 0.9), route('pan', 0.04, -0.05, 0.05)] });
+      // ping-pong: the lines feed each other
+      [feedbacks.lr, feedbacks.rl].forEach((node) =>
+        expect(calls(node.gain, 'linearRampToValueAtTime')[1]).toEqual([
+          expect.closeTo(0.9, 9),
+          expect.closeTo(1.1, 9),
+        ])
+      );
+      [feedbacks.ll, feedbacks.rr].forEach((node) =>
+        expect(calls(node.gain, 'linearRampToValueAtTime')).toEqual([])
+      );
+      // from 0 the pan moves right: the left channel is delayed
+      expect(calls(offsets[0].delayTime, 'linearRampToValueAtTime')[15]).toEqual([
+        expect.closeTo(0.04, 9),
+        expect.closeTo(1.1, 9),
+      ]);
+      const right = calls(offsets[1].delayTime, 'linearRampToValueAtTime');
+      expect(right.length).toBeGreaterThan(0);
+      expect(Math.max(...right.map(([value]) => value))).toBe(0);
+    });
+
+    // the order of the last call of a method of a param (-Infinity: none)
+    const lastOrder = (param: AudioParam, method: keyof AudioParam) =>
+      Math.max(-Infinity, ...(param[method] as jest.Mock).mock.invocationCallOrder);
+    // the order of its last hold: its automation left where it is (an automation of its own at a point of its
+    // line, then what follows cancelled; any other by cancelAndHoldAtTime)
+    const lastHold = (param: AudioParam) =>
+      Math.max(lastOrder(param, 'cancelScheduledValues'), lastOrder(param, 'cancelAndHoldAtTime'));
+    const holds = (param: AudioParam) =>
+      calls(param, 'cancelScheduledValues').length + calls(param, 'cancelAndHoldAtTime').length;
+
+    it('a mode change leaves the automation of the feedback gains of the old mode: one loop feeds back', () => {
+      const { core, feedbacks } = setup();
+      core.setModulation({ note, routes: [route('fb', 0.4, 0, 0.9)] });
+      expect(calls(feedbacks.ll.gain, 'linearRampToValueAtTime').length).toBeGreaterThan(0);
+      core.setParam('mode', 1);
+      // normal → ping-pong: the lines no longer feed themselves, from where they are to 0
+      [feedbacks.ll, feedbacks.rr].forEach(({ gain }) => {
+        expect(lastHold(gain)).toBeGreaterThan(lastOrder(gain, 'linearRampToValueAtTime'));
+        expect(lastValue(gain)).toBe(0);
+      });
+      // they feed each other, moved by the envelope
+      [feedbacks.lr, feedbacks.rl].forEach(({ gain }) =>
+        expect(calls(gain, 'linearRampToValueAtTime')[1]).toEqual([
+          expect.closeTo(0.9, 9),
+          expect.closeTo(1.1, 9),
+        ])
+      );
+    });
+
+    it('does not move the feedback while inactive: the lines drain', () => {
+      const { core, feedbacks } = setup();
+      core.setModulation({ note, routes: [route('fb', 0.4, 0, 0.9)] });
+      core.setActive(false);
+      core.setModulation({ note: { ...note, start: 2 }, routes: [route('fb', 0.4, 0, 0.9)] });
+      Object.values(feedbacks).forEach(({ gain }) => {
+        expect(lastOrder(gain, 'setTargetAtTime')).toBeGreaterThan(
+          lastOrder(gain, 'linearRampToValueAtTime')
+        );
+        expect(lastValue(gain)).toBe(0);
+      });
+      [feedbacks.ll, feedbacks.rr].forEach(({ gain }) =>
+        expect(lastHold(gain)).toBeGreaterThan(lastOrder(gain, 'linearRampToValueAtTime'))
+      );
+      // active again: moved on the gains of the mode
+      core.setActive(true);
+      expect(calls(feedbacks.ll.gain, 'linearRampToValueAtTime').at(-2)).toEqual([
+        expect.closeTo(0.9, 9),
+        expect.closeTo(2.1, 9),
+      ]);
+    });
+
+    it('builds the automation again when a knob turns, lets a knob go back to its value without its routes', () => {
+      const { core, lines } = setup();
+      core.setModulation({ note, routes: [route('time', 0.4, 0.01, 1)] });
+      core.setParam('time', 0.3);
+      expect(calls(lines[0].delayTime, 'linearRampToValueAtTime').at(-2)).toEqual([
+        expect.closeTo(0.7, 9),
+        expect.closeTo(1.1, 9),
+      ]);
+      core.setModulation(null);
+      // held for the note, the knob turned and the routes gone
+      expect(holds(lines[0].delayTime)).toBe(3);
+      expect(lastValue(lines[0].delayTime)).toBe(0.3);
+    });
+  });
 });

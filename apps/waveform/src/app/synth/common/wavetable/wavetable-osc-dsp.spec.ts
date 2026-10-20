@@ -1,4 +1,8 @@
 import FFT from 'fft.js';
+import { frequencyResponseDb } from '@waveform/ui-kit';
+import * as biquad from '@waveform/math/biquad';
+import * as curve from '../envelope/envelope-curve';
+import { EnvelopeParams, envelopeValue } from '../envelope/envelope-curve';
 import { seeded, storeWith, VOICE_DEFAULTS } from '../../../../test-utils/voice-dsp';
 import { buildLevels } from './wavetable-mipmap';
 import {
@@ -9,7 +13,9 @@ import {
   VoiceOscOptions,
   VoiceShared,
 } from './wavetable-osc-dsp';
-import { VoiceParam } from './wavetable-osc-params';
+import { RELEASE_GATE, VoiceParam } from './wavetable-osc-params';
+import type { VoiceRoute } from './voice-modulation';
+import type { VoiceFilterOptions } from './voice-filter';
 
 const RATE = 48000;
 const BLOCK = 128;
@@ -38,14 +44,34 @@ const osc = (config: Partial<VoiceOscOptions> = {}): VoiceOscOptions => ({
   ...config,
 });
 
+// the gate param from `stop` on (setValueAtTime): released (0 at that sample, RELEASE_GATE + h h seconds after
+// the first sample), below 0 for a stolen voice
+const gateAt =
+  (stop: number, value = 0) =>
+  (frame: number) =>
+    frame < stop ? 1 : value;
+
+// ENV 1 at full level from the start, ended at once by the gate: the voice as the oscillators play it
+const FLAT: EnvelopeParams = { attack: 0, hold: 0, decay: 0, sustain: 1, release: 0 };
+
 interface RenderOptions {
   store: TableStore;
   oscs?: (VoiceOscOptions | null)[];
   params?: Params;
   frames: number;
   start?: number;
+  // ENV 1 and the seconds it starts at (the start of the note by default), ENV 2 and 3, the routes
+  envelope?: EnvelopeParams;
+  envStart?: number;
+  envelopes?: EnvelopeParams[];
+  // its phrase (0 by default: a render has its own shared)
+  phrase?: number;
+  routes?: VoiceRoute[];
+  filter?: VoiceFilterOptions | null;
   random?: () => number;
   rate?: number;
+  // the frame of the first block processed (its node came late), 0 by default
+  from?: number;
   // called before the block at that frame
   before?: (frame: number, dsp: ReturnType<typeof createVoiceDsp>) => void;
   // the resources the voices of a context share; a render has its own by default
@@ -60,18 +86,31 @@ const render = ({
   params = {},
   frames,
   start = 0,
+  envelope = FLAT,
+  envStart = start,
+  envelopes = [FLAT, FLAT],
+  phrase = 0,
+  routes = [],
+  filter = null,
   random,
   rate = RATE,
+  from = 0,
   before,
   shared = createVoiceShared(),
 }: RenderOptions) => {
-  const dsp = createVoiceDsp(rate, { osc: oscs, start }, store, random ?? seeded(1), shared);
+  const dsp = createVoiceDsp(
+    rate,
+    { osc: oscs, start, envelopes: [envelope, ...envelopes], envStart, phrase, routes, filter },
+    store,
+    random ?? seeded(1),
+    shared
+  );
   const left = new Float32Array(frames);
   const right = new Float32Array(frames);
   const outL = new Float32Array(BLOCK);
   const outR = new Float32Array(BLOCK);
   let endedAt = -1;
-  for (let frame = 0; frame < frames; frame += BLOCK) {
+  for (let frame = from; frame < frames; frame += BLOCK) {
     before?.(frame, dsp);
     const values = Object.fromEntries(
       (Object.keys(DEFAULTS) as VoiceParam[]).map((name) => {
@@ -568,13 +607,7 @@ describe('wavetable voice dsp', () => {
       expect(left[301]).toBeCloseTo(1, 4);
     });
 
-    // the gate param drops to 0 at the end of the release (setValueAtTime)
-    const gateAt =
-      (stop: number, value = 0) =>
-      (frame: number) =>
-        frame < stop ? 1 : value;
-
-    it('stops exactly where the gate drops to 0 and ends', () => {
+    it('stops exactly where the gate drops to 0 without a release and ends', () => {
       const { store } = storeWith({ a: [sine] });
       const { left, endedAt, dsp } = render({
         store,
@@ -588,7 +621,7 @@ describe('wavetable voice dsp', () => {
       expect(dsp.ended).toBe(true);
     });
 
-    it('fades a stolen voice out within 5 ms from where the gate drops below 0', () => {
+    it('fades a stolen voice out in 20 ms (a raised cosine) from where the gate drops below 0', () => {
       const { store } = storeWith({ a: [sine] });
       const { left, endedAt } = render({
         store,
@@ -596,10 +629,44 @@ describe('wavetable voice dsp', () => {
         params: { frequency: 10, gate: gateAt(256, -1) },
         frames: 2048,
       });
-      expect(left[255]).toBeCloseTo(Math.cos((2 * Math.PI * 10 * 255) / RATE), 4);
-      expect(left[256 + 120]).toBeCloseTo(0.5 * Math.cos((2 * Math.PI * 10 * 376) / RATE), 2);
-      expect(left.subarray(256 + 240).every((value) => value === 0)).toBe(true);
-      expect(endedAt).toBeLessThanOrEqual(512);
+      const wave = (frame: number) => Math.cos((2 * Math.PI * 10 * frame) / RATE);
+      expect(left[255]).toBeCloseTo(wave(255), 4);
+      // a quarter, a half and three quarters of the fade
+      [240, 480, 720].forEach((x) =>
+        expect(left[256 + x]).toBeCloseTo((0.5 + 0.5 * Math.cos((Math.PI * x) / 960)) * wave(256 + x), 3)
+      );
+      expect(left.subarray(256 + 960).every((value) => value === 0)).toBe(true);
+      expect(endedAt).toBe(1152);
+    });
+
+    // a sine of period 512 stolen at its peak (the worst case: a cut there steps from 1), through a Hann window
+    // of 4096 centred on the steal: the energy above 4 · f0 against a cut at the same sample
+    it('fades a stolen voice out with a splatter at least 50 dB below a cut', () => {
+      const { store } = storeWith({ a: [sine] });
+      const steal = 4096;
+      const size = 4096;
+      const { left } = render({
+        store,
+        oscs: [osc({ phase: 0.25 })],
+        params: { frequency: RATE / 512, gate: gateAt(steal, -1) },
+        frames: 8192,
+      });
+      const splatter = (signal: Float32Array) => {
+        const fft = new FFT(size);
+        const out = fft.createComplexArray();
+        const from = steal - size / 2;
+        const windowed = Array.from(
+          { length: size },
+          (_, i) => signal[from + i] * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / size))
+        );
+        fft.realTransform(out, windowed);
+        let sum = 0;
+        for (let k = (4 * size) / 512; k < size / 2; k++) sum += out[2 * k] ** 2 + out[2 * k + 1] ** 2;
+        return sum;
+      };
+      const cut = left.map((value, i) => (i < steal ? value : 0));
+      expect(left[steal - 1]).toBeCloseTo(1, 3);
+      expect(10 * Math.log10(splatter(left) / splatter(cut))).toBeLessThan(-50);
     });
 
     it('frees its versions when it ends', () => {
@@ -620,6 +687,629 @@ describe('wavetable voice dsp', () => {
       });
       expect(left.every((value) => value === 0)).toBe(true);
       expect(endedAt).toBe(384);
+    });
+  });
+
+  describe('ENV 1', () => {
+    const env: EnvelopeParams = { attack: 0.01, hold: 0.005, decay: 0.02, sustain: 0.5, release: 0.03 };
+    // a constant level: a table of 1 (the DC and the nyquist are dropped from a frame, so a square at 1/2 the
+    // rate can't be used): the voice of a sine at its peak, slower than the envelope
+    const peak = (frames: number, options: Partial<RenderOptions> = {}) => {
+      const { store } = storeWith({ a: [sine] });
+      return render({ store, oscs: [osc({ phase: 0.25 })], params: { frequency: 0.01 }, frames, ...options });
+    };
+    const sec = (frame: number) => frame / RATE;
+
+    it('shapes the note: attack, hold, decay and sustain, exact to the sample', () => {
+      const { left, right } = peak(4096, { envelope: env });
+      for (let i = 0; i < 4096; i += 7) {
+        expect(left[i]).toBeCloseTo(envelopeValue(env, sec(i)), 4);
+        expect(right[i]).toBeCloseTo(left[i], 6);
+      }
+      expect(left[0]).toBe(0);
+      expect(left[480]).toBeCloseTo(1, 4);
+      expect(left[3000]).toBeCloseTo(0.5, 4);
+    });
+
+    it('releases from the level reached, in the attack and in the decay, and ends exactly at its end', () => {
+      // released at frame 240 (half the attack: 0.5) and 1200 (in the decay: 0.875)
+      [240, 1200].forEach((release) => {
+        const { left, endedAt } = peak(8192, {
+          envelope: env,
+          params: { frequency: 0.01, gate: gateAt(release) },
+        });
+        const end = release + 0.03 * RATE;
+        for (let i = 0; i < 8192; i += 5)
+          expect(left[i]).toBeCloseTo(envelopeValue(env, sec(i), sec(release)), 4);
+        expect(left[end - 1]).toBeGreaterThan(0);
+        expect(left.subarray(end).every((value) => value === 0)).toBe(true);
+        expect(endedAt).toBe(Math.floor(end / BLOCK) * BLOCK);
+      });
+    });
+
+    it('releases from the sustain', () => {
+      const { left, endedAt } = peak(8192, {
+        envelope: env,
+        params: { frequency: 0.01, gate: gateAt(4000) },
+      });
+      expect(left[3999]).toBeCloseTo(0.5, 4);
+      expect(left[4000 + 720]).toBeCloseTo(0.25, 3);
+      expect(left[5440]).toBe(0);
+      expect(endedAt).toBe(5376);
+    });
+
+    it('ends at once when released at 0', () => {
+      const silent = { ...env, sustain: 0, release: 1 };
+      const { endedAt } = peak(8192, { envelope: silent, params: { frequency: 0.01, gate: gateAt(4000) } });
+      expect(endedAt).toBe(3968);
+    });
+
+    it('does not start again in legato: it goes on from the start of the phrase, fading in', () => {
+      // the phrase started 0.01 s before the note: at its first sample the envelope is at the end of the attack,
+      // the note fades in over 1.5 ms (72 samples) instead of stepping to that level
+      const start = 1000;
+      const { left } = peak(4096, { envelope: env, start: sec(start), envStart: sec(start) - 0.01 });
+      expect(left.subarray(0, start + 1).every((value) => value === 0)).toBe(true);
+      expect(left[start + 36]).toBeCloseTo(0.5, 4);
+      expect(left[start + 72]).toBeCloseTo(1, 4);
+      expect(left[start + 960]).toBeCloseTo(envelopeValue(env, 0.01 + sec(960)), 4);
+    });
+
+    it('processed after its start, starts its envelopes at its first sample, in legato goes on from the phrase', () => {
+      // scheduled at 100, its first block at 1280 (its node came a device buffer late): the attack is played
+      const { left } = peak(4096, { envelope: env, start: sec(100), from: 1280 });
+      for (let i = 1280; i < 4096; i += 7) expect(left[i]).toBeCloseTo(envelopeValue(env, sec(i - 1280)), 4);
+      expect(left[1280]).toBe(0);
+      expect(left[1280 + 480]).toBeCloseTo(1, 4);
+      // released after its first block: at that sample, from the level reached since its first sample
+      const released = peak(8192, {
+        envelope: env,
+        start: sec(100),
+        from: 1280,
+        params: { frequency: 0.01, gate: gateAt(1280 + 240) },
+      });
+      expect(released.left[1280 + 240]).toBeCloseTo(0.5, 4);
+      expect(released.endedAt).toBe(Math.floor((1280 + 240 + 0.03 * RATE) / BLOCK) * BLOCK);
+      // a note of a phrase started 0.01 s before it (its first voice unknown): the level of the phrase once it
+      // has faded in
+      const legato = peak(4096, { envelope: env, start: sec(100), envStart: sec(100) - 0.01, from: 1280 });
+      expect(legato.left[1280]).toBe(0);
+      expect(legato.left[1280 + 72]).toBeCloseTo(envelopeValue(env, 0.01 + sec(1180 + 72)), 4);
+    });
+
+    it('starts the envelopes of a note of a phrase where its first voice, processed late, started them', () => {
+      // the first note scheduled at 100 is processed from 1280, the second one of the phrase from 2048: it is in
+      // the decay of the phrase started at 1280 (in its sustain from 100)
+      const shared = createVoiceShared();
+      peak(4096, { envelope: env, start: sec(100), from: 1280, shared });
+      const { left } = peak(4096, {
+        envelope: env,
+        start: sec(2000),
+        envStart: sec(100),
+        from: 2048,
+        shared,
+      });
+      for (let i = 2048 + 72; i < 4096; i += 7)
+        expect(left[i]).toBeCloseTo(envelopeValue(env, sec(i - 1280)), 4);
+      expect(left[2048 + 72]).toBeGreaterThan(0.9);
+    });
+
+    it('starts the envelopes of a note of a phrase where its first voice will, processed after it in a block', () => {
+      // both are processed from 1280 on, the second one first: the first voice starts there in this block
+      const shared = createVoiceShared();
+      const { store } = storeWith({ a: [sine] });
+      const first = createVoiceDsp(
+        RATE,
+        {
+          osc: [osc()],
+          start: sec(100),
+          envelopes: [env, FLAT, FLAT],
+          envStart: sec(100),
+          phrase: 0,
+          routes: [],
+          filter: null,
+        },
+        store,
+        seeded(1),
+        shared
+      );
+      const { left } = peak(4096, {
+        envelope: env,
+        start: sec(1200),
+        envStart: sec(100),
+        from: 1280,
+        shared,
+      });
+      for (let i = 1280 + 72; i < 4096; i += 7)
+        expect(left[i]).toBeCloseTo(envelopeValue(env, sec(i - 1280)), 4);
+      expect(first.startedAt).toBe(-1);
+    });
+
+    it('keeps the phrase of a held note when a note out of legato starts its own meanwhile', () => {
+      // the first note scheduled at 100 is processed from 1280; legato off, a note starts its envelopes at
+      // 1536; legato on again, a note of the first phrase from 2048: in the decay of the phrase started at 1280
+      const shared = createVoiceShared();
+      peak(4096, { envelope: env, start: sec(100), from: 1280, shared });
+      peak(4096, { envelope: env, start: sec(1536), from: 1536, phrase: 1, shared });
+      const { left } = peak(4096, {
+        envelope: env,
+        start: sec(2000),
+        envStart: sec(100),
+        from: 2048,
+        shared,
+      });
+      for (let i = 2048 + 72; i < 4096; i += 7)
+        expect(left[i]).toBeCloseTo(envelopeValue(env, sec(i - 1280)), 4);
+      expect(left[2048 + 72]).toBeGreaterThan(0.9);
+    });
+
+    it('keeps two phrases scheduled at the same frame apart', () => {
+      // a key released and the next one pressed within a device buffer: both phrases are scheduled at 100, the
+      // first one processed from 1280 (still playing), the next one from 1792; a note of the next one from 2048
+      // goes on from 1792 (in its attack), not from the first one
+      const shared = createVoiceShared();
+      peak(4096, { envelope: env, start: sec(100), from: 1280, shared });
+      peak(4096, { envelope: env, start: sec(100), from: 1792, phrase: 1, shared });
+      const { left } = peak(4096, {
+        envelope: env,
+        start: sec(2000),
+        envStart: sec(100),
+        from: 2048,
+        phrase: 1,
+        shared,
+      });
+      for (let i = 2048 + 72; i < 4096; i += 7)
+        expect(left[i]).toBeCloseTo(envelopeValue(env, sec(i - 1792)), 4);
+      expect(left[2048 + 72]).toBeLessThan(0.7);
+    });
+
+    it('forgets a phrase once its voices have ended: a note of it goes on from its start', () => {
+      // the only voice of the phrase, processed from 1280, released at 1400, has ended (a release of 1 ms)
+      const short = { ...env, release: 0.001 };
+      const shared = createVoiceShared();
+      const first = peak(4096, {
+        envelope: short,
+        start: sec(100),
+        from: 1280,
+        params: { frequency: 0.01, gate: gateAt(1400) },
+        shared,
+      });
+      expect(first.endedAt).toBe(1408);
+      const { left } = peak(4096, {
+        envelope: short,
+        start: sec(1536),
+        envStart: sec(100),
+        from: 1536,
+        shared,
+      });
+      for (let i = 1536 + 72; i < 4096; i += 7)
+        expect(left[i]).toBeCloseTo(envelopeValue(short, sec(i - 100)), 4);
+    });
+
+    it('processed after its start, releases as long after its first sample as its key was held, wherever it is seen', () => {
+      // scheduled at 100, its first block at 1280: the gate seen with its node, in a later block before the
+      // release (1520, held 1420 frames: at 2700), after it (at the sample it is seen), held over a stalled clock
+      // (at most 50 ms after it is seen)
+      [
+        [1280, sec(200), 200],
+        [1520, sec(1420), 1420],
+        [3000, sec(100), 1720],
+        [2000, 10, 720 + 2400],
+      ].forEach(([seen, hold, held]) => {
+        const { left, endedAt } = peak(8192, {
+          envelope: env,
+          start: sec(100),
+          from: 1280,
+          params: { frequency: 0.01, gate: gateAt(seen, RELEASE_GATE + hold) },
+        });
+        for (let i = 1280; i < 8192; i += 5)
+          expect(left[i]).toBeCloseTo(envelopeValue(env, sec(i - 1280), sec(held)), 4);
+        expect(endedAt).toBe(Math.floor((1280 + held + 0.03 * RATE) / BLOCK) * BLOCK);
+      });
+    });
+
+    it('fades a stolen voice out in 20 ms from the level it has', () => {
+      const { left, endedAt } = peak(8192, {
+        envelope: env,
+        params: { frequency: 0.01, gate: gateAt(3000, -1) },
+      });
+      expect(left[2999]).toBeCloseTo(0.5, 4);
+      expect(left[3000 + 480]).toBeCloseTo(0.25, 3);
+      expect(left.subarray(3960).every((value) => value === 0)).toBe(true);
+      expect(endedAt).toBe(3840);
+    });
+
+    it('fades out a voice stolen in its release: the fade on the release, over before its end', () => {
+      const gate = (frame: number) => (frame < 3000 ? 1 : frame < 3100 ? 0 : -1);
+      const { left, endedAt } = peak(8192, { envelope: env, params: { frequency: 0.01, gate } });
+      expect(left[3099]).toBeCloseTo(0.5 * (1 - 99 / 1440), 3);
+      expect(left[3100 + 480]).toBeCloseTo(0.5 * 0.5 * (1 - 580 / 1440), 3);
+      // the release would end at 4440
+      expect(left.subarray(4060).every((value) => value === 0)).toBe(true);
+      expect(endedAt).toBe(3968);
+    });
+  });
+
+  describe('started again (mono: a note on a voice that sounds)', () => {
+    const env: EnvelopeParams = { attack: 0.01, hold: 0.005, decay: 0.02, sustain: 0.5, release: 0.03 };
+    // the volume: a sine at its peak, slower than the envelope
+    const peak = (frames: number, options: Partial<RenderOptions> = {}) => {
+      const { store } = storeWith({ a: [sine] });
+      return render({ store, oscs: [osc({ phase: 0.25 })], params: { frequency: 0.01 }, frames, ...options });
+    };
+    const sec = (frame: number) => frame / RATE;
+    // the gate held at 1, at `values[k]` from `frames[k]` on
+    const gateSteps =
+      (frames: number[], values: number[]) =>
+      (frame: number): number => {
+        let value = 1;
+        frames.forEach((from, k) => {
+          if (frame >= from) value = values[k];
+        });
+        return value;
+      };
+
+    it('starts its envelopes again where the held gate changes, from the level reached: exact to the sample', () => {
+      // in a block (1200), on its first sample (1280), twice within one block (1000 and 1010)
+      [[1200], [1280], [1000, 1010]].forEach((starts) => {
+        const { left, endedAt } = peak(4096, {
+          envelope: env,
+          params: { frequency: 0.01, gate: gateSteps(starts, [1.5, 1]) },
+        });
+        // the envelope a sample is on: the last start before it, from the level the one before had there
+        let level = (frame: number) => envelopeValue(env, sec(frame));
+        const levels = [level];
+        starts.forEach((at) => {
+          const before = level;
+          const from = before(at);
+          level = (frame: number) =>
+            frame < at ? before(frame) : envelopeValue(env, sec(frame - at), Infinity, from);
+          levels.push(level);
+        });
+        for (let i = 0; i < 4096; i++) expect(left[i]).toBeCloseTo(level(i), 4);
+        expect(endedAt).toBe(-1);
+      });
+    });
+
+    it('goes on without a step: its steps no larger than those of an attack from 0', () => {
+      const plain = peak(4096, { envelope: env });
+      const { left } = peak(4096, {
+        envelope: env,
+        params: { frequency: 0.01, gate: gateSteps([1200], [1.5]) },
+      });
+      // in the decay at 0.75: up to 1 in the attack's 10 ms
+      expect(left[1199]).toBeCloseTo(envelopeValue(env, sec(1199)), 4);
+      expect(left[1200]).toBeCloseTo(0.75, 4);
+      expect(maxStep(left)).toBeLessThanOrEqual(maxStep(plain.left) + 1e-6);
+    });
+
+    it('held again after its release: the release is off, its envelopes start again from the level of the release', () => {
+      // released at 2000 (on the sustain, 0.5), held again at 2600, at 1: the value of its note on
+      const { left, endedAt } = peak(8192, {
+        envelope: env,
+        params: { frequency: 0.01, gate: gateSteps([2000, 2600], [RELEASE_GATE, 1]) },
+      });
+      const from = envelopeValue(env, sec(2600), sec(2000));
+      expect(from).toBeCloseTo(0.5 * (1 - 600 / 1440), 6);
+      for (let i = 2600; i < 8192; i += 3)
+        expect(left[i]).toBeCloseTo(envelopeValue(env, sec(i - 2600), Infinity, from), 4);
+      expect(left[8191]).toBeCloseTo(0.5, 4);
+      expect(endedAt).toBe(-1);
+    });
+
+    it('releases as long after its last start again as its key was held', () => {
+      // started again at 1000, released at 3000 held 2400 frames: at 3400 (from the note on: at 3000)
+      const { left, endedAt } = peak(8192, {
+        envelope: env,
+        params: { frequency: 0.01, gate: gateSteps([1000, 3000], [1.5, RELEASE_GATE + sec(2400)]) },
+      });
+      const from = envelopeValue(env, sec(1000));
+      for (let i = 1000; i < 8192; i += 3)
+        expect(left[i]).toBeCloseTo(envelopeValue(env, sec(i - 1000), sec(2400), from), 4);
+      expect(endedAt).toBe(Math.floor((3400 + 1440) / BLOCK) * BLOCK);
+    });
+
+    it('moves the routes on from the levels of their envelopes, without a step', () => {
+      // ENV 2 lowers the gain: up in 5 ms, down to 0.2 in 20 ms; started again on a point the routes are worked
+      // out at (every 32 samples, linear in between: exact there)
+      const env2: EnvelopeParams = { attack: 0.005, hold: 0, decay: 0.02, sustain: 0.2, release: 0 };
+      const routes: VoiceRoute[] = [{ env: 1, param: 'gain1', amount: -0.5, min: 0, max: 1 }];
+      const plain = peak(4096, { envelopes: [env2, FLAT], routes });
+      const { left } = peak(4096, {
+        envelopes: [env2, FLAT],
+        routes,
+        params: { frequency: 0.01, gate: gateSteps([2016], [1.5]) },
+      });
+      const from = envelopeValue(env2, sec(2016));
+      for (let i = 2016; i < 4096; i += 32)
+        expect(left[i]).toBeCloseTo(1 - 0.5 * envelopeValue(env2, sec(i - 2016), Infinity, from), 4);
+      expect(maxStep(left)).toBeLessThanOrEqual(maxStep(plain.left) + 1e-6);
+    });
+
+    it('is not started again once stolen, nor after its end', () => {
+      // stolen at 1000, held again at 1100: the fade goes on to its end
+      const stolen = peak(4096, {
+        envelope: env,
+        params: { frequency: 0.01, gate: gateSteps([1000, 1100], [-1, 1.5]) },
+      });
+      expect(stolen.left.subarray(1960).every((value) => value === 0)).toBe(true);
+      expect(stolen.endedAt).toBe(1920);
+      // released at 1000, over at 2440, held again at 2450 (in the block it ends in)
+      const over = peak(4096, {
+        envelope: env,
+        params: { frequency: 0.01, gate: gateSteps([1000, 2450], [0, 1.5]) },
+      });
+      expect(over.left.subarray(2440).every((value) => value === 0)).toBe(true);
+      expect(over.endedAt).toBe(2432);
+    });
+  });
+
+  describe('modulation', () => {
+    // ENV 2: from 1 down to its sustain in 20 ms
+    const decay = (sustain: number): EnvelopeParams => ({
+      attack: 0,
+      hold: 0,
+      decay: 0.02,
+      sustain,
+      release: 0,
+    });
+    const level = (env: EnvelopeParams, frame: number) => envelopeValue(env, frame / RATE);
+    const route = (param: VoiceParam, amount: number, min = 0, max = 1, env = 1): VoiceRoute => ({
+      env,
+      param,
+      amount,
+      min,
+      max,
+    });
+    // a sine at its peak, slower than the envelope: the output is the gain
+    const peak = (frames: number, options: Partial<RenderOptions> = {}) => {
+      const { store } = storeWith({ a: [sine] });
+      return render({ store, oscs: [osc({ phase: 0.25 })], params: { frequency: 0.01 }, frames, ...options });
+    };
+
+    it('moves the gain by amount × the envelope, sample by sample', () => {
+      const env = decay(0);
+      const { left } = peak(2048, { envelopes: [env, FLAT], routes: [route('gain1', -1)] });
+      for (let i = 0; i < 2048; i += 3) expect(left[i]).toBeCloseTo(1 - level(env, i), 4);
+    });
+
+    it('clamps the base and the routes to the range of the knob', () => {
+      const up = peak(1024, {
+        params: { frequency: 0.01, gain1: 0.8 },
+        envelopes: [decay(1), FLAT],
+        routes: [route('gain1', 1)],
+      });
+      expect(up.left[500]).toBeCloseTo(1, 5);
+      const down = peak(1024, {
+        params: { frequency: 0.01, gain1: 0.3 },
+        envelopes: [decay(1), decay(1)],
+        routes: [route('gain1', -0.25), route('gain1', -0.25, 0, 1, 2)],
+      });
+      expect(down.left[500]).toBe(0);
+    });
+
+    it('moves the wave as a share of the table, like the knob there', () => {
+      const { store } = storeWith({ a: [sine, square, saw] });
+      const routed = render({
+        store,
+        envelopes: [decay(0.5), FLAT],
+        routes: [route('position1', 1)],
+        frames: 4096,
+      });
+      const knob = render({ store, params: { position1: 0.5 }, frames: 4096 });
+      // on the sustain: the middle frame, as the knob there
+      for (let i = 2048; i < 4096; i++) expect(routed.left[i]).toBeCloseTo(knob.left[i], 4);
+    });
+
+    it('moves the unison detune in cents, a unison at detune 0 is not collapsed with a route raising it', () => {
+      const { store } = storeWith({ a: [saw] });
+      const env = decay(0.5);
+      const routed = render({
+        store,
+        oscs: [osc({ unison: 2 })],
+        envelopes: [env, FLAT],
+        routes: [route('spread1', 100, 0, 100)],
+        frames: 4096,
+      });
+      // the knob moved the same way
+      const knob = render({
+        store,
+        oscs: [osc({ unison: 2 })],
+        params: { spread1: (frame) => 100 * level(env, frame) },
+        frames: 4096,
+      });
+      routed.left.forEach((value, i) => expect(value).toBeCloseTo(knob.left[i], 4));
+      // a route lowering it: collapsed into one voice, as without it
+      const lowered = render({
+        store,
+        oscs: [osc({ unison: 2 })],
+        envelopes: [env, FLAT],
+        routes: [route('spread1', -50, 0, 100)],
+        frames: 1024,
+      });
+      const one = render({ store, oscs: [osc({ unison: 1 })], frames: 1024 });
+      lowered.left.forEach((value, i) => expect(value).toBeCloseTo(one.left[i], 4));
+    });
+
+    it('plays from its mix tables again once its envelopes are in a flat stage', () => {
+      const { store } = storeWith({ a: [sine, square, saw] });
+      const shared = createVoiceShared();
+      const builds: number[] = [];
+      const takeBuild = shared.takeBuild;
+      shared.takeBuild = (frame, cost) => {
+        builds.push(frame);
+        return takeBuild(frame, cost);
+      };
+      render({
+        store,
+        shared,
+        envelopes: [decay(0.3), FLAT],
+        routes: [route('position1', 1)],
+        frames: 4096,
+      });
+      // the wave moves for 20 ms (960 samples): no mix, then a mix on the sustain
+      expect(builds.length).toBeGreaterThan(0);
+      expect(Math.min(...builds)).toBeGreaterThanOrEqual(1024);
+      expect(Math.min(...builds)).toBeLessThanOrEqual(1152);
+    });
+
+    it('renders only the envelopes routes read', () => {
+      const { store } = storeWith({ a: [sine] });
+      const [env2, env3] = [decay(0.3), decay(0.2)];
+      const stage = jest.spyOn(curve, 'envelopeStage');
+      const rendered = (env: EnvelopeParams) => stage.mock.calls.filter(([params]) => params === env).length;
+      render({ store, envelopes: [env2, env3], frames: 1280 });
+      expect([rendered(env2), rendered(env3)]).toEqual([0, 0]);
+      render({ store, envelopes: [env2, env3], routes: [route('gain1', -0.5)], frames: 1280 });
+      // ten blocks: the decay, one of them crosses its end; then the sustain, worked out once
+      expect([rendered(env2), rendered(env3)]).toEqual([10, 0]);
+      stage.mockRestore();
+    });
+
+    it('glides a changed amount on a playing note in 10 ms, a removed route back to the base', () => {
+      const routes = [route('gain1', -1)];
+      const { left } = peak(4096, {
+        envelopes: [decay(1), FLAT],
+        before: (frame, dsp) => {
+          if (frame === 1024) dsp.setRoutes(routes);
+          if (frame === 2048) dsp.setRoutes([]);
+        },
+      });
+      expect(left[1023]).toBeCloseTo(1, 4);
+      expect(left[1024 + 240]).toBeCloseTo(0.5, 2);
+      expect(left[1024 + 480]).toBeCloseTo(0, 4);
+      expect(left[2047]).toBeCloseTo(0, 4);
+      expect(left[2048 + 240]).toBeCloseTo(0.5, 2);
+      expect(left[2048 + 480]).toBeCloseTo(1, 4);
+      expect(maxStep(left)).toBeLessThan(0.003);
+    });
+  });
+
+  describe('filter', () => {
+    const lowpass: VoiceFilterOptions = { type: 'lowpass', cutoff: 1000, resonance: 6, gain: 0 };
+    // the steady tone of a sine at `frequency` through the voice (the second half: the filter has settled)
+    const tone = (frequency: number, options: Partial<RenderOptions> = {}) => {
+      const { store } = storeWith({ a: [sine] });
+      const { left, right } = render({ store, params: { frequency }, frames: 16384, ...options });
+      return { left: left.subarray(8192), right: right.subarray(8192) };
+    };
+
+    it.each<[string, VoiceFilterOptions]>([
+      ['a resonant lowpass', lowpass],
+      ['a highpass', { type: 'highpass', cutoff: 2000, resonance: 0, gain: 0 }],
+      ['a bandpass', { type: 'bandpass', cutoff: 1500, resonance: 3, gain: 0 }],
+      ['a peaking', { type: 'peaking', cutoff: 800, resonance: 2, gain: 12 }],
+      ['a lowshelf', { type: 'lowshelf', cutoff: 500, resonance: 0, gain: -12 }],
+    ])('filters the voice as the chart (a BiquadFilterNode) shows: %s', (_, filter) => {
+      [100, 400, 1000, 2500, 6000].forEach((frequency) => {
+        const dry = toneAmplitude(tone(frequency).left, frequency);
+        const wet = toneAmplitude(tone(frequency, { filter }).left, frequency);
+        const props = { cutoff: filter.cutoff, resonance: filter.resonance, gain: filter.gain };
+        const chart = frequencyResponseDb(filter.type, props, frequency, RATE);
+        // the chart stops at ±48 dB
+        if (Math.abs(chart) < 48) expect(db(wet / dry)).toBeCloseTo(chart, 1);
+        else expect(db(wet / dry)).toBeLessThan(-48);
+      });
+    });
+
+    it('filters both channels of a unison, the middle voice in both', () => {
+      const { store } = storeWith({ a: [saw] });
+      const { left, right } = render({
+        store,
+        oscs: [osc({ unison: 3 })],
+        params: { spread1: 30 },
+        filter: lowpass,
+        frames: 4096,
+      });
+      expect(rms(left)).toBeGreaterThan(0);
+      expect(rms(right)).toBeGreaterThan(0);
+      expect(rms(left)).not.toBeCloseTo(rms(right), 6);
+    });
+
+    it('passes the sound unchanged when off', () => {
+      const { store } = storeWith({ a: [saw] });
+      const off = render({ store, oscs: [osc({ unison: 3 })], params: { spread1: 30 }, frames: 2048 });
+      const on = render({
+        store,
+        oscs: [osc({ unison: 3 })],
+        params: { spread1: 30 },
+        filter: { type: 'allpass', cutoff: 1000, resonance: 1, gain: 0 },
+        frames: 2048,
+      });
+      expect(on.left).not.toEqual(off.left);
+      const before = render({
+        store,
+        oscs: [osc({ unison: 3 })],
+        params: { spread1: 30 },
+        filter: null,
+        frames: 2048,
+      });
+      expect(before.left).toEqual(off.left);
+      expect(before.right).toEqual(off.right);
+    });
+
+    it('moves the cutoff by octaves: base × 2^(amount × the envelope)', () => {
+      // 8 kHz three octaves down on the sustain: 1 kHz
+      const route: VoiceRoute = { env: 1, param: 'cutoff', amount: -3, min: 10, max: 22050, log: true };
+      const decaying: EnvelopeParams = { attack: 0, hold: 0, decay: 0.02, sustain: 1, release: 0 };
+      const routed = tone(2500, {
+        filter: { ...lowpass, cutoff: 8000 },
+        envelopes: [decaying, FLAT],
+        routes: [route],
+      });
+      const knob = tone(2500, { filter: lowpass });
+      routed.left.forEach((value, i) => expect(value).toBeCloseTo(knob.left[i], 4));
+    });
+
+    it('works the coefficients out once while the values stay, every 32 samples while one moves', () => {
+      const into = jest.spyOn(biquad, 'coefficientsInto');
+      const { store } = storeWith({ a: [sine] });
+      render({ store, filter: lowpass, frames: 2048 });
+      expect(into).toHaveBeenCalledTimes(1);
+      into.mockClear();
+      // the cutoff moves for 20 ms (960 samples), then stays
+      const decaying: EnvelopeParams = { attack: 0, hold: 0, decay: 0.02, sustain: 0.5, release: 0 };
+      const route: VoiceRoute = { env: 1, param: 'cutoff', amount: 2, min: 10, max: 22050, log: true };
+      render({ store, filter: lowpass, envelopes: [decaying, FLAT], routes: [route], frames: 4096 });
+      expect(into.mock.calls.length).toBeGreaterThanOrEqual(30);
+      expect(into.mock.calls.length).toBeLessThanOrEqual(34);
+      into.mockRestore();
+    });
+
+    it('glides a changed knob on a playing note in about 10 ms, starts a filter turned on from silence', () => {
+      const { store } = storeWith({ a: [saw] });
+      const play = (filter: VoiceFilterOptions, before?: RenderOptions['before']) =>
+        render({ store, params: { frequency: 220 }, filter, frames: 8192, before }).left;
+      const low = play(lowpass);
+      const high = play({ ...lowpass, cutoff: 4000 });
+      const changed = play(
+        lowpass,
+        (frame, dsp) => frame === 2048 && dsp.setFilter({ ...lowpass, cutoff: 4000 })
+      );
+      const difference = (a: Float32Array, b: Float32Array, from: number, to: number) =>
+        rms(a.map((value, i) => value - b[i]).subarray(from, to));
+      // 1 ms after: still about the old one; 30 ms after: the new one
+      expect(difference(changed, low, 2048, 2096)).toBeLessThan(difference(changed, high, 2048, 2096));
+      expect(difference(changed, high, 3488, 3968)).toBeLessThan(0.01 * rms(high));
+      const toggled = play(lowpass, (frame, dsp) => {
+        if (frame === 4096) dsp.setFilter(null);
+        if (frame === 6144) dsp.setFilter(lowpass);
+      });
+      [...toggled].forEach((value) => expect(Number.isFinite(value)).toBe(true));
+    });
+
+    it('takes the knobs of another type at once: the units of the resonance differ', () => {
+      // the Q of a bandpass is linear, that of a lowpass in dB: gliding from 1000 to 20 would pass through
+      // a lowpass of several hundred dB
+      const { store } = storeWith({ a: [sine] });
+      const bandpass: VoiceFilterOptions = { type: 'bandpass', cutoff: 1000, resonance: 1000, gain: 0 };
+      const resonant: VoiceFilterOptions = { type: 'lowpass', cutoff: 1000, resonance: 20, gain: 0 };
+      const play = (filter: VoiceFilterOptions, before?: RenderOptions['before']) =>
+        render({ store, params: { frequency: 1000 }, filter, frames: 8192, before }).left;
+      const peak = (values: Float32Array) => values.reduce((max, value) => Math.max(max, Math.abs(value)), 0);
+      const steady = play(resonant);
+      const changed = play(bandpass, (frame, dsp) => frame === 2048 && dsp.setFilter(resonant));
+      expect(peak(changed.subarray(2048))).toBeLessThan(1.5 * peak(steady.subarray(4096)));
     });
   });
 
@@ -696,7 +1386,15 @@ describe('wavetable voice dsp', () => {
       const { store } = storeWith({ a: [saw] });
       const dsp = createVoiceDsp(
         RATE,
-        { osc: [osc()], start: 100 / RATE },
+        {
+          osc: [osc()],
+          start: 100 / RATE,
+          envelopes: [FLAT, FLAT, FLAT],
+          envStart: 100 / RATE,
+          phrase: 0,
+          routes: [],
+          filter: null,
+        },
         store,
         seeded(1),
         createVoiceShared()

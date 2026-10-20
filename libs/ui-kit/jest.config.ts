@@ -8,5 +8,6 @@ export default {
   // d3 and its deps are published as ESM only
   transformIgnorePatterns: ['/node_modules/(?!(d3-[^/]+|internmap)/)'],
   moduleFileExtensions: ['ts', 'tsx', 'js', 'jsx'],
+  setupFiles: ['<rootDir>/src/test-setup.ts'],
   coverageDirectory: '../../coverage/libs/ui-kit',
 };

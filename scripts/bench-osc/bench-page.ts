@@ -98,7 +98,15 @@ interface VoiceSetup {
   params?: Partial<Record<VoiceParam, number>>;
   start?: number;
   stop?: number;
+  // ENV 1–3 and the routes of the voice (the first setup's)
+  envelopes?: typeof ENVELOPES;
+  routes?: { env: number; param: string; amount: number; min: number; max: number }[];
 }
+
+// ENV 1 at full level from the start of the note and ended at once by the gate, ENV 2 and 3 not read: the
+// oscillators as they play
+const FLAT = { attack: 0, hold: 0, decay: 0, sustain: 1, release: 0 };
+const ENVELOPES = [FLAT, FLAT, FLAT];
 
 const createVoice = (ctx: BaseAudioContext, setup: VoiceSetup, second?: VoiceSetup) => {
   const osc = (config: VoiceSetup) => ({
@@ -111,10 +119,18 @@ const createVoice = (ctx: BaseAudioContext, setup: VoiceSetup, second?: VoiceSet
     numberOfInputs: 0,
     numberOfOutputs: 1,
     outputChannelCount: [2],
-    processorOptions: { osc: [osc(setup), second ? osc(second) : null], start: setup.start ?? 0 },
+    processorOptions: {
+      osc: [osc(setup), second ? osc(second) : null],
+      start: setup.start ?? 0,
+      envelopes: setup.envelopes ?? ENVELOPES,
+      envStart: setup.start ?? 0,
+      phrase: 0,
+      routes: setup.routes ?? [],
+      filter: null,
+    },
     parameterData: { gain1: 1, gain2: 1, ...setup.params, ...second?.params },
   });
-  // the end of the note: its gate drops to 0
+  // the end of the note: its gate drops to 0 (ENV 1 has no release)
   if (setup.stop !== undefined) (node.parameters.get('gate') as AudioParam).setValueAtTime(0, setup.stop);
   return node;
 };
@@ -146,7 +162,15 @@ const dspRender = (
   store.set('a', 1, levels);
   const dsp = createVoiceDsp(
     rate,
-    { osc: [{ table: 'a', unison: 1, phase: 0, phaseRand: 0 }, null], start: 0 },
+    {
+      osc: [{ table: 'a', unison: 1, phase: 0, phaseRand: 0 }, null],
+      start: 0,
+      envelopes: ENVELOPES,
+      envStart: 0,
+      phrase: 0,
+      routes: [],
+      filter: null,
+    },
     store
   );
   const values = Object.fromEntries(
@@ -509,13 +533,25 @@ const unisonLevel = async ({ rate, notes }: { rate: number; notes: number }) => 
 
 // --- cpu ---
 
-// buses: no modulation, every param of the voices connected to a silent mod bus (as in the synth)
-type Modulation = 'none' | 'buses' | 'position' | 'detune';
+// buses: no modulation, every param of the voices connected to a silent mod bus (as in the synth);
+// env-sustain: ENV 2 on Wave, Detune and Gain of both oscillators, on its sustain from the note on (the
+// voices play their mix tables); env-moving: the same envelope decaying for the whole render
+// lfo-wdg: an LFO into the same params as the envelopes (the direct path they are compared with);
+// still-sustain: no route, the knobs where ENV 2 holds them on its sustain (the same sound as env-sustain)
+type Modulation =
+  | 'none'
+  | 'buses'
+  | 'position'
+  | 'detune'
+  | 'env-sustain'
+  | 'env-moving'
+  | 'lfo-wdg'
+  | 'still-sustain';
 
 // 8 voices of a chord, both oscillators with unison 4: 64 oscillators. Native: the graph the synth had,
 // per oscillator 4 OscillatorNodes in pairs into a merger, its gain, the envelope of the voice; ours: one
-// worklet node per voice into its envelope. Modulation: an LFO into the position of every voice (ours
-// only, native has no morph) or into the detune of every oscillator
+// worklet node per voice, its envelope inside. Modulation: an LFO into the position of every voice (ours
+// only, native has no morph) or into the detune of every oscillator, or ENV 2 of the voices (ours only)
 const cpu = async ({
   rate,
   name,
@@ -592,21 +628,49 @@ const cpu = async ({
       'gain2',
     ].map((name) => [name, ctx.createGain()] as const);
     for (const note of notes) {
-      const envelope = ctx.createGain();
-      envelope.connect(ctx.destination);
-      const position = modulation === 'position' ? 0.5 : positionOf(frames);
+      // on the sustain (0.5) ENV 2 adds a quarter of the table, 25 cents and -0.025
+      const still = modulation === 'still-sustain';
+      const position = modulation === 'position' ? 0.5 : positionOf(frames) + (still ? 0.25 : 0);
+      const [voiceSpread, voiceGain] = still ? [spread + 25, 0.075] : [spread, 0.1];
+      const env2 =
+        modulation === 'env-moving'
+          ? { attack: 0, hold: 0, decay: seconds, sustain: 0, release: 0 }
+          : { attack: 0, hold: 0, decay: 0, sustain: 0.5, release: 0 };
+      const routed = modulation === 'env-sustain' || modulation === 'env-moving';
+      const routes = [1, 2].flatMap((osc) => [
+        { env: 1, param: `position${osc}`, amount: 0.5, min: 0, max: 1 },
+        { env: 1, param: `spread${osc}`, amount: 50, min: 0, max: 100 },
+        { env: 1, param: `gain${osc}`, amount: -0.05, min: 0, max: 1 },
+      ]);
       const voice = createVoice(
         ctx,
-        { unison, params: { frequency: note, spread1: spread, gain1: 0.1, position1: position } },
-        { unison, params: { detune2: 1200, spread2: spread, gain2: 0.1, position2: position } }
+        {
+          unison,
+          params: { frequency: note, spread1: voiceSpread, gain1: voiceGain, position1: position },
+          ...(routed && { envelopes: [ENVELOPES[0], env2, ENVELOPES[2]], routes }),
+        },
+        { unison, params: { detune2: 1200, spread2: voiceSpread, gain2: voiceGain, position2: position } }
       );
       if (modulation === 'position')
         ['position1', 'position2'].forEach((p) => depth.connect(voice.parameters.get(p) as AudioParam));
       if (modulation === 'detune')
         ['detune1', 'detune2'].forEach((p) => depth.connect(voice.parameters.get(p) as AudioParam));
+      if (modulation === 'lfo-wdg')
+        (
+          [
+            ['position', 0.25],
+            ['spread', 25],
+            ['gain', 0.05],
+          ] as const
+        ).forEach(([param, amount]) => {
+          const scaled = ctx.createGain();
+          scaled.gain.value = amount;
+          lfo.connect(scaled);
+          [1, 2].forEach((osc) => scaled.connect(voice.parameters.get(`${param}${osc}`) as AudioParam));
+        });
       if (modulation === 'buses')
         buses.forEach(([name, bus]) => bus.connect(voice.parameters.get(name) as AudioParam));
-      voice.connect(envelope);
+      voice.connect(ctx.destination);
     }
     const start = performance.now();
     await ctx.startRendering();
@@ -690,6 +754,63 @@ const build = async ({ name }: { name: string }) => {
   return { frames: frames.length, ms, bytes: levels.data.byteLength };
 };
 
+// the bandpass of the delay (two BiquadFilterNodes, as its lines) when ENV 2 moves its Freq and Q: still, by
+// a-rate automation (the browser may work the coefficients out every sample) and by k-rate (once per block).
+// The envelope of a note every 0.5 s: up in 50 ms, down in 300 ms, exponential ramps as fx-automation.ts
+// schedules them; a saw of 110 Hz into them for 10 s
+type BiquadMode = 'still' | 'a-rate' | 'k-rate';
+const biquadAutomation = async ({ rate, seconds }: { rate: number; seconds: number }) => {
+  const render = async (mode: BiquadMode) => {
+    const ctx = new OfflineAudioContext(2, seconds * rate, rate);
+    const source = ctx.createOscillator();
+    source.type = 'sawtooth';
+    source.frequency.value = 110;
+    const merger = ctx.createChannelMerger(2);
+    [0, 1].forEach((channel) => {
+      const filter = ctx.createBiquadFilter();
+      filter.type = 'bandpass';
+      filter.frequency.value = 1000;
+      filter.Q.value = 1;
+      if (mode === 'k-rate') {
+        filter.frequency.automationRate = 'k-rate';
+        filter.Q.automationRate = 'k-rate';
+      }
+      if (mode !== 'still')
+        for (let start = 0; start < seconds; start += 0.5) {
+          filter.frequency.setValueAtTime(1000, start);
+          filter.frequency.exponentialRampToValueAtTime(4000, start + 0.05);
+          filter.frequency.exponentialRampToValueAtTime(1500, start + 0.35);
+          filter.Q.setValueAtTime(1, start);
+          filter.Q.exponentialRampToValueAtTime(2.5, start + 0.05);
+          filter.Q.exponentialRampToValueAtTime(1.3, start + 0.35);
+        }
+      source.connect(filter).connect(merger, 0, channel);
+    });
+    merger.connect(ctx.destination);
+    source.start(0);
+    const start = performance.now();
+    await ctx.startRendering();
+    return performance.now() - start;
+  };
+  const median = (values: number[]) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
+  const modes: BiquadMode[] = ['still', 'a-rate', 'k-rate'];
+  const times: Record<BiquadMode, number[]> = { still: [], 'a-rate': [], 'k-rate': [] };
+  for (const mode of modes) await render(mode);
+  for (let i = 0; i < 5; i++) for (const mode of modes) times[mode].push(await render(mode));
+  return { still: median(times.still), aRate: median(times['a-rate']), kRate: median(times['k-rate']) };
+};
+
 Object.assign(window, {
-  bench: { sound, pitch, continuity, tableSwitch, stereo, unisonLevel, cpu, build, delivery },
+  bench: {
+    sound,
+    pitch,
+    continuity,
+    tableSwitch,
+    stereo,
+    unisonLevel,
+    cpu,
+    build,
+    delivery,
+    biquadAutomation,
+  },
 });

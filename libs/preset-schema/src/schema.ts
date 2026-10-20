@@ -182,14 +182,61 @@ const filterSchema = z
   })
   .default({});
 
-const adsrSchema = z
+// the envelopes ENV 1–3; ENV 1 is the volume of a note, all three modulate the knobs they are assigned to
+export const ENVELOPES = ['env1', 'env2', 'env3'] as const;
+export type EnvelopeId = typeof ENVELOPES[number];
+// the key of each one in the preset: env: { e1, e2, e3 }
+export const ENVELOPE_KEYS: Record<EnvelopeId, string> = { env1: 'e1', env2: 'e2', env3: 'e3' };
+export type EnvelopeStage = 'attack' | 'hold' | 'decay' | 'sustain' | 'release';
+// seconds of a stage at most (the time knobs are nonlinear, short times get most of their travel)
+export const ENVELOPE_TIME_MAX = 32;
+// a fresh envelope: ENV 1 a short click-free note, ENV 2 and 3 a decay to 0 (a pluck on the knob it moves)
+export const ENVELOPE_DEFAULTS: Record<EnvelopeId, Record<EnvelopeStage, number>> = {
+  env1: { attack: 0.005, hold: 0.1, decay: 0, sustain: 1, release: 0.005 },
+  env2: { attack: 0.005, hold: 0, decay: 0.5, sustain: 0, release: 0.3 },
+  env3: { attack: 0.005, hold: 0, decay: 0.5, sustain: 0, release: 0.3 },
+};
+
+const envelopeSchema = ({ attack, hold, decay, sustain, release }: Record<EnvelopeStage, number>) =>
+  z
+    .object({
+      attack: range(0, ENVELOPE_TIME_MAX).default(attack),
+      hold: range(0, ENVELOPE_TIME_MAX).default(hold),
+      decay: range(0, ENVELOPE_TIME_MAX).default(decay),
+      sustain: range(0, 1).default(sustain),
+      release: range(0, ENVELOPE_TIME_MAX).default(release),
+    })
+    .default({});
+
+const envSchema = z
   .object({
-    attack: range(0, 1).default(0.005),
-    hold: range(0, 1).default(0.1),
-    decay: range(0, 1).default(0),
-    sustain: range(0, 1).default(1),
-    release: range(0, 1).default(0.005),
+    e1: envelopeSchema(ENVELOPE_DEFAULTS.env1),
+    e2: envelopeSchema(ENVELOPE_DEFAULTS.env2),
+    e3: envelopeSchema(ENVELOPE_DEFAULTS.env3),
   })
+  .default({});
+
+// the modulation: a route moves a knob (a target of the app: osc1.wave, filter.cutoff, delay.time…) by its
+// source × amount, a share of the range of the knob in its scale (-1..1, a log knob in octaves: +0.5 on
+// Cutoff is about +5.5 octaves). Saved as { 'env2:osc1.wave': 0.5 }: one route per source and knob
+// the envelopes for now, LFOs later
+export type ModSource = EnvelopeId;
+export const MOD_SOURCES: readonly ModSource[] = [...ENVELOPES];
+// the most routes of a preset (once there are as many, a dragged ENV tab adds none) and of the sources on one
+// knob (a full one takes none)
+export const MOD_ROUTES_MAX = 64;
+export const MOD_KNOB_SOURCES_MAX = 4;
+const modKeySchema = z.string().regex(/^env[1-3]:[a-z][a-z0-9]*\.[a-z][a-z0-9]*$/);
+const knobSources = (routes: Record<string, number>) =>
+  Object.keys(routes).reduce<Record<string, number>>((counts, key) => {
+    const target = key.slice(key.indexOf(':') + 1);
+    counts[target] = (counts[target] ?? 0) + 1;
+    return counts;
+  }, {});
+const modSchema = z
+  .record(modKeySchema, range(-1, 1))
+  .refine((routes) => Object.keys(routes).length <= MOD_ROUTES_MAX)
+  .refine((routes) => Object.values(knobSources(routes)).every((count) => count <= MOD_KNOB_SOURCES_MAX))
   .default({});
 
 const voicingSchema = z
@@ -264,7 +311,8 @@ export const presetDataSchema = z.object({
   osc1: oscillatorSchema(true),
   osc2: oscillatorSchema(false),
   filter: filterSchema,
-  adsr: adsrSchema,
+  env: envSchema,
+  mod: modSchema,
   v: voicingSchema,
   fx: fxSchema,
 });

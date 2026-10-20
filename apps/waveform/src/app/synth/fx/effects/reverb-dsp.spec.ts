@@ -1,6 +1,6 @@
 import FFT from 'fft.js';
 import { FX_PARAMS } from '@waveform/preset-schema';
-import { decayCurve } from '../components/controls/reverb-decay-curve';
+import { DECAY_CHART_FREQS, decayCurve } from '../components/controls/reverb-decay-curve';
 import { createBiquad } from './dsp';
 import { createReverbDsp, MAX_PREDELAY, MAX_SIZE, ReverbDspParams } from './reverb-dsp';
 import { HF_RATIO } from './reverb-decay';
@@ -28,6 +28,8 @@ type Input = (frame: number) => number;
 interface Change {
   at: number;
   params?: Partial<ReverbDspParams>;
+  // the params are knobs the envelopes move
+  routed?: boolean;
   active?: boolean;
 }
 
@@ -63,7 +65,7 @@ const render = (
     changes
       .filter(({ at }) => Math.floor((at * SAMPLE_RATE) / BLOCK) * BLOCK === start)
       .forEach((change) => {
-        if (change.params) dsp.set(change.params);
+        if (change.params) dsp.set(change.params, change.routed);
         if (change.active !== undefined) dsp.setActive(change.active);
       });
     for (let i = 0; i < BLOCK; i++) block[i] = input(start + i);
@@ -159,9 +161,9 @@ describe('createReverbDsp', () => {
         const measured = rt60(filtered(mono, 'bandpass', 1000));
         expect(measured / decay).toBeGreaterThan(0.88);
         expect(measured / decay).toBeLessThan(1.12);
-        const [, chart] = decayCurve({ size, decay, damp: BASE.damp, bass: BASE.bass }, SAMPLE_RATE).find(
-          ([freq]) => freq > 1000
-        ) as [number, number];
+        const chart = decayCurve({ size, decay, damp: BASE.damp, bass: BASE.bass }, SAMPLE_RATE)[
+          DECAY_CHART_FREQS.findIndex((freq) => freq > 1000)
+        ];
         expect(measured / chart).toBeGreaterThan(0.88);
         expect(measured / chart).toBeLessThan(1.12);
       }
@@ -265,6 +267,23 @@ describe('createReverbDsp', () => {
       (_, from, to) => {
         const { L } = render({ er: 1, ...from }, 1.2, sine(220, 2), [{ at: 0.8, params: to }]);
         expect(maxStep(L, 0.8, 1.2)).toBeLessThan(maxStep(L, 0.4, 0.8) * 1.5);
+      }
+    );
+
+    // an impulse at 0.05 s after the change at 0: the first sample out (the first early reflection) comes
+    // after the predelay and the first tap of the room at the time it passes
+    it.each([
+      ['predelay', { pre: 0 }, { pre: 0.1 }, 0.02],
+      ['size', { size: 0 }, { size: 1 }, 0.002],
+    ] as [string, Partial<ReverbDspParams>, Partial<ReverbDspParams>, number][])(
+      '%s moved by an envelope follows it in 10 ms, a knob glides like tape',
+      (_, from, to, earlier) => {
+        const pulse: Input = (frame) => impulse(frame - Math.round(0.05 * SAMPLE_RATE));
+        const onset = (changes: Change[], params = from) =>
+          render({ er: 1, ...params }, 0.3, pulse, changes).mono.findIndex((value) => value !== 0);
+        const target = onset([], { ...from, ...to });
+        expect(Math.abs(onset([{ at: 0, params: to, routed: true }]) - target)).toBeLessThan(frame(0.0005));
+        expect(onset([{ at: 0, params: to }])).toBeLessThan(target - frame(earlier));
       }
     );
   });

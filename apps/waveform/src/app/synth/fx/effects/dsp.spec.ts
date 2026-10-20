@@ -230,6 +230,16 @@ describe('createSmoothed', () => {
     expect(value.from).toBeCloseTo(1 - Math.exp(-1));
   });
 
+  it('glides to a target with the time constant it was set with, the next one with its own', () => {
+    const value = createSmoothed(0, 0.1, SAMPLE_RATE);
+    value.set(1, false, 0.01);
+    value.step(480);
+    expect(value.value).toBeCloseTo(1 - Math.exp(-1));
+    value.set(0);
+    value.step(480);
+    expect(value.value).toBeCloseTo((1 - Math.exp(-1)) * Math.exp(-0.1));
+  });
+
   it('reaches the target exactly and then stays', () => {
     const value = createSmoothed(0, 0.001, SAMPLE_RATE);
     value.set(2);

@@ -3,7 +3,7 @@
 // tmp/bench-osc/tables, serves them on localhost (a secure context: AudioWorklet) and runs the page in
 // Chromium, WebKit and Firefox through Playwright, which is not a dependency of the project:
 //   npx -y -p playwright@1.50.1 node scripts/bench-osc/run.mjs [--browsers=chromium,webkit,firefox]
-//     [--rates=44100,48000,96000] [--only=sound,pitch,continuity,switch,stereo,unison,cpu,delivery,build]
+//     [--rates=44100,48000,96000] [--only=sound,pitch,continuity,switch,stereo,unison,cpu,biquad,delivery,build]
 import fs from 'fs';
 import http from 'http';
 import path from 'path';
@@ -206,25 +206,45 @@ const runBrowser = async (playwright, name, port) => {
 
   if (runs('cpu')) {
     const table = fileName(TABLES[1]);
+    // ENV 2 on its sustain costs what the same sound does without routes (the mix tables: its budget, that run
+    // of ours, still-sustain); moving, it costs what an LFO on the same params does, without the inputs of the
+    // AudioParams (its budget: that run of ours)
     for (const [modulation, budget] of [
       ['none', 1],
       ['buses', 1],
       ['position', 1.3],
       ['detune', 1.3],
+      ['still-sustain', 1],
+      ['env-sustain', 'still-sustain'],
+      ['lfo-wdg', 2],
+      ['env-moving', 'lfo-wdg'],
     ]) {
       const result = await call('cpu', { rate, name: table, modulation, seconds: 10 });
       report.results[`cpu ${modulation}`] = result;
+      const against = typeof budget === 'string' ? report.results[`cpu ${budget}`] : null;
+      const ok = against ? result.ours <= against.ours * 1.05 : result.ratio <= budget;
       log(
         `cpu 64 osc (8 voices × 2 × u4), modulation ${modulation}: ours ${f(result.ours, 0)} ms, native ${f(
           result.native,
           0
-        )} ms for 10 s, ×${f(result.ratio, 2)} (budget ${budget}) ${check(
-          failures,
-          result.ratio <= budget,
-          `cpu ${modulation}`
-        )}`
+        )} ms for 10 s, ×${f(result.ratio, 2)} (budget ${
+          against ? `ours with ${budget}: ${f(against.ours, 0)} ms` : budget
+        }) ${check(failures, ok, `cpu ${modulation}`)}`
       );
     }
+  }
+
+  // the delay's bandpass under the automation of ENV 2: a-rate may work its coefficients out every sample;
+  // k-rate (once per block) is used if a-rate costs more than twice the still filter
+  if (runs('biquad')) {
+    const { still, aRate, kRate } = await call('biquadAutomation', { rate, seconds: 10 });
+    report.results.biquad = { still, aRate, kRate };
+    log(
+      `delay bandpass ×2, 10 s: still ${f(still, 0)} ms, a-rate ramps ${f(aRate, 0)} ms (×${f(
+        aRate / still,
+        2
+      )}), k-rate ramps ${f(kRate, 0)} ms (×${f(kRate / still, 2)})`
+    );
   }
 
   if (runs('delivery')) {

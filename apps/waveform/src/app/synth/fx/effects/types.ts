@@ -1,6 +1,7 @@
 import type { BehaviorSubject } from 'rxjs';
 import type { HandleProps } from '@waveform/ui-kit';
 import type { ParamRange } from '@waveform/preset-schema';
+import type { FxModulation } from './fx-modulation';
 
 export type FxParamDef = Pick<HandleProps, 'mode' | 'precision' | 'formatValue' | 'fillFrom'> &
   ParamRange & {
@@ -26,6 +27,8 @@ export interface FxCore {
   setParam: (key: string, value: number) => void;
   // removed from the chain or bypassed: internal loops must die out, so a stale tail doesn't come back
   setActive: (active: boolean) => void;
+  // its knobs follow the envelopes of the last note (fx-modulation.ts); null: they are at their own values
+  setModulation: (mod: FxModulation | null) => void;
   destroy: () => void;
   // effects loaded asynchronously (audio worklets, see createWorkletFx), absent: always ready
   $status?: BehaviorSubject<FxStatus>;

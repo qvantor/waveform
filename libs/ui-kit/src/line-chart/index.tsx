@@ -1,2 +1,3 @@
 export * from './components';
-export { useLineChartContext } from './hooks';
+export { useLineChartContext, useLivePath } from './hooks';
+export { linePath, areaPath, affine } from './services';

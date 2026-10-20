@@ -1,4 +1,4 @@
-import { DB_RANGE, frequencyResponseDb, getChartData } from './index';
+import { DB_RANGE, frequencyResponseDb, responseBuffers, responseInto } from './index';
 
 const sampleRate = 48000;
 const db = (
@@ -6,6 +6,13 @@ const db = (
   props: Partial<{ cutoff: number; resonance: number; gain: number }>,
   f: number
 ) => frequencyResponseDb(type, { cutoff: 1000, resonance: 0, gain: 0, ...props }, f, sampleRate);
+
+// the points of the chart as [frequency, dB]
+const getChartData = (type: BiquadFilterType, props: Parameters<typeof responseInto>[1], rate: number) => {
+  const buffers = responseBuffers();
+  const count = responseInto(type, props, rate, buffers);
+  return Array.from({ length: count }, (_, i): [number, number] => [buffers.freqs[i], buffers.dbs[i]]);
+};
 
 describe('filter frequency response', () => {
   it('lowpass: flat below cutoff, Q (dB) at cutoff, -12 dB/oct above', () => {

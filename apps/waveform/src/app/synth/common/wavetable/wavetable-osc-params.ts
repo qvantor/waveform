@@ -22,9 +22,30 @@ export interface ParamDescriptor {
 
 export const oscParamName = (param: OscParam, osc: number): VoiceParam => `${param}${osc === 0 ? 1 : 2}`;
 
-// frequency: Hz of the note (portamento glides it), both oscillators play it; gate: 1 while the note plays,
-// 0 stops it at that sample (the end of its release), below 0 fades it out (a stolen voice): automated with
-// setValueAtTime, exact to the sample, a message would arrive whenever the audio thread takes it; position:
+// the gate of a held key, and the value it is held at in turn with it: a note that takes the voice over (mono)
+// holds the gate at the other one, the processor starts the envelopes again where it changes
+export const HELD_GATE = 1;
+export const HELD_AGAIN_GATE = 1.5;
+
+// the gate of a released key: RELEASE_GATE + the seconds it was held. The processor starts the release that
+// long after the first sample of the voice: its node may come a device buffer after its start, its release
+// later or sooner than that, so neither is on time
+export const RELEASE_GATE = 2;
+
+// seconds: the most a release starts after it is seen (on the main thread, after now). currentTime moves by
+// device buffers (10 ms on Windows, up to 40 ms on Android), a longer lead would be a stalled or suspended
+// clock: a note held over it would be released that much later
+export const RELEASE_LEAD = 0.05;
+
+// where the release of a voice starts: at `held` (its first sample + the time its key was held), not before
+// the gate is seen (the level would step), at most `lead` after it; frames in the processor, seconds on the
+// main thread (the fx and Poly follow the voice)
+export const releaseStart = (seen: number, held: number, lead: number) =>
+  Math.min(seen + lead, Math.max(seen, held));
+
+// frequency: Hz of the note (portamento glides it), both oscillators play it; gate: 1 while the key is held,
+// RELEASE_GATE + h: released after h seconds, 0: released at that sample, below 0 fades it out (a stolen
+// voice): automated with setValueAtTime, a message would arrive whenever the audio thread takes it; position:
 // share of the table
 // (frame k of N at k / (N - 1)); detune: cents (1200 · octave + pitch modulation); spread: cents from the lowest
 // unison voice to the highest; gain: linear. The browser clamps base + modulation to min/max, the processor
@@ -44,7 +65,7 @@ const oscDescriptors = (osc: number): ParamDescriptor[] => [
 
 export const VOICE_PARAMETERS: ParamDescriptor[] = [
   { name: 'frequency', defaultValue: 440, minValue: 0, automationRate: 'a-rate' },
-  { name: 'gate', defaultValue: 1, automationRate: 'a-rate' },
+  { name: 'gate', defaultValue: HELD_GATE, automationRate: 'a-rate' },
   ...oscDescriptors(0),
   ...oscDescriptors(1),
 ];

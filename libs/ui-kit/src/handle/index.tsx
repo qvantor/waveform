@@ -3,17 +3,38 @@ import styled from 'styled-components';
 import { arc } from 'd3-shape';
 import cls from 'classnames';
 import { number, vector2d } from '@waveform/math';
-import { scaleLinear, scaleLog } from 'd3-scale';
 import { theme } from '../common/constants';
-import { absoluteCenterXY } from '../common/styles';
-import { singlePointerTracker } from '../common/utils';
+import { absoluteCenterX, absoluteCenterXY } from '../common/styles';
+import { ScaleMode, singlePointerTracker, valueScale } from '../common/utils';
 import { Tooltip } from '../tooltip';
 import { ValueTooltipContent } from '../tooltip/value-tooltip';
 import { Label } from '../label';
+import { useModulations } from '../common/utils/use-mod-mark';
+import { AMOUNT_DOT_SIZE, RoutesDot } from '../amount-dot';
+import { MOD_DRAGGING_CLASS, MOD_OVER_ATTR, MOD_TARGET_ATTR } from '../mod-drag';
+
+// a modulation of the knob: a source (an envelope) moves it by amount, a share of its range in its scale
+// (-1..1); a dot at the top left has a section of the color of each route, the route of the selected source
+// shows: an arc of its color on the ring of the knob shows where to, the dot changes its amount
+export interface HandleModulation {
+  id: string;
+  color: string;
+  amount: number;
+  // the name of the source
+  label?: string;
+  onChange?: (amount: number) => void;
+  onRemove?: () => void;
+  // the amount in the units of the knob (+2.4 oct, +35%)
+  formatAmount?: (amount: number) => React.ReactNode;
+  // the level of the source now and whether it sounds: a mark like the knob's follows the sum of the routes
+  level?: () => number | null;
+  live?: boolean;
+  // its source is the selected one (the ENV tab): its arc shows and the dot changes it, the others only move the
+  // mark
+  selected?: boolean;
+}
 
 type Size = 'm' | 'l';
-
-type Mode = 'linear' | 'log';
 
 export interface HandleProps {
   min?: number;
@@ -24,41 +45,42 @@ export interface HandleProps {
   onChange?: (value: number) => void;
   formatValue?: (value: number) => React.ReactNode;
   label?: React.ReactNode;
-  mode?: Mode;
+  mode?: ScaleMode;
   precision?: number;
   plotSize?: number;
   disabled?: boolean;
-  // the value the fill starts from (e.g. 0 for a bipolar knob), min by default
+  // the value the fill starts from (e.g. 0 for a bipolar knob, 1 for a stereo width), min by default; a knob that
+  // takes modulations has no fill
   fillFrom?: number;
+  // the routes moving the knob (hidden while it is disabled), an array (maybe empty) if it takes them: then a
+  // ring on its edge shows its travel and holds the arc of a route, else an arc of its travel around it with the
+  // fill
+  modulations?: HandleModulation[];
+  // the id a dragged source is dropped onto (MOD_TARGET_ATTR): a disabled knob takes none
+  modTarget?: string;
 }
 
 interface StyledProps {
   size: Size;
 }
 
+// px
 const sizes: Record<
   Size,
-  Record<'wrapper' | 'handleOuter' | 'handleInner' | 'mark', [string, string]> & {
+  {
+    // the knob in the middle
+    wrapper: number;
+    // the diameters of the knob (its ring starts on its edge), of its face and of its mark
+    handleOuter: number;
+    handleInner: number;
+    mark: number;
+    svg: number;
+    // the inner and the outer radius of the arc of the travel of a knob that takes no modulations
     arc: [number, number];
-    svg: [number, number];
   }
 > = {
-  m: {
-    wrapper: ['50px', '50px'],
-    handleOuter: ['34px', '34px'],
-    handleInner: ['32px', '32px'],
-    mark: ['2px', '2px'],
-    svg: [30, 30],
-    arc: [19, 21],
-  },
-  l: {
-    wrapper: ['60px', '60px'],
-    handleOuter: ['44px', '44px'],
-    handleInner: ['42px', '42px'],
-    mark: ['3px', '3px'],
-    svg: [40, 40],
-    arc: [29, 31],
-  },
+  m: { wrapper: 50, handleOuter: 34, handleInner: 32, mark: 2, svg: 30, arc: [19, 21] },
+  l: { wrapper: 60, handleOuter: 44, handleInner: 42, mark: 3, svg: 40, arc: [29, 31] },
 };
 
 const Root = styled.div`
@@ -74,8 +96,8 @@ const Root = styled.div`
 `;
 
 const HandleContainer = styled.div<StyledProps>`
-  width: ${(props) => `${sizes[props.size].wrapper[0]}`};
-  height: ${(props) => `${sizes[props.size].wrapper[1]}`};
+  width: ${(props) => sizes[props.size].wrapper}px;
+  height: ${(props) => sizes[props.size].wrapper}px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -83,8 +105,8 @@ const HandleContainer = styled.div<StyledProps>`
 `;
 
 const HandleCircle = styled.div<StyledProps>`
-  width: ${(props) => `${sizes[props.size].handleOuter[0]}`};
-  height: ${(props) => `${sizes[props.size].handleOuter[1]}`};
+  width: ${(props) => sizes[props.size].handleOuter}px;
+  height: ${(props) => sizes[props.size].handleOuter}px;
   margin: auto;
   border-radius: 100%;
   display: flex;
@@ -98,8 +120,8 @@ const HandleCircle = styled.div<StyledProps>`
 const HandleCircleShadow = styled.div<StyledProps>`
   position: absolute;
   ${absoluteCenterXY};
-  width: ${(props) => `${sizes[props.size].handleOuter[0]}`};
-  height: ${(props) => `${sizes[props.size].handleOuter[1]}`};
+  width: ${(props) => sizes[props.size].handleOuter}px;
+  height: ${(props) => sizes[props.size].handleOuter}px;
   border-radius: 100%;
   box-shadow: 4px 8px 28px 0 rgba(0, 0, 0, 0.35);
   z-index: 2;
@@ -108,31 +130,124 @@ const HandleCircleShadow = styled.div<StyledProps>`
 const HandleCircleInner = styled.div<StyledProps>`
   background: ${theme.colors.primary};
   margin: auto;
-  width: ${(props) => `${sizes[props.size].handleInner[0]}`};
-  height: ${(props) => `${sizes[props.size].handleInner[1]}`};
+  width: ${(props) => sizes[props.size].handleInner}px;
+  height: ${(props) => sizes[props.size].handleInner}px;
   border-radius: 100%;
   box-shadow: inset 0 0 4px 0 rgb(0 0 0 / 15%);
   position: relative;
 `;
 
+// the position of the knob: a dot at its edge
 const HandleMark = styled.div<StyledProps>`
-  width: ${(props) => `${sizes[props.size].mark[0]}`};
-  height: ${(props) => `${sizes[props.size].mark[1]}`};
+  width: ${(props) => sizes[props.size].mark}px;
+  height: ${(props) => sizes[props.size].mark}px;
   border-radius: 100%;
   background: ${theme.colors.primaryDarkMediumContrast};
   position: absolute;
-  left: 16px;
+  ${absoluteCenterX};
   top: 2px;
 `;
 
+// lit while a source is dragged (mod-drag), brighter under the pointer
+const ModHighlight = styled.div<StyledProps>`
+  position: absolute;
+  ${absoluteCenterXY};
+  width: ${(props) => sizes[props.size].handleOuter}px;
+  height: ${(props) => sizes[props.size].handleOuter}px;
+  border-radius: 100%;
+  pointer-events: none;
+  z-index: 3;
+  display: none;
+
+  body.${MOD_DRAGGING_CLASS} [${MOD_TARGET_ATTR}] > * > & {
+    display: block;
+    box-shadow: 0 0 0 2px var(--mod-drag-color);
+  }
+
+  body.${MOD_DRAGGING_CLASS} [${MOD_OVER_ATTR}] > * > & {
+    box-shadow: 0 0 0 3px var(--mod-drag-color), 0 0 12px 3px var(--mod-drag-color);
+  }
+`;
+
+// where the knob moves with its modulations now: over the knob, its mark in the same place, half transparent
+const ModMark = styled.div<StyledProps>`
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: ${(props) => sizes[props.size].handleOuter}px;
+  height: ${(props) => sizes[props.size].handleOuter}px;
+  display: flex;
+  pointer-events: none;
+  visibility: hidden;
+  z-index: 3;
+`;
+
+const ModMarkInner = styled.div<StyledProps>`
+  margin: auto;
+  width: ${(props) => sizes[props.size].handleInner}px;
+  height: ${(props) => sizes[props.size].handleInner}px;
+  position: relative;
+  opacity: 0.5;
+`;
+
+const Dot = styled(RoutesDot)`
+  z-index: 4;
+`;
+
+// the ring of the travel on the edge of the knob, the arc of the selected route covers it
+const TRACK_WIDTH = 6;
+const TRACK_OPACITY = 0.4;
+// px the dot of the routes goes into the ring: it sticks to it, at the top left
+const DOT_OVERLAP = 1;
+
+// over the shadow of the knob: it doesn't darken the arcs on its edge; the arc of the travel of a knob that takes
+// no modulations under it
 const Svg = styled.svg<StyledProps>`
   position: absolute;
   ${absoluteCenterXY};
-  width: ${(props) => `${sizes[props.size].svg[0]}`}px;
-  height: ${(props) => `${sizes[props.size].svg[1]}`}px;
+  width: ${(props) => sizes[props.size].svg}px;
+  height: ${(props) => sizes[props.size].svg}px;
   overflow: visible;
-  z-index: 1;
+  z-index: 2;
+
+  &.scale {
+    z-index: 1;
+  }
 `;
+
+// the travel of the knob, from min to max
+const MIN_ANGLE = -Math.PI / 1.2;
+const MAX_ANGLE = Math.PI / 1.2;
+const toShare = (angle: number) => (angle - MIN_ANGLE) / (MAX_ANGLE - MIN_ANGLE);
+const fromShare = (share: number) => MIN_ANGLE + share * (MAX_ANGLE - MIN_ANGLE);
+
+// a ring between two radii from one angle to another, the whole travel by default
+const ringPath = (
+  [innerRadius, outerRadius]: [number, number],
+  startAngle = MIN_ANGLE,
+  endAngle = MAX_ANGLE
+) => arc()({ innerRadius, outerRadius, startAngle, endAngle }) ?? undefined;
+
+// of a size: the radii of the ring of a knob that takes modulations (a translucent grey ring on its edge shows
+// its travel, the arc of the selected route lies on it) and its path, the arc of the travel around a knob that
+// takes none, and the center of the dot of the routes in the box of the knob: on the diagonal to the top left,
+// on the outer edge of the ring
+const shapesOf = (size: Size) => {
+  const { wrapper, handleOuter, arc: travelRadii } = sizes[size];
+  const ring: [number, number] = [handleOuter / 2, handleOuter / 2 + TRACK_WIDTH];
+  const offset = (ring[1] + AMOUNT_DOT_SIZE / 2 - DOT_OVERLAP) * Math.SQRT1_2;
+  return {
+    ring,
+    track: ringPath(ring),
+    travel: ringPath(travelRadii),
+    dot: { left: wrapper / 2 - offset, top: wrapper / 2 - offset },
+  };
+};
+const shapes: Record<Size, ReturnType<typeof shapesOf>> = { m: shapesOf('m'), l: shapesOf('l') };
+
+const placeMark = (element: HTMLElement, share: number) => {
+  element.style.transform = `rotate(${fromShare(share)}rad)`;
+};
 
 export const Handle = ({
   min = 0,
@@ -148,44 +263,50 @@ export const Handle = ({
   plotSize = 100,
   disabled = false,
   fillFrom,
+  modulations: routes,
+  modTarget,
 }: HandleProps) => {
-  const { svg } = sizes[size];
+  const { svg, arc: travelRadii } = sizes[size];
+  const { ring, track, travel, dot } = shapes[size];
   const prevValue = React.useRef(value);
-  const { arcBackground, commonArcOptions, toAngle, fillStartAngle } = React.useMemo(() => {
-    const { arc: arcSize } = sizes[size];
-    const arcPadding = 1.2;
-    const [minAngle, maxAngle] = [-Math.PI / arcPadding, Math.PI / arcPadding];
-    const scale = (mode === 'linear' ? scaleLinear() : scaleLog())
+  const toAngle = React.useMemo(() => {
+    const scale = valueScale(mode)
       .domain(step ? [0, step.length - 1] : [min, max])
-      .range([minAngle, maxAngle]);
-    const toAngle = (value: number) => scale(step ? step.indexOf(value) : value);
-    const commonArcOptions = {
-      innerRadius: arcSize[0],
-      outerRadius: arcSize[1],
-      startAngle: minAngle,
-    };
-    const arcBackground = arc()({ ...commonArcOptions, endAngle: maxAngle }) ?? undefined;
-    const fillStartAngle = fillFrom === undefined ? minAngle : toAngle(fillFrom);
-    return { arcBackground, commonArcOptions, toAngle, fillStartAngle };
-  }, [min, max, size, mode, step, fillFrom]);
+      .range([MIN_ANGLE, MAX_ANGLE]);
+    return (value: number) => scale(step ? step.indexOf(value) : value);
+  }, [min, max, mode, step]);
 
   const scaleMouse = React.useMemo(
     () =>
-      (mode === 'linear' ? scaleLinear() : scaleLog())
+      valueScale(mode)
         .domain(step ? [0, step.length - 1] : [min * precision, max * precision])
         .range([-plotSize, plotSize]),
     [max, min, mode, plotSize, precision, step]
   );
 
-  const { arcValue, rotateRad } = React.useMemo(() => {
-    const rotateRad = toAngle(value);
-    // no fill at the start point: only the background arc is visible
-    const arcValue =
-      rotateRad !== fillStartAngle
-        ? arc()({ ...commonArcOptions, startAngle: fillStartAngle, endAngle: rotateRad }) ?? undefined
-        : undefined;
-    return { arcValue, rotateRad };
-  }, [commonArcOptions, value, toAngle, fillStartAngle]);
+  const rotateRad = toAngle(value);
+  const share = toShare(rotateRad);
+  const {
+    modulations,
+    mark: modMark,
+    shown,
+    end: modEnd,
+  } = useModulations(routes, disabled, share, placeMark);
+
+  // a knob that takes no modulations: on the arc of its travel the fill, from fillFrom (min by default) to the
+  // value, none between them
+  const fill = React.useMemo(() => {
+    if (routes) return undefined;
+    const start = fillFrom === undefined ? MIN_ANGLE : toAngle(fillFrom);
+    return start === rotateRad ? undefined : ringPath(travelRadii, start, rotateRad);
+  }, [routes, fillFrom, toAngle, rotateRad, travelRadii]);
+
+  // the selected route: from the value to the value + amount (a share of the travel), clamped to the travel
+  const modArc = React.useMemo(() => {
+    if (modEnd === undefined) return undefined;
+    const end = fromShare(modEnd);
+    return ringPath(ring, Math.min(rotateRad, end), Math.max(rotateRad, end));
+  }, [modEnd, rotateRad, ring]);
 
   const [trackPointer] = React.useState(singlePointerTracker);
   const onPointerDown = React.useCallback(
@@ -213,20 +334,43 @@ export const Handle = ({
 
   return (
     <Tooltip content={<ValueTooltipContent>{formatValue?.(value) ?? value}</ValueTooltipContent>}>
-      <Root onPointerDown={onPointerDown} className={cls({ disabled: disabled })}>
+      <Root
+        onPointerDown={onPointerDown}
+        className={cls({ disabled: disabled })}
+        {...(modTarget && !disabled && { [MOD_TARGET_ATTR]: modTarget })}
+      >
         <HandleContainer size={size}>
+          <ModHighlight size={size} />
           <HandleCircle style={{ transform: `rotate(${rotateRad}rad)` }} size={size}>
             <HandleCircleInner size={size}>
               <HandleMark size={size} />
             </HandleCircleInner>
           </HandleCircle>
           <HandleCircleShadow size={size} />
-          <Svg size={size}>
-            <g transform={`translate(${svg[0] / 2},${svg[1] / 2})`}>
-              <path fill={theme.colors.primaryHighContrast} d={arcBackground} />
-              {arcValue && <path fill={theme.colors.accent} d={arcValue} />}
+          <ModMark ref={modMark} size={size} data-testid='mod-mark'>
+            <ModMarkInner size={size}>
+              <HandleMark size={size} />
+            </ModMarkInner>
+          </ModMark>
+          <Svg size={size} className={cls({ scale: !routes })}>
+            <g transform={`translate(${svg / 2},${svg / 2})`}>
+              {routes ? (
+                <path
+                  fill={theme.colors.primaryHighContrast}
+                  fillOpacity={TRACK_OPACITY}
+                  d={track}
+                  data-testid='knob-track'
+                />
+              ) : (
+                <>
+                  <path fill={theme.colors.primaryHighContrast} d={travel} data-testid='knob-scale' />
+                  {fill && <path fill={theme.colors.accent} d={fill} data-testid='knob-fill' />}
+                </>
+              )}
+              {shown && modArc && <path fill={shown.color} d={modArc} data-testid='mod-arc' />}
             </g>
           </Svg>
+          {modulations.length > 0 && <Dot modulations={modulations} style={dot} />}
         </HandleContainer>
         {label && <Label>{label}</Label>}
       </Root>

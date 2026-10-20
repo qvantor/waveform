@@ -97,7 +97,7 @@ export const MobileHeader = ({ portrait, mode, onModeChange, screen, onScreenCha
       WAVEFORM
     </Logo>
     <Tabs>
-      <TapeSwitch options={SYNTH_SCREENS} value={screen} onChange={onScreenChange} />
+      <TapeSwitch options={SYNTH_SCREENS} value={screen} onChange={onScreenChange} switchOnDrag />
     </Tabs>
     <Presets actions={<MidiInput />} />
     <Mode>

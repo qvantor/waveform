@@ -171,3 +171,113 @@ describe('Fader', () => {
     expect(slider.getAttribute('aria-disabled')).toBe('true');
   });
 });
+
+describe('Fader modulation', () => {
+  const modulation = (amount: number, id = 'env2', selected = true) => ({
+    id,
+    color: '#f1c40f',
+    amount,
+    label: id,
+    selected,
+  });
+
+  it('draws a bar of the selected route from the value to the value + amount, clamped, and the dot', () => {
+    const { rerender } = render(
+      <Fader min={0} max={1} value={0.5} modulations={[modulation(0.25), modulation(-0.75, 'env3', false)]} />
+    );
+    const [up] = screen.getAllByTestId('mod-bar');
+    expect(screen.getAllByTestId('mod-bar')).toHaveLength(1);
+    expect(up.style.background).toBe('rgb(241, 196, 15)');
+    expect(parseFloat(up.style.bottom)).toBe(BOTTOM + FADER_TRAVEL / 2);
+    expect(parseFloat(up.style.height)).toBe(FADER_TRAVEL / 4);
+    expect(screen.getAllByTestId('amount-dot')).toHaveLength(1);
+    expect(screen.getByRole('slider', { name: 'env2' })).toBeDefined();
+    rerender(
+      <Fader
+        min={0}
+        max={1}
+        value={0.5}
+        modulations={[modulation(0.25, 'env2', false), modulation(-0.75, 'env3')]}
+      />
+    );
+    const [down] = screen.getAllByTestId('mod-bar');
+    expect(parseFloat(down.style.bottom)).toBe(BOTTOM);
+    expect(parseFloat(down.style.height)).toBe(FADER_TRAVEL / 2);
+    // no route of the selected source: no bar, the dot only shows the routes
+    rerender(<Fader min={0} max={1} value={0.5} modulations={[modulation(0.25, 'env2', false)]} />);
+    expect(screen.queryByTestId('mod-bar')).toBeNull();
+    expect(screen.getByRole('img', { name: 'env2' }).getAttribute('data-testid')).toBe('amount-dot');
+    expect(screen.getAllByTestId('amount-dot-section')).toHaveLength(1);
+  });
+
+  // over the track above the slot: as a press there it would jump to the max
+  it("pressing the dot of the routes doesn't jump, dragging from it moves relative", () => {
+    const onChange = jest.fn();
+    render(
+      <Fader
+        min={0}
+        max={1}
+        precision={100}
+        value={0.5}
+        onChange={onChange}
+        modulations={[modulation(0.25, 'env2', false)]}
+      />
+    );
+    const slot = screen.getByTestId('fader-slot');
+    jest
+      .spyOn(slot, 'getBoundingClientRect')
+      .mockReturnValue({ top: 100, bottom: 100 + FADER_TRAVEL, height: FADER_TRAVEL } as DOMRect);
+    pointer('pointerdown', screen.getByRole('img', { name: 'env2' }), 96);
+    expect(onChange).not.toHaveBeenCalled();
+    pointer('pointermove', document, 96 - FADER_TRAVEL / 4);
+    expect(onChange).toHaveBeenLastCalledWith(0.75);
+    pointer('pointerup', document, 0);
+  });
+
+  it('a mark follows the sum of the live routes from the value, clamped, hidden without a level', () => {
+    jest.useFakeTimers();
+    let level: number | null = 1;
+    const live = (amount: number, id = 'env2') => ({
+      ...modulation(amount, id),
+      level: () => level,
+      live: true,
+    });
+    const { rerender } = render(
+      <Fader min={0} max={1} value={0.5} modulations={[live(0.25), live(-0.5, 'env3')]} />
+    );
+    const mark = screen.getByTestId('fader-mod-mark');
+    // 0.5 + 0.25 - 0.5
+    expect(mark.style.visibility).toBe('visible');
+    expect(parseFloat(mark.style.bottom)).toBeCloseTo(FADER_TRAVEL / 4);
+    level = 0.5;
+    act(() => {
+      jest.advanceTimersByTime(20);
+    });
+    expect(parseFloat(mark.style.bottom)).toBeCloseTo((FADER_TRAVEL * 3) / 8);
+    rerender(<Fader min={0} max={1} value={0.5} modulations={[live(1)]} />);
+    level = 1;
+    act(() => {
+      jest.advanceTimersByTime(20);
+    });
+    expect(parseFloat(mark.style.bottom)).toBeCloseTo(FADER_TRAVEL);
+    level = null;
+    act(() => {
+      jest.advanceTimersByTime(20);
+    });
+    expect(mark.style.visibility).toBe('hidden');
+    jest.useRealTimers();
+  });
+
+  it('is a drop target unless disabled, then its routes are hidden', () => {
+    const { container, rerender } = render(
+      <Fader min={0} max={1} value={0.5} modTarget='reverb.er' modulations={[modulation(0.25)]} />
+    );
+    expect(container.querySelector('[data-mod-target="reverb.er"]')).not.toBeNull();
+    rerender(
+      <Fader min={0} max={1} value={0.5} disabled modTarget='reverb.er' modulations={[modulation(0.25)]} />
+    );
+    expect(container.querySelector('[data-mod-target]')).toBeNull();
+    expect(screen.queryByTestId('mod-bar')).toBeNull();
+    expect(screen.queryByTestId('amount-dot')).toBeNull();
+  });
+});

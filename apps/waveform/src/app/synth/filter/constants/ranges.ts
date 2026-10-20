@@ -1,3 +1,4 @@
+import { cloneDeep, merge } from 'lodash';
 import { FilterNumerics, FilterRange, FilterRanges } from '@waveform/ui-kit';
 
 export const defaultFilterRanges: FilterRanges = {
@@ -8,7 +9,7 @@ export const defaultFilterRanges: FilterRanges = {
 
 const disabled: Partial<FilterRange> = { min: -1000, max: 1000, disabled: true };
 
-export const filterRanges: Record<BiquadFilterType, Partial<Record<FilterNumerics, Partial<FilterRange>>>> = {
+const filterRanges: Record<BiquadFilterType, Partial<Record<FilterNumerics, Partial<FilterRange>>>> = {
   lowpass: {
     gain: disabled,
   },
@@ -37,3 +38,7 @@ export const filterRanges: Record<BiquadFilterType, Partial<Record<FilterNumeric
   },
   allpass: {},
 };
+
+// the knobs of a type: its ranges over the defaults (a disabled knob is not used by it)
+export const rangesOf = (type: BiquadFilterType): FilterRanges =>
+  merge(cloneDeep(defaultFilterRanges), filterRanges[type]);

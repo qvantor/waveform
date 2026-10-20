@@ -60,6 +60,7 @@ export const FxPanel = ({ type }: { type: FxType }) => {
                   value={mix}
                   onChange={(value) => setMix(type, value)}
                   disabled={!on}
+                  target={`${type}.mix`}
                 />
               </Out>
             }

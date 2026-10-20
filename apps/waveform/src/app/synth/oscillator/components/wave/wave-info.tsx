@@ -1,13 +1,20 @@
 import React from 'react';
 import styled from 'styled-components';
-import { DragValue, theme } from '@waveform/ui-kit';
+import cls from 'classnames';
+import { DragValue, theme, useElementSize } from '@waveform/ui-kit';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
 import { number } from '@waveform/math';
 import { useOscillatorContext } from '../../hooks';
 
-// the bottom of the block of the wave: a line over it and between its values
+// the four values at full size take up to 373 px (Wave 256/256): a narrower strip (a phone, two oscillators
+// side by side in landscape) has them smaller
+const COMPACT_WIDTH = 380;
+
+// the bottom of the block of the wave: a line over it and between its values; as wide as the block, whatever
+// its values (they never widen the oscillator)
 const Root = styled.div`
   display: flex;
+  contain: inline-size;
   border-top: 1px solid ${theme.colors.primaryDarkMediumContrast};
   border-radius: 0 0 3px 3px;
   overflow: hidden;
@@ -23,6 +30,12 @@ const Cell = styled(DragValue)`
   & + & {
     border-left: 1px solid ${theme.colors.primaryDarkMediumContrast};
   }
+
+  .compact > & {
+    padding: 6px 3px;
+    gap: 3px;
+    font-size: 10px;
+  }
 `;
 
 // the frame of a position from 1, a fractional one (of a preset or a modulation) with one decimal
@@ -34,14 +47,16 @@ interface Props {
   onPhaseActiveChange: (active: boolean) => void;
 }
 
-// under the wave, on its background: the frame it plays of the table, Phase and Phase rand dragged to change them
+// under the wave, on its background: the frame it plays of the table, Phase, Phase rand and Unison dragged to
+// change them
 export const WaveInfo = ({ onPhaseActiveChange }: Props) => {
   const [{ $position, $waveTable, $osc, ranges }, { setOscValue }] = useOscillatorContext();
   const position = useBehaviorSubject($position);
   const frames = useBehaviorSubject($waveTable).length;
-  const { phase, phaseRand } = useBehaviorSubject($osc);
+  const { phase, phaseRand, unison } = useBehaviorSubject($osc);
+  const [ref, [width]] = useElementSize<HTMLDivElement>();
   return (
-    <Root>
+    <Root ref={ref} className={cls({ compact: width > 0 && width < COMPACT_WIDTH })}>
       <Cell label='Wave' value={position} formatValue={(value) => `${formatWavePosition(value)}/${frames}`} />
       <Cell
         label='Phase'
@@ -63,6 +78,15 @@ export const WaveInfo = ({ onPhaseActiveChange }: Props) => {
         formatValue={number.percent}
         onChange={(value) => setOscValue('phaseRand', value)}
         onActiveChange={onPhaseActiveChange}
+      />
+      <Cell
+        label='Unison'
+        value={unison}
+        min={ranges.unison[0]}
+        max={ranges.unison[1]}
+        precision={1}
+        arrows
+        onChange={(value) => setOscValue('unison', value)}
       />
     </Root>
   );

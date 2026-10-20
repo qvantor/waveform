@@ -1,4 +1,4 @@
-import { coefficients, magnitudeDb } from './biquad';
+import { coefficients, coefficientsInto, magnitudeDb } from './biquad';
 
 const SAMPLE_RATE = 48000;
 const params = { frequency: 1000, Q: 0, gain: 0 };
@@ -40,5 +40,20 @@ describe('biquad coefficients', () => {
       10 ** (6 / 20),
       10
     );
+  });
+});
+
+describe('coefficientsInto', () => {
+  it('writes the coefficients of every type into the array it is given, as coefficients()', () => {
+    const out = new Float64Array(5);
+    (
+      ['lowpass', 'highpass', 'bandpass', 'notch', 'allpass', 'peaking', 'lowshelf', 'highshelf'] as const
+    ).forEach((type) => {
+      [0, 1000, 30000].forEach((frequency) => {
+        const params = { frequency, Q: 3, gain: 6 };
+        expect(coefficientsInto(out, type, params, 48000)).toBe(out);
+        expect(Array.from(out)).toEqual(coefficients(type, params, 48000));
+      });
+    });
   });
 });

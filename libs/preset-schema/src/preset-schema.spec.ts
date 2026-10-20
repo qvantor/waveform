@@ -17,7 +17,12 @@ const preset = {
   osc1: { a: true, p: ['A', 'B', 'A/B/c.wav'], w: 3, o: -1, d: 12.5, u: 4, ph: 0.25, pr: 0.5, g: 0.7 },
   osc2: { a: false, p: ['A', 'B', 'A/B/d.wav'], w: 0, o: 0, d: 5, u: 2, ph: 0, pr: 0, g: 0.5 },
   filter: { a: true, t: 'bandpass', cut: 1234.5, res: 2, gain: 1 },
-  adsr: { attack: 0.005, hold: 0.1, decay: 0, sustain: 1, release: 0.005 },
+  env: {
+    e1: { attack: 0.005, hold: 0.1, decay: 0, sustain: 1, release: 0.005 },
+    e2: { attack: 0.01, hold: 0, decay: 2.5, sustain: 0, release: 0.3 },
+    e3: { attack: 0.005, hold: 0, decay: 0.5, sustain: 0, release: 0.3 },
+  },
+  mod: { 'env2:osc1.wave': 0.5, 'env1:filter.cutoff': -0.25, 'env3:delay.time': 0 },
   v: { leg: false, port: 0, max: 8 },
   fx: {
     o: ['reverb', 'delay'],
@@ -89,7 +94,7 @@ describe('presetHash', () => {
     const noisy = {
       ...preset,
       filter: { ...preset.filter, cut: 1234.50001 },
-      adsr: { ...preset.adsr, attack: 0.0050000001 },
+      env: { ...preset.env, e1: { ...preset.env.e1, attack: 0.0050000001 } },
     };
     expect(presetHash(noisy)).toBe(presetHash(preset));
   });
@@ -114,8 +119,26 @@ describe('normalizePreset', () => {
   it('rounds numbers and sorts keys', () => {
     const normalized = normalizePreset({ ...preset, filter: { ...preset.filter, cut: 1234.5678 } });
     expect(normalized.filter.cut).toBe(1235);
-    expect(Object.keys(normalized)).toEqual(['adsr', 'filter', 'fx', 'osc1', 'osc2', 'v']);
+    expect(Object.keys(normalized)).toEqual(['env', 'filter', 'fx', 'mod', 'osc1', 'osc2', 'v']);
     expect(Object.keys(normalized.osc1)).toEqual(['a', 'd', 'g', 'o', 'p', 'ph', 'pr', 'u', 'w']);
+  });
+
+  it('fills each envelope with its own defaults, takes stages up to 32 s and drops the old adsr', () => {
+    const { env } = normalizePreset({ adsr: { attack: 0.5 }, env: { e2: { decay: 32, release: 0 } } });
+    expect(env).toEqual({
+      e1: { attack: 0.005, hold: 0.1, decay: 0, sustain: 1, release: 0.005 },
+      e2: { attack: 0.005, hold: 0, decay: 32, sustain: 0, release: 0 },
+      e3: { attack: 0.005, hold: 0, decay: 0.5, sustain: 0, release: 0.3 },
+    });
+    expect(normalizePreset({ adsr: { attack: 0.5 } })).not.toHaveProperty('adsr');
+  });
+
+  it('keeps the routes of the modulation with their amounts, 0 too; none by default', () => {
+    expect(normalizePreset(preset).mod).toEqual(preset.mod);
+    expect(normalizePreset({}).mod).toEqual({});
+    expect(
+      Object.keys(normalizePreset({ mod: { 'env3:osc2.gain': 1, 'env1:osc1.detune': -1 } }).mod)
+    ).toEqual(['env1:osc1.detune', 'env3:osc2.gain']);
   });
 
   it('keeps small values', () => {
@@ -255,7 +278,17 @@ describe('normalizePreset', () => {
     ['wrong type', { ...preset, filter: { ...preset.filter, cut: '440' } }],
     ['unknown filter type', { ...preset, filter: { ...preset.filter, t: 'comb' } }],
     ['empty wavetable path', { ...preset, osc1: { ...preset.osc1, p: [] } }],
-    ['NaN', { ...preset, adsr: { ...preset.adsr, attack: NaN } }],
+    ['NaN', { ...preset, env: { ...preset.env, e1: { ...preset.env.e1, attack: NaN } } }],
+    ['envelope time over 32 s', { ...preset, env: { ...preset.env, e2: { ...preset.env.e2, release: 33 } } }],
+    ['sustain over 1', { ...preset, env: { ...preset.env, e3: { ...preset.env.e3, sustain: 1.5 } } }],
+    ['mod amount over 1', { ...preset, mod: { 'env2:osc1.wave': 1.5 } }],
+    ['mod source unknown', { ...preset, mod: { 'lfo1:osc1.wave': 0.5 } }],
+    ['mod key without a target', { ...preset, mod: { env2: 0.5 } }],
+    ['mod amount not a number', { ...preset, mod: { 'env2:osc1.wave': '0.5' } }],
+    [
+      'more than 64 routes',
+      { ...preset, mod: Object.fromEntries(Array.from({ length: 65 }, (_, i) => [`env2:fx.p${i}`, 0.1])) },
+    ],
     ['effect type not a string', { ...preset, fx: { ...preset.fx, o: [1] } }],
     [
       'delay feedback out of range',

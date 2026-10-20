@@ -5,6 +5,7 @@ import { useBehaviorSubject } from '@waveform/rxjs-react';
 import { number } from '@waveform/math';
 import { OscillatorActions, OscillatorModel, useOscillator1 } from '../common/modules';
 import { RxHandle } from '../../common/components';
+import { useKnobModulation } from '../modulation/use-knob-modulation';
 import { OscillatorContext, useOscillatorContext } from './hooks';
 import { formatWavePosition, Wave, WaveSelector } from './components';
 
@@ -33,7 +34,12 @@ const HandlesGroup = styled.div`
   gap: 10px;
 `;
 
-type Props = OscillatorModel & OscillatorActions & { useOscillator: typeof useOscillator1 };
+type Props = OscillatorModel &
+  OscillatorActions & {
+    useOscillator: typeof useOscillator1;
+    // the prefix of its modulation targets (osc1.gain…)
+    target?: 'osc1' | 'osc2';
+  };
 
 export const Oscillator = ({
   $osc,
@@ -45,14 +51,16 @@ export const Oscillator = ({
   useOscillator,
   setPosition,
   setGain,
+  target = 'osc1',
 }: Props) => {
   // const wavetables = useWavetables();
 
   const oscillator = useOscillator();
   const osc = useBehaviorSubject($osc);
   const wavetable = useBehaviorSubject($waveTable);
-  const onChangeInternal = (key: keyof typeof osc) => (value: number) =>
-    setOscValue(key, Math.round(value * 100000) / 100000);
+  const gainModulation = useKnobModulation(`${target}.gain`);
+  const waveModulation = useKnobModulation(`${target}.wave`);
+  const detuneModulation = useKnobModulation(`${target}.detune`);
 
   return (
     <OscillatorContext.Provider value={oscillator}>
@@ -66,7 +74,7 @@ export const Oscillator = ({
           />
           <WaveSelector />
         </TopControls>
-        <Wave />
+        <Wave modulations={waveModulation.modulations} />
         <Handles>
           <HandlesGroup>
             <RxHandle
@@ -77,6 +85,7 @@ export const Oscillator = ({
               onChange={setGain}
               formatValue={(value) => number.percent(number.round(value, 100))}
               precision={100}
+              {...gainModulation}
             />
           </HandlesGroup>
           <HandlesGroup>
@@ -89,25 +98,18 @@ export const Oscillator = ({
               onChange={setPosition}
               precision={1}
               formatValue={formatWavePosition}
+              {...waveModulation}
             />
           </HandlesGroup>
           <HandlesGroup>
-            <Handle
-              plotSize={30}
-              label='Unison'
-              value={osc.unison}
-              min={ranges.unison[0]}
-              max={ranges.unison[1]}
-              precision={1}
-              onChange={onChangeInternal('unison')}
-            />
             <Handle
               label='Detune'
               value={osc.detune}
               min={ranges.detune[0]}
               max={ranges.detune[1]}
-              onChange={onChangeInternal('detune')}
+              onChange={(value) => setOscValue('detune', Math.round(value * 100000) / 100000)}
               precision={1}
+              {...detuneModulation}
             />
           </HandlesGroup>
         </Handles>

@@ -5,7 +5,6 @@ import { WorkerStub } from '../../test-utils/worker-stub';
 import { getSnapshot } from '../app';
 import { presets } from '../presets/modules/presets';
 import { STORE_PROCESSOR, VOICE_PROCESSOR } from '../synth/common/wavetable/wavetable-osc-params';
-import { filter } from '../synth/filter/modules/filter';
 import { fx } from '../synth/fx/modules/fx';
 import { noteToString } from '../synth/services';
 import { createPerfApi, PerfModels } from './perf-api';
@@ -57,16 +56,20 @@ const setup = async ({ ready = true } = {}) => {
   };
   const resolveTables = () => loads.forEach(({ resolve }) => resolve(TABLE));
   const modules = createSynth(['default'], (id) => load(id).promise);
-  const filterModule = initModel(filter({ synthCore: modules.synthCore }), 'filter', undefined);
-  const fxModule = initModel(fx({ synthCore: modules.synthCore }), 'fx', undefined);
+  const fxModule = initModel(
+    fx({ synthCore: modules.synthCore, synth: modules.synth, modulation: modules.modulation }),
+    'fx',
+    undefined
+  );
   const presetsModule = initModel(presets(), 'presets', undefined);
   const models = {
     synthCore: modules.synthCore,
     inputController: modules.inputController,
-    adsr: modules.adsrEnvelope,
+    env: modules.envelopes,
+    mod: modules.modulation,
     osc1: modules.osc1,
     osc2: modules.osc2,
-    filter: filterModule,
+    filter: modules.filter,
     fx: fxModule,
     synth: modules.synth,
     presets: presetsModule,
@@ -105,7 +108,7 @@ const setup = async ({ ready = true } = {}) => {
     audioCtx,
     preGain,
     output,
-    filterModule,
+    filterModule: modules.filter,
   };
 };
 
@@ -146,9 +149,9 @@ describe('perf test hook api', () => {
     modules.synth[1].setMaxVoices(4);
     let applied = false;
     const applying = api
-      .apply({ adsr: { attack: 0.5 }, osc1: { u: 4, p: ['bench', 'new.wav'] } })
+      .apply({ env: { e1: { attack: 0.5 } }, osc1: { u: 4, p: ['bench', 'new.wav'] } })
       .then(() => (applied = true));
-    expect(getSnapshot()['adsr']).toMatchObject({ attack: 0.5 });
+    expect(getSnapshot()['env']).toMatchObject({ e1: { attack: 0.5 } });
     expect(getSnapshot()['osc1']).toMatchObject({ u: 4, p: ['bench', 'new.wav'] });
     expect(getSnapshot()['v']).toEqual({ leg: false, port: 0, max: 8 });
     await sleep(50);
@@ -172,10 +175,12 @@ describe('perf test hook api', () => {
         { at: 20, note: 'G4', on: true },
       ]);
       expect(events).toEqual(['on C4', 'on E4', 'on G4', 'off C4']);
-      expect(modules.synth[0].$voicesCount.value).toBe(2);
+      const pressed = () => Object.values(modules.inputController[0].$pressed.value).flat().length;
+      expect(pressed()).toBe(2);
       api.releaseAll();
-      expect(modules.synth[0].$voicesCount.value).toBe(0);
-      expect(Object.values(modules.inputController[0].$pressed.value).flat()).toEqual([]);
+      expect(pressed()).toBe(0);
+      // released, they sound until their processors end them
+      expect(modules.synth[0].$voicesCount.value).toBe(3);
     });
 
     it('stops the running scripts', async () => {
@@ -275,17 +280,14 @@ describe('perf test hook api', () => {
     });
   });
 
-  it('taps the voices before the filter and the output, again when the mid nodes change', async () => {
-    const { api, nodes, audioCtx, preGain, output, filterModule } = await setup();
+  it('taps the voices (the filter is in each) and the output', async () => {
+    const { api, nodes, audioCtx, preGain, output } = await setup();
     await api.probe.install('/perf/probe.js');
     const [probe] = nodes(PROBE_PROCESSOR);
     expect(audioCtx.audioWorklet.addModule).toHaveBeenCalledWith('/perf/probe.js');
     expect(probe.options).toMatchObject({ numberOfInputs: 2, numberOfOutputs: 1 });
     expect(output.connect).toHaveBeenCalledWith(probe, 0, 1);
     expect(probe.connect).toHaveBeenCalledWith(audioCtx.destination);
-    expect(preGain.connect).toHaveBeenCalledWith(probe, 0, 0);
-    (preGain.connect as jest.Mock).mockClear();
-    filterModule[1].toggleActive();
     expect(preGain.connect).toHaveBeenCalledWith(probe, 0, 0);
 
     api.destroy();

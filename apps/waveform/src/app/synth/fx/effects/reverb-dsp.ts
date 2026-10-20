@@ -88,7 +88,9 @@ export const MOD_RATES = [
 // (8 node-based lines tapped before the decay gain), so the saved presets keep their balance
 export const TAIL_LEVEL = 0.48;
 export const LINE_INPUT = 0.5 * Math.sqrt(8 / LINE_TIMES.length);
-// size and predelay changes glide like tape, so a knob drag bends the tail once instead of chirping per step
+// size and predelay changes glide like tape, so a knob drag bends the tail once instead of chirping per step;
+// moved by an envelope they follow it like the other params (GLIDE, as Time of the delay): the tape glide
+// would smooth a fast envelope away
 export const SIZE_GLIDE = 0.1;
 // the other params glide like setSmooth
 const GLIDE = 0.01;
@@ -253,14 +255,21 @@ export const createReverbDsp = (sampleRate: number, { params, active: initialAct
   updateDecay();
   updateMod(0);
 
-  const set = (changes: Partial<ReverbDspParams>) => {
+  // routed: the values of the knobs the envelopes move (once per block), they glide in GLIDE; the lines follow
+  // a moved size so, a moved decay alone keeps their tape glide (a fast one would chirp the tail)
+  const set = (changes: Partial<ReverbDspParams>, routed = false) => {
+    const glide = routed ? GLIDE : undefined;
     (Object.keys(changes) as (keyof ReverbDspParams)[]).forEach((key) => {
       const value = changes[key];
       if (!(key in values) || value === undefined) return;
       targets[key] = value;
-      values[key].set(value, idle);
+      values[key].set(value, idle, glide);
     });
-    lineScale.set(lineFactor(targets.size, targets.decay), idle);
+    lineScale.set(
+      lineFactor(targets.size, targets.decay),
+      idle,
+      changes.size === undefined ? undefined : glide
+    );
   };
 
   const process = (inL: Float32Array, inR: Float32Array, outL: Float32Array, outR: Float32Array) => {

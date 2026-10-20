@@ -15,6 +15,8 @@ interface WorkletNodeStub extends AudioWorkletNode {
 const DEFAULTS = mapValues(FX_PARAMS.reverb, (param) => param.default);
 const [, EIGHTIES] = REVERB_ERAS;
 
+const ENV = { attack: 0.1, hold: 0, decay: 0.1, sustain: 0.5, release: 0.2 };
+
 // the module loads asynchronously: the node exists after the pending promises settle
 const flush = () => new Promise((resolve) => setTimeout(resolve));
 
@@ -203,5 +205,17 @@ describe('reverb', () => {
     }).not.toThrow();
     await flush();
     expect(core?.input.connect).not.toHaveBeenCalled();
+  });
+
+  it('posts the modulation of its knobs: the worklet moves them once per block', async () => {
+    const { core, messages } = setup();
+    await flush();
+    const mod = {
+      note: { envelopes: [ENV, ENV, ENV], start: 1, release: null },
+      routes: [{ param: 'decay', env: 1, amount: 2, min: 0.1, max: 20, log: true }],
+    };
+    core.setModulation(mod);
+    core.setModulation(null);
+    expect(messages()?.slice(-2)).toEqual([{ mod }, { mod: null }]);
   });
 });

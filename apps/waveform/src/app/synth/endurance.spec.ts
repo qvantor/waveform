@@ -4,6 +4,7 @@ import { createSynth, stopModels } from '../../test-utils/models';
 import { createOfflineEngine } from '../../test-utils/offline-engine';
 import { seeded } from '../../test-utils/voice-dsp';
 import { tableBytes } from './common/wavetable/wavetable-mipmap';
+import { KILL_FADE } from './common/wavetable/wavetable-osc-dsp';
 
 // the synth played for a long time, offline (it replaces the endurance scene of the browser suite, its random
 // patches every 5 s for 10 min, and the settling of its table switches): the models, the worker's builder,
@@ -39,11 +40,11 @@ const randomTable = (random: () => number, frames: number) =>
 describe('the synth played for a long time', () => {
   it('after 30 random patches with chords, steals, legato and new tables nothing is left', async () => {
     const random = seeded(10);
-    const { engine, onPress, onRelease, settle, osc1, osc2, synth, adsrEnvelope, audioCtx } = await setup(
+    const { engine, onPress, onRelease, settle, osc1, osc2, synth, envelopes, audioCtx } = await setup(
       random
     );
     const [, synthActions] = synth;
-    adsrEnvelope[1].setEnvelopeValue('release', 0.05);
+    envelopes[1].setEnvelopeValue('env1', 'release', 0.05);
     let peak = 0;
     let crossfades = 0;
     for (let patch = 0; patch < 30; patch++) {
@@ -100,8 +101,10 @@ describe('the synth played for a long time', () => {
     Array.from({ length: 12 }, (_, i) => note(i)).forEach((n) => onPress(n));
     engine.render();
     expect(engine.alive()).toBe(12);
-    // the fade of a stolen voice: 5 ms, within 2 blocks at 44.1 and 48 kHz
-    expect(audioCtx.sampleRate).toBeLessThanOrEqual(48000);
+    // the fade of a stolen voice (20 ms): they end in its last block
+    const fade = Math.ceil((KILL_FADE * audioCtx.sampleRate) / 128);
+    engine.render(fade - 2);
+    expect(engine.alive()).toBe(12);
     engine.render();
     expect(engine.alive()).toBe(8);
     engine.render(100);
@@ -109,8 +112,8 @@ describe('the synth played for a long time', () => {
   });
 
   it('trills, 20 notes a second for 10 s: never more than 2 voices alive, all of them ended at the end', async () => {
-    const { engine, onPress, onRelease, adsrEnvelope, audioCtx, settle } = await setup();
-    adsrEnvelope[1].setEnvelopeValue('release', 0.05);
+    const { engine, onPress, onRelease, envelopes, audioCtx, settle } = await setup();
+    envelopes[1].setEnvelopeValue('env1', 'release', 0.05);
     const blocks = (seconds: number) => Math.round((seconds * audioCtx.sampleRate) / 128);
     let most = 0;
     for (let i = 0; i < 200; i++) {

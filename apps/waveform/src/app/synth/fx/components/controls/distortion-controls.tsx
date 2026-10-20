@@ -2,6 +2,7 @@ import React from 'react';
 import styled from 'styled-components';
 import { distortion } from '../../effects/distortion';
 import { DistortionParam } from '../../effects/distortion-presets';
+import { KnobModulation, useKnobModulation } from '../../../modulation/use-knob-modulation';
 import { DistortionCurveChart } from './distortion-curve-chart';
 import { DISTORTION_MODE_ICONS } from './distortion-mode-icons';
 import { ControlsGroup, groupChart, LastGroups } from './group';
@@ -19,12 +20,18 @@ const { params: defs } = distortion;
 // makeup gain of the drive); the wet level against the dry one is the common mix of FxPanel, which lays the
 // groups out
 export const DistortionControls = ({ params, setParam, on, out }: FxControlsProps) => {
+  // the knob of the curve: it follows where its routes move it
+  const charted: Partial<Record<DistortionParam, KnobModulation>> = {
+    drive: useKnobModulation('distortion.drive'),
+  };
   const handle = (key: Exclude<DistortionParam, 'mode'>) => (
     <ParamHandle
       def={defs[key]}
       value={params[key]}
       onChange={(value) => setParam(key, value)}
       disabled={!on}
+      target={`distortion.${key}`}
+      modulation={charted[key]}
     />
   );
   return (
@@ -39,7 +46,12 @@ export const DistortionControls = ({ params, setParam, on, out }: FxControlsProp
         />
       </ControlsGroup>
       <ControlsGroup caption='Drive' disabled={!on}>
-        <Chart mode={params['mode']} drive={params['drive']} active={on} />
+        <Chart
+          mode={params['mode']}
+          drive={params['drive']}
+          active={on}
+          modulations={charted.drive?.modulations}
+        />
         {handle('drive')}
       </ControlsGroup>
       <LastGroups>

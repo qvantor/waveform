@@ -11,6 +11,8 @@ type Props = {
   padding?: Vector2D;
   domainX?: [number, number];
   domainY?: [number, number];
+  // HTML over the chart, in its context (the dot of a playing note)
+  overlay?: React.ReactNode;
 } & React.DetailedHTMLProps<React.HTMLAttributes<HTMLDivElement>, HTMLDivElement>;
 
 const Root = styled.div`
@@ -30,6 +32,7 @@ export const LineChart = ({
   padding = [5, 2],
   domainX: [domainXMin, domainXMax] = [0, 1],
   domainY: [domainYMin, domainYMax] = [0, 1],
+  overlay,
   children,
   ...rest
 }: React.PropsWithChildren<Props>) => {
@@ -53,9 +56,12 @@ export const LineChart = ({
     <LineChartContext.Provider value={{ width, height, padding, scaleX, scaleY, lineFn, ref }}>
       <Root {...rest} ref={ref}>
         {width !== 0 && (
-          <Svg>
-            <g transform={`translate(${paddingX}, ${paddingY})`}>{children}</g>
-          </Svg>
+          <>
+            <Svg>
+              <g transform={`translate(${paddingX}, ${paddingY})`}>{children}</g>
+            </Svg>
+            {overlay}
+          </>
         )}
       </Root>
     </LineChartContext.Provider>

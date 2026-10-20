@@ -46,6 +46,7 @@ export const Filter = ({
   cutoff,
   resonance,
   gain,
+  modulation = {},
 }: CommonFilterProps) => {
   const setValueInternal = (key: FilterNumerics) => (value: number) => setNumericValue(key, value);
   return (
@@ -58,16 +59,35 @@ export const Filter = ({
         gain={gain}
         sampleRate={sampleRate}
         active={active}
+        ranges={ranges}
+        modulations={{
+          cutoff: modulation.cutoff?.modulations,
+          resonance: modulation.resonance?.modulations,
+          gain: modulation.gain?.modulations,
+        }}
       />
       <HandlersContainer>
-        <Handle value={cutoff} onChange={setValueInternal('cutoff')} label='Cutoff' {...ranges.cutoff} />
+        <Handle
+          value={cutoff}
+          onChange={setValueInternal('cutoff')}
+          label='Cutoff'
+          {...ranges.cutoff}
+          {...modulation.cutoff}
+        />
         <Handle
           value={resonance}
           onChange={setValueInternal('resonance')}
           label='Res'
           {...ranges.resonance}
+          {...modulation.resonance}
         />
-        <Handle value={gain} onChange={setValueInternal('gain')} label='Gain' {...ranges.gain} />
+        <Handle
+          value={gain}
+          onChange={setValueInternal('gain')}
+          label='Gain'
+          {...ranges.gain}
+          {...modulation.gain}
+        />
       </HandlersContainer>
     </Root>
   );

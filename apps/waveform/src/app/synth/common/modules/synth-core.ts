@@ -1,5 +1,5 @@
-import { fromEvent, merge, pairwise, startWith } from 'rxjs';
-import { PrimitiveBS, ArrayBS, rxModel, rxModelReact } from '@waveform/rxjs-react';
+import { fromEvent, merge } from 'rxjs';
+import { PrimitiveBS, rxModel, rxModelReact } from '@waveform/rxjs-react';
 import { createMasterLimiter } from '../limiter/master-limiter';
 import { createWavetableEngine, WavetableEngineDependencies } from '../wavetable/wavetable-engine';
 
@@ -31,7 +31,7 @@ export const synthCore = ({ wavetables: wavetableDependencies }: Dependencies = 
     // the last stage, after the master volume; the analysers tap its output, they show what is played
     const masterLimiter = createMasterLimiter(audioCtx);
     const { output } = masterLimiter;
-    // the fx chain is wired between these two by the fx model, after the mid nodes (filter)
+    // the fx chain is wired between these two by the fx model (the filter is in each voice)
     const fxIn = audioCtx.createGain();
     const fxOut = audioCtx.createGain();
     // the oscillators of every voice (an audio worklet), loaded at the start like the limiter
@@ -39,13 +39,13 @@ export const synthCore = ({ wavetables: wavetableDependencies }: Dependencies = 
 
     preGain.gain.setValueAtTime(1, audioCtx.currentTime);
 
+    preGain.connect(fxIn);
     fxIn.connect(fxOut);
     fxOut.connect(masterGain);
     masterGain.connect(masterLimiter.input);
     output.connect(audioCtx.destination);
 
     const $masterGain = new PrimitiveBS<number>(1);
-    const $midNodes = new ArrayBS<AudioNode[]>([]); // nodes to connect between preGain and fxIn
 
     return {
       audioCtx,
@@ -56,39 +56,25 @@ export const synthCore = ({ wavetables: wavetableDependencies }: Dependencies = 
       masterGain,
       output,
       wavetables,
-      $midNodes,
       $masterGain,
     };
   })
-    .actions(({ $masterGain, $midNodes }) => ({
+    .actions(({ $masterGain }) => ({
       setMasterGain: (value: number) => $masterGain.next(value),
-      addMidNode: (node: AudioNode) => {
-        if (!$midNodes.value.includes(node)) $midNodes.next([...$midNodes.value, node]);
-      },
-      removeMidNode: (node: AudioNode) => {
-        node.disconnect();
-        $midNodes.next($midNodes.value.filter((midNode) => midNode !== node));
-      },
     }))
-    .subscriptions(({ $masterGain, $midNodes, audioCtx, masterGain, preGain, fxIn }) => [
+    .subscriptions(({ $masterGain, audioCtx, masterGain }) => [
       resumeOnGesture(audioCtx),
       $masterGain.subscribe((value) => masterGain.gain.setValueAtTime(value, audioCtx.currentTime)),
-      $midNodes.pipe(startWith<AudioNode[]>([]), pairwise()).subscribe(([prev, nodes]) => {
-        preGain.disconnect();
-        // removed nodes are disconnected by removeMidNode, the kept ones lose their old links here
-        prev.filter((node) => nodes.includes(node)).forEach((node) => node.disconnect());
-        const chain = [preGain, ...nodes, fxIn];
-        for (let i = 0; i < chain.length - 1; i++) chain[i].connect(chain[i + 1]);
-      }),
     ])
     .destroy(({ masterLimiter, wavetables }) => {
       masterLimiter.destroy();
       wavetables.destroy();
     });
 
-export const { ModelProvider: SynthCoreProvider, useModel: useSynthCore } = rxModelReact(
-  'synthCore',
-  synthCore
-);
+export const {
+  ModelProvider: SynthCoreProvider,
+  useModel: useSynthCore,
+  Context: SynthCoreContext,
+} = rxModelReact('synthCore', synthCore);
 
 export type SynthCoreModule = ReturnType<typeof useSynthCore>;

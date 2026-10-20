@@ -14,6 +14,8 @@ interface WorkletNodeStub extends AudioWorkletNode {
 
 const DEFAULTS = mapValues(FX_PARAMS.distortion, (param) => param.default);
 
+const ENV = { attack: 0.1, hold: 0, decay: 0.1, sustain: 0.5, release: 0.2 };
+
 // the module loads asynchronously: the node exists after the pending promises settle
 const flush = () => new Promise((resolve) => setTimeout(resolve));
 
@@ -180,5 +182,17 @@ describe('distortion', () => {
     }).not.toThrow();
     await flush();
     expect(core?.input.connect).not.toHaveBeenCalled();
+  });
+
+  it('posts the modulation of its knobs: the worklet moves them once per block', async () => {
+    const { core, messages } = setup();
+    await flush();
+    const mod = {
+      note: { envelopes: [ENV, ENV, ENV], start: 1, release: null },
+      routes: [{ param: 'drive', env: 1, amount: 6, min: 0, max: 12 }],
+    };
+    core.setModulation(mod);
+    core.setModulation(null);
+    expect(messages()?.slice(-2)).toEqual([{ mod }, { mod: null }]);
   });
 });

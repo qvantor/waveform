@@ -1,15 +1,24 @@
 import React from 'react';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
-import { Filter, Section } from '@waveform/ui-kit';
+import { Filter, FilterNumerics, Section } from '@waveform/ui-kit';
 import { useFilter } from '../modules';
+import { useKnobModulation } from '../../modulation/use-knob-modulation';
+import { filterTargetScale } from '../../common/modulation/modulation-targets';
 
 export const FilterSection = () => {
-  const [{ $filter, $filterType, $active, $ranges, filterNode }, { toggleActive, setType, setNumericValue }] =
+  const [{ $filter, $filterType, $active, $ranges, sampleRate }, { toggleActive, setType, setNumericValue }] =
     useFilter();
   const active = useBehaviorSubject($active);
   const filter = useBehaviorSubject($filter);
   const filterType = useBehaviorSubject($filterType);
   const ranges = useBehaviorSubject($ranges);
+  // the amounts in the scale of the knob for the type (a knob the type doesn't use is disabled: its routes hide)
+  const knob = (param: FilterNumerics) => filterTargetScale(filterType, param);
+  const modulation = {
+    cutoff: useKnobModulation('filter.cutoff', knob('cutoff')),
+    resonance: useKnobModulation('filter.resonance', knob('resonance')),
+    gain: useKnobModulation('filter.gain', knob('gain')),
+  };
 
   return (
     <Section name='Filter' active={active} onClick={toggleActive}>
@@ -20,7 +29,8 @@ export const FilterSection = () => {
         setType={setType}
         setNumericValue={setNumericValue}
         active={active}
-        sampleRate={filterNode.context.sampleRate}
+        sampleRate={sampleRate}
+        modulation={modulation}
       />
     </Section>
   );

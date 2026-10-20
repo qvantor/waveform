@@ -1,5 +1,18 @@
-export { LineChart, Line, SquareDots, XAxis, YAxis, useLineChartContext } from './line-chart';
+export {
+  LineChart,
+  Line,
+  SquareDots,
+  XAxis,
+  YAxis,
+  useLineChartContext,
+  linePath,
+  affine,
+  useLivePath,
+  areaPath,
+} from './line-chart';
 export { Handle } from './handle';
+export { AmountDot } from './amount-dot';
+export { startModDrag, MOD_DWELL_ATTR } from './mod-drag';
 export { Fader } from './fader';
 export { Tooltip } from './tooltip';
 export { WaveDrawer } from './wave-drawer';
@@ -8,7 +21,7 @@ export { Analyser } from './analyser';
 export { FileDrop } from './file-drop';
 export { Tabs } from './tabs';
 export { PianoKeyboard } from './piano-keyboard';
-export { AdsrEnvelope } from './adsr-envelope';
+export { AdsrEnvelope, formatTime, NoteDot } from './adsr-envelope';
 export { Modal } from './modal';
 export { Section } from './section';
 export { VolumeAnalyser } from './volume-analyser';
@@ -30,6 +43,9 @@ export * from './common/types';
 
 export type { FilterNumerics, FilterRange, FilterRanges, FilterParams } from './filter';
 export type { CascadeOption } from './select';
-export type { HandleProps } from './handle';
+export type { HandleProps, HandleModulation } from './handle';
+export type { NotePath } from './adsr-envelope';
 export type { Theme } from './common/constants';
 export { useIsMobile, useIsPortrait, useElementSize } from './common/hooks';
+export { useLiveDraw, liveKnob } from './common/utils';
+export type { LiveKnob } from './common/utils';

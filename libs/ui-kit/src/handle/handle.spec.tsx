@@ -1,9 +1,15 @@
 import React from 'react';
-import { render } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { valueScale } from '../common/utils';
 import { Handle } from './index';
 
-// size m: the arc outer radius is 21, angle 0 (the value 0 on a -1..1 knob) is the top point
-const OUTER_RADIUS = 21;
+// size m: the knob's radius is 17, the ring of its travel and the arc of a modulation on it are 6 px wide; a
+// knob that takes no modulations has an arc of its travel from 19 to 21 px instead
+const RADIUS = 17;
+const TRACK_WIDTH = 6;
+const ARC_OUTER = 21;
+// the angle of the whole travel either way from the top
+const MAX_ANGLE = Math.PI / 1.2;
 
 const arcPaths = (container: HTMLElement) =>
   Array.from(container.querySelectorAll('svg path')).map((path) => path.getAttribute('d') ?? '');
@@ -14,30 +20,285 @@ const startPoint = (d: string) => {
   return { x, y };
 };
 
+// the rotation of an element in radians
+const rotation = (element: HTMLElement) =>
+  Number(element.style.transform.match(/rotate\(([-\d.e]+)rad\)/)?.[1]);
+
 describe('Handle', () => {
-  it('fills from min by default', () => {
-    const { container } = render(<Handle min={-1} max={1} value={0} />);
-    const [background, value] = arcPaths(container);
-    expect(startPoint(value)).toEqual(startPoint(background));
-  });
-
-  it('has no fill when the value is min', () => {
+  it('that takes no modulations has an arc of its travel around it, under the shadow of the knob, no ring', () => {
     const { container } = render(<Handle min={-1} max={1} value={-1} />);
-    expect(arcPaths(container)).toHaveLength(1);
+    expect(screen.queryByTestId('knob-track')).toBeNull();
+    // from min, 2 px out of the knob
+    const start = startPoint(screen.getByTestId('knob-scale').getAttribute('d') ?? '');
+    expect(Math.hypot(start.x, start.y)).toBeCloseTo(ARC_OUTER);
+    expect(Math.atan2(start.x, -start.y)).toBeCloseTo(-MAX_ANGLE);
+    expect(container.querySelector('svg')?.classList.contains('scale')).toBe(true);
   });
 
-  it('fills from fillFrom to the value in both directions', () => {
-    const { container, rerender } = render(<Handle min={-1} max={1} value={0} fillFrom={0} />);
-    // only the background arc: no deviation, no fill
-    expect(arcPaths(container)).toHaveLength(1);
-
+  it('that takes no modulations fills its arc from fillFrom (min by default) to the value, none at it', () => {
+    const fill = () => screen.queryByTestId('knob-fill');
+    const { rerender } = render(<Handle min={-1} max={1} value={0} />);
+    expect(fill()?.getAttribute('fill')).toBe('#2ecc71');
+    expect(startPoint(fill()?.getAttribute('d') ?? '')).toEqual(
+      startPoint(screen.getByTestId('knob-scale').getAttribute('d') ?? '')
+    );
+    rerender(<Handle min={-1} max={1} value={-1} />);
+    expect(fill()).toBeNull();
+    rerender(<Handle min={-1} max={1} value={0} fillFrom={0} />);
+    expect(fill()).toBeNull();
+    // either way from fillFrom 0 at the top
     for (const value of [0.5, -0.5]) {
       rerender(<Handle min={-1} max={1} value={value} fillFrom={0} />);
-      const paths = arcPaths(container);
-      expect(paths).toHaveLength(2);
-      const { x, y } = startPoint(paths[1]);
+      const { x, y } = startPoint(fill()?.getAttribute('d') ?? '');
       expect(x).toBeCloseTo(0);
-      expect(y).toBeCloseTo(-OUTER_RADIUS);
+      expect(y).toBeCloseTo(-ARC_OUTER);
     }
+    // a knob that takes modulations has none
+    rerender(<Handle min={-1} max={1} value={-0.5} fillFrom={0} modulations={[]} />);
+    expect(fill()).toBeNull();
+  });
+
+  it.each([
+    ['m', '2px'],
+    ['l', '3px'],
+  ] as const)('of size %s has a round mark of %s at its edge, so has its live mark', (size, diameter) => {
+    const { container } = render(<Handle min={-1} max={1} value={0} size={size} modulations={[]} />);
+    const marks = [
+      container.querySelector('[style*="rotate"] > div > div'),
+      screen.getByTestId('mod-mark').firstElementChild?.firstElementChild,
+    ];
+    marks.forEach((mark) => {
+      const style = window.getComputedStyle(mark as HTMLElement);
+      expect([style.width, style.height, style.borderRadius]).toEqual([diameter, diameter, '100%']);
+    });
+  });
+
+  it('that takes modulations shows its travel on its edge under the arc of the selected route, no fill', () => {
+    const { container, rerender } = render(
+      <Handle min={-1} max={1} value={0.5} fillFrom={0} modulations={[]} />
+    );
+    expect(arcPaths(container)).toHaveLength(1);
+    expect(screen.queryByTestId('knob-scale')).toBeNull();
+    expect(container.querySelector('svg')?.classList.contains('scale')).toBe(false);
+    const track = () => screen.getByTestId('knob-track');
+    // from min, on the outer radius of the ring on the edge of the knob
+    const start = startPoint(track().getAttribute('d') ?? '');
+    expect(Math.hypot(start.x, start.y)).toBeCloseTo(RADIUS + TRACK_WIDTH);
+    expect(Math.atan2(start.x, -start.y)).toBeCloseTo(-MAX_ANGLE);
+    expect(Number(track().getAttribute('fill-opacity'))).toBeLessThan(1);
+    rerender(
+      <Handle
+        min={-1}
+        max={1}
+        value={0.5}
+        modulations={[{ id: 'env2', color: '#f1c40f', amount: 0.25, selected: true }]}
+      />
+    );
+    // drawn first: the arcs lie on it
+    const [first, arc] = Array.from(container.querySelectorAll('svg path'));
+    expect(first).toBe(track());
+    expect(arc.getAttribute('data-testid')).toBe('mod-arc');
+  });
+});
+
+describe('Handle scales', () => {
+  // the angle of the value from the start of the arc, as a share of its whole travel
+  const share = (props: React.ComponentProps<typeof Handle>) => {
+    const { container } = render(<Handle {...props} />);
+    const angle = rotation(container.querySelector('[style*="rotate"]') as HTMLElement);
+    return (angle + MAX_ANGLE) / (2 * MAX_ANGLE);
+  };
+
+  it('pow gives the short times most of the travel: of 32 s, 125 ms at a quarter, 2 s in the middle', () => {
+    expect(share({ min: 0, max: 32, mode: 'pow', value: 0 })).toBeCloseTo(0);
+    expect(share({ min: 0, max: 32, mode: 'pow', value: 0.125 })).toBeCloseTo(0.25);
+    expect(share({ min: 0, max: 32, mode: 'pow', value: 2 })).toBeCloseTo(0.5);
+    expect(share({ min: 0, max: 32, mode: 'pow', value: 32 })).toBeCloseTo(1);
+  });
+
+  it('linear and log as before', () => {
+    expect(share({ min: 0, max: 32, value: 8 })).toBeCloseTo(0.25);
+    expect(share({ min: 10, max: 1000, mode: 'log', value: 100 })).toBeCloseTo(0.5);
+  });
+});
+
+describe('valueScale', () => {
+  it('pow goes from a time to the travel and back', () => {
+    const scale = valueScale('pow').domain([0, 32]).range([-100, 100]);
+    [0, 0.0001, 0.005, 0.1, 1, 2.5, 31.9999, 32].forEach((time) =>
+      expect(scale.invert(scale(time))).toBeCloseTo(time, 9)
+    );
+  });
+});
+
+describe('Handle modulation', () => {
+  const modulation = (amount: number, id = 'env2', selected = true) => ({
+    id,
+    color: '#f1c40f',
+    amount,
+    label: id,
+    selected,
+  });
+  // the start and the end angle of an arc path of d3 (it starts at its start angle on the outer radius)
+  const angleOf = ({ x, y }: { x: number; y: number }) => Math.atan2(x, -y);
+  const modArcs = (container: HTMLElement) =>
+    Array.from(container.querySelectorAll('[data-testid="mod-arc"]'));
+  const sectionColors = () =>
+    Array.from(document.querySelectorAll('[data-testid="amount-dot-section"]')).map((path) =>
+      path.getAttribute('fill')
+    );
+
+  it('draws an arc of the color of the source from the value to the value + amount', () => {
+    const { container } = render(<Handle min={0} max={1} value={0.5} modulations={[modulation(0.25)]} />);
+    const [path] = modArcs(container);
+    expect(path.getAttribute('fill')).toBe('#f1c40f');
+    // from the top (0.5) a quarter of the travel clockwise
+    const start = startPoint(path.getAttribute('d') ?? '');
+    expect(angleOf(start)).toBeCloseTo(0);
+  });
+
+  it('shows the arc of the selected route over the whole ring, a dot of all the routes that changes it', () => {
+    const { container, rerender } = render(
+      <Handle
+        min={0}
+        max={1}
+        value={0.5}
+        modulations={[
+          { ...modulation(-0.25, 'env1', false), color: '#2ecc71' },
+          modulation(0.25, 'env3'),
+          { ...modulation(0.5, 'env2', false), color: '#e74c3c' },
+        ]}
+      />
+    );
+    const [path] = modArcs(container);
+    expect(modArcs(container)).toHaveLength(1);
+    const start = startPoint(path.getAttribute('d') ?? '');
+    expect(Math.hypot(start.x, start.y)).toBeCloseTo(RADIUS + TRACK_WIDTH);
+    expect(screen.getAllByTestId('amount-dot')).toHaveLength(1);
+    // a section of each route, in their order
+    expect(sectionColors()).toEqual(['#2ecc71', '#f1c40f', '#e74c3c']);
+    // its center on the diagonal to the top left, on the outer edge of the ring (14 px, 1 px into it)
+    const dot = screen.getByRole('slider', { name: 'env3' });
+    const fromCenter = 25 - parseFloat(dot.style.left);
+    expect(parseFloat(dot.style.top)).toBe(parseFloat(dot.style.left));
+    expect(fromCenter * Math.SQRT2).toBeCloseTo(RADIUS + TRACK_WIDTH + 7 - 1);
+    // the selected source has no route on the knob: no arc, the dot only shows the routes
+    rerender(
+      <Handle
+        min={0}
+        max={1}
+        value={0.5}
+        modulations={[modulation(0.25, 'env1', false), modulation(0.5, 'env2', false)]}
+      />
+    );
+    expect(modArcs(container)).toHaveLength(0);
+    expect(screen.queryByRole('slider', { name: /env/ })).toBeNull();
+    expect(screen.getByRole('img', { name: 'env1, env2' }).getAttribute('data-testid')).toBe('amount-dot');
+    expect(sectionColors()).toHaveLength(2);
+    // no routes: no dot
+    rerender(<Handle min={0} max={1} value={0.5} modulations={[]} />);
+    expect(screen.queryByTestId('amount-dot')).toBeNull();
+  });
+
+  it('clamps the arc to the travel, none at 0 or past it; the dot stays', () => {
+    const { container, rerender } = render(
+      <Handle min={0} max={1} value={1} modulations={[modulation(0.5)]} />
+    );
+    expect(modArcs(container)).toHaveLength(0);
+    expect(screen.getAllByTestId('amount-dot')).toHaveLength(1);
+    rerender(<Handle min={0} max={1} value={1} modulations={[modulation(0)]} />);
+    expect(modArcs(container)).toHaveLength(0);
+    rerender(<Handle min={0} max={1} value={1} modulations={[modulation(-0.5)]} />);
+    // down to the middle: from the top clockwise
+    const start = startPoint(modArcs(container)[0].getAttribute('d') ?? '');
+    expect(angleOf(start)).toBeCloseTo(0);
+  });
+
+  it('is a drop target with its id, its dots change and remove the routes', () => {
+    const onChange = jest.fn();
+    const onRemove = jest.fn();
+    const { container } = render(
+      <Handle
+        min={0}
+        max={1}
+        value={0.5}
+        modTarget='osc1.gain'
+        modulations={[{ ...modulation(0.25), onChange, onRemove }]}
+      />
+    );
+    expect(container.querySelector('[data-mod-target="osc1.gain"]')).not.toBeNull();
+    const dot = screen.getByRole('slider', { name: 'env2' });
+    expect(sectionColors()).toEqual(['#f1c40f']);
+    fireEvent.keyDown(dot, { key: 'ArrowUp' });
+    expect(onChange).toHaveBeenCalledWith(0.26);
+    fireEvent.doubleClick(dot);
+    expect(onRemove).toHaveBeenCalled();
+  });
+
+  describe('live mark', () => {
+    afterEach(() => jest.useRealTimers());
+
+    let level: number | null = 1;
+    const live = (amount: number, id = 'env2') => ({
+      ...modulation(amount, id),
+      level: () => level,
+      live: true,
+    });
+    const mark = () => screen.getByTestId('mod-mark');
+    // hidden by its style until it is drawn
+    const visibility = () => window.getComputedStyle(mark()).visibility;
+    const tick = () =>
+      act(() => {
+        jest.advanceTimersByTime(20);
+      });
+
+    it('follows the sum of the routes from the value every frame, the unselected ones too, clamped', () => {
+      jest.useFakeTimers();
+      level = 1;
+      const { rerender } = render(<Handle min={0} max={1} value={0.5} modulations={[live(0.25)]} />);
+      expect(mark().style.visibility).toBe('visible');
+      // from the top a quarter of the travel clockwise
+      expect(rotation(mark())).toBeCloseTo(MAX_ANGLE / 2);
+      rerender(
+        <Handle
+          min={0}
+          max={1}
+          value={0.5}
+          modulations={[live(0.25), { ...live(-0.5, 'env3'), selected: false }]}
+        />
+      );
+      level = 0.5;
+      tick();
+      // 0.25 * 0.5 - 0.5 * 0.5
+      expect(rotation(mark())).toBeCloseTo(-MAX_ANGLE / 4);
+      rerender(<Handle min={0} max={1} value={0.5} modulations={[live(1)]} />);
+      level = 1;
+      tick();
+      expect(rotation(mark())).toBeCloseTo(MAX_ANGLE);
+    });
+
+    it('is hidden without a level, while not live and on a disabled knob', () => {
+      jest.useFakeTimers();
+      level = null;
+      const { rerender } = render(<Handle min={0} max={1} value={0.5} modulations={[live(0.25)]} />);
+      expect(visibility()).toBe('hidden');
+      level = 0.5;
+      tick();
+      expect(visibility()).toBe('visible');
+      rerender(<Handle min={0} max={1} value={0.5} modulations={[{ ...live(0.25), live: false }]} />);
+      expect(visibility()).toBe('hidden');
+      rerender(<Handle min={0} max={1} value={0.5} disabled modulations={[live(0.25)]} />);
+      tick();
+      expect(visibility()).toBe('hidden');
+    });
+  });
+
+  it('a disabled knob takes no source and hides its routes', () => {
+    const { container } = render(
+      <Handle min={0} max={1} value={0.5} disabled modTarget='filter.gain' modulations={[modulation(0.25)]} />
+    );
+    expect(container.querySelector('[data-mod-target]')).toBeNull();
+    expect(modArcs(container)).toHaveLength(0);
+    expect(screen.queryByTestId('amount-dot')).toBeNull();
   });
 });

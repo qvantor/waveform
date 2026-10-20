@@ -1,6 +1,7 @@
 import React from 'react';
 import cls from 'classnames';
 import styled from 'styled-components';
+import { MOD_DWELL_ATTR } from '../mod-drag';
 import { Checkbox } from '../checkbox';
 import { theme } from '../common/constants';
 import { textBold12 } from '../common/styles';
@@ -15,6 +16,8 @@ interface Props<T extends string> {
   value: T;
   onChange: (id: T) => void;
   className?: string;
+  // a modulation source dragged onto a key and held there presses it (mod-drag): the knobs of another screen
+  switchOnDrag?: boolean;
 }
 
 // keys sit in a recessed slot: dark groove around and between them
@@ -94,7 +97,13 @@ const Key = styled.button`
   }
 `;
 
-export const TapeSwitch = <T extends string>({ options, value, onChange, className }: Props<T>) => (
+export const TapeSwitch = <T extends string>({
+  options,
+  value,
+  onChange,
+  className,
+  switchOnDrag = false,
+}: Props<T>) => (
   <Root className={className}>
     {options.map(({ id, label }) => {
       const pressed = id === value;
@@ -105,6 +114,7 @@ export const TapeSwitch = <T extends string>({ options, value, onChange, classNa
           className={cls({ pressed })}
           aria-pressed={pressed}
           onClick={() => onChange(id)}
+          {...(switchOnDrag && { [MOD_DWELL_ATTR]: '' })}
         >
           <Checkbox checked={pressed} />
           <span>{label}</span>

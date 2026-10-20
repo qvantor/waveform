@@ -11,6 +11,8 @@ import {
   voiceStats,
 } from './wavetable-osc-dsp';
 import { STORE_PROCESSOR, VOICE_PARAMETERS, VOICE_PROCESSOR, VoiceParam } from './wavetable-osc-params';
+import type { VoiceRoutesMessage } from './voice-modulation';
+import type { VoiceFilterMessage } from './voice-filter';
 
 // the audio worklet module of the wavetable oscillator, bundled by esbuild (`npm run worklets`) into
 // assets/worklets/wavetable-osc.js; it runs in the AudioWorkletGlobalScope (one per AudioContext): no window,
@@ -86,14 +88,20 @@ class VoiceProcessor extends AudioWorkletProcessor {
   }
 
   private dsp: ReturnType<typeof createVoiceDsp>;
-  // posts the frames of its start once (VoiceOptions.trace)
+  // posts the frames of its start once: traced (VoiceOptions.trace), or started after them (its node came
+  // late: the fx and Poly follow its first sample)
   private trace: boolean;
+  private reported = false;
 
   constructor(options: AudioWorkletNodeOptions) {
     super();
     const voiceOptions = options.processorOptions as VoiceOptions;
     this.dsp = createVoiceDsp(sampleRate, voiceOptions, store);
     this.trace = __PERF__ && !!voiceOptions.trace;
+    this.port.onmessage = ({ data }: MessageEvent<Partial<VoiceRoutesMessage & VoiceFilterMessage>>) => {
+      if (data.routes) this.dsp.setRoutes(data.routes);
+      if (data.filter !== undefined) this.dsp.setFilter(data.filter);
+    };
   }
 
   process(
@@ -105,10 +113,11 @@ class VoiceProcessor extends AudioWorkletProcessor {
     if (scratch.length !== outL.length) scratch = new Float32Array(outL.length);
     try {
       const playing = this.dsp.process(currentFrame, parameters, outL, output[1] ?? scratch);
-      if (__PERF__ && this.trace && this.dsp.startedAt >= 0) {
-        this.trace = false;
-        const started: VoiceStartedMessage = { started: this.dsp.startedAt, scheduled: this.dsp.startFrame };
-        this.port.postMessage(started);
+      const { startedAt, startFrame } = this.dsp;
+      if (!this.reported && startedAt >= 0) {
+        this.reported = true;
+        const started: VoiceStartedMessage = { started: startedAt, scheduled: startFrame };
+        if (this.trace || startedAt > startFrame) this.port.postMessage(started);
       }
       if (playing) return true;
     } catch (error) {

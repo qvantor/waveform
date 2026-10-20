@@ -7,6 +7,7 @@ import { formatHz, formatMs, formatSeconds } from './format';
 import { eraIndex, REVERB_ERAS } from './reverb-era';
 import { REVERB_PROCESSOR, ReverbDspParams, ReverbMessage, ReverbOptions } from './reverb-dsp';
 import { createWorkletFx, STEREO_WORKLET_OPTIONS } from './worklet-fx';
+import type { FxModMessage } from './fx-modulation';
 
 const { lowcut, pre, size, decay, damp, bass, depth, sep, er, era } = FX_PARAMS.reverb;
 
@@ -72,6 +73,11 @@ export const reverb: FxDefinition<ReverbParam> = {
       setActive: (value) => {
         active = value;
         post({ active });
+      },
+      // the worklet moves the knobs once per block, the lines are worked out again only while they move
+      setModulation: (mod) => {
+        const message: FxModMessage = { mod };
+        worklet.post(message);
       },
       destroy: worklet.destroy,
     };

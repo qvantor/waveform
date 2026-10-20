@@ -14,5 +14,7 @@ registerStereoProcessor(
   (rate, { processorOptions }) => createDistortionDsp(rate, processorOptions as DistortionOptions),
   (dsp, { params }: DistortionMessage) => {
     if (params) dsp.set(params);
-  }
+  },
+  // the knobs the envelopes move (fx-modulation.ts)
+  (dsp, values) => dsp.set(values)
 );

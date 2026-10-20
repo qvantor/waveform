@@ -1,5 +1,16 @@
+import type { EnvelopeParams } from '../envelope/envelope-curve';
+import { createEnvelopeBlock } from '../envelope/envelope-block';
 import { FRAME_GUARD, levelBase, WavetableLevels } from './wavetable-levels';
-import { oscParamName, VoiceParam } from './wavetable-osc-params';
+import {
+  HELD_GATE,
+  oscParamName,
+  RELEASE_GATE,
+  RELEASE_LEAD,
+  releaseStart,
+  VoiceParam,
+} from './wavetable-osc-params';
+import { createVoiceModulation, ParamAccess, VoiceRoute } from './voice-modulation';
+import { createVoiceFilter, VoiceFilterOptions } from './voice-filter';
 
 // the wavetable oscillator runs in an audio worklet (wavetable-osc.worklet.ts), this is its signal
 // processing: the store of the band-limited tables (wavetable-mipmap.ts) and the voice, one per note, that
@@ -20,6 +31,17 @@ export interface VoiceOptions {
   osc: (VoiceOscOptions | null)[];
   // seconds of the context time the note starts at
   start: number;
+  // ENV 1–3 as they were at the note on (ENV 1 is the volume of the note) and the seconds of the context
+  // time they start at: the note on, in legato the start of the phrase (they don't start again)
+  envelopes: EnvelopeParams[];
+  envStart: number;
+  // the phrase of the note, a number of the main thread unique in the context: the notes of a legato phrase
+  // share it (and its envelopes), a note on starts one of its own
+  phrase: number;
+  // the envelopes move these params (voice-modulation.ts), changed on a playing note by a message
+  routes: VoiceRoute[];
+  // the filter after the oscillators (voice-filter.ts), null: off; its knobs change by a message
+  filter: VoiceFilterOptions | null;
   // posts a VoiceStartedMessage once (the perf test hook times the notes)
   trace?: boolean;
 }
@@ -28,8 +50,9 @@ export interface VoiceOptions {
 export interface VoiceEndedMessage {
   ended: true;
 }
-// voice → main thread, once, for a traced voice: the frame it was scheduled at and the one it started at (its
-// first block: later when the node was created after its start)
+// voice → main thread, once: the frame it was scheduled at and the one it started at (its first block: later
+// when the node was created after its start). A traced voice tells it always, another one only when late (the
+// fx and Poly follow it from its first sample)
 export interface VoiceStartedMessage {
   started: number;
   scheduled: number;
@@ -87,9 +110,10 @@ const SEGMENT = 32;
 // the render quantum, the buffers grow if a block is longer
 const BLOCK = 128;
 // seconds: the fade-in of a voice at a random phase, the fade-out of a stolen voice, the crossfade into a
-// new version of the table
+// new version of the table. The fade-out is a raised cosine over more than a period of a bass note (C2: 15
+// ms): a stolen pad still sounds, a linear 5 ms clicked (its splatter ~35 dB above this one's)
 export const FADE_IN = 0.0015;
-export const KILL_FADE = 0.005;
+export const KILL_FADE = 0.02;
 export const CROSSFADE = 0.01;
 // a position this close to a frame (in frames) plays the frame alone: an AudioParam is a float32, k / (N - 1)
 // times N - 1 is not exactly k
@@ -400,6 +424,17 @@ export const nativeTableLength = (sampleRate: number) =>
 
 type Params = Record<VoiceParam, Float32Array>;
 
+// the base of a param the routes move, read by its name (a function of its own per param: by a computed name
+// V8's loads are megamorphic)
+const BASES: Partial<Record<VoiceParam, (params: Params) => Float32Array>> = {
+  position1: (p) => p.position1,
+  spread1: (p) => p.spread1,
+  gain1: (p) => p.gain1,
+  position2: (p) => p.position2,
+  spread2: (p) => p.spread2,
+  gain2: (p) => p.gain2,
+};
+
 // the cost of the mix tables built per block at most (multiply-adds), across all the voices of a context
 // (they render one after another on the audio thread): a chord of new notes converts to them over a few
 // blocks instead of one long block (about 0.2 ms of a block at most)
@@ -448,8 +483,45 @@ export const createVoiceShared = () => {
   let budgetFrame = -1;
   let spent = 0;
   const counts = new Float64Array(10);
+  // legato: the phrases of the voices that play, by their number (VoiceOptions.phrase; not by the frame their
+  // envelopes are scheduled at: a key released and the next one pressed within a device buffer start two
+  // phrases at the same frame): the frame they started at (-1 before the first voice has started: processed
+  // late, it starts them at its first sample, the notes of the phrase start theirs there too) and the voices
+  // of it (forgotten after the last one). Not only the latest: a note out of legato starts its own while the
+  // keys of a phrase are held, a note of that phrase may come after it
+  const phrases = new Map<number, { frame: number; voices: number }>();
   return {
     counts,
+    // a voice joins its phrase until it ends: one that starts its envelopes (a note on, the first note of a
+    // phrase) opens it (or joins it, a chord of a phrase pressed at once), a note of a phrase joins it while a
+    // voice of it plays; false: an unknown phrase, not joined
+    joinPhrase: (id: number, opens: boolean) => {
+      let phrase = phrases.get(id);
+      if (!phrase) {
+        if (!opens) return false;
+        phrase = { frame: -1, voices: 0 };
+        phrases.set(id, phrase);
+      }
+      phrase.voices++;
+      return true;
+    },
+    // a voice of it has ended
+    leavePhrase: (id: number) => {
+      const phrase = phrases.get(id);
+      if (phrase && --phrase.voices <= 0) phrases.delete(id);
+    },
+    // its first voice has started its envelopes at `frame`
+    startPhrase: (id: number, frame: number) => {
+      const phrase = phrases.get(id);
+      if (phrase && phrase.frame < 0) phrase.frame = frame;
+    },
+    // the frame the envelopes of a phrase scheduled at `start` start at, for a note of it whose first block is
+    // at `frame`: its first voice was created before it, so it has started, or starts in this block (the order
+    // the nodes are processed in is the browser's); an unknown phrase: its start
+    phraseFrame: (id: number, start: number, frame: number) => {
+      const phrase = phrases.get(id);
+      return !phrase ? start : phrase.frame >= 0 ? phrase.frame : Math.max(start, frame);
+    },
     scratch: (length: number) => {
       if (length > size) {
         size = length;
@@ -651,6 +723,8 @@ interface Osc {
   mixes: (Float32Array | null)[];
   mixIds: Int32Array;
   params: { position: VoiceParam; detune: VoiceParam; spread: VoiceParam; gain: VoiceParam };
+  // the values the routes give its params instead of the browser's (null: none)
+  moved: { position: Float32Array | null; spread: Float32Array | null; gain: Float32Array | null };
 }
 
 // a voice of a note: both oscillators (null: off), each with its unison voices, into one stereo output.
@@ -661,8 +735,9 @@ interface Osc {
 // power of a channel stays that of one voice. Every voice starts at `phase` shifted by a random share of its period up to
 // phaseRand: at 0 all of them start in phase (their peaks add up, n voices are louder at the onset and
 // their beats sweep through the spectrum together), at 1 at any phase (steady, the power of one voice).
-// A voice at a random phase fades in (FADE_IN), at phaseRand 0 it starts at once (a click of its wave is
-// intended, as with a native oscillator). random() is drawn only here, at the note on.
+// A voice at a random phase fades in (FADE_IN), so does a note of a legato phrase (its envelopes go on: it
+// would start at their level); a note on at phaseRand 0 starts at once (a click of its wave is intended, as
+// with a native oscillator). random() is drawn only here, at the note on.
 // The pitch: frequency · 2^(detune / 1200), clamped to 0..nyquist; it picks the levels of the table that
 // don't fold back (level r keeps base · 2^(-r/3), levelBase): the pitch range p = 1 + 3·log2(base · f / nyquist),
 // level floor(p) crossfaded with the next one by its fraction (as the PeriodicWave of a browser). The
@@ -675,8 +750,14 @@ interface Osc {
 // a mix table as long as a native table (nativeTableLength, the shorter levels interpolated into it once)
 // and reads only that: a held note costs what a native oscillator does, with its aliasing; the direct
 // reading is left to the notes that glide or morph. A new version of the table is crossfaded into
-// (CROSSFADE). The voice starts at options.start and ends where its gate param drops to 0 (exactly, to the
-// sample) or after the fade of a stolen voice (gate below 0, KILL_FADE); process() returns false from then on
+// (CROSSFADE). The voice starts at options.start; its volume is ENV 1 (exact to the sample, from
+// options.envStart: in legato the start of the phrase, so it doesn't start again). Once its gate param is
+// released (RELEASE_GATE + the seconds the key was held, 0: at that sample) the release of ENV 1 starts, from
+// the level it has reached; the voice ends where ENV 1 is back at 0 (exactly, to the sample), or after the
+// fade of a stolen voice (gate below 0, KILL_FADE); process() returns false from then on. A gate held at
+// another value (1 and 1.5 in turn) or held again after its release starts the envelopes again at that sample
+// (mono: a note on a voice that sounds), each from the level it has there; the oscillators, their phases and
+// the filter go on
 export const createVoiceDsp = (
   sampleRate: number,
   options: VoiceOptions,
@@ -688,16 +769,32 @@ export const createVoiceDsp = (
   const log2Nyquist = Math.log2(nyquist);
   const nativeLength = nativeTableLength(sampleRate);
   const startFrame = Math.ceil(options.start * sampleRate - 1e-6);
+  const envStartFrame = Math.ceil(options.envStart * sampleRate - 1e-6);
+  // ENV 1–3, ENV 1 is the volume; the others are rendered only while a route reads them
+  const envelopes = options.envelopes.map((params) => createEnvelopeBlock(params, sampleRate, envStartFrame));
+  const amp = envelopes[0];
+  const filter = createVoiceFilter(sampleRate, options.filter);
   let stopFrame = Infinity;
   // the frame the fade of a stolen voice starts at
   let killFrom = Infinity;
+  // the value of the gate while held (another one starts the envelopes again) and the frame the time the key
+  // is held counts from: the first sample, then the last start again
+  let heldGate = HELD_GATE;
+  let holdFrom = -1;
+  // the envelopes are released (amp.released, without a getter in the gate loop: Firefox gives the gate 128
+  // values every block)
+  let released = false;
   const killLength = Math.max(1, Math.round(KILL_FADE * sampleRate));
   const fadeLength = Math.max(1, Math.round(FADE_IN * sampleRate));
   const crossfadeLength = Math.max(1, Math.round(CROSSFADE * sampleRate));
+  const leadLength = Math.round(RELEASE_LEAD * sampleRate);
+  // a note of a legato phrase: its envelopes started before it; it counts in its phrase until it ends
+  const inPhrase = envStartFrame < startFrame;
+  const joined = shared.joinPhrase(options.phrase, !inPhrase);
   let started = false;
   let ended = false;
   let blockFrame = 0;
-  // the frame the voice started at (-1 before), its unison voices (counted while it plays)
+  // the frame the voice started at, its first sample (-1 before), its unison voices (counted while it plays)
   let startedAt = -1;
   let unison = 0;
   const { counts } = shared;
@@ -737,9 +834,33 @@ export const createVoiceDsp = (
         spread: oscParamName('spread', index),
         gain: oscParamName('gain', index),
       },
+      moved: { position: null, spread: null, gain: null },
     });
   });
   if (__PERF__) counts[VOICES]++;
+
+  // the params the routes move: their bases (the browser's, the knobs of the filter) and where their values go
+  // (the oscillators, the filter); created with the oscillators, a param of one off for the note is none
+  const accesses: Record<string, ParamAccess> = {};
+  oscs.forEach((osc) =>
+    (['position', 'spread', 'gain'] as const).forEach((kind) => {
+      const name = osc.params[kind];
+      const get = BASES[name];
+      if (get)
+        accesses[name] = {
+          get: get as ParamAccess['get'],
+          set: (values) => (osc.moved[kind] = values),
+        };
+    })
+  );
+  const { bases: filterBases, moved: filterMoved } = filter;
+  accesses['cutoff'] = { get: () => filterBases.cutoff, set: (values) => (filterMoved.cutoff = values) };
+  accesses['resonance'] = {
+    get: () => filterBases.resonance,
+    set: (values) => (filterMoved.resonance = values),
+  };
+  accesses['gain'] = { get: () => filterBases.gain, set: (values) => (filterMoved.gain = values) };
+  const modulation = createVoiceModulation(sampleRate, envelopes, options.routes, accesses);
 
   let scratch = shared.scratch(BLOCK);
   let pointsLength = 0;
@@ -754,18 +875,27 @@ export const createVoiceDsp = (
     });
   };
 
-  // the start of the note (its first sample, i): the unison collapses at detune 0, the phases are set
+  // the start of the note (its first sample, i): the unison collapses at detune 0, the phases are set. A voice
+  // processed after its start (its node came after the block of its start began: a device buffer late) starts
+  // its envelopes there, the attack is not skipped; in legato they go on from the start of the phrase, where
+  // its first voice started them (the voices of a phrase stay in step)
   const start = (params: Params, i: number) => {
     started = true;
-    if (__PERF__) startedAt = blockFrame + i;
+    startedAt = blockFrame + i;
+    holdFrom = startedAt;
+    const envFrame = inPhrase ? shared.phraseFrame(options.phrase, envStartFrame, blockFrame) : startedAt;
+    if (envFrame > envStartFrame) envelopes.forEach((envelope) => envelope.startAt(envFrame));
+    if (!inPhrase) shared.startPhrase(options.phrase, startedAt);
     oscs.forEach((osc) => {
       const spread = params[osc.params.spread];
-      if ((spread.length > 1 ? spread[i] : spread[0]) <= 0) osc.voices = 1;
+      // ENV → Detune would never spread the voices of a unison collapsed at a detune of 0
+      if ((spread.length > 1 ? spread[i] : spread[0]) <= 0 && !modulation.raises(osc.params.spread))
+        osc.voices = 1;
       osc.level = 1 / Math.sqrt(Math.ceil(osc.voices / 2));
       for (let v = 0; v < osc.voices; v++) {
         const phase = osc.phase + osc.random[v] * osc.phaseRand;
         osc.phases[v] = phase - Math.floor(phase);
-        osc.fades[v] = osc.phaseRand > 0 ? fadeLength : 0;
+        osc.fades[v] = osc.phaseRand > 0 || inPhrase ? fadeLength : 0;
       }
       if (__PERF__) unison += osc.voices;
     });
@@ -773,11 +903,14 @@ export const createVoiceDsp = (
   };
 
   // the pitch at the points of the block for every voice: the phase step and log2 of the frequency
-  const pitchPoints = (osc: Osc, params: Params, count: number) => {
+  const pitchPoints = (
+    osc: Osc,
+    frequency: Float32Array,
+    detune: Float32Array,
+    spread: Float32Array,
+    count: number
+  ) => {
     const { points } = scratch;
-    const frequency = params.frequency;
-    const detune = params[osc.params.detune];
-    const spread = params[osc.params.spread];
     const { voices, incs, logs } = osc;
     for (let p = 0; p < count; p++) {
       const s = points[p];
@@ -893,7 +1026,7 @@ export const createVoiceDsp = (
   const renderVoices = (
     osc: Osc,
     entry: TableEntry,
-    params: Params,
+    position: Float32Array,
     count: number,
     a: number,
     b: number,
@@ -922,7 +1055,6 @@ export const createVoiceDsp = (
     // x = 1 + 3·log2(base · f / nyquist) = offset + 3·log2(f)
     const offset = 1 + 3 * (Math.log2(levelBase(levels.harmonics[0])) - log2Nyquist);
     // the position in frames: one (snapped to a frame within SNAP) or at each point
-    const position = params[osc.params.position];
     const moving = n > 1 && !isConstant(position);
     let k = 0;
     let m = 0;
@@ -1064,11 +1196,13 @@ export const createVoiceDsp = (
         osc.crossfade = 0;
       }
     }
+    // the browser's params, those the routes move replaced
+    const { moved } = osc;
     const frequency = params.frequency;
     const detune = params[osc.params.detune];
-    const spread = params[osc.params.spread];
-    const position = params[osc.params.position];
-    const gain = params[osc.params.gain];
+    const spread = moved.spread ?? params[osc.params.spread];
+    const position = moved.position ?? params[osc.params.position];
+    const gain = moved.gain ?? params[osc.params.gain];
     const constantPitch = isConstant(frequency) && isConstant(detune) && isConstant(spread);
     // (a table of one frame is played at any position)
     const oneFrame = osc.entry.levels.frames === 1 && (!osc.next || osc.next.levels.frames === 1);
@@ -1106,7 +1240,7 @@ export const createVoiceDsp = (
       // the last point is past the block: its pitch is the one of the last sample
       const last = points[count - 1];
       points[count - 1] = b - 1;
-      pitchPoints(osc, params, count);
+      pitchPoints(osc, frequency, detune, spread, count);
       points[count - 1] = last;
     }
     osc.cached = constantPitch && count === 2;
@@ -1115,7 +1249,7 @@ export const createVoiceDsp = (
     const constantGain = isConstant(gain);
     if (!next && constantGain) {
       // straight into the channels of the voice
-      renderVoices(osc, osc.entry, params, count, a, b, left, right, center, gain[0] * osc.level, steady);
+      renderVoices(osc, osc.entry, position, count, a, b, left, right, center, gain[0] * osc.level, steady);
       return;
     }
     // into the channels of the oscillator, then crossfaded and × the gain of each sample
@@ -1126,7 +1260,7 @@ export const createVoiceDsp = (
       osc.savedPhases.set(osc.phases);
       osc.savedFades.set(osc.fades);
     }
-    renderVoices(osc, osc.entry, params, count, a, b, aLeft, aRight, aCenter, osc.level, steady);
+    renderVoices(osc, osc.entry, position, count, a, b, aLeft, aRight, aCenter, osc.level, steady);
     if (next) {
       // the new version from the same phases and fades: the voices go on as they were (the same steps, so
       // the same phases at the end)
@@ -1135,7 +1269,7 @@ export const createVoiceDsp = (
       bLeft.fill(0, a, b);
       bRight.fill(0, a, b);
       bCenter.fill(0, a, b);
-      renderVoices(osc, next, params, count, a, b, bLeft, bRight, bCenter, osc.level, false, false);
+      renderVoices(osc, next, position, count, a, b, bLeft, bRight, bCenter, osc.level, false, false);
       let done = osc.crossfade;
       for (let i = a; i < b; i++) {
         const share = Math.min(1, done / crossfadeLength);
@@ -1160,9 +1294,21 @@ export const createVoiceDsp = (
     }
   };
 
+  // the gate is held again (another note on this voice, in mono): the envelopes start again at `at` from the
+  // levels they have there, a release is off. Not on a stolen voice
+  const retrigger = (at: number) => {
+    if (killFrom !== Infinity) return;
+    for (let k = 0; k < envelopes.length; k++) envelopes[k].retrigger(at, blockFrame);
+    holdFrom = at;
+    released = false;
+    stopFrame = Infinity;
+    modulation.wake();
+  };
+
   const end = () => {
     if (ended) return;
     ended = true;
+    if (joined) shared.leavePhrase(options.phrase);
     if (__PERF__) {
       counts[VOICES]--;
       counts[UNISON] -= unison;
@@ -1191,19 +1337,49 @@ export const createVoiceDsp = (
         outR.fill(0);
         return true;
       }
-      // the gate: 0 stops the voice at that sample, below 0 starts the fade of a stolen voice there
+      // before the gate: a release counts from the first sample
+      if (!started) start(params, a);
+      // the gate: released, the release of ENV 1 starts; held at another value or again, the envelopes start
+      // again; below 0 the fade of a stolen voice. Not past the end of the voice (it doesn't sound again)
       const gate = params.gate;
-      for (let i = a; gate && i < (gate.length > 1 ? n : a + 1); i++) {
+      for (let i = a; gate && i < (gate.length > 1 ? n : a + 1) && frame + i < stopFrame; i++) {
         const value = gate.length > 1 ? gate[i] : gate[0];
-        if (value > 0) continue;
-        if (value < 0) {
-          killFrom = Math.min(killFrom, frame + i);
-          stopFrame = Math.min(stopFrame, killFrom + killLength);
-        } else stopFrame = Math.min(stopFrame, frame + i);
+        if (value > 0 && value < RELEASE_GATE) {
+          if (value !== heldGate || released) {
+            retrigger(frame + i);
+            heldGate = value;
+          }
+          continue;
+        }
+        if (value >= 0) {
+          // the release, once: the voice stops where ENV 1 is back at 0. As long after its first sample (or
+          // its last start again) as the key was held, wherever the gate is seen (the node and the automation
+          // reach the audio thread each with a lag of its own), not before the sample it is seen at (the level
+          // would step), at most RELEASE_LEAD after it (a clock stalled while the key was held); 0: at that
+          // sample
+          if (!released) {
+            released = true;
+            const held = holdFrom + Math.round(Math.max(0, value - RELEASE_GATE) * sampleRate);
+            const at = releaseStart(frame + i, held, leadLength);
+            for (let k = 0; k < envelopes.length; k++) envelopes[k].release(at);
+            modulation.wake();
+            stopFrame = Math.min(stopFrame, amp.endFrame);
+          }
+          continue;
+        }
+        killFrom = Math.min(killFrom, frame + i);
+        stopFrame = Math.min(stopFrame, killFrom + killLength);
         break;
       }
       const b = Math.max(a, Math.min(n, stopFrame - frame));
-      if (!started) start(params, a);
+      // the envelopes the volume and the routes read, then the params they move: the knobs of the filter, then
+      // the params the routes move (their values replace the bases where they are read)
+      amp.render(frame, a, b);
+      if (modulation.active)
+        for (let k = 1; k < envelopes.length; k++)
+          if (modulation.renders(k, frame + b)) envelopes[k].render(frame, a, b);
+      if (filter.on) filter.glide(n);
+      if (modulation.active) modulation.apply(params, frame, a, b, n);
       const { left, right, center } = scratch;
       left.fill(0, a, b);
       right.fill(0, a, b);
@@ -1211,14 +1387,43 @@ export const createVoiceDsp = (
       if (b > a) oscs.forEach((osc) => renderOsc(osc, params, a, b, left, right, center));
       outL.fill(0);
       outR.fill(0);
-      for (let i = a; i < b; i++) {
-        outL[i] = left[i] + center[i];
-        outR[i] = right[i] + center[i];
+      // × ENV 1, through the filter while it is on (both channels, the middle voices of odd unisons added into
+      // them)
+      if (filter.on)
+        filter.process(
+          left,
+          right,
+          center,
+          outL,
+          outR,
+          a,
+          b,
+          amp.constant ? null : amp.values,
+          amp.values[a]
+        );
+      else if (amp.constant && amp.values[a] === 1) {
+        // on a sustain at full level, as the voice played before its envelope
+        for (let i = a; i < b; i++) {
+          outL[i] = left[i] + center[i];
+          outR[i] = right[i] + center[i];
+        }
+      } else if (amp.constant) {
+        const g = amp.values[a];
+        for (let i = a; i < b; i++) {
+          outL[i] = (left[i] + center[i]) * g;
+          outR[i] = (right[i] + center[i]) * g;
+        }
+      } else {
+        const values = amp.values;
+        for (let i = a; i < b; i++) {
+          outL[i] = (left[i] + center[i]) * values[i];
+          outR[i] = (right[i] + center[i]) * values[i];
+        }
       }
-      // the fade of a stolen voice: from 1 at killFrom to 0 at the stop
+      // the fade of a stolen voice: a raised cosine from 1 at killFrom to 0 at the stop
       if (killFrom !== Infinity) {
         for (let i = Math.max(a, killFrom - frame); i < b; i++) {
-          const gain = 1 - (frame + i - killFrom) / killLength;
+          const gain = 0.5 + 0.5 * Math.cos((Math.PI * (frame + i - killFrom)) / killLength);
           outL[i] *= gain;
           outR[i] *= gain;
         }
@@ -1229,6 +1434,10 @@ export const createVoiceDsp = (
       }
       return true;
     },
+    // the routes of the playing note changed: the amounts glide
+    setRoutes: modulation.set,
+    // the knobs of the filter changed: they glide (null: off)
+    setFilter: filter.set,
     // ends the voice at once (its process threw): the versions and the mixes it holds are given back
     end,
     get ended() {

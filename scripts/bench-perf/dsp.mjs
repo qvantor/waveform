@@ -124,6 +124,12 @@ const createCases = (dsp) => {
     const options = {
       osc: oscs.map((unison) => (unison ? { table: 'a', unison, phase: 0, phaseRand: 1 } : null)),
       start: 0,
+      // ENV 1 at full level, no route, no filter: the oscillators as they play
+      envelopes: [0, 1, 2].map(() => ({ attack: 0, hold: 0, decay: 0, sustain: 1, release: 0 })),
+      envStart: 0,
+      phrase: 0,
+      routes: [],
+      filter: null,
     };
     const voiceDsp = dsp.createVoiceDsp(RATE, options, store, Math.random, dsp.createVoiceShared());
     let frameAt = 0;

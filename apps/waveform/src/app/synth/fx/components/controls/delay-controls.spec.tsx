@@ -1,5 +1,7 @@
 import { render, screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
+import { withElementSize } from '../../../../../test-utils/element-size';
+import { createLiveRoutes } from '../../../../../test-utils/live-routes';
 import { DelayControls } from './delay-controls';
 
 const params = { mode: 0, pan: 0, time: 0.2, fb: 0.5, freq: 1000, q: 0.01 };
@@ -71,5 +73,34 @@ describe('DelayControls', () => {
     for (const name of ['Normal', 'Previous', 'Next'])
       expect(screen.getByRole('button', { name })).toBeDisabled();
     screen.getAllByRole('group').forEach((group) => expect(group).toHaveClass('disabled'));
+  });
+
+  it('the bandpass follows where the routes of Freq and Q move them while they sound', () => {
+    const restore = withElementSize(160, 80);
+    const line = (
+      changes: Partial<typeof params>,
+      Wrapper?: React.JSXElementConstructor<React.PropsWithChildren>
+    ) => {
+      const { unmount } = render(
+        <DelayControls params={{ ...params, ...changes }} setParam={jest.fn()} on sampleRate={48000} />,
+        { wrapper: Wrapper }
+      );
+      const d = screen.getByTestId('filter-response').querySelector('path')?.getAttribute('d');
+      unmount();
+      return d;
+    };
+    const { Wrapper, route, play } = createLiveRoutes();
+    // Freq 1000 → 2000 Hz in steps of 1/1000 of its travel (log 50..17000), Q 0.1 → 1 (log 0.01..3)
+    const octaves = Math.log2(17000 / 50);
+    const share = Math.round(((Math.log2(1000 / 50) + 1) / octaves) * 1000) / 1000;
+    const qOctaves = Math.log2(3 / 0.01);
+    const qShare = Math.round(((Math.log2(0.1 / 0.01) + Math.log2(10)) / qOctaves) * 1000) / 1000;
+    route('delay.freq', 2 / octaves);
+    route('delay.q', (2 * Math.log2(10)) / qOctaves);
+    play(0.5);
+    const moved = line({ q: 0.1 }, Wrapper);
+    expect(moved).toBe(line({ freq: 50 * 2 ** (share * octaves), q: 0.01 * 2 ** (qShare * qOctaves) }));
+    expect(moved).not.toBe(line({ q: 0.1 }));
+    restore();
   });
 });

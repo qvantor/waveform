@@ -13,6 +13,9 @@ interface Props {
 }
 
 const TooltipElementId = 'tooltip';
+// marks the element of a tooltip: a press on a control with a tooltip of its own inside it (the amount dot of a
+// knob) shows only that one
+const OWNER_ATTR = 'data-tooltip-owner';
 
 const TooltipWrapper = styled.div`
   position: fixed;
@@ -36,6 +39,7 @@ const handle = (
     case 'hold': {
       const trackPointer = singlePointerTracker();
       const showInternal = (e: PointerEvent) => {
+        if ((e.target as Element | null)?.closest?.(`[${OWNER_ATTR}]`) !== element) return;
         if (trackPointer(e, undefined, () => setShow(false))) setShow(true);
       };
       element.addEventListener('pointerdown', showInternal);
@@ -103,6 +107,7 @@ export const Tooltip = ({
 
   React.useEffect(() => {
     if (!refElement.current || !tooltipElement.current) return;
+    refElement.current.setAttribute(OWNER_ATTR, '');
     return handle(trigger, refElement.current, tooltipElement.current, setShow);
   }, [trigger]);
 

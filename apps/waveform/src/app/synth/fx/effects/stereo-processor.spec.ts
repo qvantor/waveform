@@ -53,4 +53,59 @@ describe('registerStereoProcessor', () => {
     expect(processor.process([[]], outputs)).toBe(false);
     expect(dsp.process).toHaveBeenCalledTimes(1);
   });
+
+  describe('modulation', () => {
+    const ENV = { attack: 0.1, hold: 0, decay: 0.1, sustain: 0.5, release: 0.2 };
+    const setupModulated = () => {
+      const dsp = { process: jest.fn() };
+      const onMessage = jest.fn();
+      const modulate = jest.fn();
+      registerStereoProcessor('modulated', () => dsp, onMessage, modulate);
+      const processor = new processors['modulated']({
+        processorOptions: { params: { drive: 2, tone: 8000 } },
+      });
+      const outputs = [[new Float32Array(128), new Float32Array(128)]];
+      const block = (seconds: number) => {
+        Object.assign(globalThis, { currentFrame: Math.round(seconds * 44100) });
+        processor.process([[]], outputs);
+      };
+      return { processor, dsp, onMessage, modulate, block };
+    };
+
+    it('sets the knobs its routes move once per block, from the knobs of its options', () => {
+      const { processor, dsp, modulate, block } = setupModulated();
+      block(0);
+      expect(modulate).not.toHaveBeenCalled();
+      processor.port.onmessage({
+        data: {
+          mod: {
+            note: { envelopes: [ENV, ENV, ENV], start: 1, release: null },
+            routes: [{ param: 'drive', env: 1, amount: 6, min: 0, max: 12 }],
+          },
+        },
+      });
+      block(1.1);
+      expect(modulate).toHaveBeenLastCalledWith(dsp, { drive: expect.closeTo(8, 3) });
+      block(2);
+      block(3);
+      expect(modulate).toHaveBeenCalledTimes(2);
+      expect(modulate).toHaveBeenLastCalledWith(dsp, { drive: 5 });
+    });
+
+    it('a posted knob its routes move goes to them, the others to the dsp', () => {
+      const { processor, dsp, onMessage, modulate, block } = setupModulated();
+      processor.port.onmessage({
+        data: {
+          mod: {
+            note: { envelopes: [ENV, ENV, ENV], start: 1, release: null },
+            routes: [{ param: 'drive', env: 1, amount: 6, min: 0, max: 12 }],
+          },
+        },
+      });
+      processor.port.onmessage({ data: { params: { drive: 4, tone: 5000 } } });
+      expect(onMessage).toHaveBeenLastCalledWith(dsp, { params: { tone: 5000 } });
+      block(5);
+      expect(modulate).toHaveBeenLastCalledWith(dsp, { drive: 7 });
+    });
+  });
 });

@@ -7,6 +7,7 @@ const createCore = (audioCtx: AudioContext, latency?: number): FxCore => ({
   output: audioCtx.createGain(),
   setParam: jest.fn(),
   setActive: jest.fn(),
+  setModulation: jest.fn(),
   destroy: jest.fn(),
   latency,
 });
@@ -105,5 +106,86 @@ describe('createFxSlot', () => {
     [slot.input, slot.output, slot.dry, slot.dryDelay, slot.wet, slot.send, slot.drain].forEach((node) =>
       expect(node?.disconnect).toHaveBeenCalled()
     );
+  });
+
+  describe('modulation', () => {
+    const ENV = { attack: 0.1, hold: 0, decay: 0.1, sustain: 0.5, release: 0.2 };
+    const note = { envelopes: [ENV, ENV, ENV], start: 1, release: null };
+    const mix = { param: 'mix', env: 1, amount: 0.4, min: 0, max: 1 };
+    const drive = { param: 'drive', env: 1, amount: 6, min: 0, max: 12 };
+    const calls = (param: AudioParam, method: keyof AudioParam) => (param[method] as jest.Mock).mock.calls;
+
+    it('moves a linear mix by ramps of both gains, gives the core the routes of its knobs', () => {
+      const audioCtx = new AudioContext();
+      const core = { ...createCore(audioCtx), linearMix: true };
+      const slot = createFxSlot(audioCtx, core);
+      slot.setMix(0.5, true);
+      slot.setModulation({ note, routes: [mix, drive] });
+      expect(core.setModulation).toHaveBeenLastCalledWith({ note, routes: [drive] });
+      // after the glide into it, at the top of the attack the mix is 0.9
+      expect(calls(slot.wet.gain, 'linearRampToValueAtTime')[1]).toEqual([
+        expect.closeTo(0.9, 9),
+        expect.closeTo(1.1, 9),
+      ]);
+      expect(calls(slot.dry.gain, 'linearRampToValueAtTime')[1]).toEqual([
+        expect.closeTo(0.1, 9),
+        expect.closeTo(1.1, 9),
+      ]);
+    });
+
+    it('moves an equal power mix by linear segments of both gains', () => {
+      const audioCtx = new AudioContext();
+      const slot = createFxSlot(audioCtx, createCore(audioCtx));
+      slot.setMix(0.5, true);
+      slot.setModulation({ note, routes: [mix] });
+      // the glide, the 15 segments of the attack, the mix at 0.9 at its top
+      expect(calls(slot.wet.gain, 'linearRampToValueAtTime')[15]).toEqual([
+        expect.closeTo(Math.sin((0.9 * Math.PI) / 2), 6),
+        expect.closeTo(1.1, 9),
+      ]);
+      expect(calls(slot.dry.gain, 'linearRampToValueAtTime')[15]).toEqual([
+        expect.closeTo(Math.cos((0.9 * Math.PI) / 2), 6),
+        expect.closeTo(1.1, 9),
+      ]);
+    });
+
+    it('a mix without routes glides from where it is: its ticks cancel nothing', () => {
+      const audioCtx = new AudioContext();
+      const slot = createFxSlot(audioCtx, createCore(audioCtx));
+      [0.2, 0.3, 0.4].forEach((value) => slot.setMix(value, true));
+      [slot.dry.gain, slot.wet.gain].forEach((gain) => {
+        expect(gain.cancelScheduledValues).not.toHaveBeenCalled();
+        expect(gain.cancelAndHoldAtTime).not.toHaveBeenCalled();
+      });
+      // the routes gone: their automation is left where it is once (at a point of its line now, what follows
+      // cancelled), then the ticks glide again
+      slot.setModulation({ note, routes: [mix] });
+      slot.setModulation(null);
+      const cancels = calls(slot.wet.gain, 'cancelScheduledValues').length;
+      expect(calls(slot.wet.gain, 'cancelScheduledValues').at(-1)).toEqual([
+        expect.closeTo(audioCtx.currentTime + 1e-4, 9),
+      ]);
+      slot.setMix(0.6, true);
+      slot.setMix(0.7, true);
+      expect(calls(slot.wet.gain, 'cancelScheduledValues')).toHaveLength(cancels);
+      expect((slot.wet.gain.setTargetAtTime as jest.Mock).mock.lastCall?.[0]).toBeCloseTo(
+        Math.sin((0.7 * Math.PI) / 2),
+        9
+      );
+    });
+
+    it('a knob of the mix without routes, bypassed or not ready glides to its value; the core gets null', () => {
+      const audioCtx = new AudioContext();
+      const core = createCore(audioCtx);
+      const slot = createFxSlot(audioCtx, core);
+      slot.setMix(0.5, true);
+      slot.setModulation({ note, routes: [mix] });
+      slot.setMix(0.5, false);
+      expect((slot.wet.gain.setTargetAtTime as jest.Mock).mock.lastCall?.[0]).toBe(0);
+      slot.setMix(0.5, true);
+      slot.setModulation(null);
+      expect(core.setModulation).toHaveBeenLastCalledWith(null);
+      expect((slot.wet.gain.setTargetAtTime as jest.Mock).mock.lastCall?.[0]).toBeCloseTo(Math.SQRT1_2, 9);
+    });
   });
 });

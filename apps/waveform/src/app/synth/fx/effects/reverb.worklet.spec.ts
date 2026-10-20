@@ -42,6 +42,21 @@ describe('reverb worklet', () => {
     expect(dsp.setActive.mock.calls).toEqual([[true], [false]]);
   });
 
+  it('sets the knobs the envelopes move as routed: they glide without their tape glide', () => {
+    const { processor, dsp, outputs } = setup();
+    const env = { attack: 0, hold: 0, decay: 1, sustain: 0, release: 0 };
+    processor.port.onmessage({
+      data: {
+        mod: {
+          note: { envelopes: [env, env, env], start: 0, release: null },
+          routes: [{ param: 'decay', env: 1, amount: 2, min: 0.1, max: 20 }],
+        },
+      },
+    });
+    processor.process([[]], outputs);
+    expect(dsp.set).toHaveBeenLastCalledWith({ decay: 4 }, true);
+  });
+
   it('stops after the effect is destroyed', () => {
     const { processor, dsp, outputs } = setup();
     processor.port.onmessage({ data: { stop: true } });

@@ -1,13 +1,20 @@
 import { distinctUntilChanged, map, combineLatest, shareReplay } from 'rxjs';
 import { isEqual, mapValues } from 'lodash';
-import { FX_MIX_PARAMS, FX_TYPES, FxType, fxSnapSchema } from '@waveform/preset-schema';
+import { FX_MIX_PARAMS, FX_TYPES, FxType, fxSnapSchema, MOD_SOURCES } from '@waveform/preset-schema';
 import { ArrayBS, ObjectBS, rxModel, rxModelReact } from '@waveform/rxjs-react';
 import { SynthCoreModule } from '../../common/modules/synth-core';
+import type { SynthModule } from '../../common/modules/synth';
+import type { ModRoute, ModulationModule } from '../../common/modules/modulation';
+import { amountInUnits, MOD_TARGETS } from '../../common/modulation/modulation-targets';
 import { urlSnapshotPlugin } from '../../../app';
 import { createFxSlot, FX_REGISTRY, FxSlot, FxStatus, isFxUsable } from '../effects';
+import type { FxModulation, FxNote, FxRoute } from '../effects/fx-modulation';
 
 interface Dependencies {
   synthCore: SynthCoreModule;
+  // the envelopes of the last note and the routes the fx knobs follow
+  synth: SynthModule;
+  modulation: ModulationModule;
 }
 
 interface FxState {
@@ -29,6 +36,27 @@ const defaultFxState = (type: FxType): FxState => ({
 const defaultEffects = () =>
   Object.fromEntries(FX_TYPES.map((type) => [type, defaultFxState(type)])) as Record<FxType, FxState>;
 
+// the routes to the knobs of an effect, in the units of its params; an amount of 0 is left out
+const fxRoutes = (routes: ModRoute[], type: FxType): FxRoute[] =>
+  routes.flatMap(({ source, target, amount }) => {
+    const definition = MOD_TARGETS[target];
+    if (definition?.kind !== 'fx' || definition.fx !== type || amount === 0) return [];
+    const [min, max] = definition.range;
+    const route: FxRoute = {
+      param: definition.param,
+      env: MOD_SOURCES.indexOf(source),
+      amount: amountInUnits(amount, definition.scale, definition.range),
+      min,
+      max,
+    };
+    return [definition.scale === 'log' ? { ...route, log: true } : route];
+  });
+
+// what an effect follows: nothing while it isn't active (in the chain, on and ready: an envelope is computed
+// only for an effect that sounds), has no route or no note was played yet
+const fxModulation = (routes: FxRoute[], note: FxNote | null, active: boolean): FxModulation | null =>
+  active && note && routes.length > 0 ? { note, routes } : null;
+
 // the added effects in the chain order; an unavailable one (unsupported or failed) stays added in the state,
 // so a preset keeps it, but is left out of the chain
 export const getChain = (
@@ -37,7 +65,11 @@ export const getChain = (
   status: Record<FxType, FxStatus>
 ) => order.filter((type) => effects[type].added && isFxUsable(status[type]));
 
-export const fx = ({ synthCore: [{ audioCtx, fxIn, fxOut }] }: Dependencies) =>
+export const fx = ({
+  synthCore: [{ audioCtx, fxIn, fxOut }],
+  synth: [{ $fxNote }],
+  modulation: [{ $routes }],
+}: Dependencies) =>
   rxModel(() => {
     const $order = new ArrayBS<FxType[]>([...FX_TYPES]);
     const $effects = new ObjectBS<Record<FxType, FxState>>(defaultEffects());
@@ -125,6 +157,26 @@ export const fx = ({ synthCore: [{ audioCtx, fxIn, fxOut }] }: Dependencies) =>
           prev = { mix, live, active, params };
         });
       }),
+      // the knobs follow the envelopes of the last note: each effect gets its routes and the note while it is
+      // active, once per change
+      ...FX_TYPES.map((type) =>
+        combineLatest([
+          $routes.pipe(
+            map((routes) => fxRoutes(routes, type)),
+            distinctUntilChanged<FxRoute[]>(isEqual)
+          ),
+          $fxNote.pipe(distinctUntilChanged<FxNote | null>(isEqual)),
+          combineLatest([$effects, $status]).pipe(
+            map(([effects, status]) => effects[type].added && effects[type].on && status[type] === 'ready'),
+            distinctUntilChanged()
+          ),
+        ])
+          .pipe(
+            map(([routes, note, active]) => fxModulation(routes, note, active)),
+            distinctUntilChanged<FxModulation | null>(isEqual)
+          )
+          .subscribe((mod) => slots[type].setModulation(mod))
+      ),
     ])
     .plugins(
       urlSnapshotPlugin({
