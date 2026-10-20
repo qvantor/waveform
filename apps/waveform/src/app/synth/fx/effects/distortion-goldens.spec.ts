@@ -1,28 +1,23 @@
-// first: the Math of the wasm core for the TS one (test-utils/js-math.ts)
+// first: the Math of JS as jsmath (test-utils/js-math.ts): the inputs and the levels the TS builds the same on every
+// machine (Node's own Math differs in the last bits on arm64), so are the goldens
 import '../../../../test-utils/js-math';
 import { FX_PARAMS } from '@waveform/preset-schema';
 import { pick, Random, randomBlocks, randomSignal, RATES, Signal } from '../../../../test-utils/fuzz-signals';
-import { createBitsHash, createGoldens, FUZZ_SCALE, runStereo } from '../../../../test-utils/parity';
+import { createGoldens, FUZZ_SCALE, runStereo } from '../../../../test-utils/parity';
 import { seeded } from '../../../../test-utils/seeded';
 import { wasmCore } from '../../../../test-utils/wasm';
-import { createDistortionDsp, DistortionDspParams, TONE_OPEN } from './distortion-dsp';
+import { DistortionDspParams, TONE_OPEN } from './distortion-params';
 import { DISTORTION_MODES } from './distortion-modes';
 import { createDistortionWasm, DISTORTION_KEYS, DistortionExports } from './distortion-wasm';
 
-// the Rust core of the distortion (dsp/distortion) against the TS one: the bits of every output sample of every
-// block, on the golden scenarios (their hashes in dsp/goldens/distortion.json) and on random ones. Its hard clip on
-// the 4× chain, as the TS (`hardRatio`); the 8× one, its sound, has goldens of its own from the Rust core
-// (dsp/goldens/distortion-8x.json: the scenarios with the hard clip)
+// the Rust core of the distortion (dsp/distortion): the bits of every output sample of every block on the golden
+// scenarios (their hashes in dsp/goldens/distortion.json), and random ones: finite
 
 const core = wasmCore<DistortionExports>('distortion');
 const goldens = createGoldens('distortion');
-const goldens8 = createGoldens('distortion-8x');
-afterAll(() => {
-  goldens.save();
-  goldens8.save();
-});
+afterAll(() => goldens.save());
 
-type Distortion = ReturnType<typeof createDistortionDsp>;
+type Distortion = ReturnType<typeof createDistortionWasm>;
 interface Scenario {
   rate: number;
   params: DistortionDspParams;
@@ -34,8 +29,7 @@ interface Scenario {
 
 const run = (name: string, { rate, params, blocks, input, changes = {} }: Scenario) =>
   runStereo<Distortion>(name, {
-    ts: createDistortionDsp(rate, { params }),
-    wasm: createDistortionWasm(core, rate, { params }, { hardRatio: 4 }) as Distortion,
+    core: createDistortionWasm(core, rate, { params }),
     blocks,
     input,
     before: (dsp, block) => changes[block]?.forEach((change) => dsp.set(change)),
@@ -151,60 +145,33 @@ const randomScenario = (random: Random): Scenario => {
   };
 };
 
-// the wasm core of production alone, block by block: the hash of its outputs
-const run8 = ({ rate, params, blocks, input, changes = {} }: Scenario) => {
-  const wasm = createDistortionWasm(core, rate, { params });
-  const hash = createBitsHash();
-  let frame = 0;
-  blocks.forEach((n, block) => {
-    const [inL, inR] = [0, 1].map((channel) =>
-      Float32Array.from({ length: n }, (_, i) => input(frame + i, channel))
-    );
-    const [outL, outR] = [new Float32Array(n), new Float32Array(n)];
-    changes[block]?.forEach((change) => wasm.set(change));
-    wasm.process(inL, inR, outL, outR);
-    hash.add(outL);
-    hash.add(outR, false);
-    frame += n;
-  });
-  wasm.free();
-  return hash.digest();
-};
-const HARD_GOLDEN = GOLDEN.filter(
-  ([, { params, changes = {} }]) =>
-    params.mode === 1 || Object.values(changes).some((list) => list.some(({ mode }) => mode === 1))
-);
-
 describe('distortion wasm core', () => {
-  it.each(HARD_GOLDEN)('%s: the 8× hard clip and its golden', (name, scenario) => {
-    goldens8.check(name, run8(scenario));
-  });
-
-  it.each(GOLDEN)('%s: the bits of the TS core and its golden', (name, scenario) => {
+  it.each(GOLDEN)('%s: its golden', (name, scenario) => {
     goldens.check(name, run(name, scenario));
   });
 
   const count = 600 * FUZZ_SCALE;
-  it(`renders ${count} random scenarios as the TS core, never NaN`, () => {
+  it(`renders ${count} random scenarios, finite`, () => {
     for (let seed = 1; seed <= count; seed++) run(`seed ${seed}`, randomScenario(seeded(seed)));
   });
 
-  it('is idle as the TS core', () => {
+  it('goes idle in the silences, sounds in between', () => {
     const [, scenario] = GOLDEN.find(([name]) => name.startsWith('idle')) as [string, Scenario];
-    const ts = createDistortionDsp(RATE, { params: scenario.params });
-    const wasm = createDistortionWasm(core, RATE, { params: scenario.params }, { hardRatio: 4 });
+    const wasm = createDistortionWasm(core, RATE, { params: scenario.params });
     let frame = 0;
-    let skipped = 0;
+    const idles: boolean[] = [];
     scenario.blocks.forEach((n) => {
       const input = Float32Array.from({ length: n }, (_, i) => scenario.input(frame + i, 0));
-      const outs = [0, 1, 2, 3].map(() => new Float32Array(n));
-      ts.process(input, input, outs[0], outs[1]);
-      wasm.process(input, input, outs[2], outs[3]);
-      expect(wasm.idle).toBe(ts.idle);
-      if (ts.idle) skipped++;
+      const outs = [0, 1].map(() => new Float32Array(n));
+      wasm.process(input, input, outs[0], outs[1]);
+      idles.push(wasm.idle);
       frame += n;
     });
-    expect(skipped).toBeGreaterThan(10);
+    // idle before the sound (4800 frames), awake through it, idle again after its tail
+    expect(idles[0]).toBe(true);
+    expect(idles[50]).toBe(false);
+    expect(idles.filter((idle) => idle).length).toBeGreaterThan(10);
+    expect(idles.at(-1)).toBe(true);
     wasm.free();
   });
 });

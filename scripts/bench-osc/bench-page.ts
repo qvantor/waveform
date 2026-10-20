@@ -6,10 +6,16 @@ import FFT from 'fft.js';
 import { wave } from '@waveform/math';
 import { buildLevels } from '../../apps/waveform/src/app/synth/common/wavetable/wavetable-mipmap';
 import type { WavetableLevels } from '../../apps/waveform/src/app/synth/common/wavetable/wavetable-levels';
+import bytes from '@waveform/wasm/wavetable-osc.wasm';
+import { instantiateCore } from '../../apps/waveform/src/app/synth/common/wasm/wasm-core';
 import {
-  createTableStore,
-  createVoiceDsp,
-} from '../../apps/waveform/src/app/synth/common/wavetable/wavetable-osc-dsp';
+  createOscScope,
+  createTableStoreWasm,
+  createVoiceSharedWasm,
+  createVoiceWasm,
+  OscExports,
+  OscScope,
+} from '../../apps/waveform/src/app/synth/common/wavetable/wavetable-osc-wasm';
 import {
   STORE_PROCESSOR,
   VOICE_PROCESSOR,
@@ -151,16 +157,23 @@ const oursRender = async (
   return [buffer.getChannelData(0), buffer.getChannelData(1)];
 };
 
-// the dsp itself in the page: stationary renders to compare a sweep against
-const dspRender = (
+// the core in the page (compiled once: not synchronously, a main thread may not compile a module of this size)
+let core: Promise<OscScope> | null = null;
+const coreScope = () =>
+  (core ??= WebAssembly.compile(bytes).then((module) => createOscScope(instantiateCore<OscExports>(module))));
+
+// the core itself in the page: stationary renders to compare a sweep against
+const dspRender = async (
   rate: number,
   levels: WavetableLevels,
   frames: number,
   params: Partial<Record<VoiceParam, number>>
 ) => {
-  const store = createTableStore();
+  const scope = await coreScope();
+  const store = createTableStoreWasm(scope);
   store.set('a', 1, levels);
-  const dsp = createVoiceDsp(
+  const dsp = createVoiceWasm(
+    scope,
     rate,
     {
       osc: [{ table: 'a', unison: 1, phase: 0, phaseRand: 0 }, null],
@@ -171,7 +184,9 @@ const dspRender = (
       routes: [],
       filter: null,
     },
-    store
+    store,
+    Math.random,
+    createVoiceSharedWasm(scope)
   );
   const values = Object.fromEntries(
     [
@@ -199,6 +214,8 @@ const dspRender = (
     dsp.process(frame, values, left, right);
     out.set(left.subarray(0, Math.min(BLOCK, frames - frame)), frame);
   }
+  dsp.end();
+  store.free();
   return out;
 };
 
@@ -411,7 +428,7 @@ const continuity = async ({ rate, name }: { rate: number; name: string }) => {
     stationary = Math.max(
       stationary,
       maxStep(
-        dspRender(rate, levels, 2048, {
+        await dspRender(rate, levels, 2048, {
           frequency: 220,
           position1: frames.length > 1 ? f / (frames.length - 1) : 0,
         })
@@ -428,7 +445,7 @@ const continuity = async ({ rate, name }: { rate: number; name: string }) => {
   for (let i = 0; i < 64; i++)
     glideStationary = Math.max(
       glideStationary,
-      maxStep(dspRender(rate, saw, 2048, { frequency: 55 * (7000 / 55) ** (i / 63) }))
+      maxStep(await dspRender(rate, saw, 2048, { frequency: 55 * (7000 / 55) ** (i / 63) }))
     );
 
   return {
@@ -455,7 +472,10 @@ const tableSwitch = async ({ rate, name }: { rate: number; name: string }) => {
   const done = at + Math.ceil(0.01 * rate) + BLOCK;
   let after = 0;
   for (let i = done; i < length; i++) after = Math.max(after, Math.abs(switched[i] - reference[i]));
-  const stationary = Math.max(maxStep(dspRender(rate, from, 4096, { frequency: 220 })), maxStep(reference));
+  const stationary = Math.max(
+    maxStep(await dspRender(rate, from, 4096, { frequency: 220 })),
+    maxStep(reference)
+  );
   return { step: maxStep(switched) / stationary, afterCrossfade: after };
 };
 

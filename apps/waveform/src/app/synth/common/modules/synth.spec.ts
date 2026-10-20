@@ -7,7 +7,7 @@ import { WorkerStub } from '../../../../test-utils/worker-stub';
 import { getFq } from '../../services';
 import { RELEASE_GATE, VOICE_PROCESSOR } from '../wavetable/wavetable-osc-params';
 import { envelopeValue, withCurves } from '../envelope/envelope-curve';
-import type { VoiceOptions } from '../wavetable/wavetable-osc-dsp';
+import type { VoiceOptions } from '../wavetable/voice-options';
 import { glideValue } from './glide';
 
 interface VoiceNode extends AudioWorkletNode {

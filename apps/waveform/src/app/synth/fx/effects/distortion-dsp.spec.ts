@@ -1,29 +1,33 @@
-// first: the Math of the wasm core for both
-import '../../../../test-utils/js-math';
 import FFT from 'fft.js';
 import { FX_PARAMS } from '@waveform/preset-schema';
+import { makeupGain } from '../../../../test-utils/distortion-makeup';
 import { wasmCore } from '../../../../test-utils/wasm';
 import {
-  createDistortionDsp,
   DC_CUTOFF,
   DISTORTION_LATENCY,
   DistortionDspParams,
+  DistortionOptions,
+  REFERENCE_PEAK,
   TONE_OPEN,
-} from './distortion-dsp';
-import { makeupGain, REFERENCE_PEAK } from './distortion-makeup';
+} from './distortion-params';
 import { DISTORTION_MODES } from './distortion-modes';
 import { createDistortionWasm, DistortionExports } from './distortion-wasm';
-import { createDcBlocker } from './dsp';
 
-type CreateDistortion = typeof createDistortionDsp;
-// both cores: the TS one and the Rust one (dsp/distortion), one instance of it for the spec (a scope)
+// the Rust core (dsp/distortion), one instance of it for the spec (a scope)
 const core = wasmCore<DistortionExports>('distortion');
-const CORES: [string, CreateDistortion][] = [
-  ['ts', createDistortionDsp],
-  ['wasm', (sampleRate, options) => createDistortionWasm(core, sampleRate, options)],
-];
-// the core the specs run (describe.each sets it)
-let create: CreateDistortion = createDistortionDsp;
+const create = (sampleRate: number, options: DistortionOptions) =>
+  createDistortionWasm(core, sampleRate, options);
+
+// the dc blocker of the last stage (one pole at DC_CUTOFF), in place
+const dcBlock = (data: Float64Array) => {
+  const r = Math.exp((-2 * Math.PI * DC_CUTOFF) / SAMPLE_RATE);
+  let [x1, y1] = [0, 0];
+  for (let i = 0; i < data.length; i++) {
+    y1 = data[i] - x1 + r * y1;
+    x1 = data[i];
+    data[i] = y1;
+  }
+};
 
 const SAMPLE_RATE = 48000;
 const BLOCK = 128;
@@ -164,11 +168,7 @@ const unblock = (data: Float32Array) => {
   return out;
 };
 
-describe.each(CORES)('distortion dsp, %s core', (coreName, coreOf) => {
-  beforeAll(() => {
-    create = coreOf;
-  });
-
+describe('the distortion', () => {
   it('the open tone is the top of the tone range', () => {
     expect(TONE_OPEN).toBe(FX_PARAMS.distortion.tone.max);
   });
@@ -187,7 +187,7 @@ describe.each(CORES)('distortion dsp, %s core', (coreName, coreOf) => {
     const expected = Float64Array.from({ length: 4800 }, (_, i) =>
       i < DISTORTION_LATENCY ? 0 : input(i - DISTORTION_LATENCY)
     );
-    createDcBlocker(DC_CUTOFF, SAMPLE_RATE).processBlock(expected, expected.length);
+    dcBlock(expected);
     for (let i = 2 * DISTORTION_LATENCY; i < 4800; i++) {
       expect(Math.abs(out[i] - expected[i])).toBeLessThan(0.002);
     }
@@ -259,17 +259,10 @@ describe.each(CORES)('distortion dsp, %s core', (coreName, coreOf) => {
   });
 
   it.each([
-    // a high note hit hard: its harmonics above the nyquist would fold back as inharmonic tones. The Rust core
-    // oversamples the hard clip 8× (-62.8 dB, the TS 4×: -50.2 dB; at 10 kHz -56.7 and -44.5 dB)
-    {
-      name: 'hard clip of 7 kHz',
-      mode: HARD,
-      k0: 1195,
-      drive: 12,
-      better: 20,
-      below: { ts: -45, wasm: -60 },
-    },
-    { name: 'soft clip of 2 kHz', mode: SOFT, k0: 341, drive: 12, better: 25, below: { ts: -95, wasm: -95 } },
+    // a high note hit hard: its harmonics above the nyquist would fold back as inharmonic tones. The hard clip
+    // is oversampled 8× (-62.8 dB; at 4×, as the TS core did, -50.2 dB; at 10 kHz -56.7 and -44.5 dB)
+    { name: 'hard clip of 7 kHz', mode: HARD, k0: 1195, drive: 12, better: 20, below: -60 },
+    { name: 'soft clip of 2 kHz', mode: SOFT, k0: 341, drive: 12, better: 25, below: -95 },
   ])('$name keeps the aliases far below the ones of a naive curve', ({ mode, k0, drive, better, below }) => {
     const input = sine(binFreq(k0), 0.5);
     const { L } = render({ mode, drive }, 2 * N, input);
@@ -278,7 +271,7 @@ describe.each(CORES)('distortion dsp, %s core', (coreName, coreOf) => {
     const naive = Array.from({ length: 2 * N }, (_value, i) => shape(input(i) * gain));
     const oversampled = aliasDb(L, N, k0);
     expect(oversampled).toBeLessThan(aliasDb(naive, N, k0) - better);
-    expect(oversampled).toBeLessThan(below[coreName as 'ts' | 'wasm']);
+    expect(oversampled).toBeLessThan(below);
   });
 
   it('level scales the output', () => {

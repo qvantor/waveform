@@ -1,11 +1,16 @@
-import type { VoiceFilterMessage, VoiceFilterOptions } from './voice-filter';
-import type { VoiceRoute, VoiceRoutesMessage } from './voice-modulation';
-import type { VoiceEndedMessage, VoiceOptions, VoiceStartedMessage } from './wavetable-osc-dsp';
+import type {
+  VoiceEndedMessage,
+  VoiceFilterMessage,
+  VoiceFilterOptions,
+  VoiceOptions,
+  VoiceRoute,
+  VoiceRoutesMessage,
+  VoiceStartedMessage,
+} from './voice-options';
 import { VOICE_PARAMETERS, VoiceParam } from './wavetable-osc-params';
 
-// the voice processor of the wavetable oscillator worklets (wavetable-osc.worklet.ts with the TS core,
-// wavetable-osc.wasm.worklet.ts with the Rust one): no import of a core, each worklet passes its dsp. It runs in
-// the AudioWorkletGlobalScope: no window, document or React
+// the voice processor of the wavetable oscillator worklet (wavetable-osc.worklet.ts): no import of the core, the
+// worklet passes its voices. It runs in the AudioWorkletGlobalScope: no window, document or React
 
 declare const currentFrame: number;
 export interface AudioWorkletProcessor {

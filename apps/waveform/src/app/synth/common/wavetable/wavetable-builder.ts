@@ -1,6 +1,6 @@
 import { buildLevels, tableBytes } from './wavetable-mipmap';
 import type { WavetableLevels } from './wavetable-levels';
-import type { StatsRequest, StoreFreedMessage, StoreTableMessage } from './wavetable-osc-dsp';
+import type { StatsRequest, StoreFreedMessage, StoreTableMessage } from './voice-options';
 
 // the worker that builds the levels of the tables (wavetable.worker.ts): the main thread posts it the port of
 // the store (a MessageChannel to the store processor of the worklet) and the frames of each new version of a

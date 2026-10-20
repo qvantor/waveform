@@ -1,16 +1,11 @@
 import { mapValues, noop } from 'lodash';
 import { FX_PARAMS } from '@waveform/preset-schema';
+import { DISTORTION_PROCESSOR } from '../../common/processors';
 import { FxDefinition } from './types';
 import { DistortionParam, DISTORTION_PRESETS } from './distortion-presets';
 import { formatDb, formatHz } from './format';
 import { DISTORTION_MODES } from './distortion-modes';
-import {
-  DISTORTION_LATENCY,
-  DISTORTION_PROCESSOR,
-  DistortionMessage,
-  DistortionOptions,
-  TONE_OPEN,
-} from './distortion-dsp';
+import { DISTORTION_LATENCY, DistortionMessage, DistortionOptions, TONE_OPEN } from './distortion-params';
 import { createWorkletFx, STEREO_WORKLET_OPTIONS } from './worklet-fx';
 import type { FxModMessage } from './fx-modulation';
 

@@ -12,12 +12,19 @@ const RATE = 48000;
 const SAMPLES = 7;
 
 const ENTRY = `
-export { createVoiceDsp, createVoiceShared, createTableStore } from './apps/waveform/src/app/synth/common/wavetable/wavetable-osc-dsp';
 export { buildLevels } from './apps/waveform/src/app/synth/common/wavetable/wavetable-mipmap';
-export { createReverbDsp } from './apps/waveform/src/app/synth/fx/effects/reverb-dsp';
-export { createDistortionDsp } from './apps/waveform/src/app/synth/fx/effects/distortion-dsp';
-export { createLimiterDsp } from './apps/waveform/src/app/synth/common/limiter/limiter-dsp';
 `;
+
+// the TS cores of a tree that has them (before stage 5 of the plan: an A/B run against main of that time)
+const TS_CORES = [
+  {
+    module: 'apps/waveform/src/app/synth/common/wavetable/wavetable-osc-dsp',
+    create: 'createVoiceDsp, createVoiceShared, createTableStore',
+  },
+  { module: 'apps/waveform/src/app/synth/fx/effects/reverb-dsp', create: 'createReverbDsp' },
+  { module: 'apps/waveform/src/app/synth/fx/effects/distortion-dsp', create: 'createDistortionDsp' },
+  { module: 'apps/waveform/src/app/synth/common/limiter/limiter-dsp', create: 'createLimiterDsp' },
+];
 
 // the Rust cores (dsp/, `npm run wasm`: tmp/wasm, as in production) of the tree that has them: its facade and
 // the bytes of the core
@@ -52,8 +59,12 @@ const loadDsp = async (source = root, name) => {
       fs.existsSync(path.join(source, `${facade}.ts`)) &&
       fs.existsSync(path.join(source, `tmp/wasm/${core}.wasm`))
   );
-  const contents = `${ENTRY}${cores
-    .map(({ facade, create }) => `export { ${create} } from './${facade}';\n`)
+  const ts = TS_CORES.filter(({ module }) => fs.existsSync(path.join(source, `${module}.ts`)));
+  const contents = `${ENTRY}${[
+    ...ts.map(({ module, create }) => [module, create]),
+    ...cores.map(({ facade, create }) => [facade, create]),
+  ]
+    .map(([module, create]) => `export { ${create} } from './${module}';\n`)
     .join('')}`;
   const dsp = await loadApp({ source, contents, name });
   const wasm = Object.fromEntries(
@@ -165,9 +176,9 @@ const createCases = (dsp) => {
   const outL = new Float32Array(BLOCK);
   const outR = new Float32Array(BLOCK);
   // the voices: a table of 16 frames (the cost of a voice doesn't depend on their count), in the store of each core
-  const store = dsp.createTableStore();
+  const store = dsp.createTableStore?.();
   const levels = dsp.buildLevels(Array.from({ length: 16 }, (_, k) => frame(k)));
-  store.set('a', 1, levels);
+  store?.set('a', 1, levels);
   const oscScope = dsp.wasm['wavetable-osc'] && dsp.createOscScope(dsp.wasm['wavetable-osc']);
   const wasmStore = oscScope && dsp.createTableStoreWasm(oscScope);
   wasmStore?.set('a', 1, levels);
@@ -261,9 +272,13 @@ const createCases = (dsp) => {
         'voice u8 moving position': [[8, null], movingPosition],
       },
       oscScope && voiceOf('wasm'),
-      voiceOf('ts')
+      store && voiceOf('ts')
     ),
-    ...withTs({ 'voice chord attack': [] }, oscScope && (() => chordOf('wasm')), () => chordOf('ts')),
+    ...withTs(
+      { 'voice chord attack': [] },
+      oscScope && (() => chordOf('wasm')),
+      store && (() => chordOf('ts'))
+    ),
     'build 256 frames': {
       build: () => {
         const start = process.hrtime.bigint();
@@ -279,7 +294,9 @@ const createCases = (dsp) => {
             () => dsp.createReverbWasm(dsp.wasm.reverb, RATE, { params: REVERB, active: true }).process,
             source
           )),
-      (source) => effect(() => dsp.createReverbDsp(RATE, { params: REVERB, active: true }).process, source)
+      dsp.createReverbDsp &&
+        ((source) =>
+          effect(() => dsp.createReverbDsp(RATE, { params: REVERB, active: true }).process, source))
     ),
     ...withTs(
       { 'distortion soft': [0], 'distortion hard': [1] },
@@ -289,7 +306,8 @@ const createCases = (dsp) => {
             () => dsp.createDistortionWasm(dsp.wasm.distortion, RATE, distortionParams(mode)).process,
             input
           )),
-      (mode) => effect(() => dsp.createDistortionDsp(RATE, distortionParams(mode)).process, input)
+      dsp.createDistortionDsp &&
+        ((mode) => effect(() => dsp.createDistortionDsp(RATE, distortionParams(mode)).process, input))
     ),
     ...withTs(
       {
@@ -298,23 +316,19 @@ const createCases = (dsp) => {
       },
       dsp.wasm.limiter &&
         ((source) => effect(() => dsp.createLimiterWasm(dsp.wasm.limiter, RATE).process, source)),
-      (source) => effect(() => dsp.createLimiterDsp(RATE).process, source)
+      dsp.createLimiterDsp && ((source) => effect(() => dsp.createLimiterDsp(RATE).process, source))
     ),
   };
 };
 
-// the cases of a module: with its wasm core they run it (an A/B run against a tree without it compares the cores) and
-// '<case> (ts)' its TS core, else they run the TS core
+// the cases of a module: with its wasm core they run it (an A/B run against a tree without it compares the cores),
+// with its TS core too as '<case> (ts)' (a tree of the port, before stage 5), with the TS core alone that one
 const withTs = (sources, wasm, ts) =>
   Object.fromEntries(
-    Object.entries(sources).flatMap(([name, args]) =>
-      wasm
-        ? [
-            [name, wasm(...args)],
-            [`${name} (ts)`, ts(...args)],
-          ]
-        : [[name, ts(...args)]]
-    )
+    Object.entries(sources).flatMap(([name, args]) => [
+      ...(wasm ? [[name, wasm(...args)]] : []),
+      ...(ts ? [[wasm ? `${name} (ts)` : name, ts(...args)]] : []),
+    ])
   );
 
 // `reference`: the worktree of the reference of an A/B run (reference.mjs), its samples alternate with ours

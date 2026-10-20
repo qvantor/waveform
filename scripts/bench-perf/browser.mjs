@@ -5,11 +5,13 @@ import { SCENE_RATE, sleep } from './util.mjs';
 
 // headed by default: the audio output of headless Chromium is muted (its callbacks and latency are not real);
 // a headless Chromium is the same binary (channel 'chromium', not the headless shell): its processes are found
-// by the same folder
-export const launch = async (playwright, name, { headless = false } = {}) => {
+// by the same folder. `fakeOutput`: Chromium renders into a fake output stream of its own clock, not the device of
+// the machine (a device that delivers no callbacks stops every context after 2 quanta)
+export const launch = async (playwright, name, { headless = false, fakeOutput = false } = {}) => {
   const options = { headless };
   if (name === 'chromium') {
     options.args = ['--autoplay-policy=no-user-gesture-required'];
+    if (fakeOutput) options.args.push('--disable-audio-output');
     if (headless) options.channel = 'chromium';
   }
   const browser = await playwright[name].launch(options);

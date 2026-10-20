@@ -1,10 +1,9 @@
 // the parity of the wasm cores in the browsers (manual, as bench-osc: `npx -y -p playwright@1.50.1 node
 // scripts/wasm-browsers/run.mjs [--browsers=chromium,webkit,firefox] [--only=<scene>]`, after `npm run wasm` and
-// `npm run worklets`): every scene renders in an OfflineAudioContext with the worklet bundles of the app, the
-// wasm one and the JS one, and in Node with the wasm core alone (tmp/wasm); the wasm worklet must give the bits of
-// Node in every browser (jsmath: the same Math everywhere), the JS one shows how far the Math of each engine is.
-// The params go only through processorOptions (a message would arrive in an unpredictable block). Exit 1 when a
-// wasm render differs
+// `npm run worklets`): every scene renders in an OfflineAudioContext with the worklet bundle of the app and in Node
+// with its wasm core alone (tmp/wasm); the worklet must give the bits of Node in every browser (jsmath: the same
+// Math everywhere). The params go only through processorOptions (a message would arrive in an unpredictable block).
+// Exit 1 when a render differs
 import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
@@ -15,8 +14,8 @@ const args = parseArgs(process.argv.slice(2));
 const browsers = (args.browsers ?? 'chromium,webkit,firefox').split(',');
 const scenes = SCENES.filter(({ name }) => !args.only || name.includes(args.only));
 const worklets = path.join(root, 'tmp/worklets');
-if (!fs.existsSync(path.join(worklets, 'limiter.wasm.js')))
-  throw new Error('tmp/worklets has no wasm bundles: run `npm run wasm && npm run worklets` first');
+if (!fs.existsSync(path.join(worklets, 'limiter.js')))
+  throw new Error('tmp/worklets has no bundles: run `npm run wasm && npm run worklets` first');
 
 // the worklet bundles and an empty page on localhost (a secure context: AudioWorklet)
 const server = http.createServer((request, response) => {
@@ -174,8 +173,8 @@ try {
             data: toBase64(data),
           })
         );
-      for (const core of ['wasm', 'js']) {
-        const bundle = core === 'wasm' ? `${scene.module}.wasm` : scene.module;
+      {
+        const bundle = scene.module;
         let result;
         try {
           const rendered = await (scene.kind === 'osc'
@@ -188,10 +187,10 @@ try {
         } catch (error) {
           result = { error: error.message.split('\n')[0] };
         }
-        if (core === 'wasm' && (result.error || result.count > 0)) failed = true;
-        rows.push({ browser: name, scene: scene.name, core, ...result });
+        if (result.error || result.count > 0) failed = true;
+        rows.push({ browser: name, scene: scene.name, ...result });
         console.log(
-          `${name.padEnd(9)} ${core.padEnd(5)} ${scene.name.padEnd(36)} ${
+          `${name.padEnd(9)} ${scene.name.padEnd(36)} ${
             result.error
               ? `error: ${result.error}`
               : `${result.count} samples differ${result.count ? ` (first ${result.first})` : ''}`
@@ -207,7 +206,7 @@ try {
 fs.mkdirSync(path.join(root, 'tmp/wasm-browsers'), { recursive: true });
 fs.writeFileSync(path.join(root, 'tmp/wasm-browsers/report.json'), JSON.stringify(rows, null, 2));
 if (failed) {
-  console.error('a wasm worklet differs from its core in Node');
+  console.error('a worklet differs from its core in Node');
   process.exit(1);
 }
-console.log('every wasm worklet renders the bits of its core in Node');
+console.log('every worklet renders the bits of its core in Node');

@@ -1,57 +1,62 @@
 import { installWorkletScope } from '../../../../test-utils/worklet-scope';
-import { createDistortionDsp, DISTORTION_PROCESSOR, DistortionOptions } from './distortion-dsp';
-
-jest.mock('./distortion-dsp', () => ({
-  ...jest.requireActual('./distortion-dsp'),
-  createDistortionDsp: jest.fn(() => ({ set: jest.fn(), process: jest.fn() })),
-}));
+import { DISTORTION_PROCESSOR } from '../../common/processors';
+import { DistortionDspParams } from './distortion-params';
 
 const processors = installWorkletScope(48000);
 
-const OPTIONS: DistortionOptions = { params: { mode: 1, drive: 6, tone: 8000, level: -3 } };
+const PARAMS: DistortionDspParams = { mode: 1, drive: 0, tone: 20000, level: 0 };
 
-const setup = () => {
-  const processor = new processors[DISTORTION_PROCESSOR]({ processorOptions: OPTIONS });
-  const dsp = (createDistortionDsp as jest.Mock).mock.results.at(-1)?.value;
-  const outputs = [[new Float32Array(128), new Float32Array(128)]];
-  return { processor, dsp, outputs };
+const block = (value: (i: number) => number) => Float32Array.from({ length: 128 }, (_, i) => value(i));
+const loudest = (data: Float32Array) => data.reduce((max, value) => Math.max(max, Math.abs(value)), 0);
+
+// the peak of the output over `blocks` blocks of a sine 6 dB over the curve
+const peakOf = (
+  processor: { process: (i: Float32Array[][], o: Float32Array[][]) => boolean },
+  blocks = 8
+) => {
+  let peak = 0;
+  for (let i = 0; i < blocks; i++) {
+    const out = [[new Float32Array(128), new Float32Array(128)]];
+    processor.process([[block((n) => 2 * Math.sin((i * 128 + n) / 9))]], out);
+    if (i >= blocks / 2) peak = Math.max(peak, loudest(out[0][0]));
+  }
+  return peak;
 };
 
-describe('distortion worklet', () => {
+describe('distortion wasm worklet', () => {
   beforeAll(() => import('./distortion.worklet'));
 
-  it('registers the distortion processor, its dsp starts with the node options at the context rate', () => {
+  it('registers the distortion processor with the Rust core, started with the node options', () => {
     expect(processors[DISTORTION_PROCESSOR]).toBeDefined();
-    setup();
-    expect(createDistortionDsp).toHaveBeenLastCalledWith(48000, OPTIONS);
+    const clipped = new processors[DISTORTION_PROCESSOR]({ processorOptions: { params: PARAMS } });
+    // hard clip at ±1, no makeup without drive (the oversampling filters ring a little over it)
+    expect(peakOf(clipped)).toBeLessThan(1.2);
+    expect(peakOf(clipped)).toBeGreaterThan(0.9);
   });
 
-  it('renders both input channels into both outputs', () => {
-    const { processor, dsp, outputs } = setup();
-    const [inL, inR] = [new Float32Array(128), new Float32Array(128)];
-    expect(processor.process([[inL, inR]], outputs)).toBe(true);
-    expect(dsp.process).toHaveBeenCalledWith(inL, inR, ...outputs[0]);
+  it('applies the posted params and the knobs the envelopes move', () => {
+    const processor = new processors[DISTORTION_PROCESSOR]({ processorOptions: { params: PARAMS } });
+    processor.port.onmessage({ data: { params: { level: -12 } } });
+    expect(peakOf(processor)).toBeLessThan(0.3);
+    const routed = new processors[DISTORTION_PROCESSOR]({ processorOptions: { params: PARAMS } });
+    routed.port.onmessage({
+      data: {
+        mod: {
+          note: {
+            start: 0,
+            release: null,
+            envelopes: [0, 1, 2].map(() => ({ attack: 0, hold: 0, decay: 0, sustain: 1, release: 0 })),
+          },
+          routes: [{ env: 1, param: 'level', amount: -12, min: -24, max: 12 }],
+        },
+      },
+    });
+    expect(peakOf(routed, 16)).toBeLessThan(0.3);
   });
 
-  it('a mono input feeds both sides', () => {
-    const { processor, dsp, outputs } = setup();
-    const input = new Float32Array(128);
-    processor.process([[input]], outputs);
-    expect(dsp.process).toHaveBeenCalledWith(input, input, ...outputs[0]);
-  });
-
-  it('applies the posted params', () => {
-    const { processor, dsp } = setup();
-    processor.port.onmessage({ data: { params: { drive: 12 } } });
-    processor.port.onmessage({ data: { params: { mode: 0, tone: 500 } } });
-    expect(dsp.set.mock.calls).toEqual([[{ drive: 12 }], [{ mode: 0, tone: 500 }]]);
-  });
-
-  it('stops after the effect is destroyed', () => {
-    const { processor, dsp, outputs } = setup();
+  it('ends once stopped', () => {
+    const processor = new processors[DISTORTION_PROCESSOR]({ processorOptions: { params: PARAMS } });
     processor.port.onmessage({ data: { stop: true } });
-    expect(processor.process([[]], outputs)).toBe(false);
-    expect(dsp.process).not.toHaveBeenCalled();
-    expect(dsp.set).not.toHaveBeenCalled();
+    expect(processor.process([[]], [[new Float32Array(128), new Float32Array(128)]])).toBe(false);
   });
 });

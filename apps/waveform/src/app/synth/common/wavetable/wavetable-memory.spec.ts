@@ -1,5 +1,5 @@
 import { createSynth } from '../../../../test-utils/models';
-import { BLOCK, createVoiceScope, createWasmVoiceScope } from '../../../../test-utils/voice-dsp';
+import { BLOCK, createVoiceScope } from '../../../../test-utils/voice-dsp';
 import { wasmCore } from '../../../../test-utils/wasm';
 import { WorkerStub } from '../../../../test-utils/worker-stub';
 import { createTableBuilder } from './wavetable-builder';
@@ -12,13 +12,7 @@ import {
   MAX_HARMONICS,
   tableBytes,
 } from './wavetable-mipmap';
-import {
-  createTableStore,
-  CROSSFADE,
-  nativeTableLength,
-  StoreTableMessage,
-  VoiceOscOptions,
-} from './wavetable-osc-dsp';
+import { CROSSFADE, nativeTableLength, VoiceOscOptions } from './voice-options';
 import {
   createOscScope,
   createStoreReceiver,
@@ -28,8 +22,8 @@ import {
 } from './wavetable-osc-wasm';
 
 // the memory of the wavetable oscillator worked out (it replaces the memory checks of the browser suite but the
-// footprint of the heavy patch, S5): the bytes of a table, the versions the store holds while voices play a
-// replaced one, the buffers the worker keeps for reuse, the mix tables of the voices
+// footprint of the heavy patch, S5): the bytes of a table, the versions the store of the core holds while voices
+// play a replaced one, the memory of the core, the mix tables of the voices
 
 const RATE = 48000;
 const MB = 1e6;
@@ -44,39 +38,6 @@ const SAW = saw(1);
 // a table of 3 frames: the same layout per frame as a table of 256 (every frame of 2048 samples has 1023
 // harmonics)
 const frames = (version: number) => [SAW, SAW.map((v) => (v * version) / 8), SAW.map((v) => -v)];
-
-// the worker's builder and the store of the worklet wired together as their ports are, the builds run when
-// the test says so
-const createTables = () => {
-  const queue: (() => void)[] = [];
-  const reply = jest.fn();
-  const builder = createTableBuilder((run) => queue.push(run), reply);
-  // store → worker: the buffer of a freed version
-  const workerPort = { onmessage: null as null | ((event: MessageEvent) => void), postMessage: jest.fn() };
-  const store = createTableStore((levels) =>
-    workerPort.onmessage?.({ data: { freed: levels.data.buffer } } as MessageEvent)
-  );
-  const buffers = new Set<ArrayBuffer>();
-  // worker → store: a version built
-  workerPort.postMessage.mockImplementation((message: StoreTableMessage) => {
-    if (message.levels) {
-      buffers.add(message.levels.data.buffer as ArrayBuffer);
-      store.set(message.table, message.version, message.levels);
-    } else if (message.remove) store.remove(message.table);
-  });
-  builder.receive({ port: workerPort as unknown as MessagePort });
-  const build = () => queue.splice(0).forEach((run) => run());
-  const setTable = (table: string, version: number) => {
-    builder.receive({ table, version, frames: frames(version) });
-    build();
-  };
-  const pool = () => {
-    reply.mockClear();
-    builder.receive({ stats: true });
-    return reply.mock.calls[0][0].stats as { pooled: number; pool: number };
-  };
-  return { store, setTable, pool, buffers };
-};
 
 const OSCS: VoiceOscOptions[] = [
   { table: 'a', unison: 8, phase: 0.5, phaseRand: 1 },
@@ -98,60 +59,18 @@ describe('the memory of the wavetable oscillator', () => {
     expect(tableBytes(frames(1))).toBe(3 * frameBytes);
   });
 
-  it('a new version of both tables under a note: 2 versions a table during the crossfade, then 1', () => {
-    const { store, setTable, pool } = createTables();
-    const bytes = tableBytes(frames(1));
-    setTable('a', 1);
-    setTable('b', 1);
-    expect(store.stats()).toEqual({ tables: 2, versions: 2, bytes: 2 * bytes });
-    const scope = createVoiceScope({ rate: RATE, store });
-    const voice = scope.add(OSCS, NOTE);
-    Array.from({ length: 10 }, scope.block);
-    setTable('a', 2);
-    setTable('b', 2);
-    // the voice plays the old versions until it has crossfaded into the new ones
-    expect(store.stats()).toEqual({ tables: 2, versions: 4, bytes: 4 * bytes });
-    const crossfade = Math.ceil((CROSSFADE * RATE) / BLOCK);
-    Array.from({ length: crossfade - 1 }, scope.block);
-    expect(store.stats().versions).toBe(4);
-    scope.block();
-    expect(store.stats()).toEqual({ tables: 2, versions: 2, bytes: 2 * bytes });
-    // their buffers went back to the worker
-    expect(pool()).toEqual(expect.objectContaining({ pooled: 2, pool: 2 * bytes }));
-    voice.params.gate = 0;
-    scope.block();
-    expect(scope.alive()).toBe(0);
-    expect(store.stats()).toEqual({ tables: 2, versions: 2, bytes: 2 * bytes });
-  });
-
-  it('later versions reuse the freed buffers: 4 buffers of a table size in all, store and pool', () => {
-    const { store, setTable, pool, buffers } = createTables();
-    const bytes = tableBytes(frames(1));
-    setTable('a', 1);
-    setTable('b', 1);
-    const scope = createVoiceScope({ rate: RATE, store });
-    scope.add(OSCS, NOTE);
-    for (let version = 2; version <= 8; version++) {
-      setTable('a', version);
-      setTable('b', version);
-      Array.from({ length: 8 }, scope.block);
-      expect(store.stats().bytes + pool().pool).toBe(4 * bytes);
-    }
-    expect(buffers.size).toBe(4);
-  });
-
   it('the first switch of 2 tables of 256 frames adds 133.4 MB, within the 150 MB the browser suite allowed', () => {
-    // the store holds both versions of each table during the crossfade, the pool keeps the old ones
+    // the store holds both versions of each table during the crossfade, its slots keep the old ones
     const added = 2 * createLevels(MAX_FRAMES, MAX_HARMONICS).data.byteLength;
     expect(added / MB).toBeCloseTo(133.37, 2);
     expect(added).toBeLessThan(150 * MB);
   });
 
   it('a version that arrives during a crossfade waits for it: 3 versions of the table meanwhile', () => {
-    const { store, setTable } = createTables();
+    const { scope: core, store, setTable } = createWasmTables();
     setTable('a', 1);
     setTable('b', 1);
-    const scope = createVoiceScope({ rate: RATE, store });
+    const scope = createVoiceScope({ rate: RATE, store, scope: core });
     scope.add(OSCS, NOTE);
     Array.from({ length: 4 }, scope.block);
     setTable('a', 2);
@@ -166,10 +85,10 @@ describe('the memory of the wavetable oscillator', () => {
     [48000, 3148032],
     [96000, 12585216],
   ])('at %i Hz the mixes of the heavy chord take %i bytes, a chord after it reuses them', (rate, bytes) => {
-    const { store, setTable } = createTables();
+    const { scope: core, store, setTable } = createWasmTables();
     setTable('a', 1);
     setTable('b', 1);
-    const scope = createVoiceScope({ rate, store });
+    const scope = createVoiceScope({ rate, store, scope: core });
     const notes = Array.from({ length: 12 }, (_, i) => 110 * 2 ** (i / 12));
     // 192 unison voices, a mix of the length of a native table each
     expect(192 * (nativeTableLength(rate) + FRAME_GUARD) * 4).toBe(bytes);
@@ -265,7 +184,7 @@ describe('the memory of the wasm store', () => {
     const bytes = tableBytes(frames(1));
     setTable('a', 1);
     setTable('b', 1);
-    const voices = createWasmVoiceScope({ rate: RATE, scope, store });
+    const voices = createVoiceScope({ rate: RATE, scope, store });
     const voice = voices.add(OSCS, NOTE);
     Array.from({ length: 10 }, voices.block);
     setTable('a', 2);
@@ -284,7 +203,7 @@ describe('the memory of the wasm store', () => {
     const bytes = tableBytes(frames(1));
     setTable('a', 1);
     setTable('b', 1);
-    const voices = createWasmVoiceScope({ rate: RATE, scope, store });
+    const voices = createVoiceScope({ rate: RATE, scope, store });
     voices.add(OSCS, NOTE);
     const sizes: number[] = [];
     for (let version = 2; version <= 8; version++) {

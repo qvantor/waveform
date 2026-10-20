@@ -1,6 +1,7 @@
 name: Nightly
 
-# the long runs of the parity of the wasm cores (dsp/): the fuzzers of every core × FUZZ_SCALE (10⁶ scenarios in all)
+# the long runs of the fuzzers of the wasm cores (dsp/): the random scenarios of every core × FUZZ_SCALE (10⁶ in all),
+# finite and keeping the properties of its core
 # and jsmath against the Math of Node over 10⁷ inputs of each function (x64: bit for bit)
 on:
   schedule:
@@ -8,7 +9,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  parity:
+  fuzz:
     runs-on: ubuntu-latest
     timeout-minutes: 300
     steps:
@@ -31,6 +32,6 @@ jobs:
           restore-keys: cargo-${{ runner.os }}-
       - run: npm run wasm
       - name: Fuzz the cores
-        run: FUZZ_SCALE=250 npx jest -c apps/waveform/jest.config.ts --testPathPattern='parity\.spec' --testTimeout=18000000
+        run: FUZZ_SCALE=250 npx jest -c apps/waveform/jest.config.ts --testPathPattern='goldens\.spec' --testTimeout=18000000
       - name: jsmath against Node
         run: FUZZ_SCALE=50 npx jest -c apps/waveform/jest.config.ts --testPathPattern='jsmath\.spec' --testTimeout=3600000

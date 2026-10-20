@@ -1,6 +1,6 @@
 import { withoutAudioWorklet } from '../../../../test-utils/no-audio-worklet';
 import { FxStatus } from '../../fx/effects/types';
-import { LIMITER_PROCESSOR } from './limiter-dsp';
+import { LIMITER_PROCESSOR } from '../processors';
 import { compressorMakeupGain, createMasterLimiter, FALLBACK_LIMITER } from './master-limiter';
 
 interface WorkletNodeStub extends AudioWorkletNode {
@@ -42,7 +42,7 @@ describe('createMasterLimiter', () => {
     const { audioCtx, limiter, statuses } = setup();
     expect(statuses).toEqual(['loading']);
     expect(audioCtx.audioWorklet.addModule).toHaveBeenCalledWith(
-      expect.stringMatching(/\/assets\/worklets\/limiter\.wasm\.js$/)
+      expect.stringMatching(/\/assets\/worklets\/limiter\.js$/)
     );
     expect(lastTarget(limiter.input)).toBe(limiter.compressor);
     expect(limiter.compressor.connect).toHaveBeenCalledWith(limiter.compensation);

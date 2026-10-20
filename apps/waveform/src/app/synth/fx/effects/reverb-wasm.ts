@@ -1,6 +1,6 @@
 import { stereoCore, StereoCoreExports } from '../../common/wasm/stereo-core';
 import { createView } from '../../common/wasm/wasm-core';
-import type { ReverbDspParams, ReverbOptions } from './reverb-dsp';
+import type { ReverbDspParams, ReverbOptions } from './reverb-params';
 
 // the Rust core of the reverb (dsp/reverb, reverb.wasm), with the API of createReverbDsp
 

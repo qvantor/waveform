@@ -6,9 +6,14 @@ import type {
   BuilderStatsMessage,
   BuildMessage,
 } from './wavetable-builder';
-import type { StatsRequest, StoreStatsMessage, StoreTableMessage, VoiceOptions } from './wavetable-osc-dsp';
+import type {
+  StatsRequest,
+  StoreStatsMessage,
+  StoreStoredMessage,
+  StoreTableMessage,
+  VoiceOptions,
+} from './voice-options';
 import { STORE_PROCESSOR, VOICE_PROCESSOR, VoiceParam } from './wavetable-osc-params';
-import type { StoreStoredMessage } from './wavetable-osc.worklet';
 
 // the worklet module (wavetable-osc.worklet.ts) and the worker (wavetable.worker.ts), bundled by `npm run
 // worklets` into assets/worklets/

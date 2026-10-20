@@ -1,22 +1,21 @@
 import { registrar } from 'standardized-audio-context-mock';
 import { BuilderMessage, createTableBuilder } from '../app/synth/common/wavetable/wavetable-builder';
-import {
-  createTableStore,
-  createVoiceDsp,
-  createVoiceShared,
-  StoreTableMessage,
-  VoiceOptions,
-} from '../app/synth/common/wavetable/wavetable-osc-dsp';
+import type { StoreTableMessage, VoiceOptions } from '../app/synth/common/wavetable/voice-options';
 import {
   STORE_PROCESSOR,
   VOICE_PARAMETERS,
   VOICE_PROCESSOR,
 } from '../app/synth/common/wavetable/wavetable-osc-params';
-import { BLOCK, seeded } from './voice-dsp';
+import {
+  createTableStoreWasm,
+  createVoiceSharedWasm,
+  createVoiceWasm,
+} from '../app/synth/common/wavetable/wavetable-osc-wasm';
+import { BLOCK, oscScope, seeded } from './voice-dsp';
 import { WorkerStub } from './worker-stub';
 
-// the wavetable oscillator of the models run offline: the worker's builder, the store and a voice dsp per voice
-// node, as the worker and the worklet would run them. Create it before the synth core (it installs the
+// the wavetable oscillator of the models run offline: the worker's builder, the store and a voice per voice node
+// (the Rust core, one instance as one scope), as the worker and the worklet would run them. Create it before the synth core (it installs the
 // worker); the builds run when flushWorker() says so (a note meanwhile plays the previous version), render()
 // processes the voices block by block and moves the context time on. The params are read once a block
 // (k-rate: a gate that closes within a block ends the voice at most a block later)
@@ -43,11 +42,10 @@ export const createOfflineEngine = (random = seeded(1)) => {
       storeNode?.port.onmessage?.({ data: { stored: message.table, version: message.version } });
     },
   };
-  // a version no voice plays goes back to the worker
-  const store = createTableStore((levels) =>
-    builderPort.onmessage?.({ data: { freed: levels.data.buffer } } as MessageEvent)
-  );
-  const shared = createVoiceShared();
+  // (the store keeps the versions in the memory of the core: it hands nothing back to the worker)
+  const scope = oscScope();
+  const store = createTableStoreWasm(scope);
+  const shared = createVoiceSharedWasm(scope);
   let storeNode: VoiceNode | null = null;
   let audioCtx: BaseAudioContext | null = null;
 
@@ -58,7 +56,7 @@ export const createOfflineEngine = (random = seeded(1)) => {
   }
   Object.assign(globalThis, { Worker: OfflineWorker });
 
-  const voices = new Map<VoiceNode, { dsp: ReturnType<typeof createVoiceDsp>; ended: boolean }>();
+  const voices = new Map<VoiceNode, { dsp: ReturnType<typeof createVoiceWasm>; ended: boolean }>();
   const outL = new Float32Array(BLOCK);
   const outR = new Float32Array(BLOCK);
 
@@ -73,7 +71,8 @@ export const createOfflineEngine = (random = seeded(1)) => {
       .filter((node) => node.name === VOICE_PROCESSOR && !voices.has(node))
       .forEach((node) =>
         voices.set(node, {
-          dsp: createVoiceDsp(
+          dsp: createVoiceWasm(
+            scope,
             context.sampleRate,
             node.options.processorOptions as VoiceOptions,
             store,
@@ -91,7 +90,7 @@ export const createOfflineEngine = (random = seeded(1)) => {
         name,
         Float32Array.of((node.parameters.get(name) as AudioParam).value),
       ])
-    ) as Parameters<ReturnType<typeof createVoiceDsp>['process']>[1];
+    ) as Parameters<ReturnType<typeof createVoiceWasm>['process']>[1];
 
   return {
     store,

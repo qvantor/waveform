@@ -5,10 +5,16 @@ import { PrimitiveBS, rxModel, rxModelReact } from '@waveform/rxjs-react';
 import { ENVELOPES, MOD_SOURCES } from '@waveform/preset-schema';
 import { getFq, stringToNote, noteToString } from '../../services';
 import { urlSnapshotPlugin } from '../../../app';
-import type { VoiceEndedMessage, VoiceOscOptions, VoiceStartedMessage } from '../wavetable/wavetable-osc-dsp';
+import type {
+  VoiceEndedMessage,
+  VoiceFilterMessage,
+  VoiceFilterOptions,
+  VoiceOscOptions,
+  VoiceRoute,
+  VoiceRoutesMessage,
+  VoiceStartedMessage,
+} from '../wavetable/voice-options';
 import { EnvelopeParams, envelopeValue, withCurves } from '../envelope/envelope-curve';
-import type { VoiceRoute, VoiceRoutesMessage } from '../wavetable/voice-modulation';
-import type { VoiceFilterMessage, VoiceFilterOptions } from '../wavetable/voice-filter';
 import { amountInUnits, filterTargetScale, MOD_TARGETS } from '../modulation/modulation-targets';
 import type { FilterModule } from '../../filter/modules/filter';
 import type { FxNote } from '../../fx/effects/fx-modulation';

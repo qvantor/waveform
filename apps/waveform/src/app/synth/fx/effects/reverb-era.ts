@@ -7,7 +7,7 @@ export interface ReverbEra {
   drive: number;
   // lowpass of the input (Hz) like the converters of the old units, null: the full band
   bandwidth: number | null;
-  // peaking boost (dB) at BODY_FREQ
+  // peaking boost (dB) at 300 Hz, Q 0.7 (the input stage of the core, dsp/reverb)
   body: number;
 }
 
@@ -21,9 +21,6 @@ export const REVERB_ERAS: ReverbEra[] = [
 ];
 
 export const eraIndex = (value: number) => number.thresholds(Math.round(value), 0, REVERB_ERAS.length - 1);
-
-export const BODY_FREQ = 300;
-export const BODY_Q = 0.7;
 
 // the tube takes the input up to ±TUBE_RANGE, louder peaks are clipped
 export const TUBE_RANGE = 8;

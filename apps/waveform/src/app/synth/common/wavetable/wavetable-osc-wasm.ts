@@ -7,16 +7,16 @@ import type {
   StoreChunkMessage,
   StoreChunksMessage,
 } from './wavetable-builder';
-import type { VoiceRoute } from './voice-modulation';
-import type { VoiceFilterOptions } from './voice-filter';
-import type { WavetableLevels } from './wavetable-levels';
 import type {
   StatsRequest,
   StoreTableMessage,
   TableStoreStats,
+  VoiceFilterOptions,
   VoiceOptions,
+  VoiceRoute,
   VoiceStats,
-} from './wavetable-osc-dsp';
+} from './voice-options';
+import type { WavetableLevels } from './wavetable-levels';
 import type { VoiceParam } from './wavetable-osc-params';
 
 // the Rust core of the wavetable oscillator (dsp/wavetable-osc, wavetable-osc.wasm): the store of the tables in the
@@ -47,8 +47,6 @@ export interface OscExports extends CoreExports {
   osc_store_freed: (store: number) => number;
   osc_shared_new: () => number;
   osc_shared_free: (shared: number) => void;
-  osc_shared_budget: (shared: number, budget: number) => void;
-  osc_shared_random_phase_fade: (shared: number, on: boolean) => void;
   osc_shared_stats: (shared: number) => void;
   osc_io: (shared: number, frames: number) => number;
   osc_io_stride: (shared: number) => number;
@@ -251,16 +249,9 @@ export type TableStoreWasm = ReturnType<typeof createTableStoreWasm>;
 // chord is not longer than the one of the TS
 export const WASM_MIX_BUDGET = 360000;
 
-// createVoiceShared in the core: the buffers, the mix tables, the budget and the counters of the voices of a scope;
-// `budget` another one, `randomPhaseFade` a voice at a random phase faded in: both as the
-// TS core for the parity specs
-export const createVoiceSharedWasm = (
-  scope: OscScope,
-  { budget, randomPhaseFade = false }: { budget?: number; randomPhaseFade?: boolean } = {}
-) => {
+// createVoiceShared in the core: the buffers, the mix tables, the budget and the counters of the voices of a scope
+export const createVoiceSharedWasm = (scope: OscScope) => {
   const handle = scope.exports.osc_shared_new();
-  if (budget !== undefined) scope.exports.osc_shared_budget(handle, budget);
-  if (randomPhaseFade) scope.exports.osc_shared_random_phase_fade(handle, true);
   return {
     handle,
     stats: (): VoiceStats => {

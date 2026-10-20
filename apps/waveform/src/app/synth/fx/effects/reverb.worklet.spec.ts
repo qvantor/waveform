@@ -1,68 +1,93 @@
 import { installWorkletScope } from '../../../../test-utils/worklet-scope';
-import { createReverbDsp, REVERB_PROCESSOR, ReverbOptions } from './reverb-dsp';
-
-jest.mock('./reverb-dsp', () => ({
-  ...jest.requireActual('./reverb-dsp'),
-  createReverbDsp: jest.fn(() => ({ set: jest.fn(), setActive: jest.fn(), process: jest.fn() })),
-}));
+import { REVERB_PROCESSOR } from '../../common/processors';
+import type { FxModMessage } from './fx-modulation';
+import { ReverbDspParams } from './reverb-params';
 
 const processors = installWorkletScope(48000);
 
-const OPTIONS = { params: { decay: 2 }, active: false } as unknown as ReverbOptions;
-
-const setup = () => {
-  const processor = new processors[REVERB_PROCESSOR]({ processorOptions: OPTIONS });
-  const dsp = (createReverbDsp as jest.Mock).mock.results.at(-1)?.value;
-  const outputs = [[new Float32Array(128), new Float32Array(128)]];
-  return { processor, dsp, outputs };
+const PARAMS: ReverbDspParams = {
+  lowcut: 20,
+  pre: 0,
+  size: 0.5,
+  decay: 2,
+  damp: 6000,
+  bass: 1,
+  depth: 0.2,
+  sep: 1,
+  er: 0.5,
+  drive: 0,
+  bandwidth: 24000,
+  body: 0,
 };
 
-describe('reverb worklet', () => {
-  beforeAll(() => import('./reverb.worklet'));
+const outputs = () => [[new Float32Array(128), new Float32Array(128)]];
+const impulse = () => Float32Array.from({ length: 128 }, (_, i) => (i === 0 ? 1 : 0));
+const silence = () => new Float32Array(128);
+const energy = (blocks: Float32Array[][][]) =>
+  blocks.reduce((sum, [[l]]) => sum + l.reduce((s, v) => s + v * v, 0), 0);
 
-  it('registers the reverb processor, its dsp starts with the node options at the context rate', () => {
-    expect(processors[REVERB_PROCESSOR]).toBeDefined();
-    setup();
-    expect(createReverbDsp).toHaveBeenLastCalledWith(48000, OPTIONS);
+// blocks of the processor after an impulse
+const render = (processor: { process: (i: Float32Array[][], o: Float32Array[][]) => boolean }, blocks = 40) =>
+  Array.from({ length: blocks }, (_, i) => {
+    const out = outputs();
+    processor.process([[i === 0 ? impulse() : silence()]], out);
+    return out;
   });
 
-  it('renders both input channels into both outputs', () => {
-    const { processor, dsp, outputs } = setup();
-    const [inL, inR] = [new Float32Array(128), new Float32Array(128)];
-    expect(processor.process([[inL, inR]], outputs)).toBe(true);
-    expect(dsp.process).toHaveBeenCalledWith(inL, inR, ...outputs[0]);
+describe('reverb wasm worklet', () => {
+  beforeAll(() => import('./reverb.worklet'));
+
+  it('registers the reverb processor with the Rust core, started with the node options', () => {
+    expect(processors[REVERB_PROCESSOR]).toBeDefined();
+    const active = new processors[REVERB_PROCESSOR]({ processorOptions: { params: PARAMS, active: true } });
+    const inactive = new processors[REVERB_PROCESSOR]({
+      processorOptions: { params: PARAMS, active: false },
+    });
+    expect(energy(render(active))).toBeGreaterThan(0.01);
+    expect(energy(render(inactive))).toBe(0);
   });
 
   it('applies the posted params and the active flag', () => {
-    const { processor, dsp } = setup();
-    processor.port.onmessage({ data: { params: { decay: 5 } } });
-    processor.port.onmessage({ data: { active: true } });
-    processor.port.onmessage({ data: { params: { size: 1 }, active: false } });
-    expect(dsp.set.mock.calls).toEqual([[{ decay: 5 }], [{ size: 1 }]]);
-    expect(dsp.setActive.mock.calls).toEqual([[true], [false]]);
-  });
-
-  it('sets the knobs the envelopes move as routed: they glide without their tape glide', () => {
-    const { processor, dsp, outputs } = setup();
-    const env = { attack: 0, hold: 0, decay: 1, sustain: 0, release: 0 };
-    processor.port.onmessage({
-      data: {
-        mod: {
-          note: { envelopes: [env, env, env], start: 0, release: null },
-          routes: [{ param: 'decay', env: 1, amount: 2, min: 0.1, max: 20 }],
-        },
-      },
+    const long = new processors[REVERB_PROCESSOR]({ processorOptions: { params: PARAMS, active: true } });
+    const short = new processors[REVERB_PROCESSOR]({ processorOptions: { params: PARAMS, active: true } });
+    short.port.onmessage({ data: { params: { decay: 0.1 } } });
+    // the tail from 50 ms on: much quieter with a decay of 0.1 s
+    const tail = (processor: Parameters<typeof render>[0]) => energy(render(processor, 80).slice(20));
+    expect(tail(short)).toBeLessThan(tail(long) / 10);
+    const inactive = new processors[REVERB_PROCESSOR]({
+      processorOptions: { params: PARAMS, active: false },
     });
-    processor.process([[]], outputs);
-    expect(dsp.set).toHaveBeenLastCalledWith({ decay: 4 }, true);
+    inactive.port.onmessage({ data: { active: true } });
+    expect(energy(render(inactive))).toBeGreaterThan(0);
   });
 
-  it('stops after the effect is destroyed', () => {
-    const { processor, dsp, outputs } = setup();
+  it('takes the knobs the envelopes move once per block', () => {
+    // ENV 2 holds ER at its top: the early reflections come back
+    const message: FxModMessage = {
+      mod: {
+        note: {
+          start: 0,
+          release: null,
+          envelopes: [0, 1, 2].map(() => ({ attack: 0, hold: 0, decay: 0, sustain: 1, release: 0 })),
+        },
+        routes: [{ env: 1, param: 'er', amount: 1, min: 0, max: 1 }],
+      },
+    };
+    const routed = new processors[REVERB_PROCESSOR]({
+      processorOptions: { params: { ...PARAMS, er: 0, decay: 0.1 }, active: true },
+    });
+    const still = new processors[REVERB_PROCESSOR]({
+      processorOptions: { params: { ...PARAMS, er: 0, decay: 0.1 }, active: true },
+    });
+    routed.port.onmessage({ data: message });
+    expect(energy(render(routed, 6))).toBeGreaterThan(energy(render(still, 6)));
+  });
+
+  it('ends once stopped', () => {
+    const processor = new processors[REVERB_PROCESSOR]({
+      processorOptions: { params: PARAMS, active: true },
+    });
     processor.port.onmessage({ data: { stop: true } });
-    expect(processor.process([[]], outputs)).toBe(false);
-    expect(dsp.process).not.toHaveBeenCalled();
-    expect(dsp.set).not.toHaveBeenCalled();
-    expect(dsp.setActive).not.toHaveBeenCalled();
+    expect(processor.process([[]], outputs())).toBe(false);
   });
 });

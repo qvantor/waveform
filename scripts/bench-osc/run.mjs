@@ -4,8 +4,7 @@
 // Chromium, WebKit and Firefox through Playwright, which is not a dependency of the project:
 //   npx -y -p playwright@1.50.1 node scripts/bench-osc/run.mjs [--browsers=chromium,webkit,firefox]
 //     [--rates=44100,48000,96000] [--only=sound,pitch,continuity,switch,stereo,unison,cpu,biquad,delivery,build]
-//     [--dsp=js]
-// The worklet is the one of production, on the wasm core (tmp/wasm: `npm run wasm` first); --dsp=js the TS one
+// The worklet is the one of production, on the wasm core (tmp/wasm: `npm run wasm` first)
 import fs from 'fs';
 import http from 'http';
 import path from 'path';
@@ -20,7 +19,6 @@ const browsers = (args.browsers ?? 'chromium,webkit,firefox').split(',');
 const rates = (args.rates ?? '44100,48000,96000').split(',').map(Number);
 const only = args.only ? args.only.split(',') : null;
 const runs = (step) => !only || only.includes(step);
-const dsp = args.dsp === 'js' ? 'js' : 'wasm';
 
 const TABLES = [
   'ESW Core Tables/Basics/ESW Basics - Saw Collection.wav',
@@ -32,6 +30,8 @@ const PITCHES = [55, 220, 1046, 3520, 7040];
 const bundle = async () => {
   const esbuild = require('esbuild');
   fs.mkdirSync(site, { recursive: true });
+  if (!fs.existsSync(path.join(root, 'tmp/wasm/wavetable-osc.wasm')))
+    throw new Error('tmp/wasm/wavetable-osc.wasm is missing: run `npm run wasm` first');
   const common = {
     bundle: true,
     format: 'esm',
@@ -39,25 +39,21 @@ const bundle = async () => {
     tsconfig: path.join(root, 'tsconfig.base.json'),
     // the code of the perf build out, as in production (apps/waveform/src/globals.d.ts)
     define: { __PERF__: 'false' },
+    // the bytes of the core inlined, as `npm run worklets` does
+    loader: { '.wasm': 'binary' },
+    supported: { 'from-base64': false },
   };
   await esbuild.build({
     ...common,
     entryPoints: { bench: path.join(root, 'scripts/bench-osc/bench-page.ts') },
     outdir: site,
   });
-  if (dsp === 'wasm' && !fs.existsSync(path.join(root, 'tmp/wasm/wavetable-osc.wasm')))
-    throw new Error('tmp/wasm/wavetable-osc.wasm is missing: run `npm run wasm` first');
   await esbuild.build({
     ...common,
-    // the bytes of the core inlined, as `npm run worklets` does
-    loader: { '.wasm': 'binary' },
-    supported: { 'from-base64': false },
     entryPoints: {
       'wavetable-osc': path.join(
         root,
-        `apps/waveform/src/app/synth/common/wavetable/wavetable-osc${
-          dsp === 'wasm' ? '.wasm' : ''
-        }.worklet.ts`
+        'apps/waveform/src/app/synth/common/wavetable/wavetable-osc.worklet.ts'
       ),
       'wavetable-worker': path.join(root, 'apps/waveform/src/app/synth/common/wavetable/wavetable.worker.ts'),
     },
@@ -320,7 +316,7 @@ const main = async () => {
   const server = await serve();
   const { port } = server.address();
   const reports = [];
-  const lines = [`# Wavetable oscillator benchmark (the ${dsp} core)`, '', new Date().toISOString(), ''];
+  const lines = ['# Wavetable oscillator benchmark', '', new Date().toISOString(), ''];
   let failed = 0;
   for (const name of browsers) {
     try {

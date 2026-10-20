@@ -1,23 +1,18 @@
 import FFT from 'fft.js';
 import { frequencyResponseDb } from '@waveform/ui-kit';
-import * as biquad from '@waveform/math/biquad';
-import * as curve from '../envelope/envelope-curve';
 import { EnvelopeParams, envelopeValue, withCurves } from '../envelope/envelope-curve';
-import { seeded, storeWith, VOICE_DEFAULTS } from '../../../../test-utils/voice-dsp';
+import { seeded, VOICE_DEFAULTS } from '../../../../test-utils/voice-dsp';
 import { wasmCore } from '../../../../test-utils/wasm';
 import { buildLevels } from './wavetable-mipmap';
 import type { WavetableLevels } from './wavetable-levels';
-import {
-  createTableStore,
-  createVoiceDsp,
-  createVoiceShared,
-  TableStore,
+import type {
   TableStoreStats,
+  VoiceFilterOptions,
   VoiceOptions,
   VoiceOscOptions,
-  VoiceShared,
+  VoiceRoute,
   VoiceStats,
-} from './wavetable-osc-dsp';
+} from './voice-options';
 import { RELEASE_GATE, VoiceParam } from './wavetable-osc-params';
 import {
   createOscScope,
@@ -28,11 +23,7 @@ import {
   TableStoreWasm,
   VoiceSharedWasm,
 } from './wavetable-osc-wasm';
-import type { VoiceRoute } from './voice-modulation';
-import type { VoiceFilterOptions } from './voice-filter';
-
-// the specs run on both cores: the TS one and the Rust one (dsp/wavetable-osc), its stores and shareds in one
-// instance for the spec (a scope); the core of a describe.each through `core`
+// the Rust core (dsp/wavetable-osc), its stores and shareds in one instance for the spec (a scope), through `core`
 interface CoreEntry {
   levels: WavetableLevels;
 }
@@ -73,15 +64,8 @@ interface Core {
     shared: CoreShared
   ): CoreVoice;
 }
-const TS_CORE: Core = {
-  storeWith,
-  createTableStore,
-  createVoiceShared,
-  createVoiceDsp: (rate, options, store, random, shared) =>
-    createVoiceDsp(rate, options, store as TableStore, random, shared as VoiceShared),
-};
 const scope = createOscScope(wasmCore<OscExports>('wavetable-osc'));
-const WASM_CORE: Core = {
+const core: Core = {
   storeWith: (tables) => {
     const freed: unknown[] = [];
     const store = createTableStoreWasm(scope, (levels) => freed.push(levels));
@@ -93,11 +77,6 @@ const WASM_CORE: Core = {
   createVoiceDsp: (rate, options, store, random, shared) =>
     createVoiceWasm(scope, rate, options, store as TableStoreWasm, random, shared as VoiceSharedWasm),
 };
-const CORES: [string, Core][] = [
-  ['ts', TS_CORE],
-  ['wasm', WASM_CORE],
-];
-let core = TS_CORE;
 
 const RATE = 48000;
 const BLOCK = 128;
@@ -286,13 +265,7 @@ const measureFrequency = (signal: Float32Array, rate = RATE) => {
   return ((crossings.length - 1) * rate) / (crossings[crossings.length - 1] - crossings[0]);
 };
 
-describe.each(CORES)('wavetable voice dsp, %s core', (coreName, coreOf) => {
-  beforeAll(() => {
-    core = coreOf;
-  });
-  // a spec of what the TS core does inside (its calls), not of the sound
-  const itTs = coreName === 'ts' ? it : it.skip;
-
+describe('the wavetable voice', () => {
   describe('pitch', () => {
     it.each([55, 440, 3520])('plays %s Hz within 0.01 cent', (frequency) => {
       const { store } = core.storeWith({ a: [sine] });
@@ -643,9 +616,8 @@ describe.each(CORES)('wavetable voice dsp, %s core', (coreName, coreOf) => {
       expect(Math.max(...right.subarray(1000).map(Math.abs))).toBeLessThan(1e-3);
     });
 
-    // the TS core fades a voice at a random phase in within 1.5 ms; the Rust one starts it at once (its
-    // click on a fast attack is part of the sound)
-    it('fades in within 1.5 ms in the TS core, starts at once in the Rust one', () => {
+    // a voice at a random phase starts at once (its click on a fast attack is part of the sound)
+    it('starts at once at a random phase', () => {
       const { store } = core.storeWith({ a: [sine] });
       const { left } = render({
         store,
@@ -654,13 +626,8 @@ describe.each(CORES)('wavetable voice dsp, %s core', (coreName, coreOf) => {
         frames: 256,
       });
       const wave = (i: number) => Math.sin(2 * Math.PI * (0.25 + (10 * i) / RATE));
-      if (coreName === 'ts') {
-        expect(left[0]).toBe(0);
-        expect(left[36]).toBeCloseTo(0.5 * wave(36), 3);
-      } else {
-        expect(left[0]).toBeCloseTo(wave(0), 3);
-        expect(left[36]).toBeCloseTo(wave(36), 3);
-      }
+      expect(left[0]).toBeCloseTo(wave(0), 3);
+      expect(left[36]).toBeCloseTo(wave(36), 3);
       expect(left[72]).toBeCloseTo(wave(72), 3);
     });
 
@@ -822,9 +789,8 @@ describe.each(CORES)('wavetable voice dsp, %s core', (coreName, coreOf) => {
       expect(left[3000]).toBeCloseTo(0.5, 4);
     });
 
-    // the Rust voice curves the decay and the release (by default), the TS one, the rollback, plays them
-    // linear as it did; the release still ends where it did
-    it('curves the decay and the release in the Rust core, linear in the TS one', () => {
+    // the decay and the release curved (the default shape); the release still ends where a linear one does
+    it('curves the decay and the release', () => {
       const curved = withCurves(env);
       // (its end within a block)
       const release = 2300;
@@ -832,13 +798,10 @@ describe.each(CORES)('wavetable voice dsp, %s core', (coreName, coreOf) => {
         envelope: curved,
         params: { frequency: 0.01, gate: gateAt(release) },
       });
-      const played = coreName === 'ts' ? env : curved;
       for (let i = 0; i < 8192; i += 5)
-        expect(left[i]).toBeCloseTo(envelopeValue(played, sec(i), sec(release)), 4);
-      // in the decay: below the line in the Rust core
-      const line = envelopeValue(env, sec(960));
-      if (coreName === 'ts') expect(left[960]).toBeCloseTo(line, 4);
-      else expect(left[960]).toBeLessThan(line - 0.05);
+        expect(left[i]).toBeCloseTo(envelopeValue(curved, sec(i), sec(release)), 4);
+      // in the decay: below the line
+      expect(left[960]).toBeLessThan(envelopeValue(env, sec(960)) - 0.05);
       expect(endedAt).toBe(Math.floor((release + 0.03 * RATE) / BLOCK) * BLOCK);
     });
 
@@ -1262,41 +1225,6 @@ describe.each(CORES)('wavetable voice dsp, %s core', (coreName, coreOf) => {
       lowered.left.forEach((value, i) => expect(value).toBeCloseTo(one.left[i], 4));
     });
 
-    itTs('plays from its mix tables again once its envelopes are in a flat stage', () => {
-      const { store } = core.storeWith({ a: [sine, square, saw] });
-      const shared = core.createVoiceShared() as VoiceShared;
-      const builds: number[] = [];
-      const takeBuild = shared.takeBuild;
-      shared.takeBuild = (frame, cost) => {
-        builds.push(frame);
-        return takeBuild(frame, cost);
-      };
-      render({
-        store,
-        shared,
-        envelopes: [decay(0.3), FLAT],
-        routes: [route('position1', 1)],
-        frames: 4096,
-      });
-      // the wave moves for 20 ms (960 samples): no mix, then a mix on the sustain
-      expect(builds.length).toBeGreaterThan(0);
-      expect(Math.min(...builds)).toBeGreaterThanOrEqual(1024);
-      expect(Math.min(...builds)).toBeLessThanOrEqual(1152);
-    });
-
-    itTs('renders only the envelopes routes read', () => {
-      const { store } = core.storeWith({ a: [sine] });
-      const [env2, env3] = [decay(0.3), decay(0.2)];
-      const stage = jest.spyOn(curve, 'envelopeStage');
-      const rendered = (env: EnvelopeParams) => stage.mock.calls.filter(([params]) => params === env).length;
-      render({ store, envelopes: [env2, env3], frames: 1280 });
-      expect([rendered(env2), rendered(env3)]).toEqual([0, 0]);
-      render({ store, envelopes: [env2, env3], routes: [route('gain1', -0.5)], frames: 1280 });
-      // ten blocks: the decay, one of them crosses its end; then the sustain, worked out once
-      expect([rendered(env2), rendered(env3)]).toEqual([10, 0]);
-      stage.mockRestore();
-    });
-
     it('glides a changed amount on a playing note in 10 ms, a removed route back to the base', () => {
       const routes = [route('gain1', -1)];
       const { left } = peak(4096, {
@@ -1390,21 +1318,6 @@ describe.each(CORES)('wavetable voice dsp, %s core', (coreName, coreOf) => {
       });
       const knob = tone(2500, { filter: lowpass });
       routed.left.forEach((value, i) => expect(value).toBeCloseTo(knob.left[i], 4));
-    });
-
-    itTs('works the coefficients out once while the values stay, every 32 samples while one moves', () => {
-      const into = jest.spyOn(biquad, 'coefficientsInto');
-      const { store } = core.storeWith({ a: [sine] });
-      render({ store, filter: lowpass, frames: 2048 });
-      expect(into).toHaveBeenCalledTimes(1);
-      into.mockClear();
-      // the cutoff moves for 20 ms (960 samples), then stays
-      const decaying: EnvelopeParams = { attack: 0, hold: 0, decay: 0.02, sustain: 0.5, release: 0 };
-      const route: VoiceRoute = { env: 1, param: 'cutoff', amount: 2, min: 10, max: 22050, log: true };
-      render({ store, filter: lowpass, envelopes: [decaying, FLAT], routes: [route], frames: 4096 });
-      expect(into.mock.calls.length).toBeGreaterThanOrEqual(30);
-      expect(into.mock.calls.length).toBeLessThanOrEqual(34);
-      into.mockRestore();
     });
 
     it('glides a changed knob on a playing note in about 10 ms, starts a filter turned on from silence', () => {

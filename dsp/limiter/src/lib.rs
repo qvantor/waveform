@@ -1,4 +1,4 @@
-//! The master limiter (apps/waveform/src/app/synth/common/limiter/limiter-dsp.ts), ported bit for bit: a stereo
+//! The master limiter (ported bit for bit from the TS core it replaced; the goldens hold its sound): a stereo
 //! linked, true peak, lookahead brickwall limiter. The C ABI of a stereo core: fx_new, fx_buffers, fx_process,
 //! fx_latency, fx_free (limiter-wasm.ts wraps it)
 

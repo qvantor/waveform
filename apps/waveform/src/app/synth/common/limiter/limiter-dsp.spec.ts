@@ -1,10 +1,7 @@
-// first: the Math of the wasm core for both (the skipping detector is compared with the exact one of the TS core)
-import '../../../../test-utils/js-math';
+import { coefficients } from '@waveform/math/biquad';
 import { wasmCore } from '../../../../test-utils/wasm';
-import { createBiquad } from '../../fx/effects/dsp';
-import { CEILING, CEILING_DB, createLimiterDsp, LOOKAHEAD } from './limiter-dsp';
+import { CEILING, CEILING_DB, LOOKAHEAD, TRUE_PEAK_DELAY } from './limiter-params';
 import { createLimiterWasm, LimiterExports } from './limiter-wasm';
-import { TRUE_PEAK_DELAY } from './true-peak';
 
 const SAMPLE_RATE = 48000;
 const BLOCK = 128;
@@ -15,21 +12,20 @@ const db = (gain: number) => 20 * Math.log10(gain);
 
 type Input = (frame: number, channel: number) => number;
 
-type CreateLimiter = (sampleRate: number) => Pick<ReturnType<typeof createLimiterDsp>, 'process' | 'latency'>;
+type CreateLimiter = (
+  sampleRate: number
+) => Pick<ReturnType<typeof createLimiterWasm>, 'process' | 'latency'>;
 
-// both cores: the TS one and the Rust one (dsp/limiter), one instance of it for the spec (a scope)
+// the Rust core (dsp/limiter), one instance of it for the spec (a scope)
 const core = wasmCore<LimiterExports>('limiter');
-const CORES: [string, CreateLimiter][] = [
-  ['ts', createLimiterDsp],
-  ['wasm', (sampleRate) => createLimiterWasm(core, sampleRate)],
-];
+const createLimiter: CreateLimiter = (sampleRate) => createLimiterWasm(core, sampleRate);
 
 // renders in render quanta like the worklet
 const render = (
   input: Input,
   seconds: number,
   sampleRate = SAMPLE_RATE,
-  create: CreateLimiter = createLimiterDsp
+  create: CreateLimiter = createLimiter
 ) => {
   const dsp = create(sampleRate);
   const frames = Math.ceil((seconds * sampleRate) / BLOCK) * BLOCK;
@@ -136,9 +132,20 @@ const unisonChord: Input = (n, channel) => {
 const bandNoise = (amplitude: number): Input => {
   const random = createNoise();
   const filters = [0, 1, 2, 3].map(() => {
-    const filter = createBiquad();
-    filter.set('lowpass', { frequency: 18000, Q: -3.01, gain: 0 }, SAMPLE_RATE);
-    return filter;
+    const [b0, b1, b2, a1, a2] = coefficients(
+      'lowpass',
+      { frequency: 18000, Q: -3.01, gain: 0 },
+      SAMPLE_RATE
+    );
+    let [z1, z2] = [0, 0];
+    return {
+      process: (x: number) => {
+        const y = b0 * x + z1;
+        z1 = b1 * x - a1 * y + z2;
+        z2 = b2 * x - a2 * y;
+        return y;
+      },
+    };
   });
   const values: number[] = [];
   return (n) => {
@@ -148,7 +155,8 @@ const bandNoise = (amplitude: number): Input => {
   };
 };
 
-describe.each(CORES)('createLimiterDsp, %s core', (_, create) => {
+describe('the limiter', () => {
+  const create = createLimiter;
   const renderCore = (input: Input, seconds: number, sampleRate = SAMPLE_RATE) =>
     render(input, seconds, sampleRate, create);
 
@@ -319,38 +327,6 @@ describe.each(CORES)('createLimiterDsp, %s core', (_, create) => {
       const [left, right] = [gain(n, 0), gain(n, 1)];
       if (!Number.isNaN(left) && !Number.isNaN(right)) expect(right).toBeCloseTo(left, 6);
     }
-  });
-
-  it('skips the detection of the quiet parts without changing a sample', () => {
-    // the limiter with detectors that never skip
-    let exactDsp = createLimiterDsp;
-    jest.isolateModules(() => {
-      jest.doMock('./true-peak', () => {
-        const actual = jest.requireActual('./true-peak');
-        return { ...actual, createTruePeak: () => actual.createTruePeak() };
-      });
-      exactDsp = jest.requireActual<typeof import('./limiter-dsp')>('./limiter-dsp').createLimiterDsp;
-    });
-    expect(exactDsp).not.toBe(createLimiterDsp);
-    // a chord swelling from -40 dB to 12 dB over full scale and back, with quiet gaps: quiet, around the
-    // quiet level of the detectors (-8.6 dBFS), around the ceiling and limited. Then a sine at fs/4 sampled
-    // at ±45°: its samples are 1.4 dB below full scale, under the ceiling, its peaks between them 1.6 dB over
-    const swell = (n: number, channel: number) =>
-      Math.floor(n / 4800) % 4 === 3
-        ? 0
-        : unisonChord(n + frame(0.05), channel) *
-          10 ** ((-56 + 52 * Math.sin((Math.PI * n) / frame(1))) / 20);
-    const input: Input = (n, channel) =>
-      n < frame(1) ? swell(n, channel) : 1.2 * Math.sin((Math.PI / 2) * n + Math.PI / 4);
-    const skipping = renderCore(input, 1.2);
-    const exact = render(input, 1.2, SAMPLE_RATE, exactDsp as CreateLimiter);
-    const sineOut = skipping.L.subarray(frame(1.1));
-    expect(samplePeak(skipping.inputs[0].subarray(frame(1)))).toBeLessThan(CEILING);
-    expect(samplePeak(sineOut)).toBeLessThan(0.85 * (CEILING / 1.2) + 0.01);
-    // it goes 3 dB over full scale
-    expect(samplePeak(skipping.inputs[0])).toBeGreaterThan(1.4);
-    expect(skipping.L).toEqual(exact.L);
-    expect(skipping.R).toEqual(exact.R);
   });
 
   it('treats NaN and infinities as silence and keeps working', () => {

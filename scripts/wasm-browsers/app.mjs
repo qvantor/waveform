@@ -1,14 +1,12 @@
 // the app on its wasm cores in each browser (manual: `npx -y -p playwright@1.50.1 node
-// scripts/wasm-browsers/app.mjs [--browsers=chromium,webkit,firefox] [--dsp=js]`): the perf build of the app
-// (made once, as bench-perf makes it) plays the heavy patch of S5 (bench-perf/scenes.mjs: 2 × u8 on two
-// tables of 256 frames, the filter, every effect, 12 notes) headless. Its notes start without the effects,
-// then every effect is added over them: their modules load with the app, these are the first blocks they
-// sound; in Chromium no render quantum may run over its deadline in a trace of it, nor a glitch (headless:
-// the device callbacks aren't real, the render times are; only a warning on the TS cores, which compile those
-// blocks). It checks that the oscillator, the master limiter and every effect are ready on their wasm bundles
-// (?dsp=js: on the TS ones, the rollback), that the engine counts the voices and their mix samples, that the
-// output sounds and that the page threw nothing. The tables come from the cache of bench-perf (S3 keys in
-// .env otherwise). Exit 1 on a failed check
+// scripts/wasm-browsers/app.mjs [--browsers=chromium,webkit,firefox]`): the perf build of the app (made once, as
+// bench-perf makes it) plays the heavy patch of S5 (bench-perf/scenes.mjs: 2 × u8 on two tables of 256 frames, the
+// filter, every effect, 12 notes) headless. Its notes start without the effects, then every effect is added over
+// them: their modules load with the app, these are the first blocks they sound; in Chromium no render quantum may
+// run over its deadline in a trace of it, nor a glitch (headless: the device callbacks aren't real, the render times
+// are). It checks that the oscillator, the master limiter and every effect are ready, that the engine counts the
+// voices and their mix samples, that the output sounds and that the page threw nothing. The tables come from the
+// cache of bench-perf (S3 keys in .env otherwise). Exit 1 on a failed check
 import { loadPlaywright, parseArgs } from '../bench-common.mjs';
 import { launch, openPage } from '../bench-perf/browser.mjs';
 import { analyzeQuanta, countGlitches, QUANTA_CATEGORIES } from '../bench-perf/chrome-trace.mjs';
@@ -18,7 +16,6 @@ import { sleep } from '../bench-perf/util.mjs';
 
 const args = parseArgs(process.argv.slice(2));
 const browsers = (args.browsers ?? 'chromium,webkit,firefox').split(',');
-const mode = args.dsp === 'js' ? 'js' : 'wasm';
 const [heavy] = CPU_CASES;
 const keys = Object.values(TABLES);
 const withoutEffects = {
@@ -42,17 +39,17 @@ server.on('request', (request) => {
 });
 const playwright = loadPlaywright();
 let failed = false;
-// (a check not required only warns)
-const check = (name, ok, detail = '', required = true) => {
-  console.log(`  ${ok ? 'ok  ' : required ? 'FAIL' : 'warn'} ${name}${detail ? `: ${detail}` : ''}`);
-  if (!ok && required) failed = true;
+const check = (name, ok, detail = '') => {
+  console.log(`  ${ok ? 'ok  ' : 'FAIL'} ${name}${detail ? `: ${detail}` : ''}`);
+  if (!ok) failed = true;
 };
 
 try {
   for (const name of browsers) {
-    console.log(`${name} (${mode} cores)`);
-    const { browser } = await launch(playwright, name, { headless: true });
-    const origin = `http://localhost:${port}/${mode === 'js' ? '?dsp=js' : ''}`;
+    console.log(name);
+    // (Chromium on a fake output: the checks need no device)
+    const { browser } = await launch(playwright, name, { headless: true, fakeOutput: true });
+    const origin = `http://localhost:${port}/`;
     let session;
     served = [];
     try {
@@ -80,14 +77,12 @@ try {
         const glitches = countGlitches(events);
         const over =
           quanta && `${quanta.over} of ${quanta.count} quanta over ${quanta.deadline.toFixed(2)} ms`;
-        // (the TS cores compile their first sounding blocks: a quantum may run over)
         check(
           'the effects added over the notes drop nothing',
           quanta && quanta.over === 0 && glitches === 0,
           quanta
             ? `${glitches} glitches, ${over}, the longest ${quanta.max.toFixed(2)} ms`
-            : 'no render quanta in the trace',
-          mode === 'wasm'
+            : 'no render quanta in the trace'
         );
       } else await addEffects();
       const before = (await call('stats')).engine;
@@ -129,11 +124,9 @@ try {
         Object.values(statuses.fx).every((status) => status === 'ready'),
         JSON.stringify(statuses.fx)
       );
-      const wanted = ['limiter', 'wavetable-osc', 'distortion', 'reverb'].map((bundle) =>
-        mode === 'wasm' ? `${bundle}.wasm` : bundle
-      );
+      const wanted = ['limiter', 'wavetable-osc', 'distortion', 'reverb'];
       check(
-        `the ${mode} bundles load`,
+        'the bundles load',
         wanted.every((bundle) => loaded.includes(bundle)),
         loaded.join(', ')
       );

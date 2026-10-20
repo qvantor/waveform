@@ -1,9 +1,8 @@
 import { mapValues, omit } from 'lodash';
 import { FX_PARAMS } from '@waveform/preset-schema';
 import { withoutAudioWorklet } from '../../../../test-utils/no-audio-worklet';
-import { workletBundle } from '../../common/wasm/dsp-mode';
+import { REVERB_PROCESSOR } from '../../common/processors';
 import { reverb } from './reverb';
-import { REVERB_PROCESSOR } from './reverb-dsp';
 import { REVERB_ERAS } from './reverb-era';
 import { WORKLETS_PATH } from './load-worklet';
 
@@ -40,7 +39,7 @@ describe('reverb', () => {
     expect(node()).toBeUndefined();
     await flush();
     expect(audioCtx.audioWorklet.addModule).toHaveBeenCalledWith(
-      new URL(`${WORKLETS_PATH}${workletBundle('reverb')}.js`, document.baseURI).href
+      new URL(`${WORKLETS_PATH}reverb.js`, document.baseURI).href
     );
     expect(node()?.name).toBe(REVERB_PROCESSOR);
     expect(node()?.connect).toHaveBeenCalledWith(output);

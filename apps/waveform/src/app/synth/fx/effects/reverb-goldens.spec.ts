@@ -1,22 +1,23 @@
-// first: the Math of the wasm core for the TS one (test-utils/js-math.ts)
+// first: the Math of JS as jsmath (test-utils/js-math.ts): the inputs and the levels the TS builds the same on every
+// machine (Node's own Math differs in the last bits on arm64), so are the goldens
 import '../../../../test-utils/js-math';
 import { FX_PARAMS } from '@waveform/preset-schema';
 import { pick, Random, randomBlocks, randomSignal, RATES, Signal } from '../../../../test-utils/fuzz-signals';
 import { createGoldens, FUZZ_SCALE, runStereo } from '../../../../test-utils/parity';
 import { seeded } from '../../../../test-utils/seeded';
 import { wasmCore } from '../../../../test-utils/wasm';
-import { createReverbDsp, ReverbDspParams } from './reverb-dsp';
+import { ReverbDspParams } from './reverb-params';
 import { REVERB_ERAS } from './reverb-era';
 import { createReverbWasm, REVERB_KEYS, ReverbExports } from './reverb-wasm';
 
-// the Rust core of the reverb (dsp/reverb) against the TS one: the bits of every output sample of every block, on
-// the golden scenarios (their hashes in dsp/goldens/reverb.json) and on random ones
+// the Rust core of the reverb (dsp/reverb): the bits of every output sample of every block on the golden scenarios
+// (their hashes in dsp/goldens/reverb.json), and random ones: finite
 
 const core = wasmCore<ReverbExports>('reverb');
 const goldens = createGoldens('reverb');
 afterAll(() => goldens.save());
 
-type Reverb = ReturnType<typeof createReverbDsp>;
+type Reverb = ReturnType<typeof createReverbWasm>;
 // a change before a block: params (routed: moved by an envelope), the active flag
 interface Change {
   params?: Partial<ReverbDspParams>;
@@ -34,8 +35,7 @@ interface Scenario {
 
 const run = (name: string, { rate, params, active, blocks, input, changes = {} }: Scenario) =>
   runStereo<Reverb>(name, {
-    ts: createReverbDsp(rate, { params, active }),
-    wasm: createReverbWasm(core, rate, { params, active }) as Reverb,
+    core: createReverbWasm(core, rate, { params, active }),
     blocks,
     input,
     before: (dsp, block) =>
@@ -154,7 +154,7 @@ const GOLDEN: [string, Scenario][] = [
   ],
 ];
 
-// the params a TS core stays finite beyond the top of (the others: a decay, a bass or a size beyond theirs make the
+// the params the core stays finite beyond the top of (the others: a decay, a bass or a size beyond theirs make the
 // loops gain over unity or read past their buffers, the knobs and the modulation never go there)
 const BEYOND: (keyof ReverbDspParams)[] = [
   'lowcut',
@@ -211,31 +211,31 @@ const randomScenario = (random: Random): Scenario => {
 };
 
 describe('reverb wasm core', () => {
-  it.each(GOLDEN)('%s: the bits of the TS core and its golden', (name, scenario) => {
+  it.each(GOLDEN)('%s: its golden', (name, scenario) => {
     goldens.check(name, run(name, scenario));
   });
 
   const count = 300 * FUZZ_SCALE;
-  it(`renders ${count} random scenarios as the TS core, never NaN`, () => {
+  it(`renders ${count} random scenarios, finite`, () => {
     for (let seed = 1; seed <= count; seed++) run(`seed ${seed}`, randomScenario(seeded(seed)));
   });
 
-  it('is idle as the TS core', () => {
+  it('goes idle once its tail has drained', () => {
     const scenario = GOLDEN.find(([name]) => name.startsWith('drained'))?.[1] as Scenario;
-    const ts = createReverbDsp(RATE, { params: scenario.params, active: true });
     const wasm = createReverbWasm(core, RATE, { params: scenario.params, active: true });
-    const idles: [boolean, boolean][] = [];
+    const idles: boolean[] = [];
     let frame = 0;
     scenario.blocks.forEach((n) => {
       const input = Float32Array.from({ length: n }, (_, i) => scenario.input(frame + i, 0));
-      const outs = [0, 1, 2, 3].map(() => new Float32Array(n));
-      ts.process(input, input, outs[0], outs[1]);
-      wasm.process(input, input, outs[2], outs[3]);
-      idles.push([ts.idle, wasm.idle]);
+      const outs = [0, 1].map(() => new Float32Array(n));
+      wasm.process(input, input, outs[0], outs[1]);
+      idles.push(wasm.idle);
       frame += n;
     });
-    expect(idles.some(([idle]) => idle)).toBe(true);
-    idles.forEach(([a, b]) => expect(b).toBe(a));
+    // sounding, then idle for good
+    const first = idles.indexOf(true);
+    expect(first).toBeGreaterThan(0);
+    expect(idles.slice(first).every((idle) => idle)).toBe(true);
     wasm.free();
   });
 });

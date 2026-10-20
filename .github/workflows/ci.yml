@@ -49,9 +49,6 @@ jobs:
         name: Wasm cores
         if: ${{ !cancelled() && steps.install.outcome == 'success' && steps.rust.outcome == 'success' }}
         run: npm run wasm
-      - name: Constants of the cores
-        if: ${{ !cancelled() && steps.wasm.outcome == 'success' }}
-        run: node dsp/gen/consts.mjs --check
       - name: Size of the cores
         if: ${{ !cancelled() && steps.wasm.outcome == 'success' }}
         run: node scripts/wasm.mjs --check-sizes

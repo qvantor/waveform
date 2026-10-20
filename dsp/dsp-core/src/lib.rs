@@ -1,7 +1,7 @@
-//! The building blocks of the worklet cores, ported from their TS (libs/math/src/filter/biquad.ts,
-//! apps/waveform/src/app/synth/fx/effects/dsp.ts, true-peak.ts, oversampler.ts): the same operations in the
-//! same order, the same points of rounding to f32 (where the TS writes into a Float32Array), the Math of JS
-//! from jsmath. The tables the TS works out when its modules load are in `consts` (dsp/gen/consts.mjs)
+//! The building blocks of the worklet cores (biquad, the blocks of the effects, true peak, the oversamplers), ported
+//! bit for bit from the TS cores they replaced (removed at stage 5 of the plan: the goldens of dsp/goldens hold the
+//! sound since; "as the TS" in a comment names an order of operations they pin): the same operations in the same
+//! order, the same points of rounding to f32, the Math of JS from jsmath. The tables are in `consts`
 
 #![cfg_attr(target_arch = "wasm32", no_std)]
 

@@ -1,14 +1,15 @@
-// first: the Math of the wasm core for the TS one (test-utils/js-math.ts)
+// first: the Math of JS as jsmath (test-utils/js-math.ts): the inputs and the levels the TS builds the same on every
+// machine (Node's own Math differs in the last bits on arm64), so are the goldens
 import '../../../../test-utils/js-math';
 import { Random, randomBlocks, randomSignal, RATES, pick, Signal } from '../../../../test-utils/fuzz-signals';
-import { createBitsHash, createGoldens, expectSameBits, FUZZ_SCALE } from '../../../../test-utils/parity';
+import { createGoldens, FUZZ_SCALE, runStereo } from '../../../../test-utils/parity';
 import { seeded } from '../../../../test-utils/seeded';
 import { wasmCore } from '../../../../test-utils/wasm';
-import { CEILING, createLimiterDsp } from './limiter-dsp';
+import { CEILING, LOOKAHEAD, TRUE_PEAK_DELAY } from './limiter-params';
 import { createLimiterWasm, LimiterExports } from './limiter-wasm';
 
-// the Rust core of the limiter (dsp/limiter) against the TS one: the bits of every output sample of every block,
-// on the golden scenarios (their hashes in dsp/goldens/limiter.json) and on random ones
+// the Rust core of the limiter (dsp/limiter): the bits of every output sample of every block on the golden
+// scenarios (their hashes in dsp/goldens/limiter.json), and random ones: finite, never over the ceiling
 
 const core = wasmCore<LimiterExports>('limiter');
 const goldens = createGoldens('limiter');
@@ -20,28 +21,22 @@ interface Scenario {
   input: Signal;
 }
 
-// renders both cores block by block, fails on the first sample whose bits differ; the hash of the outputs
+// the largest sample a Float32Array output can hold at the ceiling
+const MAX_SAMPLE = Math.fround(CEILING);
+
+// renders the core block by block: finite, never over the ceiling; the hash of the outputs
 const run = (name: string, { rate, blocks, input }: Scenario) => {
-  const ts = createLimiterDsp(rate);
-  const wasm = createLimiterWasm(core, rate);
-  expect(wasm.latency).toBe(ts.latency);
-  const hash = createBitsHash();
-  let frame = 0;
-  blocks.forEach((n, block) => {
-    const [inL, inR] = [0, 1].map((channel) =>
-      Float32Array.from({ length: n }, (_, i) => input(frame + i, channel))
-    );
-    const [tsL, tsR, wasmL, wasmR] = [0, 1, 2, 3].map(() => new Float32Array(n));
-    ts.process(inL, inR, tsL, tsR);
-    wasm.process(inL, inR, wasmL, wasmR);
-    expectSameBits(name, block, 'L', tsL, wasmL);
-    expectSameBits(name, block, 'R', tsR, wasmR);
-    hash.add(wasmL);
-    hash.add(wasmR, false);
-    frame += n;
+  const limiter = createLimiterWasm(core, rate);
+  expect(limiter.latency).toBe(Math.round(LOOKAHEAD * rate) + TRUE_PEAK_DELAY);
+  const over = (data: Float32Array) => data.some((value) => Math.abs(value) > MAX_SAMPLE);
+  return runStereo(name, {
+    core: limiter,
+    blocks,
+    input,
+    check: (outL, outR, block) => {
+      if (over(outL) || over(outR)) throw new Error(`${name}: block ${block} goes over the ceiling`);
+    },
   });
-  wasm.free();
-  return hash.digest();
 };
 
 const quanta = (seconds: number, rate = 48000) => Array<number>(Math.ceil((seconds * rate) / 128)).fill(128);
@@ -98,7 +93,7 @@ const GOLDEN: [string, Scenario][] = [
 ];
 
 describe('limiter wasm core', () => {
-  it.each(GOLDEN)('%s: the bits of the TS core and its golden', (name, scenario) => {
+  it.each(GOLDEN)('%s: its golden', (name, scenario) => {
     goldens.check(name, run(name, scenario));
   });
 
@@ -109,13 +104,13 @@ describe('limiter wasm core', () => {
   };
 
   const count = 1000 * FUZZ_SCALE;
-  it(`renders ${count} random scenarios as the TS core, never NaN`, () => {
+  it(`renders ${count} random scenarios, finite and under the ceiling`, () => {
     for (let seed = 1; seed <= count; seed++) run(`seed ${seed}`, randomScenario(seeded(seed)));
   });
 
-  it('never outputs more than the ceiling (the clamp of the TS)', () => {
+  it('never outputs more than the ceiling (its clamp)', () => {
     const { head } = run('loud', { rate: 48000, blocks: quanta(0.1), input: () => 1e6 });
     expect(head).toHaveLength(8);
-    head.forEach((value) => expect(Math.abs(value)).toBeLessThanOrEqual(Math.fround(CEILING)));
+    head.forEach((value) => expect(Math.abs(value)).toBeLessThanOrEqual(MAX_SAMPLE));
   });
 });

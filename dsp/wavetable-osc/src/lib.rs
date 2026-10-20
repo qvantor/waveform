@@ -1,5 +1,5 @@
-//! The wavetable oscillator (apps/waveform/src/app/synth/common/wavetable/wavetable-osc-dsp.ts and the voice
-//! modulation, filter and envelopes it runs), ported bit for bit: the store of the tables in the linear memory of
+//! The wavetable oscillator (ported bit for bit from the TS core it replaced, with its modulation, filter and
+//! envelopes; the goldens hold its sound): the store of the tables in the linear memory of
 //! the core, the voices of a scope and what they share. The C ABI: handles of stores, shareds and voices; the
 //! options of a voice, its routes and the layout of a table come through osc_command (a Float64Array of the
 //! wrapper, wavetable-osc-wasm.ts), the params and the outputs of a block through osc_io
@@ -143,24 +143,6 @@ pub unsafe extern "C" fn osc_store_free(store: *mut Store) {
 #[no_mangle]
 pub extern "C" fn osc_shared_new() -> *mut Shared {
     Box::into_raw(Box::default())
-}
-
-/// a voice at a random phase fades in, as the TS does (the parity specs)
-///
-/// # Safety
-/// `shared` comes from osc_shared_new and was not freed
-#[no_mangle]
-pub unsafe extern "C" fn osc_shared_random_phase_fade(shared: *mut Shared, on: bool) {
-    (*shared).random_phase_fade = on;
-}
-
-/// the budget of the mix builds of a block (MIX_BUDGET_WASM; the TS one, MIX_BUDGET, for the parity specs)
-///
-/// # Safety
-/// `shared` comes from osc_shared_new and was not freed
-#[no_mangle]
-pub unsafe extern "C" fn osc_shared_budget(shared: *mut Shared, budget: f64) {
-    (*shared).set_budget(budget);
 }
 
 /// # Safety

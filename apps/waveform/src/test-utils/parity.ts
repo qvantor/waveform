@@ -3,10 +3,11 @@ import { existsSync, readFileSync, writeFileSync } from 'fs';
 import { join } from 'path';
 import type { Signal } from './fuzz-signals';
 
-// the parity of a TS core and its wasm one (dsp/): the bits of every output sample, block by block, and the golden
-// hashes of the scenarios of each module (dsp/goldens/<module>.json): `UPDATE_GOLDENS=1` writes them again (a
-// change of the sound is an explicit update of its hashes). Fuzzing: FUZZ_SCALE multiplies the scenarios of each
-// spec (1 on a PR, the nightly run takes 100)
+// the golden hashes of the scenarios of each wasm core (dsp/goldens/<module>.json): the bits of every output
+// sample, block by block; `UPDATE_GOLDENS=1` writes them again (a change of the sound is an explicit update of its
+// hashes). Fuzzing: FUZZ_SCALE multiplies the random scenarios of each spec (1 on a PR, the nightly run takes
+// 250), which must stay finite and keep the properties of its core. expectSameBits compares two renders of a core
+// (a worklet and its core in Node)
 
 export const FUZZ_SCALE = Number(process.env['FUZZ_SCALE'] ?? 1);
 
@@ -113,18 +114,24 @@ export interface StereoCore {
   free?: () => void;
 }
 
-// renders a TS core and its wasm one block by block over the same input, `before` applies the changes of a block to
-// each (messages, params) before it renders; fails on the first sample whose bits differ, returns the golden of
-// the outputs (the wasm core is freed)
+// renders a core block by block over the input, `before` applies the changes of a block to it (messages,
+// params) before it renders; fails on the first sample that is NaN or infinite, `check` sees the outputs of each
+// block; returns the golden of the outputs (the core is freed)
 export const runStereo = <T extends StereoCore>(
   scenario: string,
   {
-    ts,
-    wasm,
+    core,
     blocks,
     input,
     before,
-  }: { ts: T; wasm: T; blocks: number[]; input: Signal; before?: (dsp: T, block: number) => void }
+    check,
+  }: {
+    core: T;
+    blocks: number[];
+    input: Signal;
+    before?: (dsp: T, block: number) => void;
+    check?: (outL: Float32Array, outR: Float32Array, block: number) => void;
+  }
 ) => {
   const hash = createBitsHash();
   let frame = 0;
@@ -132,17 +139,22 @@ export const runStereo = <T extends StereoCore>(
     const [inL, inR] = [0, 1].map((channel) =>
       Float32Array.from({ length: n }, (_, i) => input(frame + i, channel))
     );
-    const [tsL, tsR, wasmL, wasmR] = [0, 1, 2, 3].map(() => new Float32Array(n));
-    before?.(ts, block);
-    before?.(wasm, block);
-    ts.process(inL, inR, tsL, tsR);
-    wasm.process(inL, inR, wasmL, wasmR);
-    expectSameBits(scenario, block, 'L', tsL, wasmL);
-    expectSameBits(scenario, block, 'R', tsR, wasmR);
-    hash.add(wasmL);
-    hash.add(wasmR, false);
+    const [outL, outR] = [new Float32Array(n), new Float32Array(n)];
+    before?.(core, block);
+    core.process(inL, inR, outL, outR);
+    expectFinite(scenario, block, outL);
+    expectFinite(scenario, block, outR);
+    check?.(outL, outR, block);
+    hash.add(outL);
+    hash.add(outR, false);
     frame += n;
   });
-  wasm.free?.();
+  core.free?.();
   return hash.digest();
+};
+
+// every sample of a block is a number (NaN and infinities fail with the first of them)
+export const expectFinite = (scenario: string, block: number, data: Float32Array) => {
+  const at = data.findIndex((value) => !Number.isFinite(value));
+  if (at !== -1) throw new Error(`${scenario}: block ${block}, sample ${at} is ${data[at]}`);
 };

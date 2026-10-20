@@ -1,26 +1,17 @@
 import { Note } from '@waveform/ui-kit';
 import { getFq } from '../../services';
 import { TABLE_THROTTLE } from '../modules/oscillator';
-import {
-  BLOCK,
-  createVoiceScope,
-  createWasmVoiceScope,
-  storeWith,
-  VoiceParams,
-  wasmStoreWith,
-} from '../../../../test-utils/voice-dsp';
-import { wasmCore } from '../../../../test-utils/wasm';
+import { BLOCK, createVoiceScope, storeWith, VoiceParams } from '../../../../test-utils/voice-dsp';
 import { buildLevels } from './wavetable-mipmap';
 import {
   CROSSFADE,
   KILL_FADE,
-  MIX_BUDGET,
   nativeTableLength,
   UPSAMPLER_TAPS,
   VoiceOscOptions,
   VoiceStats,
-} from './wavetable-osc-dsp';
-import { createOscScope, OscExports, TableStoreWasm, WASM_MIX_BUDGET } from './wavetable-osc-wasm';
+} from './voice-options';
+import { WASM_MIX_BUDGET } from './wavetable-osc-wasm';
 
 // the work of the voices on the audio thread as exact counts (it replaces the CPU scenes of the browser suite
 // but the heavy patch, S5): the samples each unison voice plays from its mix table or directly from the
@@ -69,26 +60,12 @@ const params = (note: Note): VoiceParams => ({
 });
 const UNISON = CHORD.length * 16;
 
-// the counts of both cores: the TS one and the Rust one (dsp/wavetable-osc), each under its budget of mix builds
-// (the Rust one builds twice as fast: 1.8 times the budget, the longest block of an attack as long)
-const oscScope = createOscScope(wasmCore<OscExports>('wavetable-osc'));
-const CORES = [
-  { name: 'ts', budget: MIX_BUDGET, storeWith, createScope: createVoiceScope },
-  {
-    name: 'wasm',
-    budget: WASM_MIX_BUDGET,
-    storeWith: (tables: Record<string, number[][]>) => wasmStoreWith(oscScope, tables),
-    createScope: ({ rate, store }: { rate: number; store: TableStoreWasm }) =>
-      createWasmVoiceScope({ rate, scope: oscScope, store }),
-  },
-] as const;
-// the core of the describe.each
-let core: typeof CORES[number] = CORES[0];
-const coreStoreWith = (tables: Record<string, number[][]>) => core.storeWith(tables);
+// the counts of the Rust core (dsp/wavetable-osc) under its budget of mix builds (it builds twice as fast as the TS
+// did: 1.8 times its budget, the longest block of an attack as long)
+const core = { budget: WASM_MIX_BUDGET };
+const coreStoreWith = (tables: Record<string, number[][]>) => storeWith(tables);
 const coreScope = (rate: number, store: ReturnType<typeof coreStoreWith>['store']) =>
-  core.name === 'ts'
-    ? CORES[0].createScope({ rate, store: store as Parameters<typeof createVoiceScope>[0]['store'] })
-    : CORES[1].createScope({ rate, store: store as TableStoreWasm });
+  createVoiceScope({ rate, store });
 
 const chord = (rate: number, notes = CHORD, oscs = OSCS) => {
   const { store, freed } = coreStoreWith({ a: FRAMES, b: FRAMES });
@@ -107,33 +84,28 @@ const settled = (blocks: VoiceStats[]) =>
     blocks.slice(i).every((block) => block.directSamples === 0 && block.builds === 0)
   );
 
-describe.each(CORES)('the work of the voices, $name core', (coreOf) => {
-  beforeAll(() => {
-    core = coreOf;
-  });
-
-  // the multiply-adds of a mix (wavetable-osc-dsp buildCost): its fill (4096 at 44.1 and 48 kHz) and each of
+describe('the work of the voices', () => {
+  // the multiply-adds of a mix (build_cost of the voice): its fill (4096 at 44.1 and 48 kHz) and each of
   // the 2 levels it reads, added as it is when as long, interpolated at 6 points a sample when shorter; one
   // frame. 12,288 = 3 · 4096 (both levels 4096 long: the low notes), 32,768 = 4096 + 4096 + 6 · 4096 (the
   // next is 2048 long), 53,248 = 4096 + 2 · 6 · 4096 (both shorter: the high notes). At 48 kHz 120 unison voices
   // cost 12,288, 32 cost 32,768 and 40 cost 53,248: 4,653,056 in all
   it.each([
-    [44100, 5144576, { ts: 28, wasm: 16 }],
-    [48000, 4653056, { ts: 25, wasm: 15 }],
+    [44100, 5144576, 16],
+    [48000, 4653056, 15],
   ])(
     'at %i Hz the heavy chord builds its 192 mix tables (%i multiply-adds) within the budget, the last in block %j',
     (rate, cost, lasts) => {
-      const last = lasts[core.name];
+      const last = lasts;
       const { run } = chord(rate);
       const blocks = run(40);
       // the first block plays directly (the mixes are built in the second block of constant params)
       expect(blocks[0]).toMatchObject({ directSamples: UNISON * BLOCK, mixSamples: 0, builds: 0 });
       expect(total(blocks, 'builds')).toBe(UNISON);
       expect(total(blocks, 'buildCost')).toBe(cost);
-      // a block builds until its next mix would go over the budget: 16 of the cheapest in one block (29 in the
-      // Rust core)
+      // a block builds until its next mix would go over the budget: 29 of the cheapest in one block
       const cheapest = Math.floor(core.budget / (3 * nativeTableLength(rate)));
-      expect(cheapest).toBe(core.name === 'ts' ? 16 : 29);
+      expect(cheapest).toBe(29);
       expect(blocks[1]).toMatchObject({ builds: cheapest, peakCost: cheapest * 3 * nativeTableLength(rate) });
       blocks.forEach((block) => expect(block.peakCost).toBeLessThanOrEqual(core.budget));
       expect(lastBuild(blocks) + 1).toBe(last);
@@ -194,8 +166,8 @@ describe.each(CORES)('the work of the voices, $name core', (coreOf) => {
       .slice(0, constant + 1)
       .forEach((block) => expect(block).toMatchObject({ builds: 0, mixSamples: 0 }));
     expect(blocks.findIndex((block) => block.builds > 0)).toBe(constant + 1);
-    // its 8 mixes over the next blocks: 3 of 53,248 multiply-adds a block (the levels of A4 are shorter than a
-    // mix), 6 in the Rust core
+    // its 8 mixes over the next blocks: 6 of 53,248 multiply-adds a block (the levels of A4 are shorter than a
+    // mix)
     expect(blocks[constant + 1].builds).toBe(Math.floor(core.budget / 53248));
     expect(total(blocks.slice(constant + 1), 'builds')).toBe(8);
   });
@@ -204,13 +176,13 @@ describe.each(CORES)('the work of the voices, $name core', (coreOf) => {
   // within TABLE_THROTTLE, the edits of a frame the oscillator sends at most, at 44.1 and 48 kHz. At 96 kHz
   // they take 268 ms (F1): a continuous edit keeps them on the direct path
   it.each([
-    [44100, { ts: 32, wasm: 20 }],
-    [48000, { ts: 29, wasm: 19 }],
-    [96000, { ts: 201, wasm: 201 }],
+    [44100, 20],
+    [48000, 19],
+    [96000, 201],
   ])(
     'at %i Hz a new version of both tables under the heavy chord: on their mixes again after %j blocks',
     (rate, backs) => {
-      const back = backs[core.name];
+      const back = backs;
       const { run, store, freed } = chord(rate);
       run(260);
       const levels = buildLevels(FRAMES.map((frame) => frame.map((v) => 0.9 * v)));

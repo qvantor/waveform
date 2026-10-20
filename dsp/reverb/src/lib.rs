@@ -1,5 +1,5 @@
-//! The reverb (apps/waveform/src/app/synth/fx/effects/reverb-dsp.ts, reverb-decay.ts, reverb-era.ts), ported bit
-//! for bit: a 16-line FDN with early reflections, input diffusion and the input stage of the eras. The C ABI of a
+//! The reverb (ported bit for bit from the TS core it replaced, the tables of reverb-decay.ts and reverb-era.ts of the
+//! app; the goldens hold its sound): a 16-line FDN with early reflections, input diffusion and the input stage of the eras. The C ABI of a
 //! stereo core (fx_new, fx_buffers, fx_process, fx_free) and fx_set, fx_set_active, fx_idle; the params of
 //! fx_new and fx_set come through fx_command (reverb-wasm.ts wraps it)
 

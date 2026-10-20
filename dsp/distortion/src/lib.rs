@@ -1,13 +1,12 @@
-//! The distortion (apps/waveform/src/app/synth/fx/effects/distortion-dsp.ts, distortion-modes.ts,
-//! distortion-makeup.ts), ported bit for bit: drive → 4× oversampled curve of the mode × its makeup gain → tone
+//! The distortion (ported bit for bit from the TS core it replaced, the curves of distortion-modes.ts of the app; the
+//! goldens hold its sound): drive → 4× oversampled curve of the mode × its makeup gain → tone
 //! lowpass × level → DC blocker, the blocks skipped once silent. The C ABI of a stereo core and fx_set, fx_idle;
 //! the params of fx_new and fx_set come through fx_command (distortion-wasm.ts wraps it).
-//! The hard clip is oversampled 8× (not in the TS core: its harmonics fold back less): a chain of its own with the
+//! The hard clip is oversampled 8× (the TS core did 4×: its harmonics fold back less): a chain of its own with the
 //! same latency. A fade between modes on two chains runs both, each with its curve and gains, their outputs added at
 //! the input rate; a chain that starts takes the input history of the one that ran (its interpolator as if it had
 //! run, its decimator at 0: its points weighed 0 before), a chain that stops flushes its decimator with points of 0
-//! for STREAM samples. So it renders what both chains running all the time would (the spec of the crate).
-//! fx_hard_ratio(4) puts the hard clip on the 4× chain, as the TS core (the parity specs)
+//! for STREAM samples. So it renders what both chains running all the time would (the spec of the crate)
 
 #![cfg_attr(target_arch = "wasm32", no_std)]
 
@@ -152,8 +151,6 @@ pub struct Distortion {
     morphing: bool,
     oversampler: StereoOversampler,
     oversampler8: StereoOversampler8,
-    // the hard clip on the 8× chain (fx_hard_ratio(4): on the 4× one, as the TS)
-    hard8: bool,
     // the chains that rendered the last block, and the samples of 0 a stopped one still flushes
     running: [bool; 2],
     flushing: [usize; 2],
@@ -190,7 +187,6 @@ impl Distortion {
             morphing: false,
             oversampler: StereoOversampler::default(),
             oversampler8: StereoOversampler8::default(),
-            hard8: true,
             running: [false; 2],
             flushing: [0; 2],
             #[cfg(test)]
@@ -209,18 +205,11 @@ impl Distortion {
     }
 
     fn chain_of(&self, mode: usize) -> usize {
-        if mode == HARD && self.hard8 {
+        if mode == HARD {
             CHAIN8
         } else {
             CHAIN4
         }
-    }
-
-    /// the oversampling of the hard clip: 8 (its chain), 4 (the one of the TS); before the first block
-    pub fn set_hard_ratio(&mut self, ratio: u32) {
-        self.hard8 = ratio == 8;
-        self.running = [false; 2];
-        self.running[self.chain_of(self.mode_to)] = true;
     }
 
     pub fn idle(&self) -> bool {
@@ -574,13 +563,6 @@ pub unsafe extern "C" fn fx_set(distortion: *mut Distortion) {
 /// # Safety
 /// `distortion` comes from fx_new and was not freed
 #[no_mangle]
-pub unsafe extern "C" fn fx_hard_ratio(distortion: *mut Distortion, ratio: u32) {
-    (*distortion).set_hard_ratio(ratio);
-}
-
-/// # Safety
-/// `distortion` comes from fx_new and was not freed
-#[no_mangle]
 pub unsafe extern "C" fn fx_idle(distortion: *mut Distortion) -> bool {
     (*distortion).idle()
 }
@@ -653,15 +635,5 @@ mod tests {
                 assert!(x == y, "seed {seed}, sample {i}: {x} != {y}");
             }
         }
-    }
-
-    #[test]
-    fn the_hard_clip_on_the_4x_chain_is_the_one_of_the_ts() {
-        // on one chain the fades are those of the TS: both curves on its points (the parity specs check the bits)
-        let params = [1.0, 6.0, 20000.0, 0.0];
-        let mut distortion = Distortion::new(48000.0, &params);
-        distortion.set_hard_ratio(4);
-        render(&mut distortion, &[(3, 0.0), (8, 1.0)], 20, 7);
-        assert!(!distortion.running[CHAIN8]);
     }
 }

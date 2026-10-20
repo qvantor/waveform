@@ -8,7 +8,7 @@ describe('loadWorklet', () => {
     const audioCtx = new AudioContext();
     await loadWorklet(audioCtx, 'limiter');
     expect(addModuleOf(audioCtx)).toHaveBeenCalledWith(
-      new URL(`${WORKLETS_PATH}limiter.wasm.js`, document.baseURI).href
+      new URL(`${WORKLETS_PATH}limiter.js`, document.baseURI).href
     );
   });
 
@@ -77,10 +77,8 @@ describe('isWorkletSupported', () => {
     expect(isWorkletSupported(audioCtx, 'limiter')).toBe(true);
     const validate = jest.spyOn(WebAssembly, 'validate').mockReturnValue(false);
     expect(isWorkletSupported(audioCtx, 'limiter')).toBe(false);
-    // its TS core doesn't
-    window.history.replaceState(null, '', '/?dsp=js');
-    expect(isWorkletSupported(audioCtx, 'limiter')).toBe(true);
-    window.history.replaceState(null, '', '/');
+    // a module without a core doesn't (the probe of the perf build)
+    expect(isWorkletSupported(audioCtx, 'probe')).toBe(true);
     validate.mockRestore();
   });
 

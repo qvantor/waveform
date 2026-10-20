@@ -1,14 +1,15 @@
 import { number } from '@waveform/math';
-import { DISTORTION_MODES, modeIndex } from './distortion-modes';
+import { DISTORTION_MODES, modeIndex } from '../app/synth/fx/effects/distortion-modes';
+import { REFERENCE_PEAK } from '../app/synth/fx/effects/distortion-params';
 
-// the drive pushes the sound into the ceiling of the curve: the peaks stop growing there, but the waves get
-// denser (towards a square of ±1), so the louder the more drive. The makeup gain takes it back for a
-// reference, a sine with the peak of a note at the fx input: its loudness (RMS) stays the same at every
-// drive. That is 1:1 with the drive while the reference passes the curve unclipped, then it levels off
-// (towards -9 dB, the RMS of a square of ±1 against the one of the reference: -7.1 dB for soft clip and
-// -8 dB for hard clip at the top of the drive). Louder sounds come out quieter
-// than they went in, quieter ones louder: the curve compresses them, the level is the trim on top
-export const REFERENCE_PEAK = 0.5;
+// the makeup gains of the distortion as its tables were worked out (MAKEUP_TABLES of dsp/dsp-core/src/consts.rs):
+// the specs expect them of the Rust core. The drive pushes the sound into the ceiling of the curve: the peaks stop
+// growing there, but the waves get denser (towards a square of ±1), so the louder the more drive. The makeup gain
+// takes it back for a reference, a sine with the peak of a note at the fx input (REFERENCE_PEAK): its loudness
+// (RMS) stays the same at every drive. That is 1:1 with the drive while the reference passes the curve unclipped,
+// then it levels off (towards -9 dB, the RMS of a square of ±1 against the one of the reference: -7.1 dB for soft
+// clip and -8 dB for hard clip at the top of the drive)
+
 // the drive range (FX_PARAMS.distortion.drive, not imported: it would bundle zod)
 export const MAX_DRIVE = 12;
 // dB between the table points, the gains in between are interpolated
@@ -29,9 +30,8 @@ const makeupDb = (shape: (x: number) => number, drive: number) => {
   return 20 * Math.log10(REFERENCE_RMS / Math.sqrt(sum / POINTS));
 };
 
-// dB by mode, from 0 dB up to MAX_DRIVE every STEP (the Rust core reads them from dsp-core/src/consts.rs,
-// dsp/gen/consts.mjs)
-export const MAKEUP_TABLES = DISTORTION_MODES.map(({ shape }) =>
+// dB by mode, from 0 dB up to MAX_DRIVE every STEP
+const MAKEUP_TABLES = DISTORTION_MODES.map(({ shape }) =>
   Float64Array.from({ length: MAX_DRIVE / STEP + 1 }, (_, i) => makeupDb(shape, i * STEP))
 );
 
