@@ -59,14 +59,18 @@ describe('audiofile', () => {
     ]);
   });
 
-  it('moves the position of the oscillator into the new table', () => {
+  it('makes a table that plays expanded (a morph), the position within its frames', () => {
     const { oscillator, actions } = setup();
     actions.setWavesPickersCount(8);
     actions.setWaveSize(2);
     oscillator[1].setPosition(7);
 
     actions.setWavesPickersCount(2);
-
-    expect(oscillator[0].$position.value).toBe(1);
+    expect(oscillator[0].$morph.value).toBe(true);
+    expect(oscillator[0].$frames.value).toBe(256);
+    expect(oscillator[0].$position.value).toBe(7);
+    // a table of one frame plays one
+    actions.setWavesPickersCount(1);
+    expect(oscillator[0].$position.value).toBe(0);
   });
 });

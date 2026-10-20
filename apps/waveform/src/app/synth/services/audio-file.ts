@@ -9,7 +9,8 @@ const DECODE_RATE = 44100;
 // formats decoded at DECODE_RATE
 export const readAudioFile = async (buffer: ArrayBuffer): Promise<Wav> => {
   try {
-    return parseWav(buffer);
+    const { sampleRate, samples } = parseWav(buffer);
+    return { sampleRate, samples };
   } catch {
     // not a WAV, or one the parser doesn't read
     const audioBuffer = await new OfflineAudioContext(1, 1, DECODE_RATE).decodeAudioData(buffer);

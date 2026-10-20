@@ -1,6 +1,7 @@
-// An offline host of an Audio Unit: `host params` lists its parameters, `host render <job.json> <out.f32>`
-// renders a job: { rate, seconds, params: { "<name>": value }, notes: [{ note, on, off, velocity }] } into
-// interleaved stereo float32
+// An offline host of an Audio Unit: `host params` lists its parameters, `host state <out.bin>` writes its
+// processor state (a magic, a JSON header, then a zstd frame of the CBOR of its modules; state.mjs),
+// `host render <job.json> <out.f32>` renders a job: { rate, seconds, state?: "<a processor state>", params:
+// { "<name>": value }, notes: [{ note, on, off, velocity }] } into interleaved stereo float32
 import AVFoundation
 import AudioToolbox
 
@@ -29,7 +30,13 @@ func instantiate() -> AVAudioUnit {
 }
 
 struct Note: Decodable { let note: UInt8; let on: Double; let off: Double; let velocity: UInt8? }
-struct Job: Decodable { let rate: Double; let seconds: Double; let params: [String: Float]?; let notes: [Note] }
+struct Job: Decodable {
+  let rate: Double
+  let seconds: Double
+  let state: String?
+  let params: [String: Float]?
+  let notes: [Note]
+}
 
 let args = CommandLine.arguments
 let unit = instantiate()
@@ -52,8 +59,22 @@ if args.count > 1 && args[1] == "params" {
   exit(0)
 }
 
-guard args.count > 3, args[1] == "render" else { fatalError("usage: host params | host render <job.json> <out.f32>") }
+if args.count > 2 && args[1] == "state" {
+  guard let data = unit.auAudioUnit.fullState?["Processor State"] as? Data else { fatalError("no processor state") }
+  try data.write(to: URL(fileURLWithPath: args[2]))
+  exit(0)
+}
+
+guard args.count > 3, args[1] == "render" else {
+  fatalError("usage: host params | host state <out.bin> | host render <job.json> <out.f32>")
+}
 let job = try JSONDecoder().decode(Job.self, from: Data(contentsOf: URL(fileURLWithPath: args[2])))
+if let path = job.state {
+  // another patch: its processor state in place of the init one (its wavetable by the path in it)
+  var state = unit.auAudioUnit.fullState ?? [:]
+  state["Processor State"] = try Data(contentsOf: URL(fileURLWithPath: path))
+  unit.auAudioUnit.fullState = state
+}
 for (name, value) in job.params ?? [:] {
   guard let p = tree.first(where: { $0.displayName == name }) else { fatalError("no parameter \(name)") }
   p.value = value

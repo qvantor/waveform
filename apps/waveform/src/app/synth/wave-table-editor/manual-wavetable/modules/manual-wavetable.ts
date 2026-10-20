@@ -9,7 +9,7 @@ interface Dependencies {
 }
 
 // the editor works on the frame of the position (the nearest one)
-export const manualWavetable = ({ oscillator: [{ $waveTable, $position }] }: Dependencies) =>
+export const manualWavetable = ({ oscillator: [{ $waveTable, $position, $morph }] }: Dependencies) =>
   rxModel(() => {
     const rateRange: [number, number] = [2, 8];
     const $rate = new PrimitiveBS<number>(4);
@@ -17,7 +17,7 @@ export const manualWavetable = ({ oscillator: [{ $waveTable, $position }] }: Dep
     return { $rate, rateRange };
   }).actions(({ $rate }) => ({
     updateCurrentWave: ([i, value]: [number, number]) => {
-      const $wave = $waveTable.value[frameIndex($position.value)];
+      const $wave = $waveTable.value[frameIndex($position.value, $waveTable.value.length, $morph.value)];
       const waveLength = $wave.value.length;
       const size = waveLength / number.powerOfTwo($rate.value);
       const from = (i / number.powerOfTwo($rate.value)) * $wave.value.length;
@@ -33,7 +33,9 @@ export const manualWavetable = ({ oscillator: [{ $waveTable, $position }] }: Dep
       if ($waveTable.value.length >= MAX_FRAMES) return;
       $waveTable.next([
         ...$waveTable.value,
-        new ArrayBS([...$waveTable.value[frameIndex($position.value)].value]),
+        new ArrayBS([
+          ...$waveTable.value[frameIndex($position.value, $waveTable.value.length, $morph.value)].value,
+        ]),
       ]);
     },
     setRate: (value: number) => $rate.next(value),

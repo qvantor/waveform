@@ -5,7 +5,7 @@ import { useBehaviorSubject, useObservable } from '@waveform/rxjs-react';
 import { theme, LineChart, Line, Handle } from '@waveform/ui-kit';
 import { ManualWavetableActions } from '../../../manual-wavetable/modules';
 import { OscillatorModel, OscillatorActions } from '../../../../common/modules';
-import { frameIndex } from '../../../../common/modules/oscillator';
+import { frameIndex, framePosition } from '../../../../common/modules/oscillator';
 import { MAX_FRAMES } from '../../../../common/wavetable/wavetable-mipmap';
 
 const Root = styled.div`
@@ -59,15 +59,17 @@ const NewWave = styled.button`
   }
 `;
 
-export type Props = Pick<OscillatorModel, '$waveTable' | '$position' | '$wave'> &
+export type Props = Pick<OscillatorModel, '$waveTable' | '$position' | '$wave' | '$morph'> &
   Pick<OscillatorActions, 'setPosition'> &
   Partial<Pick<ManualWavetableActions, 'cloneCurrent'>>;
 
 // the frames of the table: the editors work on the one of the position (the nearest), choosing one sets the
-// position to it
-export const WaveSelector = ({ $waveTable, $position, $wave, setPosition, cloneCurrent }: Props) => {
+// position to it (where it plays alone, of an expanded table among the 256)
+export const WaveSelector = ({ $waveTable, $position, $wave, $morph, setPosition, cloneCurrent }: Props) => {
   const waveTable = useBehaviorSubject($waveTable);
-  const current = frameIndex(useBehaviorSubject($position));
+  const morph = useBehaviorSubject($morph);
+  const current = frameIndex(useBehaviorSubject($position), waveTable.length, morph);
+  const select = (j: number) => setPosition(framePosition(j, waveTable.length, morph));
   useObservable($wave, []);
   return (
     <Root>
@@ -76,7 +78,7 @@ export const WaveSelector = ({ $waveTable, $position, $wave, setPosition, cloneC
           min={0}
           max={waveTable.length - 1}
           value={current}
-          onChange={(value) => setPosition(Math.round(value))}
+          onChange={(value) => select(Math.round(value))}
           label='Wave'
           precision={1}
           formatValue={(value) => `${value + 1}`}
@@ -84,7 +86,7 @@ export const WaveSelector = ({ $waveTable, $position, $wave, setPosition, cloneC
       </HandlersWrapper>
       <WavesPreview>
         {waveTable.map((wave, i) => (
-          <Wave key={i} onClick={() => setPosition(i)} selected={i === current}>
+          <Wave key={i} onClick={() => select(i)} selected={i === current}>
             <LineChart domainX={[0, wave.value.length - 1]} domainY={[1, -1]} padding={[0, 0]}>
               <Line data={wave.value} />
             </LineChart>

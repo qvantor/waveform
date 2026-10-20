@@ -6,6 +6,7 @@ import { pick, Random } from '../../../../test-utils/fuzz-signals';
 import { createBitsHash, createGoldens, expectFinite, FUZZ_SCALE } from '../../../../test-utils/parity';
 import { seeded } from '../../../../test-utils/seeded';
 import { wasmCore } from '../../../../test-utils/wasm';
+import { expandFrames } from './wavetable-frames';
 import { buildLevels } from './wavetable-mipmap';
 import {
   UNISON_SHAPE,
@@ -433,6 +434,25 @@ const GOLDEN: [string, Scenario][] = [
         },
       ],
       seed: 7,
+    },
+  ],
+  [
+    'a table played expanded (a morph mark) under a moving position: its 256 frames one by one',
+    {
+      rate: RATE,
+      blocks: quanta(0.15),
+      tables: { a: expandFrames([SINE, SAW, SQUARE]).map((frame) => Array.from(frame)) },
+      voices: [
+        {
+          at: 0,
+          options: note({ osc: [osc({ unison: 3 }), null] }),
+          params: {
+            spread1: constant(20),
+            position1: perSample((frame) => 0.5 + 0.5 * Math.sin(frame / 1500)),
+          },
+        },
+      ],
+      seed: 9,
     },
   ],
   [

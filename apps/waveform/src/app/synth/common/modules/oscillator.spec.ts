@@ -1,6 +1,7 @@
 import { firstValueFrom } from 'rxjs';
 import { applySnapshot, getSnapshot } from '../../../app';
 import { createOscillator, createSynthCore, stopModels } from '../../../../test-utils/models';
+import type { Wavetable } from '../../services';
 
 const saw = [-1, -0.5, 0, 0.5];
 const square = [1, 1, -1, -1];
@@ -11,14 +12,14 @@ const flush = () => new Promise((resolve) => setTimeout(resolve));
 
 // an oscillator whose wavetable loads stay pending until the test settles them, the latest one per id
 const createLoading = (initialWavePath = ['folder', 'a.wav']) => {
-  const loads = new Map<string, { resolve: (table: number[][]) => void; reject: (error: Error) => void }>();
+  const loads = new Map<string, { resolve: (table: Wavetable) => void; reject: (error: Error) => void }>();
   const load = jest.fn(
-    (id: string) => new Promise<number[][]>((resolve, reject) => loads.set(id, { resolve, reject }))
+    (id: string) => new Promise<Wavetable>((resolve, reject) => loads.set(id, { resolve, reject }))
   );
   const synthCore = createSynthCore();
   const [model, actions] = createOscillator(synthCore, 'osc1', { active: true, initialWavePath }, load);
-  const resolve = async (id: string, table: number[][]) => {
-    loads.get(id)?.resolve(table);
+  const resolve = async (id: string, table: number[][], morph = false) => {
+    loads.get(id)?.resolve({ frames: table, morph });
     await flush();
   };
   const reject = async (id: string) => {
@@ -80,13 +81,25 @@ describe('oscillator', () => {
     expect($params.value.position).toBe(1);
   });
 
-  it('gives the editors the frame nearest to the position, a default one out of the table', async () => {
+  it('gives the editors the frame nearest to the position, within the table', async () => {
     const [{ $wave }, { setWaveTable, setPosition }] = createOscillator();
     setWaveTable([saw, square]);
     setPosition(0.6);
     expect(await firstValueFrom($wave)).toEqual(square);
     setPosition(5);
-    expect(await firstValueFrom($wave)).toEqual(placeholder);
+    expect(await firstValueFrom($wave)).toEqual(square);
+  });
+
+  it('of a table played expanded, the frame of the table nearest to the position among the 256', async () => {
+    const [{ $wave }, { setWaveTable, setPosition }] = createOscillator();
+    setWaveTable([saw, square, saw], true);
+    // its frames at 0, 128 and 255
+    setPosition(60);
+    expect(await firstValueFrom($wave)).toEqual(saw);
+    setPosition(100);
+    expect(await firstValueFrom($wave)).toEqual(square);
+    setPosition(200);
+    expect(await firstValueFrom($wave)).toEqual(saw);
   });
 
   it('updates settings through actions', () => {
@@ -125,9 +138,9 @@ describe('oscillator', () => {
     it('sends its table to the wavetable oscillator under its id, a new one at once', () => {
       const { oscillator, setTable } = setup();
       const [model, actions] = oscillator;
-      expect(setTable).toHaveBeenLastCalledWith(model.id, [placeholder]);
+      expect(setTable).toHaveBeenLastCalledWith(model.id, [placeholder], false);
       actions.setWaveTable([saw, square]);
-      expect(setTable).toHaveBeenLastCalledWith(model.id, [saw, square]);
+      expect(setTable).toHaveBeenLastCalledWith(model.id, [saw, square], false);
     });
 
     it('sends an edited table at most every 100 ms, the last edit too', () => {
@@ -142,10 +155,10 @@ describe('oscillator', () => {
       model.$waveTable.value[0].next(placeholder);
       model.$waveTable.value[1].next(saw);
       expect(setTable).toHaveBeenCalledTimes(1);
-      expect(setTable).toHaveBeenLastCalledWith(model.id, [square, square]);
+      expect(setTable).toHaveBeenLastCalledWith(model.id, [square, square], false);
       jest.advanceTimersByTime(100);
       expect(setTable).toHaveBeenCalledTimes(2);
-      expect(setTable).toHaveBeenLastCalledWith(model.id, [placeholder, saw]);
+      expect(setTable).toHaveBeenLastCalledWith(model.id, [placeholder, saw], false);
       jest.useRealTimers();
     });
 
@@ -356,17 +369,53 @@ describe('oscillator', () => {
   describe('the wave of the chart', () => {
     const latest = (osc: ReturnType<typeof createOscillator>) => {
       let wave: number[] = [];
-      osc[0].$morphWave.subscribe((value) => (wave = value)).unsubscribe();
+      osc[0].$playedWave.subscribe((value) => (wave = value)).unsubscribe();
       return wave;
     };
 
-    it('morphs the two frames around the position, a frame alone at its position', () => {
+    it('plays one frame, never a mix of two: the one the voices play (ceil(share × frames) - 1)', () => {
       const osc = createOscillator();
-      osc[1].setWaveTable([saw, square]);
-      osc[1].setPosition(0.25);
-      latest(osc).forEach((value, i) => expect(value).toBeCloseTo(0.75 * saw[i] + 0.25 * square[i]));
+      osc[1].setWaveTable([saw, square, saw]);
+      osc[1].setPosition(0.9);
+      expect(latest(osc)).toEqual(square);
       osc[1].setPosition(1);
       expect(latest(osc)).toEqual(square);
+      osc[1].setPosition(1.4);
+      expect(latest(osc)).toEqual(saw);
+    });
+
+    // the app threw it: $frames follows the table after the chart saw the new table with the old count
+    it('stays whole while a table with a morph replaces the one it shows (a subscriber, as the chart)', () => {
+      const osc = createOscillator();
+      const errors: unknown[] = [];
+      const waves: number[][] = [];
+      const subscription = osc[0].$playedWave.subscribe({
+        next: (wave) => waves.push(wave),
+        error: (e) => errors.push(e),
+      });
+      osc[1].setWaveTable([saw, square, saw], true);
+      osc[1].setWaveTable([square], false);
+      osc[1].setWaveTable([saw, square], true);
+      subscription.unsubscribe();
+      expect(errors).toEqual([]);
+      expect(waves[waves.length - 1]).toEqual(saw);
+    });
+
+    it('of a table with a morph plays the crossfades of its frames: 256 frames, the knob over them', () => {
+      const osc = createOscillator();
+      osc[1].setWaveTable([saw, square], true);
+      expect(osc[0].$frames.value).toBe(256);
+      // frame 0 and 255 are the frames of the table, frame 1 the share 2 / 256 of the next one
+      osc[1].setPosition(0);
+      expect(latest(osc)).toEqual(saw);
+      osc[1].setPosition(255);
+      expect(latest(osc)).toEqual(square);
+      osc[1].setPosition(1);
+      latest(osc).forEach((value, i) =>
+        expect(value).toBeCloseTo((254 / 256) * saw[i] + (2 / 256) * square[i])
+      );
+      // the voices get the share of the knob
+      expect(osc[0].$params.value.position).toBe(1 / 255);
     });
 
     it('follows an edited frame', () => {

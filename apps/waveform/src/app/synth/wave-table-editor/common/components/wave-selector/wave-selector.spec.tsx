@@ -13,6 +13,7 @@ const setup = (frames: number) => {
       $wave={model.$wave}
       $waveTable={model.$waveTable}
       $position={model.$position}
+      $morph={model.$morph}
       setPosition={actions.setPosition}
       cloneCurrent={cloneCurrent}
     />

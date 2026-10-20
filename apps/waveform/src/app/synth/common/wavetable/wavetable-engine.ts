@@ -62,7 +62,7 @@ export const createWavetableEngine = (
   }: WavetableEngineDependencies = {}
 ) => {
   const $status = new BehaviorSubject<WavetableStatus>('loading');
-  const tables = new Map<string, { version: number; frames: ArrayLike<number>[] }>();
+  const tables = new Map<string, { version: number; frames: ArrayLike<number>[]; morph: boolean }>();
   // the last version of each table, kept after a removal: versions only grow, so a table set again after it was
   // removed is newer than the version the store may still hold (the worker replaces a waiting removal with it)
   const versions = new Map<string, number>();
@@ -102,7 +102,7 @@ export const createWavetableEngine = (
     const entry = tables.get(table);
     if (!worker || !entry) return;
     const frames = entry.frames.map((frame) => Float32Array.from(frame));
-    const message: BuildMessage = { table, version: entry.version, frames };
+    const message: BuildMessage = { table, version: entry.version, frames, morph: entry.morph };
     worker.postMessage(
       message,
       frames.map(({ buffer }) => buffer)
@@ -158,9 +158,10 @@ export const createWavetableEngine = (
 
   return {
     $status,
-    // a new version of the table (the frames of the model, read when it is sent)
-    setTable: (table: string, frames: ArrayLike<number>[]) => {
-      tables.set(table, { version: nextVersion(table), frames });
+    // a new version of the table (the frames of the model, read when it is sent; with a morph the worker
+    // expands them to 256: wavetable-frames.ts)
+    setTable: (table: string, frames: ArrayLike<number>[], morph = false) => {
+      tables.set(table, { version: nextVersion(table), frames, morph });
       send(table);
     },
     // the table is gone (its oscillator was destroyed): the store frees it once no voice plays it

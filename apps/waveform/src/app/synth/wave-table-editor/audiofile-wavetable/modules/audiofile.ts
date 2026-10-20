@@ -11,7 +11,7 @@ interface Dependencies {
   oscillator: OscillatorModule;
 }
 
-export const audiofile = ({ oscillator: [{ $waveTable, $position }] }: Dependencies) =>
+export const audiofile = ({ oscillator: [, { setWaveTable: setOscillatorTable }] }: Dependencies) =>
   rxModel(({ audioBuffer }: Props) => {
     const waveSizeRange = [4, 11];
     const pickersCountRange = [1, 64];
@@ -35,12 +35,8 @@ export const audiofile = ({ oscillator: [{ $waveTable, $position }] }: Dependenc
       setWavesPickersCount: (value: number) => $wavesPickersCount.next(value),
       setWaveSize: (value: number) => $waveSize.next(value),
       setPhase: (value: number) => $phase.next(value),
-      setWaveTable: (waves: number[][]) => {
-        if (waves.length - 1 < $position.value) {
-          $position.next(Math.max(0, waves.length - 1));
-        }
-        $waveTable.next(waves.map((wave) => new ArrayBS(wave)));
-      },
+      // a table made here plays expanded by crossfades (a morph)
+      setWaveTable: (waves: number[][]) => setOscillatorTable(waves, true),
     }))
     .subscriptions(
       (

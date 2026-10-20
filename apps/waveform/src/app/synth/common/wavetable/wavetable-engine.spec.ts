@@ -96,7 +96,7 @@ describe('wavetable engine', () => {
     engine.setTable('osc1', [saw, sine]);
     await flush();
     expect(builds()).toEqual([
-      { table: 'osc1', version: 2, frames: [Float32Array.from(saw), Float32Array.from(sine)] },
+      { table: 'osc1', version: 2, frames: [Float32Array.from(saw), Float32Array.from(sine)], morph: false },
     ]);
     const [message, transfer] = worker()?.postMessage.mock.calls[1] ?? [];
     expect(transfer).toEqual(message.frames.map(({ buffer }: Float32Array) => buffer));

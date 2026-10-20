@@ -43,7 +43,8 @@ describe('loadWavetable', () => {
       '/.netlify/functions/get-wavetable?id=Basics%2FSaw%20%26%20Square%20%231.wav',
       SIGNED_URL,
     ]);
-    expect(wavetable).toEqual(waves);
+    // (its mark: a morph)
+    expect(wavetable).toEqual({ frames: waves, morph: true });
   });
 
   // decodeAudioData resampled a 44.1 kHz file to a 48 kHz context: 1.09 cycles a wave, 9% more waves
@@ -51,8 +52,8 @@ describe('loadWavetable', () => {
     respondOk(wavetableFile(samples, 44100));
     respondOk(wavetableFile(samples, 48000));
 
-    expect(await loadWavetable('rate-44100.wav')).toEqual(waves);
-    expect(await loadWavetable('rate-48000.wav')).toEqual(waves);
+    expect((await loadWavetable('rate-44100.wav')).frames).toEqual(waves);
+    expect((await loadWavetable('rate-48000.wav')).frames).toEqual(waves);
   });
 
   it('loads every wavetable once, also for parallel requests', async () => {
@@ -72,7 +73,7 @@ describe('loadWavetable', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     respondOk();
-    await expect(loadWavetable('link-fails.wav')).resolves.toHaveLength(2);
+    expect((await loadWavetable('link-fails.wav')).frames).toHaveLength(2);
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
@@ -92,7 +93,7 @@ describe('loadWavetable', () => {
     await expect(loadWavetable('broken.wav')).rejects.toThrow('broken.wav is shorter than one wave');
 
     respondOk();
-    await expect(loadWavetable('broken.wav')).resolves.toEqual(waves);
+    expect((await loadWavetable('broken.wav')).frames).toEqual(waves);
   });
 });
 

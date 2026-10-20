@@ -44,7 +44,7 @@ type Props = OscillatorModel &
 export const Oscillator = ({
   $osc,
   $position,
-  $waveTable,
+  $frames,
   $gain,
   ranges,
   setOscValue,
@@ -57,7 +57,8 @@ export const Oscillator = ({
 
   const oscillator = useOscillator();
   const osc = useBehaviorSubject($osc);
-  const wavetable = useBehaviorSubject($waveTable);
+  // the frames played (of an expanded table 256)
+  const frames = useBehaviorSubject($frames);
   const gainModulation = useKnobModulation(`${target}.gain`);
   const waveModulation = useKnobModulation(`${target}.wave`);
   const detuneModulation = useKnobModulation(`${target}.detune`);
@@ -92,7 +93,7 @@ export const Oscillator = ({
             {/* steps by whole frames, the label is the frame from 1 */}
             <RxHandle
               min={0}
-              max={Math.max(0, wavetable.length - 1)}
+              max={Math.max(0, frames - 1)}
               $value={$position}
               label='Wave'
               onChange={setPosition}

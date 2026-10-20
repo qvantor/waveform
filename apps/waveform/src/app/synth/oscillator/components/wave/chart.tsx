@@ -13,6 +13,12 @@ import {
   useLivePath,
 } from '@waveform/ui-kit';
 import { useBehaviorSubject, useObservable } from '@waveform/rxjs-react';
+import {
+  crossfadeFrames,
+  morphedFrame,
+  playedFrame,
+  playedFrames,
+} from '../../../common/wavetable/wavetable-frames';
 import { useOscillatorContext } from '../../hooks';
 import { PhaseOverlay } from './phase-overlay';
 import { periodCapacity, periodPoints, periodX } from './period';
@@ -32,25 +38,27 @@ const LINE_STYLE: React.CSSProperties = {
 
 type Table = BehaviorSubject<number[]>[];
 
-// the wave at a position of the table (frames, fractional), as $morphWave and the voices: frame k and k + 1
-// morphed (into `out`, sized to the frame), frame k alone between frames of different lengths
-const morphAt = (table: Table, position: number, out: { current: Float64Array }) => {
-  const k = Math.max(0, Math.min(Math.floor(position), table.length - 1));
-  const share = position - k;
-  const a = table[k]?.value ?? [];
-  const b = table[k + 1]?.value;
-  if (!b || share <= 0 || a.length !== b.length) return a;
-  if (out.current.length !== a.length) out.current = new Float64Array(a.length);
-  const morph = out.current;
-  for (let i = 0; i < a.length; i++) morph[i] = a[i] + (b[i] - a[i]) * share;
-  return morph;
+// the wave at a position (of the frames played, fractional), as $playedWave and the voices: one frame of those
+// played, of an expanded table (a morph) the crossfade of two of its frames (into `out`)
+const playedAt = (table: Table, morph: boolean, position: number, out: { current: Float64Array }) => {
+  const frames = playedFrames(table.length, morph);
+  const e = playedFrame(frames > 1 ? position / (frames - 1) : 0, frames);
+  if (frames === table.length) return table[e]?.value ?? [];
+  const { frame, share } = morphedFrame(e, table.length);
+  const a = table[frame].value;
+  if (share === 0) return a;
+  const b = table[frame + 1].value;
+  const length = Math.min(a.length, b.length);
+  if (out.current.length !== length) out.current = new Float64Array(length);
+  return crossfadeFrames(a, b, share, out.current);
 };
 
 interface LineProps {
   id: string;
-  // the wave at the knob ($morphWave) and the frames
+  // the wave at the knob ($playedWave), the frames of the table and its morph
   wave: number[];
   table: Table;
+  morph: boolean;
   // the Wave knob (the position in frames)
   knobs: LiveKnob[];
   active: boolean;
@@ -58,9 +66,9 @@ interface LineProps {
   $drawn: BehaviorSubject<ArrayLike<number>>;
 }
 
-// the wave at the position, also where the routes of the knob move it (the frames morphed every frame, without a
-// render: useLiveDraw)
-const WaveLine = ({ id, wave, table, knobs, active, $drawn }: LineProps) => {
+// the wave at the position, also where the routes of the knob move it (the frame worked out every frame, without
+// a render: useLiveDraw)
+const WaveLine = ({ id, wave, table, morph, knobs, active, $drawn }: LineProps) => {
   const {
     width,
     padding: [paddingX],
@@ -68,7 +76,7 @@ const WaveLine = ({ id, wave, table, knobs, active, $drawn }: LineProps) => {
     scaleY,
   } = useLineChartContext();
   const [path, write] = useLivePath();
-  const morph = React.useRef(new Float64Array(0));
+  const crossfade = React.useRef(new Float64Array(0));
   const columns = Math.max(1, Math.round(width - paddingX * 2));
   const points = React.useMemo(() => {
     const capacity = periodCapacity(columns);
@@ -78,12 +86,12 @@ const WaveLine = ({ id, wave, table, knobs, active, $drawn }: LineProps) => {
   const base = knobs[0].value;
   const draw = React.useCallback(
     ([position]: number[]) => {
-      const drawn = position === base ? wave : morphAt(table, position, morph);
+      const drawn = position === base ? wave : playedAt(table, morph, position, crossfade);
       const { xs, ys } = points;
       write(linePath(periodPoints(drawn, columns, xs, ys), xs, ys, scales.x, scales.y));
       $drawn.next(drawn);
     },
-    [base, wave, table, columns, points, scales, write, $drawn]
+    [base, wave, table, morph, columns, points, scales, write, $drawn]
   );
   useLiveDraw(knobs, draw, active);
   return (
@@ -100,20 +108,30 @@ interface Props {
   modulations?: HandleModulation[];
 }
 
-// the wave the position plays: between two frames their morph; while the routes of the Wave knob sound, the
+// the wave the position plays (one frame of those played); while the routes of the Wave knob sound, the
 // wave where they move it
 export const Chart = ({ phaseVisible = false, modulations }: Props) => {
-  const [{ $morphWave, $waveTable, $position, $active }] = useOscillatorContext();
-  const wave = useObservable($morphWave, []);
+  const [{ $playedWave, $waveTable, $morph, $position, $active }] = useOscillatorContext();
+  const wave = useObservable($playedWave, []);
   const table = useBehaviorSubject($waveTable);
+  const morph = useBehaviorSubject($morph);
+  const frames = playedFrames(table.length, morph);
   const position = useBehaviorSubject($position);
   const active = useBehaviorSubject($active);
   const lineId = `wave-line-${React.useId().replace(/:/g, '')}`;
   const $drawn = React.useMemo(() => new BehaviorSubject<ArrayLike<number>>([]), []);
-  const knobs = [{ value: position, min: 0, max: Math.max(0, table.length - 1), modulations }];
+  const knobs = [{ value: position, min: 0, max: Math.max(0, frames - 1), modulations }];
   return (
     <Root padding={[-1, 2]} domainX={[periodX(0, wave.length), periodX(1, wave.length)]} domainY={[1, -1]}>
-      <WaveLine id={lineId} wave={wave} table={table} knobs={knobs} active={active} $drawn={$drawn} />
+      <WaveLine
+        id={lineId}
+        wave={wave}
+        table={table}
+        morph={morph}
+        knobs={knobs}
+        active={active}
+        $drawn={$drawn}
+      />
       <PhaseOverlay lineId={lineId} length={wave.length} $drawn={$drawn} visible={phaseVisible} />
     </Root>
   );

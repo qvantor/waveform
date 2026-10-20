@@ -19,6 +19,13 @@ import { generateId, Vector2D } from '@waveform/math';
 import { urlSnapshotPlugin } from '../../../app';
 import { loadWavetable, LoadWavetable, wavetableId } from '../../services';
 import { UNISON_SHAPE, UnisonShape } from '../wavetable/voice-options';
+import {
+  crossfadeFrames,
+  keyFrame,
+  morphedFrame,
+  playedFrame,
+  playedFrames,
+} from '../wavetable/wavetable-frames';
 import { OSC_PARAMS, OscParam } from '../wavetable/wavetable-osc-params';
 import { SynthCoreModule } from './synth-core';
 
@@ -32,8 +39,17 @@ interface Dependencies {
   loadWavetable?: LoadWavetable;
 }
 
-// the frame of a position (the knob), for the editors of the table
-export const frameIndex = (position: number) => Math.round(position);
+// the frame of the table the editors work on at a position (of the frames played, the knob): the nearest one;
+// of a table played expanded (a morph) the nearest of its own frames
+export const frameIndex = (position: number, count: number, morph: boolean) => {
+  const played = playedFrames(count, morph);
+  const frame = played === count ? Math.round(position) : Math.round((position * (count - 1)) / (played - 1));
+  return Math.max(0, Math.min(count - 1, frame));
+};
+
+// the position (of the frames played) of frame j of the table: where it plays alone
+export const framePosition = (j: number, count: number, morph: boolean) =>
+  playedFrames(count, morph) === count ? j : keyFrame(j, count);
 
 // the base of the params of the oscillator on a voice node (wavetable-osc-params.ts), from the knobs: the
 // position as a share of the table, the octave in cents (the pitch of a voice is the note's), the unison detune
@@ -76,23 +92,35 @@ export const oscillator = ({
     const $waveTable = new BehaviorSubject<BehaviorSubject<number[]>[]>([
       new BehaviorSubject(PLACEHOLDER_WAVE),
     ]);
-    // the Wave knob: the position in frames (0..N - 1)
+    // the table plays expanded to 256 frames by crossfades (its file has a morph mark, or the editor made it:
+    // wavetable-frames.ts), and the frames it plays
+    const $morph = new PrimitiveBS<boolean>(false);
+    const $frames = new PrimitiveBS<number>(1);
+    // the Wave knob: the position in the frames played (0..$frames - 1)
     const $position = new PrimitiveBS<number>(0);
     // the frame the position is on (the nearest one), the one the editors work on
     const $wave = $position.pipe(
       mergeWith($waveTable),
-      mergeMap(() => $waveTable.value[frameIndex($position.value)] ?? new BehaviorSubject(PLACEHOLDER_WAVE))
+      mergeMap(
+        () =>
+          $waveTable.value[frameIndex($position.value, $waveTable.value.length, $morph.value)] ??
+          new BehaviorSubject(PLACEHOLDER_WAVE)
+      )
     );
-    // the wave the position plays: frame k and k + 1 morphed (the chart), as the voices do
-    const $morphWave = combineLatest([$position, $waveTable]).pipe(
-      switchMap(([position, table]) => {
-        const k = Math.max(0, Math.min(Math.floor(position), table.length - 1));
-        const share = position - k;
-        const next = table[k + 1];
-        const current = table[k] ?? new BehaviorSubject(PLACEHOLDER_WAVE);
-        if (!next || share <= 0) return current;
-        return combineLatest([current, next]).pipe(
-          map(([a, b]) => (a.length === b.length ? a.map((value, i) => value + (b[i] - value) * share) : a))
+    // the wave the position plays (the chart), as the voices: one frame of those played, of an expanded table the
+    // crossfade of two frames of the table (the frames played of the table in hand: setWaveTable sets the morph
+    // before the table, $frames follows both)
+    const $playedWave = combineLatest([$position, $waveTable, $morph]).pipe(
+      switchMap(([position, table, morph]) => {
+        const frames = playedFrames(table.length, morph);
+        const e = playedFrame(frames > 1 ? position / (frames - 1) : 0, frames);
+        if (frames === table.length) return table[e] ?? new BehaviorSubject(PLACEHOLDER_WAVE);
+        const { frame, share } = morphedFrame(e, table.length);
+        if (share === 0) return table[frame];
+        return combineLatest([table[frame], table[frame + 1]]).pipe(
+          map(([a, b]) =>
+            Array.from(crossfadeFrames(a, b, share, new Float64Array(Math.min(a.length, b.length))))
+          )
         );
       })
     );
@@ -126,7 +154,9 @@ export const oscillator = ({
       $osc,
       $unisonShape,
       $wave,
-      $morphWave,
+      $playedWave,
+      $morph,
+      $frames,
       $gain,
       $params,
       buses,
@@ -135,37 +165,43 @@ export const oscillator = ({
       $waveTableLoading,
     };
   })
-    .actions(({ $osc, $position, $active, $gain, $waveTable, $waveTablePath, buses, $busSources }) => ({
-      // a global source modulates a param of the voices of this oscillator, until disconnectBus
-      connectBus: (param: OscParam, source: AudioNode) => {
-        source.connect(buses[param]);
-        $busSources.next({ ...$busSources.value, [param]: $busSources.value[param] + 1 });
-      },
-      disconnectBus: (param: OscParam, source: AudioNode) => {
-        source.disconnect(buses[param]);
-        $busSources.next({ ...$busSources.value, [param]: Math.max(0, $busSources.value[param] - 1) });
-      },
-      setOscValue: (key: keyof typeof $osc.value, value: number) =>
-        $osc.next({
-          ...$osc.value,
-          [key]: value,
-        }),
-      setPosition: (position: number) => $position.next(position),
-      toggleActive: () => $active.next(!$active.value),
-      setGain: (value: number) => $gain.next(value),
-      // a shorter table: the position is kept within it
-      setWaveTable: (wavetable: number[][]) => {
-        if (wavetable.length - 1 < $position.value) $position.next(Math.max(0, wavetable.length - 1));
-        $waveTable.next(wavetable.map((value) => new BehaviorSubject(value)));
-      },
-      setWaveTablePath: (path: (string | number)[]) => $waveTablePath.next(path),
-    }))
+    .actions(
+      ({ $osc, $position, $active, $gain, $waveTable, $waveTablePath, $morph, buses, $busSources }) => ({
+        // a global source modulates a param of the voices of this oscillator, until disconnectBus
+        connectBus: (param: OscParam, source: AudioNode) => {
+          source.connect(buses[param]);
+          $busSources.next({ ...$busSources.value, [param]: $busSources.value[param] + 1 });
+        },
+        disconnectBus: (param: OscParam, source: AudioNode) => {
+          source.disconnect(buses[param]);
+          $busSources.next({ ...$busSources.value, [param]: Math.max(0, $busSources.value[param] - 1) });
+        },
+        setOscValue: (key: keyof typeof $osc.value, value: number) =>
+          $osc.next({
+            ...$osc.value,
+            [key]: value,
+          }),
+        setPosition: (position: number) => $position.next(position),
+        toggleActive: () => $active.next(!$active.value),
+        setGain: (value: number) => $gain.next(value),
+        // a new table (its frames played expanded with a morph); fewer frames played: the position is kept
+        // within them
+        setWaveTable: (wavetable: number[][], morph = false) => {
+          const last = Math.max(0, playedFrames(wavetable.length, morph) - 1);
+          if (last < $position.value) $position.next(last);
+          $morph.next(morph);
+          $waveTable.next(wavetable.map((value) => new BehaviorSubject(value)));
+        },
+        setWaveTablePath: (path: (string | number)[]) => $waveTablePath.next(path),
+      })
+    )
     .actions(({ $unisonShape }) => ({
       setUnisonShape: (shape: Partial<UnisonShape>) => $unisonShape.next({ ...$unisonShape.value, ...shape }),
     }))
     // the table goes to the wavetable oscillator under the id of the model: a new table at once, an edited
     // frame at most every TABLE_THROTTLE ms (the last edit is sent too)
-    .subscriptions(({ id, $waveTable }) =>
+    // (its morph is set with it: setWaveTable)
+    .subscriptions(({ id, $waveTable, $morph }) =>
       $waveTable
         .pipe(
           switchMap((waves) =>
@@ -174,14 +210,20 @@ export const oscillator = ({
             )
           )
         )
-        .subscribe((frames) => wavetables.setTable(id, frames))
+        .subscribe((frames) => wavetables.setTable(id, frames, $morph.value))
     )
-    // the base of the params of the voices follows the knobs and the length of the table
-    .subscriptions(({ $position, $waveTable, $osc, $gain, $params }) =>
-      combineLatest([$position, $waveTable, $osc, $gain])
+    // the frames played follow the table and its morph
+    .subscriptions(({ $waveTable, $morph, $frames }) =>
+      combineLatest([$waveTable, $morph])
+        .pipe(map(([table, morph]) => playedFrames(table.length, morph)))
+        .subscribe($frames)
+    )
+    // the base of the params of the voices follows the knobs and the frames played
+    .subscriptions(({ $position, $frames, $osc, $gain, $params }) =>
+      combineLatest([$position, $frames, $osc, $gain])
         .pipe(
-          map(([position, table, { octave, detune }, gain]) =>
-            baseParams(position, table.length, octave, detune, gain)
+          map(([position, frames, { octave, detune }, gain]) =>
+            baseParams(position, frames, octave, detune, gain)
           )
         )
         .subscribe($params)
@@ -209,7 +251,7 @@ export const oscillator = ({
           })
         )
         .subscribe((wavetable) => {
-          if (wavetable) setWaveTable(wavetable);
+          if (wavetable) setWaveTable(wavetable.frames, wavetable.morph);
           $waveTableLoading.next(false);
         });
     })

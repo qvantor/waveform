@@ -18,7 +18,6 @@ const BLOCK: usize = 128;
 const FADE_IN: f64 = 0.0015;
 const KILL_FADE: f64 = 0.02;
 const CROSSFADE: f64 = 0.01;
-const SNAP: f64 = 1e-4;
 pub const UPSAMPLER_TAPS: usize = 6;
 const HELD_GATE: f64 = 1.0;
 const RELEASE_GATE: f64 = 2.0;
@@ -292,43 +291,6 @@ fn pair_loop(
     (ph_a, ph_b)
 }
 
-#[inline(never)]
-fn render12(
-    t: &[f32],
-    o: usize,
-    stride: usize,
-    len: f64,
-    mut m: f64,
-    dm: f64,
-    mut ph: f64,
-    mut inc: f64,
-    d_inc: f64,
-    g: f64,
-    out: &mut [f32],
-    s0: usize,
-    s1: usize,
-) -> f64 {
-    let (wa, wb) = (window(t, o, len as usize), window(t, o + stride, len as usize));
-    let last = len as i32 - 1;
-    let out = &mut out[..s1];
-    phase_loop!(
-        ph,
-        inc,
-        d_inc,
-        s0,
-        s1,
-        |s| {
-            let (i, f) = split(ph * len, last);
-            let a = lerp(wa, i, f);
-            let b = lerp(wb, i, f);
-            let v = a + (b - a) * m;
-            out[s] = (out[s] as f64 + g * v) as f32;
-        },
-        m += dm
-    );
-    ph
-}
-
 // (not inlined: a loop of its own keeps its values in registers, inlined into render_voices they spilled)
 #[inline(never)]
 fn render21_same(
@@ -367,198 +329,6 @@ fn render21_same(
 }
 
 // (not inlined: a loop of its own keeps its values in registers, inlined into render_voices they spilled)
-// two frames (k, k + 1 at m) of two levels of one length (at w): the four windows in the lanes of an f32x4, each
-// read at i and i + 1 at once (a load of 64 bits), one lerp for the four, their weights in lanes with the gain:
-// g(1 - m)(1 - w), gm(1 - w), g(1 - m)w, gmw, stepped by a sum each sample (at a constant w: their product is
-// linear) or as the product of the morph and the level lanes (w moves). In f32, not as the TS (which read the
-// four one by one in f64, as fast as V8's code of it): 3.3× this loop, a voice with a moving position 1.4× the
-// TS core
-#[inline(never)]
-fn render22_same(
-    t: &[f32],
-    o1: usize,
-    stride1: usize,
-    len1: f64,
-    o2: usize,
-    stride2: usize,
-    m: f64,
-    dm: f64,
-    w: f64,
-    dw: f64,
-    mut ph: f64,
-    mut inc: f64,
-    d_inc: f64,
-    g: f64,
-    out: &mut [f32],
-    s0: usize,
-    s1: usize,
-) -> f64 {
-    let len = len1 as usize;
-    let windows = [
-        window(t, o1, len),
-        window(t, o1 + stride1, len),
-        window(t, o2, len),
-        window(t, o2 + stride2, len),
-    ];
-    let last = len1 as i32 - 1;
-    let out = &mut out[..s1];
-    let mut lanes = Lanes4::new(windows, m, dm, w, dw, g);
-    if dw == 0.0 {
-        phase_loop!(ph, inc, d_inc, s0, s1, |s| {
-            let (i, f) = split(ph * len1, last);
-            out[s] += lanes.sample_linear(i, f as f32);
-        });
-    } else {
-        phase_loop!(ph, inc, d_inc, s0, s1, |s| {
-            let (i, f) = split(ph * len1, last);
-            out[s] += lanes.sample(i, f as f32);
-        });
-    }
-    ph
-}
-
-// the four windows of render22_same and their weights (with the gain), in the lanes of wasm SIMD: `morph`
-// (1 - m, m, 1 - m, m) and `level` g(1 - w, 1 - w, w, w), their product `weights` and its step at a constant w
-#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
-struct Lanes4<'a> {
-    windows: [&'a [f32]; 4],
-    morph: core::arch::wasm32::v128,
-    d_morph: core::arch::wasm32::v128,
-    level: core::arch::wasm32::v128,
-    d_level: core::arch::wasm32::v128,
-    weights: core::arch::wasm32::v128,
-    d_weights: core::arch::wasm32::v128,
-}
-
-#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
-impl<'a> Lanes4<'a> {
-    #[inline(always)]
-    fn new(windows: [&'a [f32]; 4], m: f64, dm: f64, w: f64, dw: f64, g: f64) -> Lanes4<'a> {
-        use core::arch::wasm32::*;
-        let (m, dm, w, dw, g) = (m as f32, dm as f32, w as f32, dw as f32, g as f32);
-        let morph = f32x4(1.0 - m, m, 1.0 - m, m);
-        let d_morph = f32x4(-dm, dm, -dm, dm);
-        let level = f32x4(g * (1.0 - w), g * (1.0 - w), g * w, g * w);
-        Lanes4 {
-            windows,
-            morph,
-            d_morph,
-            level,
-            d_level: f32x4(-g * dw, -g * dw, g * dw, g * dw),
-            weights: f32x4_mul(morph, level),
-            d_weights: f32x4_mul(d_morph, level),
-        }
-    }
-
-    // the four windows at i and f of the way to i + 1
-    #[inline(always)]
-    fn values(&self, i: usize, f: f32) -> core::arch::wasm32::v128 {
-        use core::arch::wasm32::*;
-        // SAFETY: i = xi + 1 with xi in [-1, len - 1], a window of len + 3 samples: i + 1 < its length
-        let at = |k: usize| unsafe { self.windows[k].as_ptr().add(i) as *const u64 };
-        let zero = f32x4_splat(0.0);
-        // [x0[i], x0[i + 1], x1[i], x1[i + 1]] and of the windows 2 and 3
-        let (first, second) = unsafe {
-            (
-                v128_load64_lane::<1>(v128_load64_lane::<0>(zero, at(0)), at(1)),
-                v128_load64_lane::<1>(v128_load64_lane::<0>(zero, at(2)), at(3)),
-            )
-        };
-        let now = i32x4_shuffle::<0, 2, 4, 6>(first, second);
-        let next = i32x4_shuffle::<1, 3, 5, 7>(first, second);
-        f32x4_add(now, f32x4_mul(f32x4_sub(next, now), f32x4_splat(f)))
-    }
-
-    // (p0 + p2) + (p1 + p3)
-    #[inline(always)]
-    fn sum(p: core::arch::wasm32::v128) -> f32 {
-        use core::arch::wasm32::*;
-        let halves = f32x4_add(p, i32x4_shuffle::<2, 3, 0, 1>(p, p));
-        f32x4_extract_lane::<0>(halves) + f32x4_extract_lane::<1>(halves)
-    }
-
-    // the sample at a constant w (its weights linear), the weights step on
-    #[inline(always)]
-    fn sample_linear(&mut self, i: usize, f: f32) -> f32 {
-        use core::arch::wasm32::*;
-        let p = f32x4_mul(self.values(i, f), self.weights);
-        self.weights = f32x4_add(self.weights, self.d_weights);
-        Self::sum(p)
-    }
-
-    // the sample while w moves too, the morph and the level step on
-    #[inline(always)]
-    fn sample(&mut self, i: usize, f: f32) -> f32 {
-        use core::arch::wasm32::*;
-        let p = f32x4_mul(self.values(i, f), f32x4_mul(self.morph, self.level));
-        self.morph = f32x4_add(self.morph, self.d_morph);
-        self.level = f32x4_add(self.level, self.d_level);
-        Self::sum(p)
-    }
-}
-
-// the same lanes one by one, in the same order (the native build: cargo test)
-#[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
-struct Lanes4<'a> {
-    windows: [&'a [f32]; 4],
-    morph: [f32; 4],
-    d_morph: [f32; 4],
-    level: [f32; 4],
-    d_level: [f32; 4],
-    weights: [f32; 4],
-    d_weights: [f32; 4],
-}
-
-#[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
-impl<'a> Lanes4<'a> {
-    fn new(windows: [&'a [f32]; 4], m: f64, dm: f64, w: f64, dw: f64, g: f64) -> Lanes4<'a> {
-        let (m, dm, w, dw, g) = (m as f32, dm as f32, w as f32, dw as f32, g as f32);
-        let morph = [1.0 - m, m, 1.0 - m, m];
-        let d_morph = [-dm, dm, -dm, dm];
-        let level = [g * (1.0 - w), g * (1.0 - w), g * w, g * w];
-        Lanes4 {
-            windows,
-            morph,
-            d_morph,
-            level,
-            d_level: [-g * dw, -g * dw, g * dw, g * dw],
-            weights: core::array::from_fn(|k| morph[k] * level[k]),
-            d_weights: core::array::from_fn(|k| d_morph[k] * level[k]),
-        }
-    }
-
-    fn values(&self, i: usize, f: f32) -> [f32; 4] {
-        core::array::from_fn(|k| {
-            let (a, b) = (self.windows[k][i], self.windows[k][i + 1]);
-            a + (b - a) * f
-        })
-    }
-
-    fn sum(p: [f32; 4]) -> f32 {
-        (p[0] + p[2]) + (p[1] + p[3])
-    }
-
-    fn sample_linear(&mut self, i: usize, f: f32) -> f32 {
-        let values = self.values(i, f);
-        let p = core::array::from_fn(|k| values[k] * self.weights[k]);
-        for k in 0..4 {
-            self.weights[k] += self.d_weights[k];
-        }
-        Self::sum(p)
-    }
-
-    fn sample(&mut self, i: usize, f: f32) -> f32 {
-        let values = self.values(i, f);
-        let p = core::array::from_fn(|k| values[k] * (self.morph[k] * self.level[k]));
-        for k in 0..4 {
-            self.morph[k] += self.d_morph[k];
-            self.level[k] += self.d_level[k];
-        }
-        Self::sum(p)
-    }
-}
-
-// (not inlined: a loop of its own keeps its values in registers, inlined into render_voices they spilled)
 #[inline(never)]
 fn render21(
     t: &[f32],
@@ -593,61 +363,6 @@ fn render21(
             out[s] = (out[s] as f64 + g * (v1 + (v2 - v1) * w)) as f32;
         },
         w += dw
-    );
-    ph
-}
-
-// (not inlined: a loop of its own keeps its values in registers, inlined into render_voices they spilled)
-#[inline(never)]
-fn render22(
-    t: &[f32],
-    o1: usize,
-    stride1: usize,
-    len1: f64,
-    o2: usize,
-    stride2: usize,
-    len2: f64,
-    mut m: f64,
-    dm: f64,
-    mut w: f64,
-    dw: f64,
-    mut ph: f64,
-    mut inc: f64,
-    d_inc: f64,
-    g: f64,
-    out: &mut [f32],
-    s0: usize,
-    s1: usize,
-) -> f64 {
-    let (a1w, b1w) = (
-        window(t, o1, len1 as usize),
-        window(t, o1 + stride1, len1 as usize),
-    );
-    let (a2w, b2w) = (
-        window(t, o2, len2 as usize),
-        window(t, o2 + stride2, len2 as usize),
-    );
-    let (last1, last2) = (len1 as i32 - 1, len2 as i32 - 1);
-    let out = &mut out[..s1];
-    phase_loop!(
-        ph,
-        inc,
-        d_inc,
-        s0,
-        s1,
-        |s| {
-            let (i1, f1) = split(ph * len1, last1);
-            let (i2, f2) = split(ph * len2, last2);
-            let a1 = lerp(a1w, i1, f1);
-            let b1 = lerp(b1w, i1, f1);
-            let v1 = a1 + (b1 - a1) * m;
-            let a2 = lerp(a2w, i2, f2);
-            let b2 = lerp(b2w, i2, f2);
-            let v2 = a2 + (b2 - a2) * m;
-            out[s] = (out[s] as f64 + g * (v1 + (v2 - v1) * w)) as f32;
-        },
-        w += dw,
-        m += dm
     );
     ph
 }
@@ -727,25 +442,6 @@ fn add_to_mix(
                 + weight * (c[0] * x0 + c[1] * x1 + c[2] * x2 + c[3] * x3 + c[4] * x4 + c[5] * x5))
                 as f32;
         }
-    }
-}
-
-// both frames of a position (k, k + 1 at weight m) of a level into a mix
-fn add_level_to_mix(
-    mix: &mut [f32],
-    length: usize,
-    levels: &Levels,
-    level: usize,
-    weight: f64,
-    k: usize,
-    m: f64,
-    weights: &mut Vec<(usize, Vec<f64>)>,
-) {
-    if m < 1.0 {
-        add_to_mix(mix, length, levels, level, k, weight * (1.0 - m), weights);
-    }
-    if m > 0.0 {
-        add_to_mix(mix, length, levels, level, k + 1, weight * m, weights);
     }
 }
 
@@ -1304,17 +1000,16 @@ fn mix_length(ctx: &Ctx, levels: &Levels, level: usize) -> usize {
     ctx.native_length.max(levels.lengths[level] as usize)
 }
 
-// the multiply-adds of a mix of `level` and the next at weight w, of the frames k, k + 1 at weight m
-fn build_cost(ctx: &Ctx, levels: &Levels, level: usize, w: f64, m: f64) -> f64 {
+// the multiply-adds of a mix of `level` and the next at weight w (of one frame)
+fn build_cost(ctx: &Ctx, levels: &Levels, level: usize, w: f64) -> f64 {
     let length = mix_length(ctx, levels, level) as f64;
     let silent = levels.lengths.len() - 1;
-    let frames = if m > 0.0 && m < 1.0 { 2.0 } else { 1.0 };
     let mut cost = length;
     if w < 1.0 && level < silent {
-        cost += frames * mix_cost(levels.lengths[level] as f64, length);
+        cost += mix_cost(levels.lengths[level] as f64, length);
     }
     if w > 0.0 && level + 1 < silent {
-        cost += frames * mix_cost(levels.lengths[level + 1] as f64, length);
+        cost += mix_cost(levels.lengths[level + 1] as f64, length);
     }
     cost
 }
@@ -1328,7 +1023,6 @@ fn build_mix(
     level: usize,
     w: f64,
     k: usize,
-    m: f64,
     shared: &mut Shared,
 ) {
     let length = mix_length(ctx, levels, level);
@@ -1345,10 +1039,10 @@ fn build_mix(
     let silent = levels.lengths.len() - 1;
     let weights = &mut shared.upsamplers;
     if w < 1.0 && level < silent {
-        add_level_to_mix(&mut mix, length, levels, level, 1.0 - w, k, m, weights);
+        add_to_mix(&mut mix, length, levels, level, k, 1.0 - w, weights);
     }
     if w > 0.0 && level + 1 < silent {
-        add_level_to_mix(&mut mix, length, levels, level + 1, w, k, m, weights);
+        add_to_mix(&mut mix, length, levels, level + 1, k, w, weights);
     }
     mix[0] = mix[length];
     mix[length + 1] = mix[1];
@@ -1357,16 +1051,14 @@ fn build_mix(
     osc.mix_ids[v] = osc.stable_id;
 }
 
-// a span s..e of a voice from one version: the level (w = 0) or the next (w = 1) or both, frame k (m = 0) or the
-// next (m = 1) or both; × g added to out, returns the phase
+// a span s..e of a voice from one version: frame k of the level (w = 0) or the next (w = 1) or both; × g added
+// to out, returns the phase
 fn render_span(
     levels: &Levels,
     level: usize,
     w: f64,
     dw: f64,
     k: usize,
-    m: f64,
-    dm: f64,
     ph: f64,
     inc: f64,
     d_inc: f64,
@@ -1384,106 +1076,35 @@ fn render_span(
         level1 = level + 1;
         two_levels = false;
     }
-    let mut frame = k;
-    let mut two_frames = true;
-    if m == 0.0 && dm == 0.0 {
-        two_frames = false;
-    } else if m == 1.0 && dm == 0.0 {
-        frame = k + 1;
-        two_frames = false;
-    }
     let len1 = levels.lengths[level1] as usize;
     let stride1 = len1 + FRAME_GUARD;
     // sample 0 of the frame on the level, after the sample before the cycle
-    let o1 = levels.offsets[level1] as usize + frame * stride1 + 1;
+    let o1 = levels.offsets[level1] as usize + k * stride1 + 1;
     if !two_levels {
-        return if two_frames {
-            render12(
-                data,
-                o1,
-                stride1,
-                len1 as f64,
-                m,
-                dm,
-                ph,
-                inc,
-                d_inc,
-                g,
-                out,
-                s,
-                e,
-            )
-        } else {
-            render11(data, o1, len1 as f64, ph, inc, d_inc, g, out, s, e)
-        };
+        return render11(data, o1, len1 as f64, ph, inc, d_inc, g, out, s, e);
     }
     let len2 = levels.lengths[level + 1] as usize;
     let stride2 = len2 + FRAME_GUARD;
-    let o2 = levels.offsets[level + 1] as usize + frame * stride2 + 1;
+    let o2 = levels.offsets[level + 1] as usize + k * stride2 + 1;
     if len1 == len2 {
-        return if two_frames {
-            render22_same(
-                data,
-                o1,
-                stride1,
-                len1 as f64,
-                o2,
-                stride2,
-                m,
-                dm,
-                w,
-                dw,
-                ph,
-                inc,
-                d_inc,
-                g,
-                out,
-                s,
-                e,
-            )
-        } else {
-            render21_same(data, o1, len1 as f64, o2, w, dw, ph, inc, d_inc, g, out, s, e)
-        };
+        return render21_same(data, o1, len1 as f64, o2, w, dw, ph, inc, d_inc, g, out, s, e);
     }
-    if two_frames {
-        render22(
-            data,
-            o1,
-            stride1,
-            len1 as f64,
-            o2,
-            stride2,
-            len2 as f64,
-            m,
-            dm,
-            w,
-            dw,
-            ph,
-            inc,
-            d_inc,
-            g,
-            out,
-            s,
-            e,
-        )
-    } else {
-        render21(
-            data,
-            o1,
-            len1 as f64,
-            o2,
-            len2 as f64,
-            w,
-            dw,
-            ph,
-            inc,
-            d_inc,
-            g,
-            out,
-            s,
-            e,
-        )
-    }
+    render21(
+        data,
+        o1,
+        len1 as f64,
+        o2,
+        len2 as f64,
+        w,
+        dw,
+        ph,
+        inc,
+        d_inc,
+        g,
+        out,
+        s,
+        e,
+    )
 }
 
 // the channels a render of an oscillator adds into: those of the voice, or those of the oscillator (a: its
@@ -1591,44 +1212,32 @@ fn render_voices(
     }
     // x = 1 + 3·log2(base · f / nyquist) = offset + 3·log2(f)
     let offset = 1.0 + 3.0 * (log2(level_base(levels.harmonics[0])) - ctx.log2_nyquist);
-    // the position in frames: one (snapped to a frame within SNAP) or at each point; the position spread moves
-    // voice v by its share of the spread × `spread_frames`
+    // the position as q = its share × the frames: frame ceil(q) - 1 plays, within the table (the frames
+    // never mix while it plays, q in (k, k + 1] is frame k), one q or one at each point;
+    // the position spread moves voice v by its share of the spread × the spread (a share of the table)
     let moving = n > 1 && !is_constant(position);
-    let last_frame = n as f64 - 1.0;
-    let spread_frames = if n > 1 {
-        osc.shape.position_spread * last_frame
+    let frames_q = n as f64;
+    let spread_q = if n > 1 {
+        osc.shape.position_spread * frames_q
     } else {
         0.0
     };
-    let spread_of = |p: f64, share: f64| min(last_frame, max(0.0, p + spread_frames * share));
-    // the frames k, k + 1 and the share m of k + 1 (of each voice under a position spread)
+    let spread_of = |q: f64, share: f64| min(frames_q, max(0.0, q + spread_q * share));
+    let frame_of = |q: f64| min(frames_q - 1.0, max(0.0, ceil(q) - 1.0)) as usize;
+    // the frame (of each voice under a position spread)
     let mut k = 0usize;
-    let mut m = 0.0;
-    let mut spread: Option<[(usize, f64); MAX_UNISON]> = None;
+    let mut spread: Option<[usize; MAX_UNISON]> = None;
     if !moving {
-        let frame_of = |p: f64| {
-            let mut m = 0.0;
-            let mut whole = round(p);
-            if (p - whole).abs() >= SNAP {
-                whole = floor(p);
-                m = p - whole;
-            }
-            if whole >= last_frame {
-                whole = last_frame;
-                m = 0.0;
-            }
-            (whole as usize, m)
-        };
-        let p = if n == 1 {
+        let q = if n == 1 {
             0.0
         } else {
-            min(1.0, max(0.0, position[0] as f64)) * last_frame
+            min(1.0, max(0.0, position[0] as f64)) * frames_q
         };
-        (k, m) = frame_of(p);
-        if spread_frames != 0.0 {
-            let mut frames = [(0, 0.0); MAX_UNISON];
+        k = frame_of(q);
+        if spread_q != 0.0 {
+            let mut frames = [0usize; MAX_UNISON];
             for v in 0..osc.voices {
-                frames[v] = frame_of(spread_of(p, osc.shares[v]));
+                frames[v] = frame_of(spread_of(q, osc.shares[v]));
             }
             spread = Some(frames);
         }
@@ -1643,11 +1252,11 @@ fn render_voices(
             } else {
                 position[0]
             };
-            positions[p] = min(1.0, max(0.0, value as f64)) * (n as f64 - 1.0);
+            positions[p] = min(1.0, max(0.0, value as f64)) * frames_q;
         }
     }
 
-    let frame_of_voice = |v: usize| spread.as_ref().map_or((k, m), |frames| frames[v]);
+    let frame_of_voice = |v: usize| spread.as_ref().map_or(k, |frames| frames[v]);
     // the middle voice of an odd count plays in both channels, the others take turns around it
     let voices = osc.voices;
     let middle: i64 = if voices % 2 == 1 {
@@ -1694,11 +1303,11 @@ fn render_voices(
                 continue;
             };
             decided[v] = true;
-            let (k, m) = frame_of_voice(v);
+            let k = frame_of_voice(v);
             if osc.mix_ids[v] != osc.stable_id
-                && shared.take_build(ctx.block_frame, build_cost(ctx, levels, level, w0, m))
+                && shared.take_build(ctx.block_frame, build_cost(ctx, levels, level, w0))
             {
-                build_mix(ctx, osc, v, levels, level, w0, k, m, shared);
+                build_mix(ctx, osc, v, levels, level, w0, k, shared);
             }
         }
         let ready = |osc: &Osc, v: usize| {
@@ -1756,7 +1365,7 @@ fn render_voices(
         let fade_left = osc.fades[v];
         let channel = channel_of_voice(v);
         let g = g * osc.gains[v];
-        let (k, m) = frame_of_voice(v);
+        let k = frame_of_voice(v);
         if fade_left > 0 {
             shared.scratch.fading[a..b].fill(0.0);
         }
@@ -1779,9 +1388,9 @@ fn render_voices(
                 // (decided already in a steady block)
                 if !decided[v]
                     && osc.mix_ids[v] != osc.stable_id
-                    && shared.take_build(ctx.block_frame, build_cost(ctx, levels, level, w0, m))
+                    && shared.take_build(ctx.block_frame, build_cost(ctx, levels, level, w0))
                 {
-                    build_mix(ctx, osc, v, levels, level, w0, k, m, shared);
+                    build_mix(ctx, osc, v, levels, level, w0, k, shared);
                 }
                 if osc.mix_ids[v] == osc.stable_id {
                     if let Some(mix) = &osc.mixes[v] {
@@ -1812,29 +1421,30 @@ fn render_voices(
             if !moving {
                 let (channel_out, fading) = channel_of(&mut shared.scratch, channels, channel);
                 let out = if fade_left > 0 { fading } else { channel_out };
-                ph = render_span(levels, level, w0, dw, k, m, 0.0, ph, inc0, d_inc, g, out, s0, s1);
+                ph = render_span(levels, level, w0, dw, k, ph, inc0, d_inc, g, out, s0, s1);
                 continue;
             }
-            // the position from its point to the next, split where it crosses a frame
-            let mut sample = s0;
-            let (mut at, dp) = if spread_frames != 0.0 {
-                let from = spread_of(shared.scratch.positions[p], osc.shares[v]);
-                let to = spread_of(shared.scratch.positions[p + 1], osc.shares[v]);
-                (from, (to - from) / length)
+            // the position from its point to the next, split where it crosses into another frame: up at the first
+            // sample past k + 1, down at the first one at k or below
+            let (from, to) = (shared.scratch.positions[p], shared.scratch.positions[p + 1]);
+            let (from, to) = if spread_q != 0.0 {
+                (spread_of(from, osc.shares[v]), spread_of(to, osc.shares[v]))
             } else {
-                let at = shared.scratch.positions[p];
-                (at, (shared.scratch.positions[p + 1] - at) / length)
+                (from, to)
             };
+            let dq = (to - from) / length;
+            let mut sample = s0;
             while sample < s1 {
-                let mut frame = min(floor(at), n as f64 - 2.0);
-                // going down from a frame: the frame below and its next one
-                if dp < 0.0 && at == frame && frame > 0.0 {
-                    frame -= 1.0;
-                }
+                let at = from + dq * (sample - s0) as f64;
+                let frame = frame_of(at);
                 let mut end = s1;
-                let edge = if dp > 0.0 { frame + 1.0 } else { frame };
-                if dp != 0.0 {
-                    let cross = sample as f64 + (edge - at) / dp;
+                if dq > 0.0 && frame + 1 < n {
+                    let cross = sample as f64 + ((frame + 1) as f64 - at) / dq;
+                    if cross < s1 as f64 {
+                        end = max(sample as f64 + 1.0, floor(cross) + 1.0) as usize;
+                    }
+                } else if dq < 0.0 && frame > 0 {
+                    let cross = sample as f64 + (frame as f64 - at) / dq;
                     if cross < s1 as f64 {
                         end = max(sample as f64 + 1.0, ceil(cross)) as usize;
                     }
@@ -1847,9 +1457,7 @@ fn render_voices(
                     level,
                     w0 + dw * offset_in_segment,
                     dw,
-                    frame as usize,
-                    at - frame,
-                    dp,
+                    frame,
                     ph,
                     inc0 + d_inc * offset_in_segment,
                     d_inc,
@@ -1858,7 +1466,6 @@ fn render_voices(
                     sample,
                     end,
                 );
-                at += dp * (end - sample) as f64;
                 sample = end;
             }
         }

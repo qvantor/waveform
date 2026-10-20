@@ -149,7 +149,7 @@ describe('Chart of the wave', () => {
     expect(screen.getByTestId('phase-overlay').style.opacity).toBe('1');
   });
 
-  it('draws the wave where the routes of the Wave knob move the position: the frames morphed, the point on it', () => {
+  it('draws the wave where the routes of the Wave knob move the position: the frame it plays, the point on it', () => {
     const oscillator = createOscillator();
     const [{ $position }, actions] = oscillator;
     act(() =>
@@ -159,7 +159,7 @@ describe('Chart of the wave', () => {
         [0, 0, 0, 0],
       ])
     );
-    const route = { id: 'env2', color: '#fff', amount: 0.5, level: () => 0.5, live: true };
+    const route = { id: 'env2', color: '#fff', amount: 1, level: () => 0.5, live: true };
     const chart = (modulations?: typeof route[]) => (
       <OscillatorContext.Provider value={oscillator}>
         <Chart phaseVisible modulations={modulations} />
@@ -167,13 +167,13 @@ describe('Chart of the wave', () => {
     );
     const line = (container: HTMLElement) => container.querySelector('path')?.getAttribute('d');
     act(() => actions.setOscValue('phase', 0.25));
-    // a quarter of the travel of 3 frames: from frame 0 to between 0 and 1, the crest at 0.75
+    // half the travel of 3 frames: from frame 0 to frame 1 (one frame, never a mix), the crest at 0.5
     const live = render(chart([route]));
     const moved = line(live.container);
-    expect(moved).toContain('L0,50L100,12.5L200,50L300,87.5L400,50');
-    expect(Number(screen.getByTestId('phase-dot').getAttribute('cy'))).toBe(12.5);
+    expect(moved).toContain('L0,50L100,25L200,50L300,75L400,50');
+    expect(Number(screen.getByTestId('phase-dot').getAttribute('cy'))).toBe(25);
     live.unmount();
-    act(() => $position.next(0.5));
+    act(() => $position.next(1));
     const still = render(chart());
     expect(line(still.container)).toBe(moved);
   });

@@ -1,3 +1,4 @@
+import { expandFrames, playedFrames } from './wavetable-frames';
 import { buildLevels, tableBytes } from './wavetable-mipmap';
 import type { WavetableLevels } from './wavetable-levels';
 import type { StatsRequest, StoreFreedMessage, StoreTableMessage } from './voice-options';
@@ -45,6 +46,8 @@ export interface BuildMessage {
   table: string;
   version: number;
   frames: Float32Array[];
+  // the frames play expanded to 256 by crossfades (a morph mark)
+  morph?: boolean;
 }
 export type BuilderMessage = BuilderPortMessage | BuildMessage | StoreTableMessage | StatsRequest;
 
@@ -125,7 +128,9 @@ export const createTableBuilder = (
         continue;
       }
       const begin = __PERF__ ? performance.now() : 0;
-      const levels = buildLevels(message.frames, reuse(tableBytes(message.frames)));
+      const { frames: own, morph = false } = message;
+      const frames = playedFrames(own.length, morph) === own.length ? own : expandFrames(own);
+      const levels = buildLevels(frames, reuse(tableBytes(frames)));
       if (__PERF__) {
         const ms = performance.now() - begin;
         timing.builds++;

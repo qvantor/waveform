@@ -1,3 +1,5 @@
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import FFT from 'fft.js';
 import { frequencyResponseDb } from '@waveform/ui-kit';
 import { EnvelopeParams, envelopeValue, withCurves } from '../envelope/envelope-curve';
@@ -83,6 +85,10 @@ const core: Core = {
 
 const RATE = 48000;
 const BLOCK = 128;
+// an Audio Unit playing tables of ours (scripts/renders/run.mjs)
+const MEASURED_FRAMES: {
+  played: Record<'3' | '4', { edge: number; below: number; above: number }[]>;
+} = JSON.parse(readFileSync(join(__dirname, '../../../../../../../dsp/measurements/frames.json'), 'utf8'));
 
 const cycle = (size: number, harmonics: [number, number, number?][]) =>
   Array.from({ length: size }, (_, n) =>
@@ -362,22 +368,31 @@ describe('the wavetable voice', () => {
       expect(left).toEqual(alone);
     });
 
-    it('morphs two frames linearly', () => {
-      const { store } = core.storeWith({ a: [sine, square], s: [sine], q: [square] });
-      const { left } = render({ store, params: { position1: 0.25 }, frames: 1024 });
-      const { left: a } = render({ store, oscs: [osc({ table: 's' })], frames: 1024 });
-      const { left: b } = render({ store, oscs: [osc({ table: 'q' })], frames: 1024 });
-      // (a table of one frame has its own levels: the same harmonics, other lengths)
-      left.forEach((value, i) => expect(value).toBeCloseTo(0.75 * a[i] + 0.25 * b[i], 4));
+    // dsp/measurements/frames.json: the frame just below and above each edge k / N of the position
+    it.each(['3', '4'])('plays one frame of %s, never a mix: q = share × N in (k, k + 1] is frame k', (n) => {
+      const count = Number(n);
+      const frames = [sine, square, saw, sine.map((v) => -v)].slice(0, count);
+      const { store } = core.storeWith({ a: frames });
+      const at = (position: number) => render({ store, params: { position1: position }, frames: 1024 }).left;
+      const alone = (k: number) => at(k / (count - 1));
+      for (const { edge, below, above } of MEASURED_FRAMES.played[n as '3' | '4']) {
+        expect(at(edge - 1e-4)).toEqual(alone(below));
+        expect(at(edge + 1e-4)).toEqual(alone(above));
+      }
     });
 
-    it('morphs through the table without clicks', () => {
-      const { store } = core.storeWith({ a: table.slice(0, 32) });
-      const { left: morph } = render({ store, params: { position1: (frame) => frame / RATE }, frames: RATE });
-      const stationary = Array.from({ length: 32 }, (_, k) =>
-        maxStep(render({ store, params: { position1: k / 31 }, frames: 2048 }).left)
-      );
-      expect(maxStep(morph)).toBeLessThanOrEqual(1.1 * Math.max(...stationary));
+    it('steps to the next frame at the first sample a moving position plays it, no mix between', () => {
+      const { store } = core.storeWith({ a: [sine, square, saw] });
+      // q from 0.6 to 1.8 over 512 samples: past 1 (frame 1) from sample 171
+      const { left } = render({
+        store,
+        params: { position1: (frame) => (0.6 + (1.2 * frame) / 512) / 3 },
+        frames: 512,
+      });
+      const still = (k: number) => render({ store, params: { position1: k / 2 }, frames: 512 }).left;
+      const [zero, one] = [still(0), still(1)];
+      // (a moving position plays the levels themselves, a still one their mix)
+      for (let i = 0; i < 512; i++) expect(left[i]).toBeCloseTo(i < 171 ? zero[i] : one[i], 3);
     });
 
     it('clamps a position outside 0..1', () => {
