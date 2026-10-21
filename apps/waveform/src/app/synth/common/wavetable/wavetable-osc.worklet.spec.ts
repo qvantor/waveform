@@ -26,7 +26,7 @@ const params = (values: Partial<Record<VoiceParam, number>> = {}) =>
     ])
   ) as Record<VoiceParam, Float32Array>;
 
-const voice = (table: string, options: Partial<{ start: number; trace: boolean }> = {}) =>
+const voice = (table: string, options: Partial<{ start: number; trace: boolean; mono: boolean }> = {}) =>
   new processors[VOICE_PROCESSOR]({
     processorOptions: {
       osc: [{ table, unison: 1, phase: 0.25, phaseRand: 0 }, null],
@@ -50,6 +50,10 @@ const render = (
   const alive = processor.process([], outputs, values);
   return { alive, left: outputs[0][0], right: outputs[0][1] };
 };
+
+// the starts a voice posted (VoiceStartedMessage)
+const startedMessages = (processor: WorkletProcessorStub) =>
+  processor.port.postMessage.mock.calls.filter(([message]) => 'started' in message);
 
 const stats = (store: WorkletProcessorStub) => {
   store.port.postMessage.mockClear();
@@ -214,8 +218,18 @@ describe('wavetable oscillator wasm worklet', () => {
     const processor = voice('none', { start: 100 / RATE });
     render(processor, 1280);
     render(processor, 1408);
-    const started = processor.port.postMessage.mock.calls.filter(([message]) => 'started' in message);
-    expect(started).toEqual([[{ started: 1280, scheduled: 100 }]]);
+    expect(startedMessages(processor)).toEqual([[{ started: 1280, scheduled: 100 }]]);
+  });
+
+  it('tells a start on time once for a voice of mono (it may start its envelopes again), for another none', () => {
+    const mono = voice('none', { start: 200 / RATE, mono: true });
+    const poly = voice('none', { start: 200 / RATE });
+    for (const processor of [mono, poly]) {
+      render(processor, 128);
+      render(processor, 256);
+    }
+    expect(startedMessages(mono)).toEqual([[{ started: 200, scheduled: 200 }]]);
+    expect(startedMessages(poly)).toEqual([]);
   });
 
   it('takes the routes of a playing note from its port: the amounts glide', () => {

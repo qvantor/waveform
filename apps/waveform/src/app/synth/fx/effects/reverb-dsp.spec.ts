@@ -37,6 +37,8 @@ interface Change {
   // the params are knobs the envelopes move
   routed?: boolean;
   active?: boolean;
+  // the tail is forgotten (a preset switch)
+  clear?: boolean;
 }
 
 const impulse: Input = (frame) => (frame === 0 ? 1 : 0);
@@ -74,6 +76,7 @@ const render = (
       .forEach((change) => {
         if (change.params) dsp.set(change.params, change.routed);
         if (change.active !== undefined) dsp.setActive(change.active);
+        if (change.clear) dsp.clear();
       });
     for (let i = 0; i < BLOCK; i++) block[i] = input(start + i);
     dsp.process(block, block, L.subarray(start, start + BLOCK), R.subarray(start, start + BLOCK));
@@ -377,6 +380,23 @@ describe('the reverb', () => {
       const { idle } = render({}, 1, () => 0);
       expect(idle.indexOf(true)).toBe(210);
       expect(idle.slice(210).every(Boolean)).toBe(true);
+    });
+
+    it('clear forgets the tail at once, the next sound rings at the params as they are then', () => {
+      const wake = 1;
+      const burst = noise(0.1);
+      const input: Input = (at) => burst(at) || impulse(at - frame(wake));
+      const { mono, idle } = render({ decay: 20 }, 2, input, [
+        { at: 0.3, clear: true },
+        { at: 0.5, params: { decay: 0.2 } },
+      ]);
+      expect(levelDb(mono, 0.2, 0.29)).toBeGreaterThan(-60);
+      expect(mono.slice(frame(0.3), frame(wake)).every((value) => value === 0)).toBe(true);
+      expect(idle[Math.floor(frame(0.3) / BLOCK)]).toBe(true);
+      // no glide from the decay before
+      const woken = rt60(mono.slice(frame(wake)));
+      expect(woken).toBeGreaterThan(0.15);
+      expect(woken).toBeLessThan(0.25);
     });
 
     it('ignores unknown and missing params', () => {

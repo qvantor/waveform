@@ -59,9 +59,23 @@ export const synthCore = ({ wavetables: wavetableDependencies }: Dependencies = 
       $masterGain,
     };
   })
-    .actions(({ $masterGain }) => ({
-      setMasterGain: (value: number) => $masterGain.next(value),
-    }))
+    .actions(({ $masterGain, audioCtx, fxOut }) => {
+      const open = (now: number) => {
+        fxOut.gain.cancelScheduledValues(now);
+        fxOut.gain.setValueAtTime(1, now);
+      };
+      return {
+        setMasterGain: (value: number) => $masterGain.next(value),
+        // a preset switch (soundSwitch) silences the output after the tails of the fx (fxOut: nothing else
+        // automates it): it fades out in `seconds` from now, then opens again at once
+        mute: (seconds: number) => {
+          const now = audioCtx.currentTime;
+          open(now);
+          fxOut.gain.linearRampToValueAtTime(0, now + seconds);
+        },
+        unmute: () => open(audioCtx.currentTime),
+      };
+    })
     .subscriptions(({ $masterGain, audioCtx, masterGain }) => [
       resumeOnGesture(audioCtx),
       $masterGain.subscribe((value) => masterGain.gain.setValueAtTime(value, audioCtx.currentTime)),

@@ -10,8 +10,7 @@ import {
 } from '../app/synth/common/modules';
 import type { SynthModule } from '../app/synth/common/modules/synth';
 import { FxProvider, useFx } from '../app/synth/fx/modules';
-
-type FxModule = ReturnType<typeof useFx>;
+import type { FxModule } from '../app/synth/fx/modules/fx';
 
 const Capture = ({ onModel }: { onModel: (module: FxModule) => void }) => {
   onModel(useFx());

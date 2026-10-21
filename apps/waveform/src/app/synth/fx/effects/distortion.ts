@@ -58,6 +58,7 @@ export const distortion: FxDefinition<DistortionParam> = {
       },
       // no loops to drain: the closed send silences the input, and the worklet idles once it is silent
       setActive: noop,
+      clear: worklet.clear,
       // the worklet moves the knobs once per block
       setModulation: (mod) => {
         const message: FxModMessage = { mod };

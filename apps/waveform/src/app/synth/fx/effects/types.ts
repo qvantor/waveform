@@ -27,6 +27,9 @@ export interface FxCore {
   setParam: (key: string, value: number) => void;
   // removed from the chain or bypassed: internal loops must die out, so a stale tail doesn't come back
   setActive: (active: boolean) => void;
+  // the tail is forgotten at once, its loops and lines start empty (a preset switch, the output muted);
+  // absent: it has none
+  clear?: () => void;
   // its knobs follow the envelopes of the last note (fx-modulation.ts); null: they are at their own values
   setModulation: (mod: FxModulation | null) => void;
   destroy: () => void;

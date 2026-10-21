@@ -47,6 +47,20 @@ describe('synthCore', () => {
     expect(masterGain.gain.value).toBeCloseTo(0.3);
   });
 
+  it('mute fades the output after the fx out in its time, unmute opens it at once', () => {
+    const [{ fxOut }, { mute, unmute }] = createSynthCore();
+    const { gain } = fxOut;
+    mute(0.02);
+    expect(gain.cancelScheduledValues).toHaveBeenLastCalledWith(0);
+    expect(gain.setValueAtTime).toHaveBeenLastCalledWith(1, 0);
+    expect(gain.linearRampToValueAtTime).toHaveBeenLastCalledWith(0, 0.02);
+    unmute();
+    expect(gain.cancelScheduledValues).toHaveBeenCalledTimes(2);
+    expect(gain.setValueAtTime).toHaveBeenCalledTimes(2);
+    expect(gain.setValueAtTime).toHaveBeenLastCalledWith(1, 0);
+    expect(gain.linearRampToValueAtTime).toHaveBeenCalledTimes(1);
+  });
+
   it('connects the voices straight to the fx chain: the filter is in each voice', () => {
     const [{ preGain, fxIn }] = createSynthCore();
     expect(preGain.connect).toHaveBeenCalledWith(fxIn);

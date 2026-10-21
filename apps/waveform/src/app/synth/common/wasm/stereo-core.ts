@@ -1,10 +1,11 @@
 import { CoreExports, createView } from './wasm-core';
 
 // the C ABI of the stereo cores (dsp/limiter, dsp/reverb, dsp/distortion): fx_buffers reserves a block of
-// `frames` (inL, inR, outL, outR one after another), fx_process renders it
+// `frames` (inL, inR, outL, outR one after another), fx_process renders it, fx_clear forgets the sound before
 export interface StereoCoreExports extends CoreExports {
   fx_buffers: (handle: number, frames: number) => number;
   fx_process: (handle: number) => void;
+  fx_clear: (handle: number) => void;
   fx_free: (handle: number) => void;
 }
 
@@ -18,7 +19,8 @@ const copyIn = (target: Float32Array, source: Float32Array) => {
 };
 
 // process() of the StereoDsp of a core (stereo-processor.ts): the inputs into its memory, the block rendered, the
-// outputs out of it; free() frees its handle (the processor is stopped)
+// outputs out of it; clear() empties its state (a preset switch: the next sound starts at the params as they are
+// then); free() frees its handle (the processor is stopped)
 export const stereoCore = (exports: StereoCoreExports, handle: number) => {
   // a view per channel: no array is created per block
   const [viewInL, viewInR, viewOutL, viewOutR] = [0, 1, 2, 3].map(() => createView(exports));
@@ -43,6 +45,7 @@ export const stereoCore = (exports: StereoCoreExports, handle: number) => {
       outL.set(viewOutL(at + 2 * bytes, frames));
       outR.set(viewOutR(at + 3 * bytes, frames));
     },
+    clear: () => exports.fx_clear(handle),
     free: () => {
       if (freed) return;
       freed = true;

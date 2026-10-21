@@ -153,6 +153,10 @@ export const oscillator = ({
       spread: 0,
       gain: 0,
     });
+    // its notes play the table of its path: loaded and in the wavetable oscillator (stored, or refused or failed:
+    // the version before plays); the table loaded goes to the oscillator before loading ends (setWaveTable sets
+    // it sending), so no moment between them reads as played
+    const tablePlayed = () => !$waveTableLoading.value && wavetables.$tables.value[id] !== 'sending';
 
     return {
       id,
@@ -173,6 +177,7 @@ export const oscillator = ({
       $waveTablePath,
       $waveTableLoading,
       $tableState,
+      tablePlayed,
     };
   })
     .actions(

@@ -4,6 +4,7 @@ import { modulation } from '../app/synth/common/modules/modulation';
 import { filter } from '../app/synth/filter/modules/filter';
 import { fx } from '../app/synth/fx/modules/fx';
 import type { SynthModule } from '../app/synth/common/modules/synth';
+import type { SoundSwitchModule } from '../app/synth/common/modules/sound-switch';
 import type { FxNote } from '../app/synth/fx/effects/fx-modulation';
 import { inputController } from '../app/synth/common/modules/input-controller';
 import { oscillator } from '../app/synth/common/modules/oscillator';
@@ -70,6 +71,10 @@ export const createSynth = (initialWavePath = ['default'], loadWavetable?: LoadW
     synth: synthModule,
   };
 };
+
+// a sound switch that applies a preset at once: the presets without the synth
+export const immediateSoundSwitch = () =>
+  [{}, { switchSound: (apply: () => void) => apply() }] as unknown as SoundSwitchModule;
 
 // an input controller with onPress/onRelease spied, for the controllers that feed it
 export const createSpiedInputController = () => {

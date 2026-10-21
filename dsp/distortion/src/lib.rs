@@ -1,6 +1,6 @@
 //! The distortion (ported bit for bit from the TS core it replaced, the curves of distortion-modes.ts of the app; the
 //! goldens hold its sound): drive → 4× oversampled curve of the mode × its makeup gain → tone
-//! lowpass × level → DC blocker, the blocks skipped once silent. The C ABI of a stereo core and fx_set, fx_idle;
+//! lowpass × level → DC blocker, the blocks skipped once silent. The C ABI of a stereo core and fx_set, fx_clear, fx_idle;
 //! the params of fx_new and fx_set come through fx_command (distortion-wasm.ts wraps it).
 //! The hard clip is oversampled 8× (the TS core did 4×: its harmonics fold back less): a chain of its own with the
 //! same latency. A fade between modes on two chains runs both, each with its curve and gains, their outputs added at
@@ -231,6 +231,13 @@ impl Distortion {
         self.oversampler8.clear();
         self.dc_blocker.clear();
         self.lowpass.clear();
+    }
+
+    /// the tail is forgotten (a preset switch, the output muted): as once rung out, the state is empty, the next
+    /// sound starts at the params as they are then, no glide from those of before
+    pub fn forget(&mut self) {
+        self.clear();
+        self.idle = true;
     }
 
     /// set(changes): the params of `changes` whose bit is in `present` (1 << key), applied as the TS does: drive,
@@ -501,8 +508,7 @@ impl Distortion {
 
         // the tails of the dc blocker and the tone have died out after the silence: forget the state
         if self.rung_out && output_peak < SILENCE {
-            self.clear();
-            self.idle = true;
+            self.forget();
         }
     }
 
@@ -569,6 +575,13 @@ pub unsafe extern "C" fn fx_process(distortion: *mut Distortion) {
 pub unsafe extern "C" fn fx_set(distortion: *mut Distortion) {
     let (present, changes) = command();
     (*distortion).set(present, &changes);
+}
+
+/// # Safety
+/// `distortion` comes from fx_new and was not freed
+#[no_mangle]
+pub unsafe extern "C" fn fx_clear(distortion: *mut Distortion) {
+    (*distortion).forget();
 }
 
 /// # Safety

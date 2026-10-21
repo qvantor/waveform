@@ -182,5 +182,6 @@ afterEach(() => {
   WorkerStub.created = [];
   Reflect.deleteProperty(window, 'isSecureContext');
   localStorage.clear();
+  sessionStorage.clear();
   window.history.replaceState(null, '', '/');
 });

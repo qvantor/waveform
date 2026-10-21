@@ -41,6 +41,14 @@ describe('createWorkletFx', () => {
     expect(node()?.port.postMessage.mock.calls).toEqual([[{ b: 2 }]]);
   });
 
+  it('clear posts to the node, none before it exists (it starts empty)', async () => {
+    const { worklet, node } = setup();
+    expect(() => worklet.clear()).not.toThrow();
+    await flush();
+    worklet.clear();
+    expect(node()?.port.postMessage.mock.calls).toEqual([[{ clear: true }]]);
+  });
+
   it('without AudioWorklet: unsupported at once, nothing to load, nothing throws', async () => {
     withoutAudioWorklet();
     const { worklet, createNode, statuses } = setup();

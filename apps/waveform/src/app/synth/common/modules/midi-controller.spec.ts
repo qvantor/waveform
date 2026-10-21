@@ -3,6 +3,7 @@ import {
   createMidiAccess as createAccess,
   createMidiInput as createInput,
   midiMessage as message,
+  midiStateChange as stateChange,
   provideMidiAccess,
   removeMidiAccess,
 } from '../../../../test-utils/midi';
@@ -113,13 +114,13 @@ describe('midiController', () => {
     const { midi } = await setup(access);
 
     access.inputs.delete('a');
-    access.dispatchEvent(Object.assign(new Event('statechange'), { port: { type: 'input' } }));
+    stateChange(access);
 
     expect(midi[0].$midiInputs.value).toEqual([b]);
     expect(midi[0].$selectedInputId.value).toBe('b');
 
     access.inputs.delete('b');
-    access.dispatchEvent(Object.assign(new Event('statechange'), { port: { type: 'input' } }));
+    stateChange(access);
     expect(midi[0].$selectedInputId.value).toBeNull();
   });
 
@@ -128,7 +129,7 @@ describe('midiController', () => {
     const { midi } = await setup(access);
     const inputs = midi[0].$midiInputs.value;
 
-    access.dispatchEvent(Object.assign(new Event('statechange'), { port: { type: 'output' } }));
+    stateChange(access, 'output');
 
     expect(midi[0].$midiInputs.value).toBe(inputs);
   });
@@ -252,7 +253,7 @@ describe('midiController channel', () => {
     message(input, 144, 60, 100);
 
     access.inputs.delete('a');
-    access.dispatchEvent(Object.assign(new Event('statechange'), { port: { type: 'input' } }));
+    stateChange(access);
     expect(midi[0].$selectedInputId.value).toBeNull();
     expect(onRelease).toHaveBeenCalledWith([4, 'C']);
   });
@@ -294,5 +295,61 @@ describe('midiController channel', () => {
 
     midi[1].selectMidiInput('b');
     expect(onRelease).not.toHaveBeenCalled();
+  });
+
+  describe('the choice of the tab', () => {
+    const storeChoice = (choice: unknown) => sessionStorage.setItem('midiInput', JSON.stringify(choice));
+    const storedChoice = () => JSON.parse(sessionStorage.getItem('midiInput') ?? 'null');
+
+    it('a reload keeps the input and the channel chosen in the tab', async () => {
+      storeChoice({ inputId: 'b', channel: 3 });
+      const b = createInput('b');
+      const { midi, onPress } = await setup(createAccess([createInput('a'), b]));
+      expect(midi[0].$selectedInputId.value).toBe('b');
+      expect(midi[0].$selectedChannel.value).toBe(3);
+
+      message(b, 144, 60, 100);
+      expect(onPress).not.toHaveBeenCalled();
+      message(b, 147, 60, 100);
+      expect(onPress).toHaveBeenCalledWith([4, 'C']);
+    });
+
+    it('keeps what the user chooses, not the input selected for them', async () => {
+      const { midi } = await setup(createAccess([createInput('a'), createInput('b')]));
+      expect(midi[0].$selectedInputId.value).toBe('a');
+      expect(storedChoice()).toEqual({ inputId: null, channel: null });
+
+      midi[1].selectMidiInput('b');
+      midi[1].selectMidiChannel(2);
+      expect(storedChoice()).toEqual({ inputId: 'b', channel: 2 });
+    });
+
+    it('plays the first input while the chosen one is unplugged and comes back to it', async () => {
+      storeChoice({ inputId: 'b', channel: null });
+      const b = createInput('b');
+      const access = createAccess([createInput('a')]);
+      const { midi } = await setup(access);
+      expect(midi[0].$selectedInputId.value).toBe('a');
+
+      access.inputs.set('b', b);
+      stateChange(access);
+      expect(midi[0].$selectedInputId.value).toBe('b');
+
+      access.inputs.delete('b');
+      stateChange(access);
+      expect(midi[0].$selectedInputId.value).toBe('a');
+      expect(storedChoice()).toEqual({ inputId: 'b', channel: null });
+    });
+
+    it.each([
+      ['a channel out of 0..15', JSON.stringify({ inputId: 'b', channel: 16 })],
+      ['a wrong input', JSON.stringify({ inputId: 2, channel: null })],
+      ['broken json', 'broken'],
+    ])('ignores %s', async (_, raw) => {
+      sessionStorage.setItem('midiInput', raw);
+      const { midi } = await setup(createAccess([createInput('a'), createInput('b')]));
+      expect(midi[0].$selectedInputId.value).toBe('a');
+      expect(midi[0].$selectedChannel.value).toBeNull();
+    });
   });
 });

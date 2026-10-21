@@ -57,6 +57,10 @@ export const createFxSlot = (audioCtx: BaseAudioContext, core: FxCore) => {
   let mixMod: { note: FxNote; routes: FxRoute[] } | null = null;
   // the gains follow the automation of the routes
   let routed = false;
+  // in the chain and not bypassed: the send is open
+  let active = false;
+  // [dry, wet] of the knob (bypassed: only dry)
+  const gains = () => (mix.on ? mixGains(mix.value, linearMix) : [1, 0]);
   // the crossfade of mixGains: linear gains ramp, equal power ones are curves
   const applyMix = () => {
     const now = audioCtx.currentTime;
@@ -75,7 +79,7 @@ export const createFxSlot = (audioCtx: BaseAudioContext, core: FxCore) => {
       holdParam(wet.gain, now);
       routed = false;
     }
-    const [dryGain, wetGain] = mix.on ? mixGains(mix.value, linearMix) : [1, 0];
+    const [dryGain, wetGain] = gains();
     setGain(dry, dryGain);
     setGain(wet, wetGain);
   };
@@ -110,9 +114,25 @@ export const createFxSlot = (audioCtx: BaseAudioContext, core: FxCore) => {
       core.setModulation(mod && routes.length > 0 ? { note: mod.note, routes } : null);
     },
     // active: in the chain and not bypassed
-    setActive: (active: boolean) => {
-      setGain(send, active ? 1 : 0);
-      core.setActive(active);
+    setActive: (value: boolean) => {
+      active = value;
+      setGain(send, value ? 1 : 0);
+      core.setActive(value);
+    },
+    // a preset switch, the output muted: the core forgets its tail, the gains are at the knobs at once (from
+    // those of the preset before they would glide into its first notes); a mix its routes move follows them
+    clear: () => {
+      core.clear?.();
+      const now = audioCtx.currentTime;
+      const set = (node: GainNode, value: number) => {
+        node.gain.cancelScheduledValues(now);
+        setParam(node.gain, value, now);
+      };
+      set(send, active ? 1 : 0);
+      if (routed) return;
+      const [dryGain, wetGain] = gains();
+      set(dry, dryGain);
+      set(wet, wetGain);
     },
     destroy: () => {
       core.destroy();

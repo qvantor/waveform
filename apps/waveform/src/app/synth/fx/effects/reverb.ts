@@ -75,6 +75,7 @@ export const reverb: FxDefinition<ReverbParam> = {
         active = value;
         post({ active });
       },
+      clear: worklet.clear,
       // the worklet moves the knobs once per block, the lines are worked out again only while they move
       setModulation: (mod) => {
         const message: FxModMessage = { mod };

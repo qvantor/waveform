@@ -1,7 +1,17 @@
-import { fromEvent, BehaviorSubject, distinctUntilChanged, filter, Subject, map, Subscription } from 'rxjs';
+import {
+  fromEvent,
+  BehaviorSubject,
+  combineLatest,
+  distinctUntilChanged,
+  filter,
+  Subject,
+  map,
+  Subscription,
+} from 'rxjs';
 import { rxModel, rxModelReact } from '@waveform/rxjs-react';
 import { Note, Notes } from '@waveform/ui-kit';
 import toast from 'react-hot-toast';
+import { readStored, writeStored } from '../../../common/services';
 import { InputControllerModule } from './input-controller';
 
 export const midiToNote = (midiNote: number): Note => {
@@ -14,6 +24,23 @@ export const midiToNote = (midiNote: number): Note => {
 const acceptsChannel = (selected: number | null, channel: number) =>
   selected === null || channel === selected;
 
+// the input and the channel chosen in the tab (sessionStorage): they survive a reload
+const TAB_CHOICE_KEY = 'midiInput';
+
+interface TabChoice {
+  inputId: string | null;
+  channel: number | null;
+}
+
+const isTabChoice = (value: unknown): value is TabChoice => {
+  const { inputId, channel } = (value ?? {}) as Partial<Record<keyof TabChoice, unknown>>;
+  return (
+    (inputId === null || typeof inputId === 'string') &&
+    (channel === null ||
+      (typeof channel === 'number' && Number.isInteger(channel) && channel >= 0 && channel < 16))
+  );
+};
+
 interface Dependencies {
   inputController: InputControllerModule;
 }
@@ -23,8 +50,16 @@ export const midiController = ({ inputController: [{ $pressed }, { onPress, onRe
     const $midiAccess = new BehaviorSubject<WebMidi.MIDIAccess | null>(null);
     const $midiInputs = new BehaviorSubject<WebMidi.MIDIInput[]>([]);
     const $midiConnectionEvent = new Subject<WebMidi.MIDIConnectionEvent>();
+    const saved = readStored<TabChoice>(
+      'sessionStorage',
+      TAB_CHOICE_KEY,
+      { inputId: null, channel: null },
+      isTabChoice
+    );
+    // the input the user chose, selected whenever it is connected; the input selected is another one meanwhile
+    const $chosenInputId = new BehaviorSubject<string | null>(saved.inputId);
     const $selectedInputId = new BehaviorSubject<string | null>(null);
-    const $selectedChannel = new BehaviorSubject<number | null>(null);
+    const $selectedChannel = new BehaviorSubject<number | null>(saved.channel);
     // the notes this controller pressed: midi note → the channels holding it
     const held = new Map<number, Set<number>>();
 
@@ -47,28 +82,30 @@ export const midiController = ({ inputController: [{ $pressed }, { onPress, onRe
       $midiInputs,
       $midiConnectionEvent,
       $midiSubscription,
+      $chosenInputId,
       $selectedInputId,
       $selectedChannel,
       held,
     };
   })
-    .actions(({ $selectedInputId, $selectedChannel }) => ({
-      selectMidiInput: (id?: string) => $selectedInputId.next(id ?? null),
+    .actions(({ $chosenInputId, $selectedInputId, $selectedChannel }) => ({
+      selectMidiInput: (id: string) => {
+        $chosenInputId.next(id);
+        $selectedInputId.next(id);
+      },
       selectMidiChannel: (channel: number | null) => $selectedChannel.next(channel),
     }))
     .subscriptions(
-      (
-        {
-          $midiAccess,
-          $midiInputs,
-          $midiConnectionEvent,
-          $midiSubscription,
-          $selectedInputId,
-          $selectedChannel,
-          held,
-        },
-        { selectMidiInput }
-      ) => [
+      ({
+        $midiAccess,
+        $midiInputs,
+        $midiConnectionEvent,
+        $midiSubscription,
+        $chosenInputId,
+        $selectedInputId,
+        $selectedChannel,
+        held,
+      }) => [
         // initial midi inputs
         $midiAccess
           .pipe(
@@ -85,18 +122,21 @@ export const midiController = ({ inputController: [{ $pressed }, { onPress, onRe
             map((midiAccess) => [...midiAccess.inputs.values()])
           )
           .subscribe($midiInputs),
-        // Select midi input if not selected
+        // the chosen input once it is connected, else the selected one while it is, else the first one
         $midiInputs
           .pipe(
-            filter((inputs) => {
-              if ($selectedInputId.value === null) return true;
-              return !inputs.some((input) => input.id === $selectedInputId.value);
-            })
+            map((inputs) => {
+              const connected = (id: string | null) => inputs.some((input) => input.id === id);
+              if (connected($chosenInputId.value)) return $chosenInputId.value;
+              if (connected($selectedInputId.value)) return $selectedInputId.value;
+              return inputs[0]?.id ?? null;
+            }),
+            filter((id) => id !== $selectedInputId.value)
           )
-          .subscribe((inputs) => {
-            if (inputs.length === 0) return selectMidiInput();
-            selectMidiInput(inputs[0].id);
-          }),
+          .subscribe((id) => $selectedInputId.next(id)),
+        combineLatest([$chosenInputId, $selectedChannel]).subscribe(([inputId, channel]) =>
+          writeStored('sessionStorage', TAB_CHOICE_KEY, { inputId, channel })
+        ),
 
         $selectedInputId
           .pipe(

@@ -50,6 +50,9 @@ export const createMasterLimiter = (audioCtx: BaseAudioContext) => {
     compressor,
     compensation,
     $status: worklet.$status,
+    // the gain reduction of the sound before is forgotten (a preset switch, the output muted); the compressor
+    // keeps its own
+    clear: worklet.clear,
     destroy: () => {
       subscription.unsubscribe();
       worklet.destroy();

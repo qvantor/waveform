@@ -45,6 +45,18 @@ describe('registerStereoProcessor', () => {
     expect(onMessage).toHaveBeenCalledWith(dsp, { a: 2 });
   });
 
+  it('clear empties the dsp before the rest of its message, a dsp without a state takes it too', () => {
+    const calls: string[] = [];
+    const clear = jest.fn(() => calls.push('clear'));
+    const onMessage = jest.fn(() => calls.push('message'));
+    registerStereoProcessor('cleared', () => ({ process: jest.fn(), clear }), onMessage);
+    const processor = new processors['cleared'](OPTIONS);
+    processor.port.onmessage({ data: { clear: true } });
+    expect(calls).toEqual(['clear', 'message']);
+    const { processor: stateless } = setup();
+    expect(() => stateless.port.onmessage({ data: { clear: true } })).not.toThrow();
+  });
+
   it('ends after stop', () => {
     const { processor, dsp, outputs } = setup();
     processor.port.onmessage({ data: {} });
