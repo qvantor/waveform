@@ -38,6 +38,7 @@ export const delay: FxDefinition<DelayParam> = {
     pan: {
       ...pan,
       label: 'Pan',
+      name: 'Stereo offset',
       precision: 1000,
       fillFrom: 0,
       formatValue: (value) => {
@@ -49,6 +50,7 @@ export const delay: FxDefinition<DelayParam> = {
     time: {
       ...time,
       label: 'Time',
+      name: 'Delay time',
       formatValue: formatMs,
     },
     fb: {
@@ -60,6 +62,7 @@ export const delay: FxDefinition<DelayParam> = {
     freq: {
       ...freq,
       label: 'Freq',
+      name: 'Filter freq',
       mode: 'log',
       precision: 1,
       formatValue: formatHz,
@@ -67,6 +70,7 @@ export const delay: FxDefinition<DelayParam> = {
     q: {
       ...q,
       label: 'Q',
+      name: 'Resonance',
       mode: 'log',
       precision: 100,
     },

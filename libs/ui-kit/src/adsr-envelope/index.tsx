@@ -137,23 +137,42 @@ export const AdsrEnvelope = ({
         <HandlersGroup>
           <div>
             <HandleValue>{formatValue(attack)}</HandleValue>
-            <Handle label='Attack' {...handleProps} value={attack} onChange={onChangeInternal('attack')} />
+            <Handle
+              label='Attack'
+              name='Attack time'
+              {...handleProps}
+              value={attack}
+              onChange={onChangeInternal('attack')}
+            />
           </div>
           <div>
             <HandleValue>{formatValue(hold)}</HandleValue>
-            <Handle label='Hold' {...handleProps} value={hold} onChange={onChangeInternal('hold')} />
+            <Handle
+              label='Hold'
+              name='Hold time'
+              {...handleProps}
+              value={hold}
+              onChange={onChangeInternal('hold')}
+            />
           </div>
         </HandlersGroup>
 
         <HandlersGroup>
           <div>
             <HandleValue>{formatValue(decay)}</HandleValue>
-            <Handle label='Decay' {...handleProps} value={decay} onChange={onChangeInternal('decay')} />
+            <Handle
+              label='Decay'
+              name='Decay time'
+              {...handleProps}
+              value={decay}
+              onChange={onChangeInternal('decay')}
+            />
           </div>
           <div>
             <HandleValue>{Math.round(sustain * 100)}</HandleValue>
             <Handle
               label='Sustain'
+              name='Sustain level'
               min={0}
               max={1}
               value={sustain}
@@ -165,7 +184,13 @@ export const AdsrEnvelope = ({
 
         <div>
           <HandleValue>{formatValue(release)}</HandleValue>
-          <Handle label='Release' {...handleProps} value={release} onChange={onChangeInternal('release')} />
+          <Handle
+            label='Release'
+            name='Release time'
+            {...handleProps}
+            value={release}
+            onChange={onChangeInternal('release')}
+          />
         </div>
       </Handlers>
     </Root>

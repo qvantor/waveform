@@ -80,6 +80,7 @@ export const WaveSelector = ({ $waveTable, $position, $wave, $morph, setPosition
           value={current}
           onChange={(value) => select(Math.round(value))}
           label='Wave'
+          name='Wave frame'
           precision={1}
           formatValue={(value) => `${value + 1}`}
         />

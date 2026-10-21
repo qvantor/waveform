@@ -24,6 +24,19 @@ const startPoint = (d: string) => {
 const rotation = (element: HTMLElement) =>
   Number(element.style.transform.match(/rotate\(([-\d.e]+)rad\)/)?.[1]);
 
+// jsdom has no PointerEvent: a mouse event with the pointer type name and a pointerId works for React and
+// the document listeners of the pointer tracker
+const pointer = (type: string, target: EventTarget) => {
+  const event = new MouseEvent(type, { bubbles: true, cancelable: true, button: 0 });
+  Object.defineProperty(event, 'pointerId', { value: 1 });
+  act(() => {
+    target.dispatchEvent(event);
+  });
+};
+
+// the text of the tooltip of the value, empty while the knob isn't held
+const tooltip = () => document.getElementById('tooltip')?.textContent ?? '';
+
 describe('Handle', () => {
   it('that takes no modulations has an arc of its travel around it, under the shadow of the knob, no ring', () => {
     const { container } = render(<Handle min={-1} max={1} value={-1} />);
@@ -71,6 +84,28 @@ describe('Handle', () => {
       const style = window.getComputedStyle(mark as HTMLElement);
       expect([style.width, style.height, style.borderRadius]).toEqual([diameter, diameter, '100%']);
     });
+  });
+
+  it('while held shows the full name of what it changes before the value, a string label by default', () => {
+    const format = (value: number) => `${value}%`;
+    const { container, rerender } = render(
+      <Handle value={35} label='ER' name='Early reflections' formatValue={format} />
+    );
+    const knob = container.firstElementChild as Element;
+    expect(tooltip()).toBe('');
+    pointer('pointerdown', knob);
+    expect(tooltip()).toBe('Early reflections35%');
+    pointer('pointerup', document);
+    expect(tooltip()).toBe('');
+    rerender(<Handle value={35} label='ER' formatValue={format} />);
+    pointer('pointerdown', knob);
+    expect(tooltip()).toBe('ER35%');
+    pointer('pointerup', document);
+    // no name without a string label: only the value
+    rerender(<Handle value={35} label={null} formatValue={format} />);
+    pointer('pointerdown', knob);
+    expect(tooltip()).toBe('35%');
+    pointer('pointerup', document);
   });
 
   it('that takes modulations shows its travel on its edge under the arc of the selected route, no fill', () => {

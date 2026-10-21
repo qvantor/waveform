@@ -46,6 +46,7 @@ export const WaveEditor = ({
           precision={1}
           plotSize={30}
           label='Grid X'
+          name='Grid columns'
         />
         <Handle
           step={[2, 5, 10, 20]}
@@ -53,6 +54,7 @@ export const WaveEditor = ({
           value={precisionY}
           onChange={setPrecisionY}
           label='Grid Y'
+          name='Grid rows'
           plotSize={30}
         />
       </HandlersWrapper>

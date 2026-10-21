@@ -15,7 +15,7 @@ interface Props {
 }
 
 const Control = ({
-  def: { label, min, max, mode, precision, formatValue, fillFrom, control },
+  def: { label, name, min, max, mode, precision, formatValue, fillFrom, control },
   modulation,
   ...props
 }: Omit<Props, 'target'>) => {
@@ -23,6 +23,7 @@ const Control = ({
   return (
     <Component
       label={label}
+      name={name}
       min={min}
       max={max}
       mode={mode}

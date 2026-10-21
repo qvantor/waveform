@@ -37,6 +37,21 @@ describe('Fader', () => {
     expect(screen.getByText('ER')).toBeDefined();
   });
 
+  it('while held shows the full name of what it changes before the value, its accessible name', () => {
+    const tooltip = () => document.getElementById('tooltip')?.textContent ?? '';
+    const { slider } = setup({
+      label: 'ER',
+      name: 'Early reflections',
+      formatValue: (value) => `${value * 100}%`,
+    });
+    expect(screen.getByRole('slider', { name: 'Early reflections' })).toBe(slider);
+    expect(tooltip()).toBe('');
+    pointer('pointerdown', screen.getByTestId('fader-cap'), 100);
+    expect(tooltip()).toBe('Early reflections50%');
+    pointer('pointerup', document, 100);
+    expect(tooltip()).toBe('');
+  });
+
   it('puts the cap at the value, from the bottom up', () => {
     const { px, rerender } = setup({ value: 0 });
     expect(px('fader-cap', 'bottom')).toBe(0);

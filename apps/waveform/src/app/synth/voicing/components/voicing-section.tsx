@@ -62,6 +62,7 @@ export const VoicingSection = () => {
             min={0}
             max={400}
             label='Portamento'
+            name='Glide time'
             onChange={setPortamento}
             plotSize={200}
             precision={1}

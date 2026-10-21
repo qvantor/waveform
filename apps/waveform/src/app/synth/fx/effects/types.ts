@@ -3,7 +3,7 @@ import type { HandleProps } from '@waveform/ui-kit';
 import type { ParamRange } from '@waveform/preset-schema';
 import type { FxModulation } from './fx-modulation';
 
-export type FxParamDef = Pick<HandleProps, 'mode' | 'precision' | 'formatValue' | 'fillFrom'> &
+export type FxParamDef = Pick<HandleProps, 'name' | 'mode' | 'precision' | 'formatValue' | 'fillFrom'> &
   ParamRange & {
     label: string;
     // a switch instead of a knob, the value is the index of the option

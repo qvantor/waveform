@@ -31,6 +31,7 @@ export const MasterHandle = ({ label = 'Master' }: { label?: string | null }) =>
       value={gainToDb(gain)}
       onChange={onChange}
       label={label}
+      name='Master volume'
       formatValue={formatDb}
       precision={10}
     />

@@ -71,6 +71,7 @@ export const Filter = ({
           value={cutoff}
           onChange={setValueInternal('cutoff')}
           label='Cutoff'
+          name='Filter cutoff'
           {...ranges.cutoff}
           {...modulation.cutoff}
         />
@@ -78,6 +79,7 @@ export const Filter = ({
           value={resonance}
           onChange={setValueInternal('resonance')}
           label='Res'
+          name='Resonance'
           {...ranges.resonance}
           {...modulation.resonance}
         />
@@ -85,6 +87,7 @@ export const Filter = ({
           value={gain}
           onChange={setValueInternal('gain')}
           label='Gain'
+          name='Filter gain'
           {...ranges.gain}
           {...modulation.gain}
         />
