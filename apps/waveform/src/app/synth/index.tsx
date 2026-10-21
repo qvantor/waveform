@@ -30,7 +30,7 @@ import {
 import { FilterProvider, FilterSection, useFilter } from './filter';
 import { OscillatorsContainer, MasterHandle } from './synth/components';
 import { VoicingSection } from './voicing';
-import { MidiInput } from './settings';
+import { MidiInput, SettingsButton } from './settings';
 import { EnvelopeSection } from './envelope';
 import { MobileLayout } from './mobile';
 import { FxScreen, FxProvider, useFx } from './fx';
@@ -244,7 +244,14 @@ const HeaderInternal = ({ screen, onScreenChange }: ScreenProps) => {
       <HeaderEq audioCtx={audioCtx} master={output} />
       <HeaderRight>
         <TapeSwitch options={SYNTH_SCREENS} value={screen} onChange={onScreenChange} switchOnDrag />
-        <PresetSection actions={<MidiInput />} />
+        <PresetSection
+          actions={
+            <>
+              <MidiInput />
+              <SettingsButton />
+            </>
+          }
+        />
         <MasterSection>
           <MasterHandle />
           <VolumeAnalyser audioCtx={audioCtx} master={output} />

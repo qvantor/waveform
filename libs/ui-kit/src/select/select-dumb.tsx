@@ -51,23 +51,26 @@ const ArrowIcons = styled.div`
   }
 `;
 
+// without prev and next: no arrows
 interface Props {
-  prev: () => void;
-  next: () => void;
+  prev?: () => void;
+  next?: () => void;
   className?: string;
 }
 
 export const SelectDumb = ({ prev, next, children, className }: React.PropsWithChildren<Props>) => {
   return (
     <SelectContainer className={className}>
-      <ArrowIcons>
-        <button type='button' aria-label='Previous' onClick={prev}>
-          <LeftOutlined />
-        </button>
-        <button type='button' aria-label='Next' onClick={next}>
-          <RightOutlined />
-        </button>
-      </ArrowIcons>
+      {prev && next && (
+        <ArrowIcons>
+          <button type='button' aria-label='Previous' onClick={prev}>
+            <LeftOutlined />
+          </button>
+          <button type='button' aria-label='Next' onClick={next}>
+            <RightOutlined />
+          </button>
+        </ArrowIcons>
+      )}
       {children}
     </SelectContainer>
   );

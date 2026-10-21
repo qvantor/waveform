@@ -55,15 +55,18 @@ export const openPage = async (
     const { hostname } = new URL(route.request().url());
     return hostname === 'localhost' || hostname === '127.0.0.1' ? route.continue() : route.abort();
   });
-  if (rate)
-    await context.addInitScript((sampleRate) => {
-      const Original = window.AudioContext;
-      window.AudioContext = class extends Original {
-        constructor(options = {}) {
-          super({ ...options, sampleRate });
-        }
-      };
-    }, rate);
+  // the options of every context of the page. Chromium at low latency (128 frames), as the app plays in a Chrome
+  // that counts dropouts (latency.ts): forced here, not through the setting of the app (Chromium 133 counts none,
+  // auto would be normal; the tree of an A/B reference may have no setting); WebKit ignores the hint
+  const forced = { sampleRate: rate, ...(browser.browserType().name() === 'chromium' && { latencyHint: 0 }) };
+  await context.addInitScript((forced) => {
+    const Original = window.AudioContext;
+    window.AudioContext = class extends Original {
+      constructor(options = {}) {
+        super({ ...options, ...forced });
+      }
+    };
+  }, forced);
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));

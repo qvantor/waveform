@@ -1,4 +1,5 @@
-import { readStored, writeStored } from './storage';
+import { blockStorage, fillStorage } from '../../../test-utils/storage';
+import { canStore, readStored, writeStored } from './storage';
 
 const isNumber = (value: unknown): value is number => typeof value === 'number';
 
@@ -25,12 +26,15 @@ describe('storage', () => {
   });
 
   it('works without the storage: blocked site data throws on reaching it', () => {
-    const get = jest.spyOn(window, 'sessionStorage', 'get').mockImplementation(() => {
-      throw new DOMException('denied', 'SecurityError');
-    });
+    expect(canStore('sessionStorage')).toBe(true);
+    blockStorage('sessionStorage');
     expect(() => writeStored('sessionStorage', 'key', 5)).not.toThrow();
     expect(readStored('sessionStorage', 'key', 1, isNumber)).toBe(1);
-    // before the test setup clears the storage
-    get.mockRestore();
+    expect(canStore('sessionStorage')).toBe(false);
+  });
+
+  it('cannot store in a full storage', () => {
+    fillStorage();
+    expect(canStore('localStorage')).toBe(false);
   });
 });

@@ -28,3 +28,16 @@ export const writeStored = (storage: StorageName, key: string, value: unknown) =
     // storage is unavailable (private mode, full), keep the value in memory only
   }
 };
+
+const PROBE_KEY = 'storageProbe';
+
+// the storage keeps what is written (reaching a blocked one throws, writing into a full one)
+export const canStore = (storage: StorageName) => {
+  try {
+    window[storage].setItem(PROBE_KEY, '1');
+    window[storage].removeItem(PROBE_KEY);
+    return true;
+  } catch {
+    return false;
+  }
+};

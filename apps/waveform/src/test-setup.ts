@@ -13,6 +13,7 @@ import {
 } from 'standardized-audio-context-mock';
 import { VOICE_PARAMETERS, VOICE_PROCESSOR } from './app/synth/common/wavetable/wavetable-osc-params';
 import { stopModels } from './test-utils/model-registry';
+import { restoreStorage } from './test-utils/storage';
 import { WorkerStub } from './test-utils/worker-stub';
 
 // every node/param method of the mock becomes a jest.fn, so calls can be asserted
@@ -175,8 +176,12 @@ Object.defineProperty(globalThis.crypto, 'randomUUID', {
 });
 
 afterEach(() => {
+  restoreStorage();
   stopModels();
   Reflect.deleteProperty(document, 'visibilityState');
+  Reflect.deleteProperty(navigator, 'userAgentData');
+  Reflect.deleteProperty(globalThis, 'AudioPlaybackStats');
+  Reflect.deleteProperty(AudioContextMock.prototype, 'playbackStats');
   Object.defineProperty(AudioContextMock.prototype, 'audioWorklet', audioWorklet);
   Object.assign(globalThis, { AudioWorkletNode: AudioWorkletNodeStub, Worker: WorkerStub });
   WorkerStub.created = [];

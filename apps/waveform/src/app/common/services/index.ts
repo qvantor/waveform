@@ -1,1 +1,1 @@
-export { readStored, writeStored } from './storage';
+export { canStore, readStored, writeStored } from './storage';
