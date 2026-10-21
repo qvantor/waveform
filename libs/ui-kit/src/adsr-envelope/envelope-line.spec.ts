@@ -1,4 +1,4 @@
-import { CURVE_POINTS, envelopeLine } from './index';
+import { CURVE_POINTS, envelopeLine } from './envelope-line';
 
 const stages = { attack: 0.1, hold: 0.2, decay: 0.4, sustain: 0.5, release: 1 };
 

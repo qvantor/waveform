@@ -1,4 +1,5 @@
-import { curveShape, envelopeLevel, envelopeValue, withCurves } from '../common/envelope/envelope-curve';
+import { curveShape, envelopeLevel, envelopeValue } from '../common/envelope/envelope-curve';
+import { withCurves } from '../../../test-utils/envelopes';
 import { noteCorners, outputTime } from './note-path';
 
 const env = { attack: 0.25, hold: 0.25, decay: 0.5, sustain: 0.5, release: 1 };

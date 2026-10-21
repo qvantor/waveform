@@ -1,7 +1,8 @@
 // first: the Math of JS as jsmath (test-utils/js-math.ts): the inputs and the levels the TS builds the same on every
 // machine (Node's own Math differs in the last bits on arm64), so are the goldens
 import '../../../../test-utils/js-math';
-import { EnvelopeParams, withCurves } from '../envelope/envelope-curve';
+import { EnvelopeParams } from '../envelope/envelope-curve';
+import { withCurves } from '../../../../test-utils/envelopes';
 import { pick, Random } from '../../../../test-utils/fuzz-signals';
 import { createBitsHash, createGoldens, expectFinite, FUZZ_SCALE } from '../../../../test-utils/parity';
 import { seeded } from '../../../../test-utils/seeded';

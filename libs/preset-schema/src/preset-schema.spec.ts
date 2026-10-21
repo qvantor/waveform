@@ -2,6 +2,7 @@ import { normalizePreset } from './normalize';
 import { presetHash } from './hash';
 import { isProfane } from './profanity';
 import {
+  ENVELOPE_CURVES,
   fxSnapSchema,
   listPresetsQuerySchema,
   nameKey,
@@ -125,12 +126,30 @@ describe('normalizePreset', () => {
 
   it('fills each envelope with its own defaults, takes stages up to 32 s and drops the old adsr', () => {
     const { env } = normalizePreset({ adsr: { attack: 0.5 }, env: { e2: { decay: 32, release: 0 } } });
+    const curves = { attack: 0, decay: 3.49, release: 3.49 };
     expect(env).toEqual({
-      e1: { attack: 0.005, hold: 0.1, decay: 0, sustain: 1, release: 0.005 },
-      e2: { attack: 0.005, hold: 0, decay: 32, sustain: 0, release: 0 },
-      e3: { attack: 0.005, hold: 0, decay: 0.5, sustain: 0, release: 0.3 },
+      e1: { attack: 0.005, hold: 0.1, decay: 0, sustain: 1, release: 0.005, curves },
+      e2: { attack: 0.005, hold: 0, decay: 32, sustain: 0, release: 0, curves },
+      e3: { attack: 0.005, hold: 0, decay: 0.5, sustain: 0, release: 0.3, curves },
     });
     expect(normalizePreset({ adsr: { attack: 0.5 } })).not.toHaveProperty('adsr');
+  });
+
+  it('curves the stages of an envelope by default, keeps its own up to ±10, 0 too', () => {
+    expect(normalizePreset({}).env.e2.curves).toEqual(ENVELOPE_CURVES);
+    const { env } = normalizePreset({ env: { e2: { curves: { attack: -10, release: 0 } } } });
+    expect(env.e2.curves).toEqual({ attack: -10, decay: 3.49, release: 0 });
+    expect(env.e1.curves).toEqual(ENVELOPE_CURVES);
+  });
+
+  it('puts the curves on the grid of the points of the chart: a k near 0 is a line (its shape would be 0/0)', () => {
+    const { env } = normalizePreset({
+      env: { e1: { curves: { attack: 0.004, decay: 1e-17, release: 2.346 } } },
+    });
+    expect(env.e1.curves).toEqual({ attack: 0, decay: 0, release: 2.35 });
+    expect(presetHash({ env: { e1: { curves: { decay: 1e-17 } } } })).toBe(
+      presetHash({ env: { e1: { curves: { decay: 0 } } } })
+    );
   });
 
   it('keeps the routes of the modulation with their amounts, 0 too; none by default', () => {
@@ -281,6 +300,10 @@ describe('normalizePreset', () => {
     ['NaN', { ...preset, env: { ...preset.env, e1: { ...preset.env.e1, attack: NaN } } }],
     ['envelope time over 32 s', { ...preset, env: { ...preset.env, e2: { ...preset.env.e2, release: 33 } } }],
     ['sustain over 1', { ...preset, env: { ...preset.env, e3: { ...preset.env.e3, sustain: 1.5 } } }],
+    [
+      'curve over 10',
+      { ...preset, env: { ...preset.env, e3: { ...preset.env.e3, curves: { decay: 10.5 } } } },
+    ],
     ['mod amount over 1', { ...preset, mod: { 'env2:osc1.wave': 1.5 } }],
     ['mod source unknown', { ...preset, mod: { 'lfo1:osc1.wave': 0.5 } }],
     ['mod key without a target', { ...preset, mod: { env2: 0.5 } }],

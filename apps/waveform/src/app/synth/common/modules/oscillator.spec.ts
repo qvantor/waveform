@@ -102,6 +102,37 @@ describe('oscillator', () => {
     expect(await firstValueFrom($wave)).toEqual(saw);
   });
 
+  it('gives the editors only the edits of the frame the position is on now', () => {
+    const [{ $wave, $waveTable }, { setWaveTable, setPosition }] = createOscillator();
+    setWaveTable([saw, square]);
+    const waves: number[][] = [];
+    const subscription = $wave.subscribe((wave) => waves.push(wave));
+    setPosition(1);
+    setPosition(0);
+    setPosition(1);
+    waves.length = 0;
+
+    // a frame it has left, then the one it is on
+    $waveTable.value[0].next(square);
+    $waveTable.value[1].next(saw);
+
+    expect(waves).toEqual([saw]);
+    subscription.unsubscribe();
+  });
+
+  it('gives the editors nothing for a step within the frame it is on', () => {
+    const [{ $wave }, { setWaveTable, setPosition }] = createOscillator();
+    setWaveTable([saw, square, saw], true);
+    const waves: number[][] = [];
+    const subscription = $wave.subscribe((wave) => waves.push(wave));
+    waves.length = 0;
+    // all nearest to its first frame (at 0 of the 256)
+    setPosition(10);
+    setPosition(20);
+    expect(waves).toEqual([]);
+    subscription.unsubscribe();
+  });
+
   it('updates settings through actions', () => {
     const [model, actions] = createOscillator();
     actions.setOscValue('unison', 5);

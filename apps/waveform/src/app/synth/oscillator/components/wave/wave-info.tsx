@@ -47,12 +47,13 @@ interface Props {
   onPhaseActiveChange: (active: boolean) => void;
 }
 
-// under the wave, on its background: the frame it plays of the table, Phase, Phase rand and Unison dragged to
-// change them
+// under the wave, on its background: the frame it plays of the frames played, Phase, Phase rand and Unison
+// dragged to change them
 export const WaveInfo = ({ onPhaseActiveChange }: Props) => {
-  const [{ $position, $waveTable, $osc, ranges }, { setOscValue }] = useOscillatorContext();
+  const [{ $position, $frames, $osc, ranges }, { setOscValue }] = useOscillatorContext();
   const position = useBehaviorSubject($position);
-  const frames = useBehaviorSubject($waveTable).length;
+  // the frames played, as the Wave knob: of a table with a morph mark its 256
+  const frames = useBehaviorSubject($frames);
   const { phase, phaseRand, unison } = useBehaviorSubject($osc);
   const [ref, [width]] = useElementSize<HTMLDivElement>();
   return (

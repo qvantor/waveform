@@ -14,7 +14,7 @@ import type {
   VoiceRoutesMessage,
   VoiceStartedMessage,
 } from '../wavetable/voice-options';
-import { EnvelopeParams, envelopeValue, withCurves } from '../envelope/envelope-curve';
+import { EnvelopeParams, envelopeValue } from '../envelope/envelope-curve';
 import { amountInUnits, filterTargetScale, MOD_TARGETS } from '../modulation/modulation-targets';
 import type { FilterModule } from '../../filter/modules/filter';
 import type { FxNote } from '../../fx/effects/fx-modulation';
@@ -119,9 +119,10 @@ interface Phrase {
   from?: number[];
 }
 
-// the envelopes of a voice are those of the knobs (equal values: a preset applied again makes new objects)
+// the envelopes of a voice are those of the knobs and their curves (equal values: a preset applied again makes
+// new objects)
 const sameEnvelopes = (envelopes: EnvelopeParams[], knobs: Envelopes) =>
-  ENVELOPES.every((id, k) => isEqual(envelopes[k], withCurves(knobs[id])));
+  ENVELOPES.every((id, k) => isEqual(envelopes[k], knobs[id]));
 
 // the numbers of the phrases, unique in the page (a model created again on the same context doesn't take the
 // number of a voice still playing)
@@ -442,8 +443,8 @@ class Voicing {
     const now = audioCtx.currentTime;
     const own: Phrase = {
       id: ++phrases,
-      // the knobs with the default shape (the curves are not knobs)
-      envelopes: ENVELOPES.map((id) => withCurves($envelopes.value[id])),
+      // the knobs and the curves of their stages
+      envelopes: ENVELOPES.map((id) => $envelopes.value[id]),
       start: now,
       started: now,
     };
@@ -472,7 +473,11 @@ class Voicing {
         this.sounding.delete(voice);
         // the voice of mono ended by itself (its processor failed): the next note starts one
         if (this.mono?.voice === voice) this.mono = null;
-        if (this.forget(voice)) this.config.onCount();
+        const key = noteToString(voice.note);
+        // a held voice ended by itself: its key holds nothing (Poly doesn't count it, no glide from it)
+        if (this.voices[key] === voice) this.letGo(key, voice);
+        else if (!this.forget(voice)) return;
+        this.config.onCount();
       },
       // processed late: the envelopes of the first note of a phrase started with it; the fx follow them (and
       // its release) from there while they are those of the last note
@@ -620,11 +625,17 @@ class Voicing {
       }
     }
     const voice = this.voices[stringNote];
-    // the voice of a stolen note has already stopped, the held ones keep playing
+    // the voice of a stolen note has already stopped (or it ended by itself), the held ones keep playing
     if (!voice) return;
-    voice.stop();
-    delete this.voices[stringNote];
+    this.letGo(stringNote, voice);
     this.released.push(voice);
+  };
+
+  // the voice of a held key no longer plays it: its key is released, or it ended by itself (its node is off, the
+  // release only tells the fx when)
+  private letGo(key: string, voice: Voice) {
+    voice.stop();
+    delete this.voices[key];
     const held = Object.keys(this.voices).length;
     // the fx release their envelopes with the last note (at its release), in legato with the last key of the
     // phrase
@@ -634,7 +645,7 @@ class Voicing {
     }
     // the last key of a legato phrase: the next note starts a new one
     if (held === 0) this.phrase = undefined;
-  };
+  }
 
   // Poly came to 1 or left it: the voice of mono plays on as a voice of its note (its other keys release
   // nothing), the next note follows the new mode

@@ -1,6 +1,5 @@
 import {
   map,
-  mergeMap,
   mergeWith,
   BehaviorSubject,
   filter,
@@ -99,14 +98,17 @@ export const oscillator = ({
     const $frames = new PrimitiveBS<number>(1);
     // the Wave knob: the position in the frames played (0..$frames - 1)
     const $position = new PrimitiveBS<number>(0);
-    // the frame the position is on (the nearest one), the one the editors work on
+    // the frame the position is on (the nearest one), the one the editors work on: the edits of that frame only
+    // (a step within it changes nothing)
     const $wave = $position.pipe(
       mergeWith($waveTable),
-      mergeMap(
+      map(
         () =>
           $waveTable.value[frameIndex($position.value, $waveTable.value.length, $morph.value)] ??
           new BehaviorSubject(PLACEHOLDER_WAVE)
-      )
+      ),
+      distinctUntilChanged(),
+      switchMap((frame) => frame)
     );
     // the wave the position plays (the chart), as the voices: one frame of those played, of an expanded table the
     // crossfade of two frames of the table (the frames played of the table in hand: setWaveTable sets the morph

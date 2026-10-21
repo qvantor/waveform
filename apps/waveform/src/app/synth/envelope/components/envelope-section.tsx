@@ -1,14 +1,13 @@
 import React from 'react';
 import { AdsrEnvelope, Section } from '@waveform/ui-kit';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
-import { ENVELOPE_TIME_MAX } from '@waveform/preset-schema';
+import { ENVELOPE_CURVE_MAX, ENVELOPE_CURVES, ENVELOPE_TIME_MAX } from '@waveform/preset-schema';
 import { useEnvelopes, useModulation } from '../../common/modules';
-import { ENVELOPE_CURVES, withCurves } from '../../common/envelope/envelope-curve';
 import { EnvelopeTabs } from './envelope-tabs';
 import { EnvelopeDot } from './envelope-dot';
 
 export const EnvelopeSection = () => {
-  const [{ $envelopes, $selected }, { setEnvelopeValue, select }] = useEnvelopes();
+  const [{ $envelopes, $selected }, { setEnvelopeValue, setEnvelopeCurve, select }] = useEnvelopes();
   const [, { addRoute }] = useModulation();
   const envelopes = useBehaviorSubject($envelopes);
   const selected = useBehaviorSubject($selected);
@@ -28,13 +27,16 @@ export const EnvelopeSection = () => {
       }
     >
       <AdsrEnvelope
+        // the stages and their curves, the shape the voices play
         {...envelopes[selected]}
-        // the shape the voices play
-        curves={ENVELOPE_CURVES}
         maxTime={ENVELOPE_TIME_MAX}
         onChange={(key, value) => setEnvelopeValue(selected, key, value)}
+        // the points on the curves: a double click gives a stage its default curve again
+        curveMax={ENVELOPE_CURVE_MAX}
+        defaultCurves={ENVELOPE_CURVES}
+        onCurveChange={(stage, k) => setEnvelopeCurve(selected, stage, k)}
       >
-        <EnvelopeDot key={selected} id={selected} env={withCurves(envelopes[selected])} />
+        <EnvelopeDot key={selected} id={selected} env={envelopes[selected]} />
       </AdsrEnvelope>
     </Section>
   );

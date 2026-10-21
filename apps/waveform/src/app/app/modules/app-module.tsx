@@ -7,6 +7,8 @@ export const appModel = () => {
     return {
       $keyDown,
       $keyUp: fromEvent<KeyboardEvent>(document, 'keyup'),
+      // the window loses focus (another app, another tab): the keys held now get their keyup elsewhere
+      $blur: fromEvent(window, 'blur'),
       // Cmd/Ctrl+S
       $saveRequest: $keyDown.pipe(
         filter((e) => (e.metaKey || e.ctrlKey) && e.code === 'KeyS'),

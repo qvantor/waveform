@@ -3,13 +3,11 @@ import { join } from 'path';
 import {
   curvedAt,
   curveShape,
-  ENVELOPE_CURVES,
   EnvelopeParams,
   envelopeLevel,
   envelopeStage,
   envelopeValue,
   envelopeValueBefore,
-  withCurves,
 } from './envelope-curve';
 
 const env: EnvelopeParams = { attack: 0.1, hold: 0.2, decay: 0.4, sustain: 0.5, release: 1 };
@@ -161,11 +159,6 @@ describe('envelope curve', () => {
         expect(envelopeLevel(linear, t)).toBe(envelopeLevel(env, t));
         expect(envelopeValue(linear, t + 0.4, 0.4)).toBe(envelopeValue(env, t + 0.4, 0.4));
       });
-    });
-
-    it('gives the knobs the default shape: a linear attack, its decay and release at 66.6% (k 3.49)', () => {
-      expect(withCurves(env)).toEqual({ ...env, curves: ENVELOPE_CURVES });
-      expect(ENVELOPE_CURVES).toEqual({ attack: 0, decay: 3.49, release: 3.49 });
     });
 
     // the renders of scripts/renders/run.mjs: the levels every 10 ms of stages of 1 s at its curves.

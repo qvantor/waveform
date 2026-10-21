@@ -197,6 +197,24 @@ export const ENVELOPE_DEFAULTS: Record<EnvelopeId, Record<EnvelopeStage, number>
   env3: { attack: 0.005, hold: 0, decay: 0.5, sustain: 0, release: 0.3 },
 };
 
+// the stages an envelope curves: k of curveShape of the app, (1 - e^(-k·x)) / (1 - e^(-k)) over the share x of
+// the stage (0 a line, k > 0 moves fast at first, then slowly, k < 0 the other way round)
+export type EnvelopeCurveStage = 'attack' | 'decay' | 'release';
+// the curves of a fresh envelope (an Audio Unit rendered offline, dsp/measurements/envelopes.json): a
+// linear attack (its curve at 50%), the decay and the release at 66.6% (k 3.49: the exp fits its levels within
+// 0.001)
+export const ENVELOPE_CURVES: Record<EnvelopeCurveStage, number> = { attack: 0, decay: 3.49, release: 3.49 };
+// |k| at most: at 10 the middle of a stage is within 0.7% of its end, more barely shows
+export const ENVELOPE_CURVE_MAX = 10;
+// k on the grid of the points of the chart (steps of 0.01, CurveHandles of ui-kit) within ±ENVELOPE_CURVE_MAX: a
+// k near 0 is a line (1 - e^(-k) of a |k| below ~1e-16 is 0, the shape 0/0: a NaN envelope silences the voices
+// and stays in the loop of the native delay), e^(-k) of a k below -709 is Infinity
+export const envelopeCurve = (k: number) =>
+  Math.round(Math.min(ENVELOPE_CURVE_MAX, Math.max(-ENVELOPE_CURVE_MAX, k)) * 100) / 100;
+
+const curveRange = (k: number) =>
+  range(-ENVELOPE_CURVE_MAX, ENVELOPE_CURVE_MAX).default(k).transform(envelopeCurve);
+
 const envelopeSchema = ({ attack, hold, decay, sustain, release }: Record<EnvelopeStage, number>) =>
   z
     .object({
@@ -205,6 +223,13 @@ const envelopeSchema = ({ attack, hold, decay, sustain, release }: Record<Envelo
       decay: range(0, ENVELOPE_TIME_MAX).default(decay),
       sustain: range(0, 1).default(sustain),
       release: range(0, ENVELOPE_TIME_MAX).default(release),
+      curves: z
+        .object({
+          attack: curveRange(ENVELOPE_CURVES.attack),
+          decay: curveRange(ENVELOPE_CURVES.decay),
+          release: curveRange(ENVELOPE_CURVES.release),
+        })
+        .default({}),
     })
     .default({});
 

@@ -1,4 +1,5 @@
-import { EnvelopeParams, envelopeValue, withCurves } from '../../common/envelope/envelope-curve';
+import { EnvelopeParams, envelopeValue } from '../../common/envelope/envelope-curve';
+import { withCurves } from '../../../../test-utils/envelopes';
 import { FxNote, FxRoute } from './fx-modulation';
 import { glideParam, holdParam, scheduleRouted, setParam } from './fx-automation';
 

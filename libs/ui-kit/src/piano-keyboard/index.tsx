@@ -79,18 +79,24 @@ export const PianoKeyboard = ({
   React.useEffect(() => {
     const onMove = (e: PointerEvent) => {
       if (!pointers.current.has(e.pointerId)) return;
-      press(e.pointerId, noteFromPoint(e.clientX, e.clientY));
+      // its pointerup was lost (the button released outside the window): a move without a button plays nothing
+      if (e.buttons === 0) release(e.pointerId);
+      else press(e.pointerId, noteFromPoint(e.clientX, e.clientY));
     };
     const onUp = (e: PointerEvent) => release(e.pointerId);
+    const active = pointers.current;
+    // the window loses focus while a key is held (Cmd+Tab): its pointerup goes to another app
+    const releaseAll = () => [...active.keys()].forEach(release);
     document.addEventListener('pointermove', onMove);
     document.addEventListener('pointerup', onUp);
     document.addEventListener('pointercancel', onUp);
-    const active = pointers.current;
+    window.addEventListener('blur', releaseAll);
     return () => {
       document.removeEventListener('pointermove', onMove);
       document.removeEventListener('pointerup', onUp);
       document.removeEventListener('pointercancel', onUp);
-      [...active.keys()].forEach(release);
+      window.removeEventListener('blur', releaseAll);
+      releaseAll();
     };
   }, [press, release]);
 

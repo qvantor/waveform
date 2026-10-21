@@ -7,12 +7,14 @@
 // release are linear, or curved by `curves` (k of curveShape; the Rust voice plays them, the TS one, the
 // rollback, plays every stage linear)
 
-// the curvature of the attack, the decay and the release: k of curveShape, 0 linear
-export interface EnvelopeCurves {
+// the curvature of the attack, the decay and the release: k of curveShape, 0 linear (the env model holds them,
+// by default ENVELOPE_CURVES of the preset schema; a type, not an interface: the snapshot
+// of the env model takes index signatures)
+export type EnvelopeCurves = {
   attack: number;
   decay: number;
   release: number;
-}
+};
 
 export interface EnvelopeParams {
   attack: number;
@@ -27,13 +29,6 @@ export interface EnvelopeParams {
 // at first, then slowly (a decay or a release falls fast, then settles), k < 0 the other way round
 export const curveShape = (k: number, x: number) =>
   k === 0 ? x : (1 - Math.exp(-k * x)) / (1 - Math.exp(-k));
-
-// the default shape of the envelopes (rendered offline: dsp/measurements/envelopes.json): a linear
-// attack (its curve at 50%), the decay and the release at 66.6% (k 3.49: the exp fits its levels within 0.001)
-export const ENVELOPE_CURVES: EnvelopeCurves = { attack: 0, decay: 3.49, release: 3.49 };
-
-// the envelope of the knobs with the default shape (the knobs have no curves, they are not in the preset)
-export const withCurves = (env: EnvelopeParams): EnvelopeParams => ({ ...env, curves: ENVELOPE_CURVES });
 
 // from → to over `length` seconds, `done` of them done (the linear one as it was: its bits)
 const stage = (from: number, to: number, k: number, done: number, length: number) =>
