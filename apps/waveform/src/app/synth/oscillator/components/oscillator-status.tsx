@@ -1,10 +1,11 @@
 import React from 'react';
 import styled from 'styled-components';
 import { MdWarningAmber } from 'react-icons/md';
-import { useBehaviorSubject } from '@waveform/rxjs-react';
+import { useBehaviorSubject, useObservable } from '@waveform/rxjs-react';
 import { text12, theme } from '@waveform/ui-kit';
 import { useSynthCore } from '../../common/modules';
-import type { WavetableStatus } from '../../common/wavetable/wavetable-engine';
+import type { TableState, WavetableStatus } from '../../common/wavetable/wavetable-engine';
+import { useOscillatorContext } from '../hooks';
 
 // why the oscillators can't play (there is no native fallback); none: they can (or they are loading)
 export const oscillatorStatusMessage = (status: WavetableStatus) => {
@@ -62,18 +63,36 @@ const Retry = styled.button`
   }
 `;
 
-// over the wave of an oscillator: the reason it doesn't play, Retry for a module that failed to load
+// why the table of an oscillator doesn't play (the one before it does); none: it plays, or it is on its way
+export const tableStateMessage = (state: TableState | null) => {
+  switch (state) {
+    case 'refused':
+      return 'Not enough memory for the table: the previous one plays';
+    case 'failed':
+      return 'The table failed to build: the previous one plays';
+    default:
+      return undefined;
+  }
+};
+
+// over the wave of an oscillator: the reason it doesn't play, Retry for a module that failed to load; else why its
+// table doesn't, Retry sends it again
 export const OscillatorStatus = () => {
   const [{ wavetables }] = useSynthCore();
+  const [{ $tableState }, { retryTable }] = useOscillatorContext();
   const status = useBehaviorSubject(wavetables.$status);
+  const tableState = useObservable($tableState, null);
   const message = oscillatorStatusMessage(status);
-  if (!message) return null;
+  const tableMessage = tableStateMessage(tableState);
+  if (!message && !tableMessage) return null;
+  // (the module first: without it no table plays)
+  const retry = message ? status === 'failed' && wavetables.retry : retryTable;
   return (
     <Root role='alert'>
       <MdWarningAmber aria-hidden />
-      <span>Oscillators can&apos;t play: {message}</span>
-      {status === 'failed' && (
-        <Retry type='button' onClick={wavetables.retry}>
+      <span>{message ? <>Oscillators can&apos;t play: {message}</> : tableMessage}</span>
+      {retry && (
+        <Retry type='button' onClick={retry}>
           Retry
         </Retry>
       )}

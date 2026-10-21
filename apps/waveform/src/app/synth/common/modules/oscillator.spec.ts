@@ -162,6 +162,22 @@ describe('oscillator', () => {
       jest.useRealTimers();
     });
 
+    it("follows the state of its table, another oscillator's aside; Retry sends it again", async () => {
+      const synthCore = createSynthCore();
+      const { wavetables } = synthCore[0];
+      const retryTable = jest.spyOn(wavetables, 'retryTable');
+      const [model, actions] = createOscillator(synthCore);
+      const states: unknown[] = [];
+      model.$tableState.subscribe((state) => states.push(state));
+      await flush();
+      wavetables.$tables.next({ ...wavetables.$tables.value, other: 'refused' });
+      wavetables.$tables.next({ ...wavetables.$tables.value, [model.id]: 'refused' });
+      actions.retryTable();
+      expect(retryTable).toHaveBeenCalledWith(model.id);
+      // (sent again)
+      expect(states).toEqual([null, 'sending', 'refused', 'sending']);
+    });
+
     it('removes its table when it stops', () => {
       const { oscillator, removeTable } = setup();
       stopModels();

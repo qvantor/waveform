@@ -26,13 +26,14 @@ export const stereoCore = (exports: StereoCoreExports, handle: number) => {
   return {
     process: (inL: Float32Array, inR: Float32Array, outL: Float32Array, outR: Float32Array) => {
       const frames = outL.length;
-      const at = exports.fx_buffers(handle, frames);
       const bytes = 4 * frames;
-      copyIn(viewInL(at, frames), inL);
-      copyIn(viewInR(at + bytes, frames), inR);
-      // (guarded() inlined: no closure per block)
+      // (guarded here, not by instantiateCore: no closure per block; fx_buffers grows the block)
       const stack = exports.__stack_pointer.value;
+      let at: number;
       try {
+        at = exports.fx_buffers(handle, frames);
+        copyIn(viewInL(at, frames), inL);
+        copyIn(viewInR(at + bytes, frames), inR);
         exports.fx_process(handle);
       } catch (error) {
         exports.__stack_pointer.value = stack;

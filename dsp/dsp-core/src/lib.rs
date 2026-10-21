@@ -27,6 +27,17 @@ pub fn wrap(x: f64, mask: usize) -> usize {
     (int32(x) & mask as i32) as usize
 }
 
+/// a value that is not finite (NaN, an infinity) as 0: what a broken graph or a file with them sends would stay in
+/// the state of a core for good (its filters and lines never forget it)
+#[inline(always)]
+pub fn finite(value: f64) -> f64 {
+    if value.is_finite() {
+        value
+    } else {
+        0.0
+    }
+}
+
 /// ToInt32 of x, fast while x fits (a compare and a truncation), else the full wrap of JS
 #[inline(always)]
 pub fn int32(x: f64) -> i32 {

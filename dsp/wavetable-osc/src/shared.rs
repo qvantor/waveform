@@ -85,6 +85,11 @@ impl Default for Shared {
 }
 
 impl Shared {
+    /// room for one phrase more: a voice joins its phrase without allocating (Voice::attach)
+    pub fn reserve_phrase(&mut self) {
+        self.phrases.reserve(1);
+    }
+
     pub fn join_phrase(&mut self, id: f64, opens: bool) -> bool {
         match self.phrases.iter_mut().find(|phrase| phrase.id == id) {
             Some(phrase) => phrase.voices += 1.0,
@@ -127,10 +132,10 @@ impl Shared {
         }
     }
 
-    /// the buffers of a block of `length` (they grow, never shrink)
+    /// the buffers of a block of `length` (they grow, never shrink); the size is set once all of them are allocated:
+    /// an allocation that traps leaves the old size, the next block allocates them again
     pub fn grow(&mut self, length: usize) {
         if length > self.size {
-            self.size = length;
             let s = &mut self.scratch;
             for buffer in [
                 &mut s.left,
@@ -149,28 +154,45 @@ impl Shared {
             let points = ceil(length as f64 / SEGMENT) as usize + 2;
             s.points = vec![0; points];
             s.positions = vec![0.0; points];
+            self.size = length;
         }
     }
 
-    pub fn acquire_mix(&mut self, length: usize) -> Vec<f32> {
+    /// a mix table of `length` (from the pool, or allocated); None: no memory for it, the voice plays directly, as
+    /// when the budget refuses a build (the same sound, more CPU)
+    pub fn acquire_mix(&mut self, length: usize) -> Option<Vec<f32>> {
         if let Some((_, free)) = self.pool.iter_mut().find(|(size, _)| *size == length) {
             if let Some(mix) = free.pop() {
-                return mix;
+                return Some(mix);
             }
         }
-        let mix = vec![0.0f32; length + FRAME_GUARD];
+        let size = length.checked_add(FRAME_GUARD)?;
+        let mut mix = Vec::new();
+        mix.try_reserve_exact(size).ok()?;
+        mix.resize(size, 0.0f32);
         if cfg!(feature = "perf") {
             self.counts[MIXES] += 1.0;
             self.counts[MIX_BYTES] += 4.0 * mix.len() as f64;
         }
-        mix
+        Some(mix)
     }
 
+    /// a mix table back to the pool (freed when the pool has no memory to keep it: the end of a voice never traps)
     pub fn release_mix(&mut self, mix: Vec<f32>) {
         let length = mix.len() - FRAME_GUARD;
         match self.pool.iter_mut().find(|(size, _)| *size == length) {
-            Some((_, free)) => free.push(mix),
-            None => self.pool.push((length, vec![mix])),
+            Some((_, free)) => {
+                if free.try_reserve(1).is_ok() {
+                    free.push(mix);
+                }
+            }
+            None => {
+                let mut free = Vec::new();
+                if free.try_reserve(1).is_ok() && self.pool.try_reserve(1).is_ok() {
+                    free.push(mix);
+                    self.pool.push((length, free));
+                }
+            }
         }
     }
 
@@ -208,9 +230,13 @@ impl Shared {
     pub fn reserve_io(&mut self, frames: usize) {
         // (also after a trap left them out of the shared: osc_voice_process takes them while the voice renders)
         if self.frames < frames || self.params.len() < PARAMS * self.frames.max(frames) {
-            self.frames = self.frames.max(frames);
-            self.params = vec![0.0; PARAMS * self.frames];
-            self.output = vec![0.0; 2 * self.frames];
+            // (both allocated before the size is set: one that traps leaves the old size, the next block tries again)
+            let size = self.frames.max(frames);
+            let params = vec![0.0; PARAMS * size];
+            let output = vec![0.0; 2 * size];
+            self.params = params;
+            self.output = output;
+            self.frames = size;
         }
     }
 

@@ -12,6 +12,11 @@ const RENDER_EVENT = 'RealtimeAudioDestinationHandler::Render';
 // one per missed device callback, on the AudioOutputDevice thread (a few copies on the worklet thread: not
 // counted)
 const GLITCH_EVENT = 'Glitch!';
+// the quanta and the tasks of the messages the worklet thread takes between them (a port message holds the thread
+// as long as its handler runs: the next render waits, its own time doesn't show it)
+export const MESSAGE_CATEGORIES = [...QUANTA_CATEGORIES, 'toplevel'];
+// one per message (mojo) the worklet thread handles: a postMessage to a processor
+const MESSAGE_EVENT = 'SimpleWatcher::OnHandleReady';
 
 const threadNames = (events) => {
   const names = new Map();
@@ -76,6 +81,15 @@ export const analyzeQuanta = (events, { sampleRate }) => {
     deadline,
     over: wall.filter((ms) => ms > deadline).length,
   };
+};
+
+// the messages the worklet thread handled (MESSAGE_CATEGORIES), wall ms: their count and the longest; null without
+// them in the trace (a newer Chromium renamed it: --dump-trace)
+export const analyzeMessages = (events) => {
+  const found = durations(events).find(
+    ({ thread, name }) => /AudioWorklet/i.test(thread) && name === MESSAGE_EVENT
+  );
+  return found ? { count: found.durations.length, max: Math.max(...found.durations) / 1000 } : null;
 };
 
 // the device callbacks Chromium missed (a dropout each)

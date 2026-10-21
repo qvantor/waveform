@@ -189,23 +189,39 @@ pub unsafe extern "C" fn osc_store_begin(
     }
 }
 
-/// the data of a slot (the wrapper copies the chunks into it), null: none
+/// the room of a chunk of `len` samples from sample `at` of a slot (the wrapper copies it there); null: not the
+/// next chunk of the slot, or past the length of its version
 ///
 /// # Safety
 /// `store` comes from osc_store_new and was not freed
 #[no_mangle]
-pub unsafe extern "C" fn osc_store_data(store: *mut Store, slot: u32) -> *mut f32 {
-    match (*store).slot_data(slot) {
+pub unsafe extern "C" fn osc_store_chunk(store: *mut Store, slot: u32, at: usize, len: usize) -> *mut f32 {
+    match (*store).chunk(slot, at, len) {
         Some(data) => data.as_mut_ptr(),
         None => core::ptr::null_mut(),
     }
 }
 
+/// the version of a slot is complete; 0: refused (a chunk is missing or no memory for it, the slot is aborted)
+///
 /// # Safety
 /// `store` comes from osc_store_new and was not freed
 #[no_mangle]
-pub unsafe extern "C" fn osc_store_commit(store: *mut Store, slot: u32) {
-    (*store).commit(slot);
+pub unsafe extern "C" fn osc_store_commit(store: *mut Store, slot: u32) -> i32 {
+    (*store).commit(slot) as i32
+}
+
+/// a slot that will not be committed gives its buffer back; -1: every slot (a new worker)
+///
+/// # Safety
+/// `store` comes from osc_store_new and was not freed
+#[no_mangle]
+pub unsafe extern "C" fn osc_store_abort(store: *mut Store, slot: i32) {
+    if slot < 0 {
+        (*store).abort_all();
+    } else {
+        (*store).abort(slot as u32);
+    }
 }
 
 /// # Safety
@@ -277,6 +293,16 @@ pub unsafe extern "C" fn osc_store_freed(store: *mut Store) -> usize {
     count
 }
 
+/// where the store counts the bytes of the versions it freed (an f64 the wrapper reads after a call that may free
+/// one and sets back to 0: no call per block)
+///
+/// # Safety
+/// `store` comes from osc_store_new and was not freed
+#[no_mangle]
+pub unsafe extern "C" fn osc_store_freed_bytes(store: *mut Store) -> *mut f64 {
+    core::ptr::addr_of_mut!((*store).freed_bytes)
+}
+
 /// VoiceStats into the command buffer (the peak cost starts again)
 ///
 /// # Safety
@@ -333,12 +359,10 @@ pub unsafe extern "C" fn osc_voice_new(
         values: command(),
         at: 0,
     });
-    Box::into_raw(Box::new(Voice::new(
-        sample_rate,
-        options,
-        &mut *store,
-        &mut *shared,
-    )))
+    // boxed before it holds its versions and its phrase: a trap of an allocation pins nothing
+    let mut voice = Box::new(Voice::new(sample_rate, options, &mut *shared));
+    voice.attach(&mut *store, &mut *shared);
+    Box::into_raw(voice)
 }
 
 /// # Safety

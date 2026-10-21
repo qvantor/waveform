@@ -1,5 +1,5 @@
 import { CoreExports } from '../app/synth/common/wasm/wasm-core';
-import { wasmCore } from './wasm';
+import { wasmExports } from './wasm';
 
 // Math as the wasm cores compute it: jsmath (dsp/jsmath, V8's fdlibm and glibc's pow, from
 // tmp/wasm-perf/jsmath-check.wasm). Import it first in a spec that compares a TS core with its wasm one bit for bit,
@@ -21,7 +21,7 @@ export const JSMATH_FUNCTIONS = [
 
 type JsMathExports = CoreExports & Record<string, (...args: number[]) => number>;
 
-export const jsmath = wasmCore<JsMathExports>('jsmath-check');
+export const jsmath = wasmExports<JsMathExports>('jsmath-check');
 // Node's own, to compare jsmath with
 export const nodeMath = Object.fromEntries(JSMATH_FUNCTIONS.map((name) => [name, Math[name]])) as Pick<
   Math,

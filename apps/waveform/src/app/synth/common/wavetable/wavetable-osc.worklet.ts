@@ -9,6 +9,7 @@ import {
   createVoiceSharedWasm,
   createVoiceWasm,
   OscExports,
+  StoreFreedBytesMessage,
 } from './wavetable-osc-wasm';
 import { registerVoiceProcessor } from './voice-processor';
 
@@ -81,6 +82,11 @@ const shared = createVoiceSharedWasm(scope);
 class StoreProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
+    // (the processor of a retry takes it over)
+    store.listen((bytes) => {
+      const freed: StoreFreedBytesMessage = { freedBytes: bytes };
+      this.port.postMessage(freed);
+    });
     this.port.onmessage = createStoreReceiver(
       store,
       (message) => this.port.postMessage(message),

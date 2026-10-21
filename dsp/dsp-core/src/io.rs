@@ -24,6 +24,16 @@ impl StereoIo {
         self.frames
     }
 
+    /// the inputs of the block reserved, a value that is not finite as 0 (`finite`; a finite one stays to the
+    /// bit): an effect never takes one in
+    pub fn finite_inputs(&mut self) {
+        for value in self.data[..2 * self.frames].iter_mut() {
+            if !value.is_finite() {
+                *value = 0.0;
+            }
+        }
+    }
+
     /// the inputs and the outputs of the block reserved
     pub fn split(&mut self) -> (&[f32], &[f32], &mut [f32], &mut [f32]) {
         let n = self.frames;

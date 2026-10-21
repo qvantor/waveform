@@ -594,7 +594,9 @@ pub struct Voice {
 }
 
 impl Voice {
-    pub fn new(sample_rate: f64, options: VoiceOptions, store: &mut Store, shared: &mut Shared) -> Voice {
+    /// a voice of a note: only what it allocates (an allocation that fails traps), attach() then takes its versions
+    /// and its phrase, so a trap here holds nothing of the store or the shared
+    pub fn new(sample_rate: f64, options: VoiceOptions, shared: &mut Shared) -> Voice {
         let nyquist = sample_rate / 2.0;
         let start_frame = ceil(options.start * sample_rate - 1e-6);
         let env_start_frame = ceil(options.env_start * sample_rate - 1e-6);
@@ -604,15 +606,12 @@ impl Voice {
             .map(|params| EnvelopeBlock::new(*params, sample_rate, env_start_frame))
             .collect();
         let in_phrase = env_start_frame < start_frame;
-        let joined = shared.join_phrase(options.phrase, !in_phrase);
+        // (the room of its phrase, attach() joins it without allocating)
+        shared.reserve_phrase();
         let mut oscs = Vec::with_capacity(2);
         for (index, config) in options.osc.iter().enumerate() {
             let Some(config) = config else { continue };
             let unison = min(MAX_UNISON as f64, max(1.0, round(config.unison))) as usize;
-            let entry = match store.latest(config.table) {
-                Some(latest) => store.acquire(latest),
-                None => EntryRef::Sine,
-            };
             oscs.push(Osc {
                 table: config.table,
                 phase: config.phase,
@@ -624,7 +623,7 @@ impl Voice {
                 saved_phases: [0.0; MAX_UNISON],
                 saved_fades: [0; MAX_UNISON],
                 random: config.random,
-                entry,
+                entry: EntryRef::Sine,
                 next: None,
                 crossfade: 0.0,
                 incs: Vec::new(),
@@ -643,9 +642,6 @@ impl Voice {
                 gains: [1.0; MAX_UNISON],
                 width: None,
             });
-        }
-        if cfg!(feature = "perf") {
-            shared.counts[VOICES] += 1.0;
         }
         // the params the routes move: those of the oscillators on, the knobs of the filter
         let mut accesses = [false; TARGET_PARAMS];
@@ -677,7 +673,7 @@ impl Voice {
             crossfade_length: max(1.0, round(CROSSFADE * sample_rate)),
             lead_length: round(RELEASE_LEAD * sample_rate),
             in_phrase,
-            joined,
+            joined: false,
             phrase: options.phrase,
             started: false,
             ended: false,
@@ -687,6 +683,21 @@ impl Voice {
             oscs,
             modulation,
             points_length: 0,
+        }
+    }
+
+    /// the voice joins its phrase and holds the latest version of the table of each oscillator (the placeholder
+    /// sine until one has arrived); nothing here allocates: once the voice is boxed, nothing of it traps before it
+    /// can give them back (end)
+    pub fn attach(&mut self, store: &mut Store, shared: &mut Shared) {
+        self.joined = shared.join_phrase(self.phrase, !self.in_phrase);
+        for osc in self.oscs.iter_mut() {
+            if let Some(latest) = store.latest(osc.table) {
+                osc.entry = store.acquire(latest);
+            }
+        }
+        if cfg!(feature = "perf") {
+            shared.counts[VOICES] += 1.0;
         }
     }
 
@@ -763,13 +774,17 @@ impl Voice {
             shared.counts[VOICES] -= 1.0;
             shared.counts[UNISON] -= self.unison;
         }
+        // the versions of both oscillators first: they release nothing that allocates, the mixes may
         for osc in self.oscs.iter_mut() {
             if osc.entry != EntryRef::Sine {
                 store.release(osc.entry);
             }
-            if let Some(next) = osc.next {
+            if let Some(next) = osc.next.take() {
                 store.release(next);
             }
+            osc.entry = EntryRef::Sine;
+        }
+        for osc in self.oscs.iter_mut() {
             release_mixes(osc, shared);
         }
     }
@@ -1057,7 +1072,11 @@ fn build_mix(
             if let Some(mix) = other {
                 shared.release_mix(mix);
             }
-            shared.acquire_mix(length)
+            // no memory for it: the voice plays directly (its mix id stays another)
+            let Some(mix) = shared.acquire_mix(length) else {
+                return;
+            };
+            mix
         }
     };
     mix.fill(0.0);

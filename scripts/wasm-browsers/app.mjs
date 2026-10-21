@@ -4,12 +4,19 @@
 // filter, every effect, 12 notes) headless. Its notes start without the effects, then every effect is added over
 // them: their modules load with the app, these are the first blocks they sound; in Chromium no render quantum may
 // run over its deadline in a trace of it, nor a glitch (headless: the device callbacks aren't real, the render times
-// are). It checks that the oscillator, the master limiter and every effect are ready, that the engine counts the
+// are). Then the tables are switched under the notes (one of 256 frames no buffer of the store holds yet, one of 11
+// frames), traced as well. It checks that the oscillator, the master limiter and every effect are ready, that the engine counts the
 // voices and their mix samples, that the output sounds and that the page threw nothing. The tables come from the
 // cache of bench-perf (S3 keys in .env otherwise). Exit 1 on a failed check
 import { loadPlaywright, parseArgs } from '../bench-common.mjs';
 import { launch, openPage } from '../bench-perf/browser.mjs';
-import { analyzeQuanta, countGlitches, QUANTA_CATEGORIES } from '../bench-perf/chrome-trace.mjs';
+import {
+  analyzeMessages,
+  analyzeQuanta,
+  countGlitches,
+  MESSAGE_CATEGORIES,
+  QUANTA_CATEGORIES,
+} from '../bench-perf/chrome-trace.mjs';
 import { CPU_CASES, TABLES } from '../bench-perf/scenes.mjs';
 import { buildSite, downloadTables, serve } from '../bench-perf/site.mjs';
 import { sleep } from '../bench-perf/util.mjs';
@@ -17,7 +24,16 @@ import { sleep } from '../bench-perf/util.mjs';
 const args = parseArgs(process.argv.slice(2));
 const browsers = (args.browsers ?? 'chromium,webkit,firefox').split(',');
 const [heavy] = CPU_CASES;
-const keys = Object.values(TABLES);
+// the tables switched under the notes: osc 2 to another table of 256 frames (no buffer of the pool of the store
+// holds it yet: it is allocated on the audio thread, in chunks), then osc 1 to the 11 frames of the saws
+const AIR = 'ESW Core Tables/Digital/ESW Digital - Air Lazer.wav';
+const keys = [...Object.values(TABLES), AIR];
+const tablePath = (key) => [...key.split('/').slice(0, -1), key];
+const withTables = (osc1, osc2) => ({
+  ...heavy.snapshot,
+  osc1: { ...heavy.snapshot.osc1, ...(osc1 && { p: tablePath(osc1) }) },
+  osc2: { ...heavy.snapshot.osc2, p: tablePath(osc2) },
+});
 const withoutEffects = {
   ...heavy.snapshot,
   fx: Object.fromEntries(
@@ -66,25 +82,46 @@ try {
         await call('apply', heavy.snapshot, 60000);
         await sleep(1000);
       };
-      if (name === 'chromium') {
-        await browser.startTracing(page, { categories: QUANTA_CATEGORIES });
-        await addEffects();
+      const switchTables = async () => {
+        await call('apply', withTables(null, AIR), 60000);
+        await sleep(500);
+        await call('apply', withTables(TABLES.saws, AIR), 60000);
+        await sleep(1000);
+      };
+      // in Chromium no render quantum over its deadline in a trace of it, nor a glitch, and with `messages` no
+      // message the worklet thread takes between the quanta longer than that (the chunks of a table go to the
+      // store so: a begin that zeroed the table held the thread 4.2 ms, no quantum showed it); the others only
+      // play it
+      const dropsNothing = async (title, play, { messages = false } = {}) => {
+        if (name !== 'chromium') {
+          await play();
+          return;
+        }
+        await browser.startTracing(page, { categories: messages ? MESSAGE_CATEGORIES : QUANTA_CATEGORIES });
+        await play();
         const events = JSON.parse(String(await browser.stopTracing())).traceEvents;
         const sampleRate = await page.evaluate(
           () => window.__waveformPerf.models.synthCore[0].audioCtx.sampleRate
         );
         const quanta = analyzeQuanta(events, { sampleRate });
         const glitches = countGlitches(events);
-        const over =
-          quanta && `${quanta.over} of ${quanta.count} quanta over ${quanta.deadline.toFixed(2)} ms`;
+        const handled = messages ? analyzeMessages(events) : null;
+        if (!quanta || (messages && !handled)) {
+          check(title, false, `no ${quanta ? 'messages' : 'render quanta'} in the trace`);
+          return;
+        }
+        const over = `${quanta.over} of ${quanta.count} quanta over ${quanta.deadline.toFixed(2)} ms`;
+        const longest = handled
+          ? `, the longest of ${handled.count} messages ${handled.max.toFixed(2)} ms`
+          : '';
         check(
-          'the effects added over the notes drop nothing',
-          quanta && quanta.over === 0 && glitches === 0,
-          quanta
-            ? `${glitches} glitches, ${over}, the longest ${quanta.max.toFixed(2)} ms`
-            : 'no render quanta in the trace'
+          title,
+          quanta.over === 0 && glitches === 0 && (!handled || handled.max <= quanta.deadline),
+          `${glitches} glitches, ${over}, the longest ${quanta.max.toFixed(2)} ms${longest}`
         );
-      } else await addEffects();
+      };
+      await dropsNothing('the effects added over the notes drop nothing', addEffects);
+      await dropsNothing('a table switched under the notes drops nothing', switchTables, { messages: true });
       const before = (await call('stats')).engine;
       // the loudness of the output over half a second (an analyser on the output of the limiter)
       const rms = await page.evaluate(async () => {

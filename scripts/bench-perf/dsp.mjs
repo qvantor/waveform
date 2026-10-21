@@ -51,6 +51,8 @@ const WASM_CORES = [
   },
 ];
 
+const WASM_CORE = 'apps/waveform/src/app/synth/common/wasm/wasm-core';
+
 // as in production: the counters of the perf build out. A tree with wasm cores bundles their facades too and
 // instantiates them (one instance per core, as one AudioWorkletGlobalScope)
 const loadDsp = async (source = root, name) => {
@@ -60,23 +62,28 @@ const loadDsp = async (source = root, name) => {
       fs.existsSync(path.join(source, `tmp/wasm/${core}.wasm`))
   );
   const ts = TS_CORES.filter(({ module }) => fs.existsSync(path.join(source, `${module}.ts`)));
+  // (instantiated by its instantiateCore, as the worklets do: a tree that guards the calls of its cores pays for it)
+  const instantiate = cores.length > 0 && fs.existsSync(path.join(source, `${WASM_CORE}.ts`));
   const contents = `${ENTRY}${[
     ...ts.map(({ module, create }) => [module, create]),
     ...cores.map(({ facade, create }) => [facade, create]),
+    ...(instantiate ? [[WASM_CORE, 'instantiateCore']] : []),
   ]
     .map(([module, create]) => `export { ${create} } from './${module}';\n`)
     .join('')}`;
   const dsp = await loadApp({ source, contents, name });
   const wasm = Object.fromEntries(
-    cores.map(({ core }) => [
-      core,
-      new WebAssembly.Instance(
-        new WebAssembly.Module(fs.readFileSync(path.join(source, `tmp/wasm/${core}.wasm`)))
-      ).exports,
-    ])
+    cores.map(({ core }) => {
+      const module = new WebAssembly.Module(fs.readFileSync(path.join(source, `tmp/wasm/${core}.wasm`)));
+      return [core, instantiate ? dsp.instantiateCore(module) : new WebAssembly.Instance(module).exports];
+    })
   );
   return { ...dsp, wasm };
 };
+
+// a table of 256 frames of 2048 samples as the store takes it (its layout is not read) and a chunk of it (1 MB)
+const TABLE_256 = { frames: 256, harmonics: [1], lengths: [8], offsets: [0], length: 16670976 };
+const CHUNK = new Float32Array(262144);
 
 // ns per call over `ms` at least
 const timeCalls = (call, ms) => {
@@ -182,6 +189,8 @@ const createCases = (dsp) => {
   const oscScope = dsp.wasm['wavetable-osc'] && dsp.createOscScope(dsp.wasm['wavetable-osc']);
   const wasmStore = oscScope && dsp.createTableStoreWasm(oscScope);
   wasmStore?.set('a', 1, levels);
+  // (as the worklet: its store processor listens for the memory the store frees, read after every block)
+  wasmStore?.listen?.(() => undefined);
   const createShared = { ts: () => dsp.createVoiceShared(), wasm: () => dsp.createVoiceSharedWasm(oscScope) };
   const createVoice = {
     ts: (options, shared = createShared.ts()) =>
@@ -302,6 +311,23 @@ const createCases = (dsp) => {
         return Number(process.hrtime.bigint() - start) / 1e6;
       },
     },
+    // the store takes a table of 256 frames no buffer of its pool holds (a store of its own): its begin and its
+    // first chunk, on the audio thread (a tree that zeroes the whole table in begin: 0.75 ms on memory the
+    // allocator had, 4.2 on new memory; the first sample of a side is the new memory)
+    ...(oscScope && {
+      'store begin 64 MiB, a miss of the pool': {
+        build: () => {
+          const tables = dsp.createTableStoreWasm(oscScope);
+          const start = process.hrtime.bigint();
+          const slot = tables.begin('b', 1, TABLE_256);
+          tables.write(slot, 0, CHUNK);
+          const ms = Number(process.hrtime.bigint() - start) / 1e6;
+          tables.commit(slot);
+          tables.free();
+          return ms;
+        },
+      },
+    }),
     ...withTs(
       { reverb: [input] },
       dsp.wasm.reverb &&

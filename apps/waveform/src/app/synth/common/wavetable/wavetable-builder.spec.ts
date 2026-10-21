@@ -1,4 +1,5 @@
 import { createTableBuilder } from './wavetable-builder';
+import * as mipmap from './wavetable-mipmap';
 import { buildLevels, tableBytes } from './wavetable-mipmap';
 import type { WavetableLevels } from './wavetable-levels';
 
@@ -21,7 +22,7 @@ const setup = () => {
     builder.receive({ stats: true });
     return reply.mock.calls[0][0].stats;
   };
-  return { builder, port, run, connect, posted, stats };
+  return { builder, port, run, connect, posted, stats, reply };
 };
 
 describe('wavetable builder', () => {
@@ -35,6 +36,41 @@ describe('wavetable builder', () => {
     expect(message.version).toBe(1);
     expect(message.levels.data).toEqual(buildLevels([sine, saw]).data);
     expect(transfer).toEqual([message.levels.data.buffer]);
+  });
+
+  it('builds a frame with samples that are not finite as if they were 0: every level finite', () => {
+    const { builder, port, run, connect } = setup();
+    connect();
+    const broken = Float32Array.from(saw);
+    [3, 700, 1500].forEach((at, i) => (broken[at] = [NaN, Infinity, -Infinity][i]));
+    builder.receive({ table: 'osc1', version: 1, frames: [sine, broken] });
+    run();
+    const [[message]] = port.postMessage.mock.calls;
+    const fixed = Float32Array.from(saw);
+    [3, 700, 1500].forEach((at) => (fixed[at] = 0));
+    expect(message.levels.data.every(Number.isFinite)).toBe(true);
+    expect(message.levels.data).toEqual(buildLevels([sine, fixed]).data);
+  });
+
+  it('a version that fails to build is reported, its table keeps the one before, the next table is built', () => {
+    jest.spyOn(mipmap, 'buildLevels').mockImplementationOnce(() => {
+      throw new RangeError('Array buffer allocation failed');
+    });
+    const { builder, run, connect, posted, reply } = setup();
+    connect();
+    builder.receive({ table: 'osc1', version: 2, frames: [sine] });
+    builder.receive({ table: 'osc2', version: 1, frames: [saw] });
+    run();
+    expect(reply).toHaveBeenCalledWith({
+      failed: 'osc1',
+      version: 2,
+      reason: 'RangeError: Array buffer allocation failed',
+    });
+    expect(posted()).toEqual([expect.objectContaining({ table: 'osc2', version: 1 })]);
+    // a version after it builds
+    builder.receive({ table: 'osc1', version: 3, frames: [sine] });
+    run();
+    expect(posted().at(-1)).toMatchObject({ table: 'osc1', version: 3 });
   });
 
   it('builds the tables posted before the port of the store once it arrives', () => {
@@ -101,6 +137,21 @@ describe('wavetable builder', () => {
       };
       return { ...context, ack };
     };
+
+    it('a chunk that fails stops its version: the store drops it, the next table goes', () => {
+      // (a chunk past the longest buffer: its allocation throws, as one no memory is left for)
+      const { builder, run, posted, reply } = chunked(2 ** 53);
+      builder.receive({ table: 'osc1', version: 1, frames: [sine] });
+      builder.receive({ table: 'osc2', version: 1, frames: [saw] });
+      run();
+      expect(posted()).toEqual([
+        expect.objectContaining({ table: 'osc1', version: 1, begin: expect.anything() }),
+        { table: 'osc1', version: 1, abort: true },
+      ]);
+      expect(reply).toHaveBeenCalledWith(expect.objectContaining({ failed: 'osc1', version: 1 }));
+      run();
+      expect(posted()[2]).toMatchObject({ table: 'osc2', version: 1, begin: expect.anything() });
+    });
 
     it('sends the layout of a version, then its data in chunks, the next once the store acked the last', () => {
       const { builder, run, posted, ack, port } = chunked(5000);

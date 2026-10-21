@@ -57,13 +57,15 @@ export const registerStereoProcessor = <Dsp extends StereoDsp, Message extends o
         this.modulator = createFxModulator(sampleRate, params);
       }
       this.port.onmessage = ({ data }: MessageEvent<Message & StopMessage & FxModMessage>) => {
+        // (its dsp is freed: a message after the stop would reach a core that holds it no more)
+        if (this.stopped) return;
         const { modulator } = this;
         let message = data;
         if (modulator && data.mod !== undefined) modulator.set(data.mod);
         const { params } = data as { params?: Record<string, number> };
         if (modulator && params) message = { ...data, params: modulator.bases(params) ?? undefined };
         onMessage?.(this.dsp, message);
-        if (data.stop && !this.stopped) {
+        if (data.stop) {
           this.stopped = true;
           this.dsp.free?.();
         }

@@ -2,8 +2,16 @@
 // machine (Node's own Math differs in the last bits on arm64), so are the goldens
 import '../../../../test-utils/js-math';
 import { FX_PARAMS } from '@waveform/preset-schema';
-import { pick, Random, randomBlocks, randomSignal, RATES, Signal } from '../../../../test-utils/fuzz-signals';
-import { createGoldens, FUZZ_SCALE, runStereo } from '../../../../test-utils/parity';
+import {
+  pick,
+  Random,
+  randomBlocks,
+  randomSignal,
+  RATES,
+  Signal,
+  withSpecials,
+} from '../../../../test-utils/fuzz-signals';
+import { createGoldens, expectFinite, FUZZ_SCALE, runStereo } from '../../../../test-utils/parity';
 import { seeded } from '../../../../test-utils/seeded';
 import { wasmCore } from '../../../../test-utils/wasm';
 import { ReverbDspParams } from './reverb-params';
@@ -205,7 +213,8 @@ const randomScenario = (random: Random): Scenario => {
     params: randomParams(random, rate),
     active: random() < 0.85,
     blocks,
-    input: randomSignal(random, rate, frames, false),
+    // (NaN, the infinities and 1e30 too: the core takes them as 0)
+    input: randomSignal(random, rate, frames, true),
     changes,
   };
 };
@@ -218,6 +227,28 @@ describe('reverb wasm core', () => {
   const count = 300 * FUZZ_SCALE;
   it(`renders ${count} random scenarios, finite`, () => {
     for (let seed = 1; seed <= count; seed++) run(`seed ${seed}`, randomScenario(seeded(seed)));
+  });
+
+  it('takes NaN and the infinities as 0: finite all along, drained to idle after the sound', () => {
+    const scenario = GOLDEN.find(([name]) => name.startsWith('drained'))?.[1] as Scenario;
+    const input = withSpecials(scenario.input);
+    const wasm = createReverbWasm(core, RATE, { params: scenario.params, active: true });
+    let frame = 0;
+    const idles: boolean[] = [];
+    scenario.blocks.forEach((n, block) => {
+      const [inL, inR] = [0, 1].map((channel) =>
+        Float32Array.from({ length: n }, (_, i) => input(frame + i, channel))
+      );
+      const outs = [0, 1].map(() => new Float32Array(n));
+      wasm.process(inL, inR, outs[0], outs[1]);
+      outs.forEach((out) => expectFinite('specials', block, out));
+      idles.push(wasm.idle);
+      frame += n;
+    });
+    // idle between the two bursts and after the second
+    expect(idles.some((idle) => idle)).toBe(true);
+    expect(idles.at(-1)).toBe(true);
+    wasm.free();
   });
 
   it('goes idle once its tail has drained', () => {

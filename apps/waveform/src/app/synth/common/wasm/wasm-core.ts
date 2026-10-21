@@ -10,9 +10,47 @@ export interface CoreExports {
   __stack_pointer: WebAssembly.Global;
 }
 
-// the instance of a module (the specs make one per scope); no imports: the cores call nothing outside
+// the calls of a block, guarded where they are called (no closure per block: stereo-core.ts,
+// wavetable-osc-wasm.ts), and a getter read every block (it reads a field: it can't trap)
+const UNGUARDED = new Set([
+  'fx_process',
+  'fx_buffers',
+  'osc_voice_process',
+  'osc_io',
+  'osc_voice_started_at',
+]);
+
+// every other function of the core puts the stack pointer back when it traps: a trap (an allocation that failed,
+// an index out of its bounds) leaves it where the call had moved it, about 70 failed note ons (the frame of
+// osc_voice_new) would use up the stack of 64 KiB and every call of the core would trap until a reload. A call
+// that returns has put it back itself
+const guardExports = <T extends CoreExports>(exports: WebAssembly.Exports) => {
+  const { __stack_pointer: stack } = exports as unknown as CoreExports;
+  const guarded = Object.fromEntries(
+    Object.entries(exports).map(([name, value]) => {
+      if (typeof value !== 'function' || UNGUARDED.has(name)) return [name, value];
+      const call = value as (...args: unknown[]) => unknown;
+      return [
+        name,
+        (...args: unknown[]) => {
+          const at = stack.value;
+          try {
+            return call(...args);
+          } catch (error) {
+            stack.value = at;
+            throw error;
+          }
+        },
+      ];
+    })
+  );
+  return guarded as unknown as T;
+};
+
+// the instance of a module (the specs make one per scope), its calls guarded; no imports: the cores call nothing
+// outside
 export const instantiateCore = <T extends CoreExports>(module: WebAssembly.Module) =>
-  new WebAssembly.Instance(module, {}).exports as unknown as T;
+  guardExports<T>(new WebAssembly.Instance(module, {}).exports);
 
 type ViewType = Float32ArrayConstructor | Float64ArrayConstructor | Int32ArrayConstructor;
 

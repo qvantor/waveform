@@ -54,6 +54,17 @@ describe('readAudioFile', () => {
     expect(decodeAudioData).toHaveBeenCalledWith(file);
   });
 
+  it('decodes the samples that are not finite as 0', async () => {
+    decodeAudioData.mockResolvedValueOnce({
+      sampleRate: 44100,
+      getChannelData: () => Float32Array.from([0.5, NaN, Infinity, -Infinity, -0.5]),
+    });
+
+    expect((await readAudioFile(ascii('OggS vorbis').buffer)).samples).toEqual(
+      Float32Array.from([0.5, 0, 0, 0, -0.5])
+    );
+  });
+
   it('fails when the file cannot be decoded', async () => {
     decodeAudioData.mockRejectedValueOnce(new Error('Unable to decode audio data'));
 

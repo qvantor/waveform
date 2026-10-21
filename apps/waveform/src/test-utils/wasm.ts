@@ -26,5 +26,10 @@ export const wasmModule = (name: string) => {
   return module;
 };
 
-// a new instance of the core `name` (a scope of its own: its memory, its tables and voices)
+// a new instance of the core `name` (a scope of its own: its memory, its tables and voices), its calls guarded as
+// the worklets have them
 export const wasmCore = <T extends CoreExports>(name: string) => instantiateCore<T>(wasmModule(name));
+
+// its exports as they are, unguarded (jsmath: pure functions that never trap, called per sample by the specs)
+export const wasmExports = <T>(name: string) =>
+  new WebAssembly.Instance(wasmModule(name), {}).exports as unknown as T;

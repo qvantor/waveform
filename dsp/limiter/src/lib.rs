@@ -11,8 +11,8 @@ use wasm_rt as _;
 
 use dsp_core::consts::CEILING;
 use dsp_core::io::StereoIo;
-use dsp_core::power_of_two_above;
 use dsp_core::true_peak::{TruePeak, TRUE_PEAK_DELAY};
+use dsp_core::{finite, power_of_two_above};
 use jsmath::{exp, log10, max, min, pow, round};
 
 const LOOKAHEAD: f64 = 0.002;
@@ -120,15 +120,6 @@ impl Delay {
             self.index = 0;
         }
         delayed
-    }
-}
-
-#[inline(always)]
-fn finite(value: f64) -> f64 {
-    if value.is_finite() {
-        value
-    } else {
-        0.0
     }
 }
 

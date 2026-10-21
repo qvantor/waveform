@@ -1,15 +1,18 @@
 //! createTableStore of wavetable-osc-dsp.ts, in the linear memory of the core: the tables of a scope by id, each
 //! version refcounted (the store holds the latest, every voice playing one holds it too); a version no one holds
-//! gives its buffer back to a pool (a table of the same size takes it: the memory doesn't grow again). A table
-//! arrives in chunks: begin() takes a slot of its size, the wrapper copies the chunks into it, commit() makes it
-//! the latest (a stale version, older than the latest, is freed at once)
+//! gives its buffer back to a pool (a table it holds takes it: the memory doesn't grow again). A table arrives in
+//! chunks: begin() takes a slot with the room of its data, chunk() gives the room of each chunk in order (only
+//! the chunk is zeroed: the audio thread never fills 64 MB), commit() makes it the latest once every chunk has
+//! come (a stale version, older than the latest, is freed at once)
 
 use alloc::{vec, vec::Vec};
 use jsmath::{sin, PI};
 
 pub const FRAME_GUARD: usize = 3;
-// freed buffers kept for a table of the same size (as the worker keeps them)
+// freed buffers kept for the next tables (two at most), and their samples at most those of one table of 256
+// frames of 2048 samples (66,683,904 bytes): a buffer the next table can't use goes back to the allocator
 const POOL: usize = 2;
+const POOL_SAMPLES: usize = 16_670_976;
 
 /// WavetableLevels: the layout of the band-limited levels of a table (wavetable-levels.ts)
 pub struct Levels {
@@ -28,6 +31,12 @@ pub struct Entry {
     refs: u32,
 }
 
+// a version coming in chunks, its data as long as they have come, `length` samples once complete
+struct Pending {
+    entry: Entry,
+    length: usize,
+}
+
 /// what a voice plays: the placeholder sine until its table has arrived, or a version of the store
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum EntryRef {
@@ -39,7 +48,7 @@ pub struct Store {
     // the versions held, by id (a slot of a freed one is reused)
     entries: Vec<Option<Entry>>,
     current: Vec<(u32, u32)>,
-    pending: Vec<Option<Entry>>,
+    pending: Vec<Option<Pending>>,
     pool: Vec<Vec<f32>>,
     sine: Levels,
     // (perf) the versions held and their bytes
@@ -48,6 +57,9 @@ pub struct Store {
     // the versions freed since the last read (the specs follow them): table, version
     pub freed: Vec<(u32, f64)>,
     pub track_freed: bool,
+    // the bytes of the versions freed since the wrapper last read it (it sets it back to 0): memory for a version
+    // refused before
+    pub freed_bytes: f64,
 }
 
 // played until the table of an oscillator has arrived: one sine cycle, its levels as wavetable-mipmap builds them
@@ -74,12 +86,14 @@ impl Default for Store {
             entries: Vec::new(),
             current: Vec::new(),
             pending: Vec::new(),
-            pool: Vec::new(),
+            // (a freed buffer goes in without allocating: a release never traps)
+            pool: Vec::with_capacity(POOL),
             sine: sine_levels(),
             versions: 0.0,
             bytes: 0.0,
             freed: Vec::new(),
             track_freed: false,
+            freed_bytes: 0.0,
         }
     }
 }
@@ -114,11 +128,40 @@ impl Store {
         if self.track_freed {
             self.freed.push((table, version));
         }
-        let data = levels.data;
-        if self.pool.len() >= POOL {
+        self.freed_bytes += 4.0 * levels.data.capacity() as f64;
+        self.recycle(levels.data);
+    }
+
+    // a buffer no version holds into the pool, the oldest ones out of it until it fits (never allocates: its room
+    // is reserved)
+    fn recycle(&mut self, data: Vec<f32>) {
+        let capacity = data.capacity();
+        if capacity > POOL_SAMPLES {
+            return;
+        }
+        while self.pool.len() >= POOL
+            || self.pool.iter().map(Vec::capacity).sum::<usize>() + capacity > POOL_SAMPLES
+        {
             self.pool.remove(0);
         }
         self.pool.push(data);
+    }
+
+    // the room of `length` samples: the smallest buffer of the pool that holds them, or one allocated once the
+    // pool is given back (its buffers can't hold them: freed together, the allocator joins them for the new one)
+    fn room(&mut self, length: usize) -> Option<Vec<f32>> {
+        let best = (0..self.pool.len())
+            .filter(|&i| self.pool[i].capacity() >= length)
+            .min_by_key(|&i| self.pool[i].capacity());
+        if let Some(i) = best {
+            let mut data = self.pool.remove(i);
+            data.clear();
+            return Some(data);
+        }
+        self.pool.clear();
+        let mut data = Vec::new();
+        data.try_reserve_exact(length).ok()?;
+        Some(data)
     }
 
     pub fn release(&mut self, entry: EntryRef) {
@@ -186,8 +229,8 @@ impl Store {
         }
     }
 
-    /// a slot for a version of `length` samples of data and its layout; None: no memory for it (the version
-    /// is refused, the latest one plays on)
+    /// a slot for a version of `length` samples of data and its layout, their room reserved, nothing written;
+    /// None: no memory for it (the version is refused, the latest one plays on)
     pub fn begin(
         &mut self,
         table: u32,
@@ -196,15 +239,18 @@ impl Store {
         layout: [Vec<i32>; 3],
         length: usize,
     ) -> Option<u32> {
-        let data = match self.pool.iter().position(|buffer| buffer.len() == length) {
-            Some(i) => self.pool.remove(i),
-            None => {
-                let mut data = Vec::new();
-                data.try_reserve_exact(length).ok()?;
-                data.resize(length, 0.0);
-                data
-            }
-        };
+        // a version of the table still coming (its worker stopped halfway) gives its buffer back first
+        let stale: Vec<usize> = (0..self.pending.len())
+            .filter(|&slot| matches!(&self.pending[slot], Some(pending) if pending.entry.table == table))
+            .collect();
+        for slot in stale {
+            self.abort(slot as u32);
+        }
+        // the room of the slot before its buffer: nothing allocates once it is taken
+        if !self.pending.iter().any(Option::is_none) {
+            self.pending.try_reserve(1).ok()?;
+        }
+        let data = self.room(length)?;
         let [harmonics, lengths, offsets] = layout;
         let entry = Entry {
             table,
@@ -218,33 +264,68 @@ impl Store {
             },
             refs: 0,
         };
+        let pending = Some(Pending { entry, length });
         let slot = match self.pending.iter().position(Option::is_none) {
             Some(free) => {
-                self.pending[free] = Some(entry);
+                self.pending[free] = pending;
                 free
             }
             None => {
-                self.pending.push(Some(entry));
+                self.pending.push(pending);
                 self.pending.len() - 1
             }
         };
         Some(slot as u32)
     }
 
-    /// the data of a slot, where the wrapper copies the chunks
-    pub fn slot_data(&mut self, slot: u32) -> Option<&mut [f32]> {
-        self.pending
-            .get_mut(slot as usize)?
-            .as_mut()
-            .map(|entry| entry.levels.data.as_mut_slice())
+    /// the room of the chunk of `len` samples from sample `at` of a slot, where the wrapper copies it: the chunks
+    /// come in order (`at` is where the last one ended) and within the length of the version, only the chunk is
+    /// zeroed (within the room reserved: nothing is allocated); None: none of them
+    pub fn chunk(&mut self, slot: u32, at: usize, len: usize) -> Option<&mut [f32]> {
+        let pending = self.pending.get_mut(slot as usize)?.as_mut()?;
+        let data = &mut pending.entry.levels.data;
+        let end = at.checked_add(len)?;
+        if at != data.len() || end > pending.length {
+            return None;
+        }
+        data.resize(end, 0.0);
+        Some(&mut data[at..end])
     }
 
-    /// the version of a slot is complete: the latest of its table
-    pub fn commit(&mut self, slot: u32) {
-        let Some(entry) = self.pending.get_mut(slot as usize).and_then(Option::take) else {
-            return;
+    /// the version of a slot is complete: the latest of its table (false: refused, a chunk is missing or no
+    /// memory for its entry; the slot is aborted, an incomplete version never plays). The room of the entry is
+    /// reserved before the slot is taken: nothing traps holding it
+    pub fn commit(&mut self, slot: u32) -> bool {
+        let Some(Some(pending)) = self.pending.get(slot as usize) else {
+            return false;
         };
+        if pending.entry.levels.data.len() != pending.length {
+            self.abort(slot);
+            return false;
+        }
+        let room = (self.entries.iter().any(Option::is_none) || self.entries.try_reserve(1).is_ok())
+            && self.current.try_reserve(1).is_ok();
+        if !room {
+            self.abort(slot);
+            return false;
+        }
+        let Pending { entry, .. } = self.pending[slot as usize].take().expect("a slot");
         self.set(entry.table, entry.version, entry.levels);
+        true
+    }
+
+    /// a slot that will not be committed (its worker stopped, a chunk failed): its buffer goes back to the pool
+    pub fn abort(&mut self, slot: u32) {
+        if let Some(pending) = self.pending.get_mut(slot as usize).and_then(Option::take) {
+            self.recycle(pending.entry.levels.data);
+        }
+    }
+
+    /// every slot (a new worker: the versions the old one was sending don't come)
+    pub fn abort_all(&mut self) {
+        for slot in 0..self.pending.len() {
+            self.abort(slot as u32);
+        }
     }
 
     /// TableStoreStats: tables, versions held, their bytes

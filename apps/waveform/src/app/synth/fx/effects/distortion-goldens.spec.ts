@@ -2,8 +2,16 @@
 // machine (Node's own Math differs in the last bits on arm64), so are the goldens
 import '../../../../test-utils/js-math';
 import { FX_PARAMS } from '@waveform/preset-schema';
-import { pick, Random, randomBlocks, randomSignal, RATES, Signal } from '../../../../test-utils/fuzz-signals';
-import { createGoldens, FUZZ_SCALE, runStereo } from '../../../../test-utils/parity';
+import {
+  pick,
+  Random,
+  randomBlocks,
+  randomSignal,
+  RATES,
+  Signal,
+  withSpecials,
+} from '../../../../test-utils/fuzz-signals';
+import { createGoldens, expectFinite, FUZZ_SCALE, runStereo } from '../../../../test-utils/parity';
 import { seeded } from '../../../../test-utils/seeded';
 import { wasmCore } from '../../../../test-utils/wasm';
 import { DistortionDspParams, TONE_OPEN } from './distortion-params';
@@ -140,7 +148,8 @@ const randomScenario = (random: Random): Scenario => {
       DISTORTION_KEYS.map((key) => [key, valueOf(random, key)])
     ) as unknown as DistortionDspParams,
     blocks,
-    input: randomSignal(random, rate, frames, false),
+    // (NaN, the infinities and 1e30 too: the core takes them as 0)
+    input: randomSignal(random, rate, frames, true),
     changes,
   };
 };
@@ -153,6 +162,24 @@ describe('distortion wasm core', () => {
   const count = 600 * FUZZ_SCALE;
   it(`renders ${count} random scenarios, finite`, () => {
     for (let seed = 1; seed <= count; seed++) run(`seed ${seed}`, randomScenario(seeded(seed)));
+  });
+
+  it('takes NaN and the infinities as 0: finite all along, idle after the sound', () => {
+    const [, scenario] = GOLDEN.find(([name]) => name.startsWith('idle')) as [string, Scenario];
+    const input = withSpecials(scenario.input);
+    const wasm = createDistortionWasm(core, RATE, { params: scenario.params });
+    let frame = 0;
+    scenario.blocks.forEach((n, block) => {
+      const [inL, inR] = [0, 1].map((channel) =>
+        Float32Array.from({ length: n }, (_, i) => input(frame + i, channel))
+      );
+      const outs = [0, 1].map(() => new Float32Array(n));
+      wasm.process(inL, inR, outs[0], outs[1]);
+      outs.forEach((out) => expectFinite('specials', block, out));
+      frame += n;
+    });
+    expect(wasm.idle).toBe(true);
+    wasm.free();
   });
 
   it('goes idle in the silences, sounds in between', () => {

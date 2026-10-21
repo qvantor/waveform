@@ -494,6 +494,16 @@ impl Reverb {
             output_peak = max(max(output_peak, y_l.abs()), y_r.abs());
         }
 
+        // the last line: a block that isn't finite (its input is: process_io; NaN through a path no one saw) would
+        // stay in the lines until the reverb is off: forgotten, the block is silence
+        if output_peak.is_nan() || output_peak > f32::MAX as f64 {
+            self.clear();
+            self.outs.fill(0.0);
+            out_l.fill(0.0);
+            out_r.fill(0.0);
+            return;
+        }
+
         // the inactive reverb has faded out, a quiet one has drained: forget the tail, skip the next blocks
         let faded = !self.active && self.fade.value == 0.0;
         let drained = self.quiet_frames > self.drain_frames
@@ -507,6 +517,8 @@ impl Reverb {
 
     fn process_io(&mut self) {
         let mut io = core::mem::take(&mut self.io);
+        // (NaN or an infinity of the graph as 0: one would stay in the lines until the reverb is off)
+        io.finite_inputs();
         let (in_l, in_r, out_l, out_r) = io.split();
         self.process(in_l, in_r, out_l, out_r);
         self.io = io;
@@ -583,4 +595,41 @@ pub unsafe extern "C" fn fx_set_active(reverb: *mut Reverb, active: bool) {
 #[no_mangle]
 pub unsafe extern "C" fn fx_idle(reverb: *mut Reverb) -> bool {
     (*reverb).idle()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::vec;
+
+    const BLOCK: usize = 128;
+
+    // NaN or an infinity past the io (process_io zeroes them, process doesn't): its block is silence, the lines
+    // forget it, the next blocks sound, a silence drains
+    #[test]
+    fn a_block_that_is_not_finite_is_forgotten() {
+        let params = [
+            20.0, 0.0, 0.5, 2.0, 20000.0, 1.0, 0.2, 1.0, 0.0, 0.0, 24000.0, 0.0,
+        ];
+        let sine: Vec<f32> = (0..BLOCK).map(|i| (0.5 * sin(i as f64 * 0.21)) as f32).collect();
+        let silence = vec![0.0; BLOCK];
+        for special in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let mut reverb = Reverb::new(48000.0, &params, true);
+            let mut poisoned = sine.clone();
+            poisoned[17] = special;
+            let (mut out_l, mut out_r) = (vec![0.0; BLOCK], vec![0.0; BLOCK]);
+            reverb.process(&sine, &sine, &mut out_l, &mut out_r);
+            reverb.process(&poisoned, &sine, &mut out_l, &mut out_r);
+            assert!(out_l.iter().chain(&out_r).all(|x| *x == 0.0));
+            for _ in 0..40 {
+                reverb.process(&sine, &sine, &mut out_l, &mut out_r);
+                assert!(out_l.iter().chain(&out_r).all(|x| x.is_finite()));
+            }
+            assert!(out_l.iter().any(|x| x.abs() > 1e-3));
+            for _ in 0..4000 {
+                reverb.process(&silence, &silence, &mut out_l, &mut out_r);
+            }
+            assert!(reverb.idle);
+        }
+    }
 }

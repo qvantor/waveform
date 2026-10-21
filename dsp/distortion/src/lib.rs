@@ -490,6 +490,15 @@ impl Distortion {
 
         let output_peak = self.render(in_l, in_r, out_l, out_r, frames);
 
+        // the last line: a block that isn't finite (its input is: process_io; NaN through a path no one saw) would
+        // stay in the state for good, silent from then on: forgotten, the block is silence
+        if output_peak.is_nan() || output_peak > f32::MAX as f64 {
+            self.clear();
+            out_l.fill(0.0);
+            out_r.fill(0.0);
+            return;
+        }
+
         // the tails of the dc blocker and the tone have died out after the silence: forget the state
         if self.rung_out && output_peak < SILENCE {
             self.clear();
@@ -499,6 +508,8 @@ impl Distortion {
 
     fn process_io(&mut self) {
         let mut io = core::mem::take(&mut self.io);
+        // (NaN or an infinity of the graph as 0: one would silence the effect for good)
+        io.finite_inputs();
         let (in_l, in_r, out_l, out_r) = io.split();
         self.process(in_l, in_r, out_l, out_r);
         self.io = io;
@@ -609,6 +620,36 @@ mod tests {
             rendered.extend(out_r);
         }
         rendered
+    }
+
+    // NaN or an infinity past the io (process_io zeroes them, process doesn't): its block is silence, the state
+    // forgets it, the next blocks sound, a silence goes idle
+    #[test]
+    fn a_block_that_is_not_finite_is_forgotten() {
+        let sine: Vec<f32> = (0..BLOCK)
+            .map(|i| (0.5 * jsmath::sin(i as f64 * 0.21)) as f32)
+            .collect();
+        let silence = vec![0.0; BLOCK];
+        for special in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            for mode in [0.0, 1.0] {
+                let mut distortion = Distortion::new(48000.0, &[mode, 9.0, 12000.0, 0.0]);
+                let mut poisoned = sine.clone();
+                poisoned[17] = special;
+                let (mut out_l, mut out_r) = (vec![0.0; BLOCK], vec![0.0; BLOCK]);
+                distortion.process(&sine, &sine, &mut out_l, &mut out_r);
+                distortion.process(&poisoned, &sine, &mut out_l, &mut out_r);
+                assert!(out_l.iter().chain(&out_r).all(|x| *x == 0.0));
+                for _ in 0..4 {
+                    distortion.process(&sine, &sine, &mut out_l, &mut out_r);
+                    assert!(out_l.iter().chain(&out_r).all(|x| x.is_finite()));
+                }
+                assert!(out_l.iter().any(|x| x.abs() > 0.01));
+                for _ in 0..1000 {
+                    distortion.process(&silence, &silence, &mut out_l, &mut out_r);
+                }
+                assert!(distortion.idle);
+            }
+        }
     }
 
     #[test]

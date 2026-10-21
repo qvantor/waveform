@@ -59,7 +59,14 @@ const sampleReader = ({ format, bits }: Format): ((view: DataView, offset: numbe
   throw new Error(`Unsupported WAV format ${format} with ${bits} bits`);
 };
 
-// the samples of a RIFF WAVE file as stored, without resampling
+// a sample that is not finite (NaN, an infinity: a float file may have them, a double above the range of a float
+// is one) as 0, in place: it would play as NaN through the voices and stop the effects
+export const finiteSamples = (samples: Float32Array) => {
+  for (let i = 0; i < samples.length; i++) if (!Number.isFinite(samples[i])) samples[i] = 0;
+  return samples;
+};
+
+// the samples of a RIFF WAVE file as stored, without resampling (the ones that are not finite as 0)
 export const parseWav = (buffer: ArrayBuffer): Wav => {
   const view = new DataView(buffer);
   if (buffer.byteLength < 12 || text(view, 0) !== 'RIFF' || text(view, 8) !== 'WAVE')
@@ -88,5 +95,5 @@ export const parseWav = (buffer: ArrayBuffer): Wav => {
     throw new Error(`Invalid WAV block align ${blockAlign}`);
   const samples = new Float32Array(Math.floor(data.size / blockAlign));
   for (let i = 0; i < samples.length; i++) samples[i] = read(view, data.offset + i * blockAlign);
-  return { sampleRate: fmt.sampleRate, samples, ...(mark && { mark }) };
+  return { sampleRate: fmt.sampleRate, samples: finiteSamples(samples), ...(mark && { mark }) };
 };

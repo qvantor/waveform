@@ -1,6 +1,7 @@
 import { BehaviorSubject } from 'rxjs';
 import { isWorkletSupported, loadWorklet, WORKLETS_PATH } from '../../fx/effects/load-worklet';
 import type {
+  BuilderFailedMessage,
   BuilderPortMessage,
   BuilderStats,
   BuilderStatsMessage,
@@ -14,6 +15,7 @@ import type {
   VoiceOptions,
 } from './voice-options';
 import { STORE_PROCESSOR, VOICE_PROCESSOR, VoiceParam } from './wavetable-osc-params';
+import type { StoreFreedBytesMessage, StoreRefusedMessage } from './wavetable-osc-wasm';
 
 // the worklet module (wavetable-osc.worklet.ts) and the worker (wavetable.worker.ts), bundled by `npm run
 // worklets` into assets/worklets/
@@ -24,6 +26,11 @@ export const WAVETABLE_WORKER = 'wavetable-worker';
 // Worker; failed: the module, the worker or the store failed, retry() loads it again (a voice that fails
 // only ends: the synth takes it off). Without it the synth doesn't play: there is no native fallback
 export type WavetableStatus = 'loading' | 'ready' | 'unsupported' | 'failed';
+
+// the latest version of a table: on its way to the store (built, sent in chunks), stored (new notes play it),
+// refused by the store (no memory for it) or failed to build in the worker; refused and failed: the version
+// before it plays on, retryTable() sends it again
+export type TableState = 'sending' | 'stored' | 'refused' | 'failed';
 
 // a voice node: no input, both oscillators into one stereo output
 const VOICE_NODE_OPTIONS: AudioWorkletNodeOptions = {
@@ -62,7 +69,11 @@ export const createWavetableEngine = (
   }: WavetableEngineDependencies = {}
 ) => {
   const $status = new BehaviorSubject<WavetableStatus>('loading');
+  const $tables = new BehaviorSubject<Record<string, TableState>>({});
   const tables = new Map<string, { version: number; frames: ArrayLike<number>[]; morph: boolean }>();
+  // the tables whose refused version was sent again once the store freed memory (once a version: refused again,
+  // it waits for retryTable)
+  const retried = new Set<string>();
   // the last version of each table, kept after a removal: versions only grow, so a table set again after it was
   // removed is newer than the version the store may still hold (the worker replaces a waiting removal with it)
   const versions = new Map<string, number>();
@@ -97,10 +108,20 @@ export const createWavetableEngine = (
     $status.next('failed');
   };
 
+  const setState = (table: string, state: TableState | null) => {
+    const { [table]: _, ...others } = $tables.value;
+    $tables.next(state ? { ...others, [table]: state } : others);
+  };
+  // an answer for the latest version of a table (one for a version before it is late: not its state)
+  const answer = (table: string, version: number, state: TableState) => {
+    if (tables.get(table)?.version === version) setState(table, state);
+  };
+
   // the frames are copied into arrays of their own, transferred to the worker
   const send = (table: string) => {
     const entry = tables.get(table);
     if (!worker || !entry) return;
+    setState(table, 'sending');
     const frames = entry.frames.map((frame) => Float32Array.from(frame));
     const message: BuildMessage = { table, version: entry.version, frames, morph: entry.morph };
     worker.postMessage(
@@ -125,23 +146,43 @@ export const createWavetableEngine = (
         node.onprocessorerror = (event) => {
           if (store === node) fail(event);
         };
-        // the acks and the counters of the store, the counters of the worker (the perf build)
-        if (__PERF__)
-          node.port.onmessage = ({ data }: MessageEvent<StoreStoredMessage | StoreStatsMessage>) => {
-            if (store !== node) return;
-            if ('stats' in data) storeWaiters.shift()?.(data.stats);
-            else if (tables.get(data.stored)?.version === data.version) stored.set(data.stored, data.version);
-          };
+        // the answers of the store (its port is started: nothing piles up in it): a version stored or refused, the
+        // memory it freed (a refused version is sent again, once), its counters (the perf build)
+        node.port.onmessage = ({
+          data,
+        }: MessageEvent<
+          StoreStoredMessage | StoreRefusedMessage | StoreFreedBytesMessage | StoreStatsMessage
+        >) => {
+          if (store !== node) return;
+          if ('stats' in data) storeWaiters.shift()?.(data.stats);
+          else if ('freedBytes' in data) retryRefused();
+          else if ('refused' in data) answer(data.refused, data.version, 'refused');
+          else {
+            if (tables.get(data.stored)?.version === data.version) stored.set(data.stored, data.version);
+            answer(data.stored, data.version, 'stored');
+          }
+        };
         const created = createWorker(
           new URL(`${WORKLETS_PATH}${WAVETABLE_WORKER}.js`, document.baseURI).href
         );
+        // an error of the worker itself (its script) fails the engine; a version that failed to build only its
+        // table: it plays the version before, the engine stays ready
         created.onerror = (event) => {
           if (worker === created) fail(event);
         };
-        if (__PERF__)
-          created.onmessage = ({ data }: MessageEvent<BuilderStatsMessage>) => {
-            if (worker === created && data.stats) workerWaiters.shift()?.(data.stats);
-          };
+        created.onmessage = ({ data }: MessageEvent<BuilderStatsMessage | BuilderFailedMessage>) => {
+          if (worker !== created) return;
+          if ('failed' in data) {
+            console.error(
+              `The version ${data.version} of the table ${data.failed} failed to build`,
+              data.reason
+            );
+            answer(data.failed, data.version, 'failed');
+            return;
+          }
+          // (the counters of the perf build)
+          if (__PERF__ && data.stats) workerWaiters.shift()?.(data.stats);
+        };
         const { port1, port2 } = (createChannel as () => MessageChannel)();
         const toStore: BuilderPortMessage = { port: port1 };
         const toWorker: BuilderPortMessage = { port: port2 };
@@ -156,12 +197,30 @@ export const createWavetableEngine = (
   };
   load();
 
+  // the store freed memory: every table whose latest version it refused is sent again, once
+  const retryRefused = () =>
+    Object.entries($tables.value).forEach(([table, state]) => {
+      if (state !== 'refused' || retried.has(table)) return;
+      retried.add(table);
+      send(table);
+    });
+
   return {
     $status,
+    $tables,
     // a new version of the table (the frames of the model, read when it is sent; with a morph the worker
     // expands them to 256: wavetable-frames.ts)
     setTable: (table: string, frames: ArrayLike<number>[], morph = false) => {
       tables.set(table, { version: nextVersion(table), frames, morph });
+      retried.delete(table);
+      send(table);
+    },
+    // the latest version of a table the store refused or the worker failed to build, sent again (a refusal after
+    // it is sent again once more when the store frees memory)
+    retryTable: (table: string) => {
+      const state = $tables.value[table];
+      if (state !== 'refused' && state !== 'failed') return;
+      retried.delete(table);
       send(table);
     },
     // the table is gone (its oscillator was destroyed): the store frees it once no voice plays it
@@ -169,6 +228,8 @@ export const createWavetableEngine = (
       const entry = tables.get(table);
       tables.delete(table);
       stored.delete(table);
+      retried.delete(table);
+      setState(table, null);
       if (!entry) return;
       const version = nextVersion(table);
       if (!worker) return;
@@ -218,6 +279,7 @@ export const createWavetableEngine = (
       destroyed = true;
       teardown();
       $status.complete();
+      $tables.complete();
     },
   };
 };

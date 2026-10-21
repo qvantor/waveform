@@ -37,6 +37,12 @@ export interface StoreChunkMessage {
 export interface StoreAckMessage {
   ack: ArrayBuffer;
 }
+// worker → store: a version it stopped sending (its chunks failed): the store drops its slot
+export interface StoreAbortMessage {
+  table: string;
+  version: number;
+  abort: true;
+}
 
 // main thread → worker: the port of the store, then the tables
 export interface BuilderPortMessage {
@@ -65,15 +71,27 @@ export interface BuilderStats {
 export interface BuilderStatsMessage {
   stats: BuilderStats;
 }
+// worker → main thread: a version that failed to build or to go to the store (no memory for its levels, say): its
+// table keeps the version before it, the next tables are built
+export interface BuilderFailedMessage {
+  failed: string;
+  version: number;
+  reason: string;
+}
+type BuilderReply = BuilderStatsMessage | BuilderFailedMessage;
 
 type Port = Pick<MessagePort, 'postMessage'> & { onmessage: ((event: MessageEvent) => void) | null };
+
+const finiteFrame = (frame: Float32Array) => {
+  for (let i = 0; i < frame.length; i++) if (!Number.isFinite(frame[i])) frame[i] = 0;
+};
 
 // freed buffers kept for reuse at most (64 MB each)
 const POOL = 2;
 
 export const createTableBuilder = (
   schedule: (run: () => void) => void = (run) => setTimeout(run),
-  reply: (message: BuilderStatsMessage) => void = () => undefined
+  reply: (message: BuilderReply) => void = () => undefined
 ) => {
   let store: Port | null = null;
   const pending = new Map<string, BuildMessage | StoreTableMessage>();
@@ -112,9 +130,42 @@ export const createTableBuilder = (
   const release = (buffer: ArrayBuffer) =>
     (buffer as ArrayBuffer & { transfer?: (length: number) => ArrayBuffer }).transfer?.(0);
 
+  const fail = (table: string, version: number, error: unknown) => {
+    const failed: BuilderFailedMessage = { failed: table, version, reason: String(error) };
+    reply(failed);
+  };
+
+  // the next chunk of the version being sent; one that fails stops it: the store drops its slot
+  const sendNext = (port: Port) => {
+    try {
+      sendChunk(port);
+    } catch (error) {
+      if (!transfer) return;
+      const { table, version, levels } = transfer;
+      const abort: StoreAbortMessage = { table, version, abort: true };
+      port.postMessage(abort);
+      release(levels.data.buffer as ArrayBuffer);
+      transfer = null;
+      fail(table, version, error);
+      later();
+    }
+  };
+
   const reuse = (bytes: number) => {
     const index = freed.findIndex((buffer) => buffer.byteLength === bytes);
     return index === -1 ? undefined : freed.splice(index, 1)[0];
+  };
+
+  // the levels of the frames played (expanded with a morph); a buffer reused goes back to the pool when they fail
+  const build = (own: Float32Array[], morph: boolean) => {
+    const frames = playedFrames(own.length, morph) === own.length ? own : expandFrames(own);
+    const buffer = reuse(tableBytes(frames));
+    try {
+      return buildLevels(frames, buffer);
+    } catch (error) {
+      if (buffer) keep(buffer);
+      throw error;
+    }
   };
 
   const flush = () => {
@@ -129,8 +180,16 @@ export const createTableBuilder = (
       }
       const begin = __PERF__ ? performance.now() : 0;
       const { frames: own, morph = false } = message;
-      const frames = playedFrames(own.length, morph) === own.length ? own : expandFrames(own);
-      const levels = buildLevels(frames, reuse(tableBytes(frames)));
+      // (a sample that is not finite as 0: the frames come from the editors too, a NaN would play in every level)
+      own.forEach(finiteFrame);
+      let levels: WavetableLevels;
+      try {
+        levels = build(own, morph);
+      } catch (error) {
+        // (an allocation that failed: the table keeps its version before, the next tables are built)
+        fail(table, message.version, error);
+        continue;
+      }
       if (__PERF__) {
         const ms = performance.now() - begin;
         timing.builds++;
@@ -147,7 +206,7 @@ export const createTableBuilder = (
           begin: { frames, harmonics, lengths, offsets, length: data.length },
         };
         store.postMessage(begin);
-        sendChunk(store);
+        sendNext(store);
         return;
       }
       const stored: StoreTableMessage = { table, version: message.version, levels };
@@ -179,7 +238,7 @@ export const createTableBuilder = (
           chunks.push(data.ack);
           if (!transfer) return;
           if (transfer.at < transfer.levels.data.length) {
-            sendChunk(port);
+            sendNext(port);
             return;
           }
           // the last chunk is in the store: its levels are freed

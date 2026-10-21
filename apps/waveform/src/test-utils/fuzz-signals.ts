@@ -59,7 +59,7 @@ const part = (random: Random, rate: number, specials: boolean): Signal => {
 };
 
 // a signal of 1..3 parts, each from a random frame on, mixed or one after another. `specials`: NaN, infinities and
-// 1e30 too (the limiter takes them as silence; the effects before it never get them: their TS cores pass them on)
+// 1e30 too (the cores take NaN and the infinities as 0)
 export const randomSignal = (random: Random, rate: number, frames: number, specials = true): Signal => {
   const parts = Array.from({ length: 1 + Math.floor(random() * 3) }, () => ({
     signal: part(random, rate, specials),
@@ -72,6 +72,16 @@ export const randomSignal = (random: Random, rate: number, frames: number, speci
       0
     );
 };
+
+// `signal` with NaN, the infinities and 1e300 (an infinity as a float) in place of every `every`th sample while it
+// sounds: what a broken graph or a table of a file with them sends
+const SPECIALS = [NaN, Infinity, -Infinity, 1e300];
+export const withSpecials =
+  (signal: Signal, every = 37): Signal =>
+  (n, channel) => {
+    const value = signal(n, channel);
+    return value !== 0 && n % every === 0 ? SPECIALS[(n / every) % SPECIALS.length] : value;
+  };
 
 // the lengths of the blocks of a render of about `frames`: mostly quanta, some of another length (the cores grow
 // their buffers)

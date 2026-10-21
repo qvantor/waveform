@@ -192,7 +192,7 @@ browser adds around the worklet, GC and the heap, dropouts, the device callback 
 | `site.mjs`            | the perf build, the tables, the server                                                    |
 | `browser.mjs`         | Playwright: launch, a page of the app, the hook                                           |
 | `xctrace.mjs`         | recording and reading the traces (threads, cycles, memory)                                |
-| `chrome-trace.mjs`    | the render quanta and the glitches of Chromium                                            |
+| `chrome-trace.mjs`    | the render quanta, the messages of the worklet thread and the glitches of Chromium        |
 | `latency.mjs`         | the latency cases                                                                         |
 | `reference.mjs`       | the reference of an A/B run: its worktree, its perf build                                 |
 | `dsp.mjs`             | the DSP in Node                                                                           |

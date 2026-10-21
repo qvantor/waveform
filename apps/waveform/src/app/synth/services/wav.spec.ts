@@ -58,6 +58,13 @@ describe('parseWav', () => {
     expect(wav.samples).toEqual(floats(0.1, -0.75));
   });
 
+  it.each([32, 64])('reads the %i bit floats that are not finite as 0, the others as stored', (bits) => {
+    const stored = [0.1, NaN, -0.75, Infinity, 0.5, -Infinity, ...(bits === 64 ? [1e300, -1e300] : [])];
+    const wav = parseWav(riff(fmt({ bits }), data(stored, { format: FLOAT, bits })));
+
+    expect(wav.samples).toEqual(floats(0.1, 0, -0.75, 0, 0.5, 0, ...(bits === 64 ? [0, 0] : [])));
+  });
+
   it('takes the format of WAVE_FORMAT_EXTENSIBLE from its sub-format', () => {
     const float = parseWav(riff(fmt({ extensible: true }), data([0.5, -0.25])));
     const pcm = parseWav(

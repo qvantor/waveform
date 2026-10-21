@@ -12,6 +12,7 @@ import {
   combineLatest,
   throttleTime,
   asyncScheduler,
+  distinctUntilChanged,
 } from 'rxjs';
 import { ObjectBS, rxModel, rxModelReact, PrimitiveBS, ArrayBS } from '@waveform/rxjs-react';
 import { DEFAULT_PHASE, withLegacyPhase } from '@waveform/preset-schema';
@@ -126,6 +127,12 @@ export const oscillator = ({
     );
     const $gain = new PrimitiveBS<number>(0.5);
     const $waveTableLoading = new PrimitiveBS<boolean>(false);
+    // where its table is in the wavetable oscillator (null: not sent yet); refused or failed: the version before
+    // it plays (OscillatorStatus shows why, Retry sends it again)
+    const $tableState = wavetables.$tables.pipe(
+      map((tables) => tables[id] ?? null),
+      distinctUntilChanged()
+    );
     const $params = new BehaviorSubject<Record<OscParam, number>>(
       baseParams(0, 1, $osc.value.octave, $osc.value.detune, $gain.value)
     );
@@ -163,6 +170,7 @@ export const oscillator = ({
       $busSources,
       $waveTablePath,
       $waveTableLoading,
+      $tableState,
     };
   })
     .actions(
@@ -197,6 +205,10 @@ export const oscillator = ({
     )
     .actions(({ $unisonShape }) => ({
       setUnisonShape: (shape: Partial<UnisonShape>) => $unisonShape.next({ ...$unisonShape.value, ...shape }),
+    }))
+    .actions(({ id }) => ({
+      // its table sent again (refused by the store or failed to build)
+      retryTable: () => wavetables.retryTable(id),
     }))
     // the table goes to the wavetable oscillator under the id of the model: a new table at once, an edited
     // frame at most every TABLE_THROTTLE ms (the last edit is sent too)

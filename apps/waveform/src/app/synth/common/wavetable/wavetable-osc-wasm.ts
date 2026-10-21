@@ -2,6 +2,7 @@ import type { EnvelopeParams } from '../envelope/envelope-curve';
 import { CoreExports, createView } from '../wasm/wasm-core';
 import type {
   BuilderPortMessage,
+  StoreAbortMessage,
   StoreAckMessage,
   StoreBeginMessage,
   StoreChunkMessage,
@@ -39,8 +40,9 @@ export interface OscExports extends CoreExports {
     levels: number,
     length: number
   ) => number;
-  osc_store_data: (store: number, slot: number) => number;
-  osc_store_commit: (store: number, slot: number) => void;
+  osc_store_chunk: (store: number, slot: number, at: number, length: number) => number;
+  osc_store_commit: (store: number, slot: number) => number;
+  osc_store_abort: (store: number, slot: number) => void;
   osc_store_remove: (store: number, table: number) => void;
   osc_store_latest: (store: number, table: number) => number;
   osc_store_acquire: (store: number, entry: number) => void;
@@ -48,6 +50,7 @@ export interface OscExports extends CoreExports {
   osc_store_stats: (store: number) => void;
   osc_store_track_freed: (store: number, on: boolean) => void;
   osc_store_freed: (store: number) => number;
+  osc_store_freed_bytes: (store: number) => number;
   osc_shared_new: () => number;
   osc_shared_free: (shared: number) => void;
   osc_shared_stats: (shared: number) => void;
@@ -144,8 +147,11 @@ export interface WasmTableEntry {
 }
 
 // createTableStore in the memory of the core: set() copies a version in (begin, write, commit are its chunks: the
-// worker sends them one at a time); onFree gets the levels of a version once no voice plays it (the specs: the
-// store keeps the levels set to give them back, the worklet passes none and keeps nothing)
+// worker sends them one at a time, abort drops a version that won't be committed); onFree gets the levels of a
+// version once no voice plays it (the specs: the store keeps the levels set to give them back, the worklet passes
+// none and keeps nothing). `epoch` counts the workers it took chunks from (reset: a new one). listen() gets the
+// bytes of the versions the core frees (the store processor tells the main thread: a version it refused may fit
+// now)
 export const createTableStoreWasm = (scope: OscScope, onFree?: (levels: WavetableLevels) => void) => {
   const { exports } = scope;
   const handle = exports.osc_store_new();
@@ -153,9 +159,21 @@ export const createTableStoreWasm = (scope: OscScope, onFree?: (levels: Wavetabl
   const kept = new Map<string, WasmTableEntry>();
   const latest = new Map<string, WasmTableEntry>();
   if (onFree) exports.osc_store_track_freed(handle, true);
+  // (a field of the store read through a view: no call per block)
+  const freedView = createView(exports, Float64Array);
+  const freedAt = exports.osc_store_freed_bytes(handle);
+  let onFreedBytes: ((bytes: number) => void) | null = null;
 
-  // the versions the core freed since the last call
+  // the versions the core freed since the last call (after every call that may free one: a block of a voice too)
   const drain = () => {
+    if (onFreedBytes) {
+      const freed = freedView(freedAt, 1);
+      if (freed[0] !== 0) {
+        const bytes = freed[0];
+        freed[0] = 0;
+        onFreedBytes(bytes);
+      }
+    }
     if (!onFree) return;
     const count = exports.osc_store_freed(handle);
     if (count === 0) return;
@@ -186,15 +204,21 @@ export const createTableStoreWasm = (scope: OscScope, onFree?: (levels: Wavetabl
     );
     return slot < 0 ? null : slot;
   };
-  // `chunk` into the data of the slot from sample `at`
+  // `chunk` into the data of the slot from sample `at`: the chunks of a slot come in order, within the length of
+  // its version (throws otherwise, and without the slot)
   const write = (slot: number, at: number, chunk: Float32Array) => {
-    const pointer = exports.osc_store_data(handle, slot);
-    dataView(pointer + 4 * at, chunk.length).set(chunk);
+    const pointer = exports.osc_store_chunk(handle, slot, at, chunk.length);
+    if (pointer === 0)
+      throw new Error(`The chunk of ${chunk.length} at ${at} is not the next one of slot ${slot}`);
+    dataView(pointer, chunk.length).set(chunk);
   };
+  // false: refused (a chunk is missing or no memory for it, the slot is aborted)
   const commit = (slot: number) => {
-    exports.osc_store_commit(handle, slot);
+    const committed = exports.osc_store_commit(handle, slot) !== 0;
     drain();
+    return committed;
   };
+  let epoch = 0;
 
   return {
     handle,
@@ -202,20 +226,43 @@ export const createTableStoreWasm = (scope: OscScope, onFree?: (levels: Wavetabl
     begin,
     write,
     commit,
+    abort: (slot: number) => exports.osc_store_abort(handle, slot),
+    get epoch() {
+      return epoch;
+    },
+    listen: (listener: ((bytes: number) => void) | null) => {
+      onFreedBytes = listener;
+    },
+    // a new worker: the versions the last one was sending won't come
+    reset: () => {
+      exports.osc_store_abort(handle, -1);
+      return ++epoch;
+    },
     // a version at once (false: refused, no memory for it)
     set: (table: string, version: number, levels: WavetableLevels) => {
       const { frames, harmonics, lengths, offsets, data } = levels;
       const slot = begin(table, version, { frames, harmonics, lengths, offsets, length: data.length });
       if (slot === null) return false;
-      write(slot, 0, data);
+      try {
+        write(slot, 0, data);
+      } catch (error) {
+        exports.osc_store_abort(handle, slot);
+        throw error;
+      }
+      const key = `${scope.id(table)}:${version}`;
+      const previous = latest.get(table);
       if (onFree) {
         // a stale version (older than the latest) is freed by the commit
         const entry = { table, version, levels, id: -1 };
-        kept.set(`${scope.id(table)}:${version}`, entry);
-        const current = latest.get(table);
-        if (!current || current.version < version) latest.set(table, entry);
+        kept.set(key, entry);
+        if (!previous || previous.version < version) latest.set(table, entry);
       }
-      commit(slot);
+      if (!commit(slot)) {
+        kept.delete(key);
+        if (previous) latest.set(table, previous);
+        else latest.delete(table);
+        return false;
+      }
       const current = latest.get(table);
       if (current && current.id < 0) current.id = exports.osc_store_latest(handle, scope.id(table));
       return true;
@@ -379,12 +426,16 @@ export const createVoiceWasm = (
   let lengthsAt = 0;
   let output = 0;
 
+  // (freed even when its end traps: the core gives back what it can, the handle doesn't stay)
   const end = () => {
-    startedAt = exports.osc_voice_started_at(handle);
-    exports.osc_voice_end(handle, store.handle, shared.handle);
-    if (!ended) exports.osc_voice_free(handle);
     ended = true;
-    store.drain();
+    try {
+      startedAt = exports.osc_voice_started_at(handle);
+      exports.osc_voice_end(handle, store.handle, shared.handle);
+    } finally {
+      exports.osc_voice_free(handle);
+      store.drain();
+    }
   };
 
   return {
@@ -401,29 +452,29 @@ export const createVoiceWasm = (
         outR.fill(0);
         return false;
       }
-      const pointer = exports.osc_io(shared.handle, n);
-      if (pointer !== io) {
-        io = pointer;
-        stride = exports.osc_io_stride(shared.handle);
-        lengthsAt = exports.osc_io_lengths(shared.handle);
-        output = exports.osc_io_output(shared.handle);
-      }
-      const data = paramsView(pointer, VOICE_PARAM_ORDER.length * stride);
-      const lengths = lengthsView(lengthsAt, VOICE_PARAM_ORDER.length);
-      for (let k = 0; k < VOICE_PARAM_ORDER.length; k++) {
-        const values = params[VOICE_PARAM_ORDER[k]];
-        if (values.length > 1) {
-          lengths[k] = n;
-          data.set(values, k * stride);
-        } else {
-          lengths[k] = 1;
-          data[k * stride] = values[0];
-        }
-      }
-      // (guarded: a trap leaves the stack pointer moved)
+      // (guarded here, not by instantiateCore: no closure per block; osc_io grows the io)
       const stack = exports.__stack_pointer.value;
       let playing: number;
       try {
+        const pointer = exports.osc_io(shared.handle, n);
+        if (pointer !== io) {
+          io = pointer;
+          stride = exports.osc_io_stride(shared.handle);
+          lengthsAt = exports.osc_io_lengths(shared.handle);
+          output = exports.osc_io_output(shared.handle);
+        }
+        const data = paramsView(pointer, VOICE_PARAM_ORDER.length * stride);
+        const lengths = lengthsView(lengthsAt, VOICE_PARAM_ORDER.length);
+        for (let k = 0; k < VOICE_PARAM_ORDER.length; k++) {
+          const values = params[VOICE_PARAM_ORDER[k]];
+          if (values.length > 1) {
+            lengths[k] = n;
+            data.set(values, k * stride);
+          } else {
+            lengths[k] = 1;
+            data[k * stride] = values[0];
+          }
+        }
         playing = exports.osc_voice_process(handle, store.handle, shared.handle, frame, n);
       } catch (error) {
         exports.__stack_pointer.value = stack;
@@ -463,10 +514,14 @@ export const createVoiceWasm = (
 // a render quantum, the chunks of 64 MB go between the blocks
 export const STORE_CHUNK = 262144;
 
-// store → main thread: a version the core had no memory for (the latest one plays on)
+// store → main thread: a version the core had no memory for (the latest one plays on), and the bytes of versions
+// it freed since (a refused one may fit now)
 export interface StoreRefusedMessage {
   refused: string;
   version: number;
+}
+export interface StoreFreedBytesMessage {
+  freedBytes: number;
 }
 
 type Port = Pick<MessagePort, 'postMessage'> & { onmessage: ((event: MessageEvent) => void) | null };
@@ -475,21 +530,43 @@ type StoreMessage =
   | StatsRequest
   | StoreTableMessage
   | StoreBeginMessage
-  | StoreChunkMessage;
+  | StoreChunkMessage
+  | StoreAbortMessage;
 
 // the messages of the store processor of the wasm worklet, from its node (the port of the worker, a stats request,
-// a version posted whole) and from the worker (versions in chunks, removals): `reply` posts to the main thread
-// (`stored`, `refused`), `stats` answers a stats request
+// a version posted whole) and from the worker (versions in chunks, removals, a version it stopped sending):
+// `reply` posts to the main thread (`stored`, `refused`), `stats` answers a stats request. A chunk is acked
+// whatever happens to it (the worker sends the next one then); a chunk that fails (a trap of the core, a slot that
+// is gone) aborts its version: refused. The port of a new worker (a retry) aborts the versions the old one was
+// sending, and the receiver of the processor before it (a store node of before the retry) drops what still
+// comes to it: its slots may be another version's by then
 export const createStoreReceiver = (
   store: TableStoreWasm,
   reply: (message: { stored: string; version: number } | StoreRefusedMessage) => void,
   stats: () => void
 ) => {
   let worker: Port | null = null;
+  let epoch = -1;
   // the slots of the versions coming in chunks (null: refused)
   const slots = new Map<string, number | null>();
+  const chunk = (key: string, slot: number | null, data: StoreChunkMessage) => {
+    try {
+      if (slot === null) return false;
+      store.write(slot, data.at, new Float32Array(data.chunk, 0, data.length));
+      return !data.last || store.commit(slot);
+    } catch (error) {
+      console.error(`A chunk of the table ${key} failed`, error);
+      store.abort(slot as number);
+      return false;
+    } finally {
+      const ack: StoreAckMessage = { ack: data.chunk };
+      worker?.postMessage(ack, [data.chunk]);
+    }
+  };
   const receive = ({ data }: MessageEvent<StoreMessage>) => {
     if ('port' in data) {
+      slots.clear();
+      epoch = store.reset();
       worker = data.port;
       worker.onmessage = receive;
       const chunks: StoreChunksMessage = { chunks: STORE_CHUNK };
@@ -502,23 +579,24 @@ export const createStoreReceiver = (
     }
     const { table, version } = data;
     const key = `${table}:${version}`;
+    if (('begin' in data || 'chunk' in data || 'abort' in data) && epoch !== store.epoch) return;
     if ('begin' in data) {
       slots.set(key, store.begin(table, version, data.begin));
       return;
     }
+    if ('abort' in data) {
+      const slot = slots.get(key);
+      slots.delete(key);
+      if (slot !== undefined && slot !== null) store.abort(slot);
+      return;
+    }
     if ('chunk' in data) {
       const slot = slots.get(key) ?? null;
-      if (slot !== null) store.write(slot, data.at, new Float32Array(data.chunk, 0, data.length));
-      const ack: StoreAckMessage = { ack: data.chunk };
-      worker?.postMessage(ack, [data.chunk]);
+      const ok = chunk(key, slot, data);
+      if (!ok) slots.set(key, null);
       if (!data.last) return;
       slots.delete(key);
-      if (slot === null) {
-        reply({ refused: table, version });
-        return;
-      }
-      store.commit(slot);
-      reply({ stored: table, version });
+      reply(ok ? { stored: table, version } : { refused: table, version });
       return;
     }
     if (data.remove) store.remove(table);
