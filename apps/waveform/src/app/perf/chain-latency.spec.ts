@@ -1,14 +1,16 @@
-import { createLimiterDsp } from '../synth/common/limiter/limiter-dsp';
+import { oscScope } from '../../test-utils/voice-dsp';
+import { wasmCore } from '../../test-utils/wasm';
+import { createLimiterWasm, LimiterExports } from '../synth/common/limiter/limiter-wasm';
 import { buildLevels } from '../synth/common/wavetable/wavetable-mipmap';
 import {
-  createTableStore,
-  createVoiceDsp,
-  createVoiceShared,
-} from '../synth/common/wavetable/wavetable-osc-dsp';
+  createTableStoreWasm,
+  createVoiceSharedWasm,
+  createVoiceWasm,
+} from '../synth/common/wavetable/wavetable-osc-wasm';
 import type { EnvelopeParams } from '../synth/common/envelope/envelope-curve';
 import { VoiceParam } from '../synth/common/wavetable/wavetable-osc-params';
-import { createDistortionDsp, DISTORTION_LATENCY, TONE_OPEN } from '../synth/fx/effects/distortion-dsp';
-import { OVERSAMPLER_LATENCY } from '../synth/fx/effects/oversampler';
+import { DISTORTION_LATENCY, TONE_OPEN } from '../synth/fx/effects/distortion-params';
+import { createDistortionWasm, DistortionExports } from '../synth/fx/effects/distortion-wasm';
 import { createOnsetDetector, PROBE_DEFAULTS } from './probe-dsp';
 
 // the latency the synth adds to a note, worked out offline (it replaces the chain latency the browser suite
@@ -20,6 +22,12 @@ import { createOnsetDetector, PROBE_DEFAULTS } from './probe-dsp';
 
 const BLOCK = 128;
 const RATES = [44100, 48000, 96000];
+// the Rust cores, an instance each for the spec (a scope)
+const limiterCore = wasmCore<LimiterExports>('limiter');
+const distortionCore = wasmCore<DistortionExports>('distortion');
+const createLimiterDsp = (rate: number) => createLimiterWasm(limiterCore, rate);
+// the latency of the oversampler of the distortion: half of it is its interpolation, half its decimation
+const OVERSAMPLER_LATENCY = DISTORTION_LATENCY;
 
 // a mild drive: the curve is about linear for a signal of 0.25
 const DISTORTION = { mode: 0, drive: 0, tone: TONE_OPEN, level: 0 };
@@ -27,7 +35,7 @@ const DISTORTION = { mode: 0, drive: 0, tone: TONE_OPEN, level: 0 };
 // renders `input` (frame → sample, both channels) through the distortion and the limiter in render quanta;
 // the input and the output
 const renderChain = (rate: number, frames: number, input: (frame: number) => number) => {
-  const distortion = createDistortionDsp(rate, { params: DISTORTION });
+  const distortion = createDistortionWasm(distortionCore, rate, { params: DISTORTION });
   const limiter = createLimiterDsp(rate);
   const dry = Float32Array.from({ length: frames }, (_, frame) => input(frame));
   const out = new Float32Array(frames);
@@ -75,9 +83,11 @@ const FLAT: EnvelopeParams = { attack: 0, hold: 0, decay: 0, sustain: 1, release
 
 // a note at `start` (seconds): its voice at phase rand 0 from a quarter of the sine (its peak), left channel
 const renderVoice = (rate: number, frames: number, start: number) => {
-  const store = createTableStore();
+  const scope = oscScope();
+  const store = createTableStoreWasm(scope);
   store.set('a', 1, buildLevels([SINE]));
-  const voice = createVoiceDsp(
+  const voice = createVoiceWasm(
+    scope,
     rate,
     {
       osc: [{ table: 'a', unison: 1, phase: 0.25, phaseRand: 0 }, null],
@@ -90,7 +100,7 @@ const renderVoice = (rate: number, frames: number, start: number) => {
     },
     store,
     () => 0,
-    createVoiceShared()
+    createVoiceSharedWasm(scope)
   );
   const out = new Float32Array(frames);
   const right = new Float32Array(BLOCK);

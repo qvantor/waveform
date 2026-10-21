@@ -85,6 +85,6 @@ export const wavetableFile = (samples: ArrayLike<number>, sampleRate = 44100) =>
   riff(
     chunk('JUNK', new Uint8Array(28)),
     fmt({ sampleRate }),
-    chunk('clm ', ascii('<!>2048 20000000 wavetable (www.xferrecords.com)')),
+    chunk('clm ', ascii('<!>2048 20000000 wavetable')),
     data(Array.from(samples))
   );

@@ -6,6 +6,8 @@ import { LineChart, useLineChartContext, Line, XAxis, YAxis } from '../line-char
 import { Handle } from '../handle';
 import { theme } from '../common/constants';
 import { text12 } from '../common/styles';
+import { AdsrCurves, envelopeLine, LineProps } from './envelope-line';
+import { CurveHandles, CurveStage } from './curve-handles';
 
 export { NoteDot } from './note-dot';
 export type { NotePath } from './note-dot';
@@ -37,27 +39,14 @@ const HandleValue = styled.p`
   margin-top: 7px;
 `;
 
-interface LineProps {
-  attack: number;
-  hold: number;
-  decay: number;
-  sustain: number;
-  release: number;
-}
-
-const CustomLine = ({ attack, hold, decay, sustain, release }: LineProps) => {
+const CustomLine = ({ curves, ...stages }: LineProps & { curves?: AdsrCurves }) => {
   const { scaleX, scaleY } = useLineChartContext();
   const customLineFn = line<Vector2D>()
     .x((d) => scaleX(d[0]))
     .y((d) => scaleY(d[1]));
 
-  const data = [
-    vector2d.fromValues(0, 0),
-    vector2d.fromValues(attack, 1),
-    vector2d.fromValues(attack + hold, 1),
-    vector2d.fromValues(attack + hold + decay, sustain),
-    vector2d.fromValues(attack + hold + decay + release, 0),
-  ];
+  const { corners, points } = envelopeLine(stages, curves);
+  const data = points.map(([x, y]) => vector2d.fromValues(x, y));
 
   const dotSize = 4;
   return (
@@ -67,7 +56,7 @@ const CustomLine = ({ attack, hold, decay, sustain, release }: LineProps) => {
         data={data}
         style={{ strokeWidth: 1, fill: theme.colors.accent, fillOpacity: 0.1 }}
       />
-      {data.map((value, index) => (
+      {corners.map((value, index) => (
         <rect
           key={index}
           style={{ fill: theme.colors.accent }}
@@ -93,16 +82,33 @@ export const formatTime = (seconds: number) => {
 const TIME_PRECISION = 10000;
 
 type Props = LineProps & {
+  // the shape of the stages (none: lines)
+  curves?: AdsrCurves;
   onChange: (key: keyof LineProps, value: number) => void;
   // seconds of a stage at most
   maxTime: number;
+  // the curves are dragged on the chart (none without it): a point in the middle of each stage longer than
+  // CURVE_HANDLE_MIN_TIME that moves the level
+  onCurveChange?: (stage: CurveStage, k: number) => void;
+  // |k| of a dragged curve at most
+  curveMax?: number;
+  // the curves a double click on a point sets (lines without them)
+  defaultCurves?: AdsrCurves;
   // HTML over the chart, in its context (the NoteDot of a playing note)
   children?: React.ReactNode;
 };
 
 // the chart scales to the whole envelope; the time knobs are nonlinear (pow): short times get most of their
 // travel
-export const AdsrEnvelope = ({ onChange, maxTime, children, ...rest }: Props) => {
+export const AdsrEnvelope = ({
+  onChange,
+  maxTime,
+  onCurveChange,
+  curveMax,
+  defaultCurves,
+  children,
+  ...rest
+}: Props) => {
   const { attack, hold, decay, sustain, release } = rest;
   const formatValue = formatTime;
   const handleProps = {
@@ -123,6 +129,9 @@ export const AdsrEnvelope = ({ onChange, maxTime, children, ...rest }: Props) =>
         <YAxis ticks={2} />
         <XAxis ticks={4} formatText={formatTime} />
         <CustomLine {...rest} />
+        {onCurveChange && (
+          <CurveHandles {...rest} max={curveMax} defaults={defaultCurves} onChange={onCurveChange} />
+        )}
       </Chart>
       <Handlers>
         <HandlersGroup>

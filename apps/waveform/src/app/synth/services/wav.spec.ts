@@ -17,7 +17,19 @@ describe('parseWav', () => {
   it('reads a wavetable file (JUNK, fmt, clm, data) as stored', () => {
     const samples = floats(0, 0.25, -0.5, 1, -1, 0.125);
 
-    expect(parseWav(wavetableFile(samples))).toEqual({ sampleRate: 44100, samples });
+    expect(parseWav(wavetableFile(samples))).toEqual({
+      sampleRate: 44100,
+      samples,
+      mark: { frameSize: 2048, morph: true },
+    });
+  });
+
+  it('reads the mark of a wavetable: the size of a frame, a morph if its first flag is not 0', () => {
+    const file = (mark: string) => riff(fmt({}), chunk('clm ', ascii(`<!>${mark} wavetable`)), data([0, 1]));
+    expect(parseWav(file('2048 00000000')).mark).toEqual({ frameSize: 2048, morph: false });
+    expect(parseWav(file('2048 01000000')).mark).toEqual({ frameSize: 2048, morph: false });
+    expect(parseWav(file('1024 10000000')).mark).toEqual({ frameSize: 1024, morph: true });
+    expect(parseWav(riff(fmt({}), data([0, 1]))).mark).toBeUndefined();
   });
 
   it('does not resample: the same samples at any sample rate', () => {
@@ -44,6 +56,13 @@ describe('parseWav', () => {
     const wav = parseWav(riff(fmt({ bits: 64 }), data([0.1, -0.75], { format: FLOAT, bits: 64 })));
 
     expect(wav.samples).toEqual(floats(0.1, -0.75));
+  });
+
+  it.each([32, 64])('reads the %i bit floats that are not finite as 0, the others as stored', (bits) => {
+    const stored = [0.1, NaN, -0.75, Infinity, 0.5, -Infinity, ...(bits === 64 ? [1e300, -1e300] : [])];
+    const wav = parseWav(riff(fmt({ bits }), data(stored, { format: FLOAT, bits })));
+
+    expect(wav.samples).toEqual(floats(0.1, 0, -0.75, 0, 0.5, 0, ...(bits === 64 ? [0, 0] : [])));
   });
 
   it('takes the format of WAVE_FORMAT_EXTENSIBLE from its sub-format', () => {

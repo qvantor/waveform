@@ -54,6 +54,18 @@ describe('registerStereoProcessor', () => {
     expect(dsp.process).toHaveBeenCalledTimes(1);
   });
 
+  it('frees its dsp once on stop, the messages after it never reach the dsp', () => {
+    const free = jest.fn();
+    const onMessage = jest.fn();
+    registerStereoProcessor('freed', () => ({ process: jest.fn(), free }), onMessage);
+    const processor = new processors['freed'](OPTIONS);
+    processor.port.onmessage({ data: { stop: true } });
+    processor.port.onmessage({ data: { a: 2 } });
+    processor.port.onmessage({ data: { stop: true } });
+    expect(free).toHaveBeenCalledTimes(1);
+    expect(onMessage).toHaveBeenCalledTimes(1);
+  });
+
   describe('modulation', () => {
     const ENV = { attack: 0.1, hold: 0, decay: 0.1, sustain: 0.5, release: 0.2 };
     const setupModulated = () => {

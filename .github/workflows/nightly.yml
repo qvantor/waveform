@@ -1,0 +1,37 @@
+name: Nightly
+
+# the long runs of the fuzzers of the wasm cores (dsp/): the random scenarios of every core × FUZZ_SCALE (10⁶ in all),
+# finite and keeping the properties of its core
+# and jsmath against the Math of Node over 10⁷ inputs of each function (x64: bit for bit)
+on:
+  schedule:
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - name: Rust toolchain
+        working-directory: dsp
+        run: rustup toolchain install
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            dsp/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('dsp/rust-toolchain.toml', 'dsp/Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-
+      - run: npm run wasm
+      - name: Fuzz the cores
+        run: FUZZ_SCALE=250 npx jest -c apps/waveform/jest.config.ts --testPathPattern='goldens\.spec' --testTimeout=18000000
+      - name: jsmath against Node
+        run: FUZZ_SCALE=50 npx jest -c apps/waveform/jest.config.ts --testPathPattern='jsmath\.spec' --testTimeout=3600000

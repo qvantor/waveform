@@ -1,0 +1,10 @@
+# one build with wasm SIMD (Safari 16.4+): the lanes of the stereo and of the FIR phases. No relaxed-simd and no
+# fast-math: every value is worked out in the order of operations of the TS cores (or of a change of the sound
+# since, its goldens updated). A stack of 64 KiB (the cores keep their state on the heap); __stack_pointer
+# exported: a trap leaves it moved, the JS wrapper puts it back
+[target.wasm32-unknown-unknown]
+rustflags = [
+  "-C", "target-feature=+simd128",
+  "-C", "link-arg=-zstack-size=65536",
+  "-C", "link-arg=--export=__stack_pointer",
+]

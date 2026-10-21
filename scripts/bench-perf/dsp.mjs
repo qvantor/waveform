@@ -3,22 +3,87 @@
 // 7 samples a case. With a reference (--against) its code is bundled too and the samples of both alternate in
 // one process (A B B A …), the regressions compare them (report.mjs). V8, not JSC: it catches regressions of the
 // algorithms (a hot loop that boxes doubles), not of the engines
-import { loadApp, median } from './util.mjs';
+import fs from 'node:fs';
+import path from 'node:path';
+import { loadApp, median, root } from './util.mjs';
 
 const BLOCK = 128;
 const RATE = 48000;
 const SAMPLES = 7;
 
 const ENTRY = `
-export { createVoiceDsp, createVoiceShared, createTableStore } from './apps/waveform/src/app/synth/common/wavetable/wavetable-osc-dsp';
 export { buildLevels } from './apps/waveform/src/app/synth/common/wavetable/wavetable-mipmap';
-export { createReverbDsp } from './apps/waveform/src/app/synth/fx/effects/reverb-dsp';
-export { createDistortionDsp } from './apps/waveform/src/app/synth/fx/effects/distortion-dsp';
-export { createLimiterDsp } from './apps/waveform/src/app/synth/common/limiter/limiter-dsp';
 `;
 
-// as in production: the counters of the perf build out
-const loadDsp = (source, name) => loadApp({ source, contents: ENTRY, name });
+// the TS cores of a tree that has them (before stage 5 of the plan: an A/B run against main of that time)
+const TS_CORES = [
+  {
+    module: 'apps/waveform/src/app/synth/common/wavetable/wavetable-osc-dsp',
+    create: 'createVoiceDsp, createVoiceShared, createTableStore',
+  },
+  { module: 'apps/waveform/src/app/synth/fx/effects/reverb-dsp', create: 'createReverbDsp' },
+  { module: 'apps/waveform/src/app/synth/fx/effects/distortion-dsp', create: 'createDistortionDsp' },
+  { module: 'apps/waveform/src/app/synth/common/limiter/limiter-dsp', create: 'createLimiterDsp' },
+];
+
+// the Rust cores (dsp/, `npm run wasm`: tmp/wasm, as in production) of the tree that has them: its facade and
+// the bytes of the core
+const WASM_CORES = [
+  {
+    core: 'limiter',
+    facade: 'apps/waveform/src/app/synth/common/limiter/limiter-wasm',
+    create: 'createLimiterWasm',
+  },
+  {
+    core: 'reverb',
+    facade: 'apps/waveform/src/app/synth/fx/effects/reverb-wasm',
+    create: 'createReverbWasm',
+  },
+  {
+    core: 'distortion',
+    facade: 'apps/waveform/src/app/synth/fx/effects/distortion-wasm',
+    create: 'createDistortionWasm',
+  },
+  {
+    core: 'wavetable-osc',
+    facade: 'apps/waveform/src/app/synth/common/wavetable/wavetable-osc-wasm',
+    create: 'createOscScope, createTableStoreWasm, createVoiceSharedWasm, createVoiceWasm',
+  },
+];
+
+const WASM_CORE = 'apps/waveform/src/app/synth/common/wasm/wasm-core';
+
+// as in production: the counters of the perf build out. A tree with wasm cores bundles their facades too and
+// instantiates them (one instance per core, as one AudioWorkletGlobalScope)
+const loadDsp = async (source = root, name) => {
+  const cores = WASM_CORES.filter(
+    ({ core, facade }) =>
+      fs.existsSync(path.join(source, `${facade}.ts`)) &&
+      fs.existsSync(path.join(source, `tmp/wasm/${core}.wasm`))
+  );
+  const ts = TS_CORES.filter(({ module }) => fs.existsSync(path.join(source, `${module}.ts`)));
+  // (instantiated by its instantiateCore, as the worklets do: a tree that guards the calls of its cores pays for it)
+  const instantiate = cores.length > 0 && fs.existsSync(path.join(source, `${WASM_CORE}.ts`));
+  const contents = `${ENTRY}${[
+    ...ts.map(({ module, create }) => [module, create]),
+    ...cores.map(({ facade, create }) => [facade, create]),
+    ...(instantiate ? [[WASM_CORE, 'instantiateCore']] : []),
+  ]
+    .map(([module, create]) => `export { ${create} } from './${module}';\n`)
+    .join('')}`;
+  const dsp = await loadApp({ source, contents, name });
+  const wasm = Object.fromEntries(
+    cores.map(({ core }) => {
+      const module = new WebAssembly.Module(fs.readFileSync(path.join(source, `tmp/wasm/${core}.wasm`)));
+      return [core, instantiate ? dsp.instantiateCore(module) : new WebAssembly.Instance(module).exports];
+    })
+  );
+  return { ...dsp, wasm };
+};
+
+// a table of 256 frames of 2048 samples as the store takes it (its layout is not read) and a chunk of it (1 MB)
+const TABLE_256 = { frames: 256, harmonics: [1], lengths: [8], offsets: [0], length: 16670976 };
+const CHUNK = new Float32Array(262144);
 
 // ns per call over `ms` at least
 const timeCalls = (call, ms) => {
@@ -117,12 +182,28 @@ const constant = (values) =>
 const createCases = (dsp) => {
   const outL = new Float32Array(BLOCK);
   const outR = new Float32Array(BLOCK);
-  // the voices: a table of 16 frames (the cost of a voice doesn't depend on their count)
-  const store = dsp.createTableStore();
-  store.set('a', 1, dsp.buildLevels(Array.from({ length: 16 }, (_, k) => frame(k))));
-  const voice = (oscs, params) => () => {
+  // the voices: a table of 16 frames (the cost of a voice doesn't depend on their count), in the store of each core
+  const store = dsp.createTableStore?.();
+  const levels = dsp.buildLevels(Array.from({ length: 16 }, (_, k) => frame(k)));
+  store?.set('a', 1, levels);
+  const oscScope = dsp.wasm['wavetable-osc'] && dsp.createOscScope(dsp.wasm['wavetable-osc']);
+  const wasmStore = oscScope && dsp.createTableStoreWasm(oscScope);
+  wasmStore?.set('a', 1, levels);
+  // (as the worklet: its store processor listens for the memory the store frees, read after every block)
+  wasmStore?.listen?.(() => undefined);
+  const createShared = { ts: () => dsp.createVoiceShared(), wasm: () => dsp.createVoiceSharedWasm(oscScope) };
+  const createVoice = {
+    ts: (options, shared = createShared.ts()) =>
+      dsp.createVoiceDsp(RATE, options, store, Math.random, shared),
+    wasm: (options, shared = createShared.wasm()) =>
+      dsp.createVoiceWasm(oscScope, RATE, options, wasmStore, Math.random, shared),
+  };
+  // (a unison shape: a tree before it plays the unison plain)
+  const voiceOf = (core, unisonShape) => (oscs, params) => () => {
     const options = {
-      osc: oscs.map((unison) => (unison ? { table: 'a', unison, phase: 0, phaseRand: 1 } : null)),
+      osc: oscs.map((unison) =>
+        unison ? { table: 'a', unison, phase: 0, phaseRand: 1, ...(unisonShape && { unisonShape }) } : null
+      ),
       start: 0,
       // ENV 1 at full level, no route, no filter: the oscillators as they play
       envelopes: [0, 1, 2].map(() => ({ attack: 0, hold: 0, decay: 0, sustain: 1, release: 0 })),
@@ -131,22 +212,56 @@ const createCases = (dsp) => {
       routes: [],
       filter: null,
     };
-    const voiceDsp = dsp.createVoiceDsp(RATE, options, store, Math.random, dsp.createVoiceShared());
+    const voiceDsp = createVoice[core](options);
     let frameAt = 0;
     return () => {
       voiceDsp.process(frameAt, typeof params === 'function' ? params(frameAt) : params, outL, outR);
       frameAt += BLOCK;
     };
   };
+  // a chord of 12 notes × 2 × u8 struck again every ATTACK blocks, about the time its 192 unison voices take to go
+  // onto their mix tables under the budget: the direct path, the builds, the note on (the peak of a block is
+  // there); one shared a core, its pool of mix tables as in a scope
+  const ATTACK = 40;
+  const chord = [48, 50, 52, 55, 57, 60, 62, 64, 67, 69, 71, 72].map((note) =>
+    constant({ ...BASE, frequency: 440 * 2 ** ((note - 69) / 12), spread1: 25, spread2: 35 })
+  );
+  const chordOf = (core) => () => {
+    const shared = createShared[core]();
+    const options = {
+      osc: [0, 1].map(() => ({ table: 'a', unison: 8, phase: 0, phaseRand: 1 })),
+      start: 0,
+      envelopes: [0, 1, 2].map(() => ({ attack: 0.01, hold: 0.1, decay: 0.3, sustain: 0.8, release: 0.3 })),
+      envStart: 0,
+      phrase: 0,
+      routes: [],
+      filter: null,
+    };
+    let voices = [];
+    let block = 0;
+    return () => {
+      if (block % ATTACK === 0) {
+        voices.forEach((voice) => voice.end?.());
+        voices = chord.map(() => createVoice[core](options, shared));
+      }
+      voices.forEach((voice, i) => voice.process(block * BLOCK, chord[i], outL, outR));
+      block++;
+    };
+  };
   const held = constant(BASE);
-  // a position that moves in every block: the direct path
+  // a position that moves in every block: the direct path. Its blocks over a period of the LFO (2 s) are worked
+  // out once, not in the call: making them there (Float32Array.from, 128 sines) cost 34 ns/sample, more than the
+  // core itself
   const moving = { ...held };
-  const movingPosition = (frameAt) => {
-    const phase = (frameAt / RATE) * 0.5;
-    moving.position1 = Float32Array.from(
+  const PERIOD = (2 * RATE) / BLOCK;
+  const positions = Array.from({ length: PERIOD }, (_, block) =>
+    Float32Array.from(
       { length: BLOCK },
-      (_, i) => 0.5 + 0.5 * Math.sin(2 * Math.PI * (phase + i / RATE / 2))
-    );
+      (_, i) => 0.5 + 0.5 * Math.sin(2 * Math.PI * (((block * BLOCK) / RATE) * 0.5 + i / RATE / 2))
+    )
+  );
+  const movingPosition = (frameAt) => {
+    moving.position1 = positions[(frameAt / BLOCK) % PERIOD];
     return moving;
   };
   // the effects over noise, block by block
@@ -164,13 +279,31 @@ const createCases = (dsp) => {
   };
   const input = noise(RATE, 0.5);
   const frames = Array.from({ length: 256 }, (_, k) => frame(k));
-  const distortion = (mode) => () =>
-    dsp.createDistortionDsp(RATE, { params: { mode, drive: 8, tone: 20000, level: 0 } }).process;
+  const distortionParams = (mode) => ({ params: { mode, drive: 8, tone: 20000, level: 0 } });
   return {
-    'voice u1 held': voice([1, null], held),
-    'voice u8 held': voice([8, null], held),
-    'voice 2 × u8 held': voice([8, 8], held),
-    'voice u8 moving position': voice([8, null], movingPosition),
+    ...withTs(
+      {
+        'voice u1 held': [[1, null], held],
+        'voice u8 held': [[8, null], held],
+        'voice 2 × u8 held': [[8, 8], held],
+        'voice u8 moving position': [[8, null], movingPosition],
+      },
+      oscScope && voiceOf('wasm'),
+      store && voiceOf('ts')
+    ),
+    // blend, width (the channels of the oscillator and their pan), a stack and a position spread (a frame per
+    // voice); its cost over `voice u8 held`
+    ...withTs(
+      { 'voice u8 shaped unison': [[8, null], held] },
+      oscScope &&
+        voiceOf('wasm', { blend: 0.75, width: 0.5, stack: '12+7x2', detune: 'linear', positionSpread: 0.3 }),
+      null
+    ),
+    ...withTs(
+      { 'voice chord attack': [] },
+      oscScope && (() => chordOf('wasm')),
+      store && (() => chordOf('ts'))
+    ),
     'build 256 frames': {
       build: () => {
         const start = process.hrtime.bigint();
@@ -178,13 +311,67 @@ const createCases = (dsp) => {
         return Number(process.hrtime.bigint() - start) / 1e6;
       },
     },
-    reverb: effect(() => dsp.createReverbDsp(RATE, { params: REVERB, active: true }).process, input),
-    'distortion soft': effect(distortion(0), input),
-    'distortion hard': effect(distortion(1), input),
-    'limiter quiet': effect(() => dsp.createLimiterDsp(RATE).process, noise(RATE, 0.05)),
-    'limiter limiting': effect(() => dsp.createLimiterDsp(RATE).process, noise(RATE, 2)),
+    // the store takes a table of 256 frames no buffer of its pool holds (a store of its own): its begin and its
+    // first chunk, on the audio thread (a tree that zeroes the whole table in begin: 0.75 ms on memory the
+    // allocator had, 4.2 on new memory; the first sample of a side is the new memory)
+    ...(oscScope && {
+      'store begin 64 MiB, a miss of the pool': {
+        build: () => {
+          const tables = dsp.createTableStoreWasm(oscScope);
+          const start = process.hrtime.bigint();
+          const slot = tables.begin('b', 1, TABLE_256);
+          tables.write(slot, 0, CHUNK);
+          const ms = Number(process.hrtime.bigint() - start) / 1e6;
+          tables.commit(slot);
+          tables.free();
+          return ms;
+        },
+      },
+    }),
+    ...withTs(
+      { reverb: [input] },
+      dsp.wasm.reverb &&
+        ((source) =>
+          effect(
+            () => dsp.createReverbWasm(dsp.wasm.reverb, RATE, { params: REVERB, active: true }).process,
+            source
+          )),
+      dsp.createReverbDsp &&
+        ((source) =>
+          effect(() => dsp.createReverbDsp(RATE, { params: REVERB, active: true }).process, source))
+    ),
+    ...withTs(
+      { 'distortion soft': [0], 'distortion hard': [1] },
+      dsp.wasm.distortion &&
+        ((mode) =>
+          effect(
+            () => dsp.createDistortionWasm(dsp.wasm.distortion, RATE, distortionParams(mode)).process,
+            input
+          )),
+      dsp.createDistortionDsp &&
+        ((mode) => effect(() => dsp.createDistortionDsp(RATE, distortionParams(mode)).process, input))
+    ),
+    ...withTs(
+      {
+        'limiter quiet': [noise(RATE, 0.05)],
+        'limiter limiting': [noise(RATE, 2)],
+      },
+      dsp.wasm.limiter &&
+        ((source) => effect(() => dsp.createLimiterWasm(dsp.wasm.limiter, RATE).process, source)),
+      dsp.createLimiterDsp && ((source) => effect(() => dsp.createLimiterDsp(RATE).process, source))
+    ),
   };
 };
+
+// the cases of a module: with its wasm core they run it (an A/B run against a tree without it compares the cores),
+// with its TS core too as '<case> (ts)' (a tree of the port, before stage 5), with the TS core alone that one
+const withTs = (sources, wasm, ts) =>
+  Object.fromEntries(
+    Object.entries(sources).flatMap(([name, args]) => [
+      ...(wasm ? [[name, wasm(...args)]] : []),
+      ...(ts ? [[wasm ? `${name} (ts)` : name, ts(...args)]] : []),
+    ])
+  );
 
 // `reference`: the worktree of the reference of an A/B run (reference.mjs), its samples alternate with ours
 export const runDspBenchmarks = async ({ reference = null } = {}) => {

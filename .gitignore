@@ -46,3 +46,6 @@ Thumbs.db
 
 # Local HTTPS certificates (`npm run certs`)
 .certs/
+
+# the Rust build of the worklet cores (dsp/, `npm run wasm`)
+/dsp/target

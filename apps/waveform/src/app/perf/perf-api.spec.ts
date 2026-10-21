@@ -6,7 +6,7 @@ import { getSnapshot } from '../app';
 import { presets } from '../presets/modules/presets';
 import { STORE_PROCESSOR, VOICE_PROCESSOR } from '../synth/common/wavetable/wavetable-osc-params';
 import { fx } from '../synth/fx/modules/fx';
-import { noteToString } from '../synth/services';
+import { noteToString, Wavetable } from '../synth/services';
 import { createPerfApi, PerfModels } from './perf-api';
 import { PROBE_PROCESSOR } from './probe-dsp';
 
@@ -49,12 +49,12 @@ const BUILDER_STATS = { pending: 0, pooled: 0, pool: 0, builds: 1, lastMs: 1, to
 
 const setup = async ({ ready = true } = {}) => {
   // the tables load when the test resolves them
-  const loads = new Map<string, Deferred<number[][]>>();
+  const loads = new Map<string, Deferred<Wavetable>>();
   const load = (id: string) => {
     if (!loads.has(id)) loads.set(id, deferred());
-    return loads.get(id) as Deferred<number[][]>;
+    return loads.get(id) as Deferred<Wavetable>;
   };
-  const resolveTables = () => loads.forEach(({ resolve }) => resolve(TABLE));
+  const resolveTables = () => loads.forEach(({ resolve }) => resolve({ frames: TABLE, morph: false }));
   const modules = createSynth(['default'], (id) => load(id).promise);
   const fxModule = initModel(
     fx({ synthCore: modules.synthCore, synth: modules.synth, modulation: modules.modulation }),

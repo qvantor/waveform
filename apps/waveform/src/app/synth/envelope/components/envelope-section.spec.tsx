@@ -81,6 +81,22 @@ describe('EnvelopeSection', () => {
     expect($envelopes.value.env1.attack).toBe(0.005);
   });
 
+  it('the chart draws the curves of the selected tab, its points change them up to ±10, from the defaults', () => {
+    const { envelopes, props } = setup();
+    const [{ $envelopes }, { setEnvelopeCurve }] = envelopes;
+    act(() => setEnvelopeCurve('env3', 'decay', -4));
+    expect(props().curves).toEqual({ attack: 0, decay: 3.49, release: 3.49 });
+    expect(props()).toMatchObject({ curveMax: 10, defaultCurves: { attack: 0, decay: 3.49, release: 3.49 } });
+
+    fireEvent.click(screen.getByRole('tab', { name: 'ENV 3' }));
+    expect(props().curves).toEqual({ attack: 0, decay: -4, release: 3.49 });
+    act(() => props().onCurveChange?.('attack', 2.5));
+    expect($envelopes.value.env3.curves).toEqual({ attack: 2.5, decay: -4, release: 3.49 });
+    expect($envelopes.value.env1.curves.attack).toBe(0);
+    // the dot of the note follows them
+    expect((props().children as React.ReactElement).props.env).toBe($envelopes.value.env3);
+  });
+
   it('the chart has the dot of the note on the envelope of the selected tab, one of its own per tab', () => {
     const { props } = setup();
     const dot = () => props().children as React.ReactElement;

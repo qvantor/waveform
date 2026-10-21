@@ -96,7 +96,7 @@ describe('wavetable engine', () => {
     engine.setTable('osc1', [saw, sine]);
     await flush();
     expect(builds()).toEqual([
-      { table: 'osc1', version: 2, frames: [Float32Array.from(saw), Float32Array.from(sine)] },
+      { table: 'osc1', version: 2, frames: [Float32Array.from(saw), Float32Array.from(sine)], morph: false },
     ]);
     const [message, transfer] = worker()?.postMessage.mock.calls[1] ?? [];
     expect(transfer).toEqual(message.frames.map(({ buffer }: Float32Array) => buffer));
@@ -213,6 +213,24 @@ describe('wavetable engine', () => {
     expect(worker()?.terminate).toHaveBeenCalled();
   });
 
+  it('stays ready when a version fails to build: only its table keeps the one before', async () => {
+    const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { engine, statuses, worker } = setup();
+    engine.setTable('osc1', [saw]);
+    engine.setTable('osc2', [sine]);
+    await flush();
+    worker()?.onmessage?.({ data: { failed: 'osc1', version: 1, reason: 'RangeError' } } as MessageEvent);
+    expect(error).toHaveBeenCalled();
+    expect(statuses).toEqual(['loading', 'ready']);
+    expect(worker()?.terminate).not.toHaveBeenCalled();
+    expect(
+      engine.createVoice(
+        { osc: [], start: 0, envelopes: [], envStart: 0, phrase: 0, routes: [], filter: null },
+        {}
+      )
+    ).not.toBeNull();
+  });
+
   it('stays ready when a voice fails: the synth takes only that voice off', async () => {
     const { engine, statuses, worker } = setup();
     await flush();
@@ -247,6 +265,77 @@ describe('wavetable engine', () => {
     engine.destroy();
     expect(worker()?.terminate).toHaveBeenCalled();
     expect(complete).toHaveBeenCalled();
+  });
+
+  describe('the state of each table', () => {
+    it('sending, then stored or refused by the store; an answer for a version before the latest is late', async () => {
+      const { engine, ack, fromStore } = setup();
+      engine.setTable('osc1', [saw]);
+      engine.setTable('osc2', [sine]);
+      // (sent once ready)
+      expect(engine.$tables.value).toEqual({});
+      await flush();
+      expect(engine.$tables.value).toEqual({ osc1: 'sending', osc2: 'sending' });
+      ack('osc1', 1);
+      fromStore({ refused: 'osc2', version: 1 });
+      expect(engine.$tables.value).toEqual({ osc1: 'stored', osc2: 'refused' });
+      engine.setTable('osc1', [sine]);
+      ack('osc1', 1);
+      expect(engine.$tables.value['osc1']).toBe('sending');
+    });
+
+    it('a version that failed to build: failed; removed, a table has no state', async () => {
+      jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      const { engine, worker } = setup();
+      engine.setTable('osc1', [saw]);
+      await flush();
+      worker()?.onmessage?.({ data: { failed: 'osc1', version: 1, reason: 'RangeError' } } as MessageEvent);
+      expect(engine.$tables.value).toEqual({ osc1: 'failed' });
+      engine.removeTable('osc1');
+      expect(engine.$tables.value).toEqual({});
+    });
+
+    it('retryTable sends a refused or failed version again, nothing else', async () => {
+      jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      const { engine, builds, fromStore, worker } = setup();
+      engine.setTable('osc1', [saw]);
+      engine.setTable('osc2', [sine]);
+      await flush();
+      engine.retryTable('osc1');
+      expect(builds()).toHaveLength(2);
+      fromStore({ refused: 'osc1', version: 1 });
+      worker()?.onmessage?.({ data: { failed: 'osc2', version: 1, reason: 'RangeError' } } as MessageEvent);
+      engine.retryTable('osc1');
+      engine.retryTable('osc2');
+      expect(builds().slice(2)).toEqual([
+        expect.objectContaining({ table: 'osc1', version: 1 }),
+        expect.objectContaining({ table: 'osc2', version: 1 }),
+      ]);
+      expect(engine.$tables.value).toEqual({ osc1: 'sending', osc2: 'sending' });
+    });
+
+    it('memory freed by the store sends a refused version again once; refused again, it waits for Retry', async () => {
+      const { engine, builds, fromStore, ack } = setup();
+      engine.setTable('osc1', [saw]);
+      engine.setTable('osc2', [sine]);
+      await flush();
+      ack('osc2', 1);
+      fromStore({ refused: 'osc1', version: 1 });
+      fromStore({ freedBytes: 1024 });
+      expect(builds()).toHaveLength(3);
+      expect(builds()[2]).toMatchObject({ table: 'osc1', version: 1 });
+      fromStore({ refused: 'osc1', version: 1 });
+      fromStore({ freedBytes: 1024 });
+      expect(builds()).toHaveLength(3);
+      expect(engine.$tables.value['osc1']).toBe('refused');
+      // Retry, or a new version, may go once more
+      engine.retryTable('osc1');
+      fromStore({ refused: 'osc1', version: 1 });
+      fromStore({ freedBytes: 1024 });
+      expect(builds()).toHaveLength(5);
+      ack('osc1', 1);
+      expect(engine.$tables.value).toEqual({ osc1: 'stored', osc2: 'stored' });
+    });
   });
 
   describe('pending tables', () => {

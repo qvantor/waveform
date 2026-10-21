@@ -100,7 +100,7 @@ describe('createWorkletFx', () => {
     expect(worklet.input.connect).toHaveBeenCalledWith(node(1));
   });
 
-  it('a processor error: failed, the node is dropped, retry creates a new one', async () => {
+  it('a processor error: failed, the node is stopped (its core freed) and dropped, retry creates a new one', async () => {
     jest.spyOn(console, 'error').mockImplementation(() => undefined);
     const { worklet, node, statuses } = setup();
     await flush();
@@ -110,7 +110,7 @@ describe('createWorkletFx', () => {
     expect(worklet.input.disconnect).toHaveBeenCalled();
     expect(first?.disconnect).toHaveBeenCalled();
     worklet.post({ a: 1 });
-    expect(first?.port.postMessage).not.toHaveBeenCalled();
+    expect(first?.port.postMessage.mock.calls).toEqual([[{ stop: true }]]);
 
     worklet.retry();
     await flush();
@@ -170,5 +170,18 @@ describe('createWorkletFx', () => {
     worklet.destroy();
     expect(node()?.port.postMessage).toHaveBeenCalledWith({ stop: true });
     [worklet.input, worklet.output, node()].forEach((item) => expect(item?.disconnect).toHaveBeenCalled());
+    // the node is let go: nothing more reaches it
+    worklet.post({ a: 1 });
+    expect(node()?.port.postMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('destroyed after a processor error: the node was stopped once', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { worklet, node } = setup();
+    await flush();
+    const first = node();
+    first?.onprocessorerror?.call(first, new Event('processorerror'));
+    worklet.destroy();
+    expect(first?.port.postMessage.mock.calls).toEqual([[{ stop: true }]]);
   });
 });

@@ -1,15 +1,33 @@
 import FFT from 'fft.js';
 import { FX_PARAMS } from '@waveform/preset-schema';
+import { makeupGain } from '../../../../test-utils/distortion-makeup';
+import { wasmCore } from '../../../../test-utils/wasm';
 import {
-  createDistortionDsp,
   DC_CUTOFF,
   DISTORTION_LATENCY,
   DistortionDspParams,
+  DistortionOptions,
+  REFERENCE_PEAK,
   TONE_OPEN,
-} from './distortion-dsp';
-import { makeupGain, REFERENCE_PEAK } from './distortion-makeup';
+} from './distortion-params';
 import { DISTORTION_MODES } from './distortion-modes';
-import { createDcBlocker } from './dsp';
+import { createDistortionWasm, DistortionExports } from './distortion-wasm';
+
+// the Rust core (dsp/distortion), one instance of it for the spec (a scope)
+const core = wasmCore<DistortionExports>('distortion');
+const create = (sampleRate: number, options: DistortionOptions) =>
+  createDistortionWasm(core, sampleRate, options);
+
+// the dc blocker of the last stage (one pole at DC_CUTOFF), in place
+const dcBlock = (data: Float64Array) => {
+  const r = Math.exp((-2 * Math.PI * DC_CUTOFF) / SAMPLE_RATE);
+  let [x1, y1] = [0, 0];
+  for (let i = 0; i < data.length; i++) {
+    y1 = data[i] - x1 + r * y1;
+    x1 = data[i];
+    data[i] = y1;
+  }
+};
 
 const SAMPLE_RATE = 48000;
 const BLOCK = 128;
@@ -67,7 +85,7 @@ const render = (
   left: Input,
   { changes = [], right = left }: { changes?: Change[]; right?: Input } = {}
 ) => {
-  const dsp = createDistortionDsp(SAMPLE_RATE, { params: { ...BASE, ...params } });
+  const dsp = create(SAMPLE_RATE, { params: { ...BASE, ...params } });
   const length = Math.ceil(frames / BLOCK) * BLOCK;
   const [L, R] = [new Float32Array(length), new Float32Array(length)];
   const [inL, inR] = [new Float32Array(BLOCK), new Float32Array(BLOCK)];
@@ -150,7 +168,7 @@ const unblock = (data: Float32Array) => {
   return out;
 };
 
-describe('distortion dsp', () => {
+describe('the distortion', () => {
   it('the open tone is the top of the tone range', () => {
     expect(TONE_OPEN).toBe(FX_PARAMS.distortion.tone.max);
   });
@@ -169,7 +187,7 @@ describe('distortion dsp', () => {
     const expected = Float64Array.from({ length: 4800 }, (_, i) =>
       i < DISTORTION_LATENCY ? 0 : input(i - DISTORTION_LATENCY)
     );
-    createDcBlocker(DC_CUTOFF, SAMPLE_RATE).processBlock(expected, expected.length);
+    dcBlock(expected);
     for (let i = 2 * DISTORTION_LATENCY; i < 4800; i++) {
       expect(Math.abs(out[i] - expected[i])).toBeLessThan(0.002);
     }
@@ -241,8 +259,9 @@ describe('distortion dsp', () => {
   });
 
   it.each([
-    // a high note hit hard: its harmonics above the nyquist would fold back as inharmonic tones
-    { name: 'hard clip of 7 kHz', mode: HARD, k0: 1195, drive: 12, better: 20, below: -45 },
+    // a high note hit hard: its harmonics above the nyquist would fold back as inharmonic tones. The hard clip
+    // is oversampled 8× (-62.8 dB; at 4×, as the TS core did, -50.2 dB; at 10 kHz -56.7 and -44.5 dB)
+    { name: 'hard clip of 7 kHz', mode: HARD, k0: 1195, drive: 12, better: 20, below: -60 },
     { name: 'soft clip of 2 kHz', mode: SOFT, k0: 341, drive: 12, better: 25, below: -95 },
   ])('$name keeps the aliases far below the ones of a naive curve', ({ mode, k0, drive, better, below }) => {
     const input = sine(binFreq(k0), 0.5);

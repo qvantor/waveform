@@ -87,8 +87,46 @@ describe('keyboardController', () => {
   it('releases a note even if keyup happens in a text field', () => {
     const { onRelease } = setup();
     const input = document.body.appendChild(document.createElement('input'));
+    key('keydown', 'KeyZ');
     key('keyup', 'KeyZ', {}, input);
     expect(onRelease).toHaveBeenCalledWith([3, 'C']);
+  });
+
+  it.each([{ metaKey: true }, { ctrlKey: true }])('releases a note let go with %o held', (modifier) => {
+    const { onRelease } = setup();
+    key('keydown', 'KeyZ');
+    key('keyup', 'KeyZ', modifier);
+    expect(onRelease).toHaveBeenCalledWith([3, 'C']);
+  });
+
+  it('releases only the notes its keys pressed: not those of another input', () => {
+    const { onRelease } = setup();
+    // a shortcut, a key typed into a text field
+    key('keydown', 'KeyZ', { ctrlKey: true });
+    key('keyup', 'KeyZ', { ctrlKey: true });
+    const input = document.body.appendChild(document.createElement('input'));
+    key('keydown', 'KeyC', {}, input);
+    key('keyup', 'KeyC', {}, input);
+    expect(onRelease).not.toHaveBeenCalled();
+  });
+
+  it('releases the held notes when Cmd is released: macOS sends no keyup of a key let go meanwhile', () => {
+    const { onRelease } = setup();
+    key('keydown', 'KeyZ');
+    key('keydown', 'KeyX');
+    key('keyup', 'MetaLeft', { key: 'Meta' });
+    expect(onRelease.mock.calls).toEqual([[[3, 'C']], [[3, 'D']]]);
+    // their keyups after that release nothing again
+    key('keyup', 'KeyZ');
+    expect(onRelease).toHaveBeenCalledTimes(2);
+  });
+
+  it('releases the held notes when the window loses focus', () => {
+    const { onRelease } = setup();
+    key('keydown', 'KeyZ');
+    key('keydown', 'KeyQ');
+    window.dispatchEvent(new Event('blur'));
+    expect(onRelease.mock.calls).toEqual([[[3, 'C']], [[4, 'C']]]);
   });
 
   it('stops listening after stop', () => {

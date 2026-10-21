@@ -1,8 +1,8 @@
 import { mapValues, omit } from 'lodash';
 import { FX_PARAMS } from '@waveform/preset-schema';
 import { withoutAudioWorklet } from '../../../../test-utils/no-audio-worklet';
+import { REVERB_PROCESSOR } from '../../common/processors';
 import { reverb } from './reverb';
-import { REVERB_PROCESSOR } from './reverb-dsp';
 import { REVERB_ERAS } from './reverb-era';
 import { WORKLETS_PATH } from './load-worklet';
 

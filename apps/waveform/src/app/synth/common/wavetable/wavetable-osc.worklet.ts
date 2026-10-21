@@ -1,23 +1,23 @@
-import {
-  createTableStore,
-  createVoiceDsp,
-  StatsRequest,
-  StoreFreedMessage,
-  StoreStatsMessage,
-  StoreTableMessage,
-  VoiceEndedMessage,
-  VoiceOptions,
-  VoiceStartedMessage,
-  voiceStats,
-} from './wavetable-osc-dsp';
+import bytes from '@waveform/wasm/wavetable-osc.wasm';
+import { instantiateCore } from '../wasm/wasm-core';
+import type { StoreStatsMessage, VoiceOptions } from './voice-options';
 import { STORE_PROCESSOR, VOICE_PARAMETERS, VOICE_PROCESSOR, VoiceParam } from './wavetable-osc-params';
-import type { VoiceRoutesMessage } from './voice-modulation';
-import type { VoiceFilterMessage } from './voice-filter';
+import {
+  createOscScope,
+  createStoreReceiver,
+  createTableStoreWasm,
+  createVoiceSharedWasm,
+  createVoiceWasm,
+  OscExports,
+  StoreFreedBytesMessage,
+} from './wavetable-osc-wasm';
+import { registerVoiceProcessor } from './voice-processor';
 
-// the audio worklet module of the wavetable oscillator, bundled by esbuild (`npm run worklets`) into
-// assets/worklets/wavetable-osc.js; it runs in the AudioWorkletGlobalScope (one per AudioContext): no window,
-// document or React. The store processor receives the tables (from the worker through a MessagePort of
-// its own, or posted to its node), the voice processors of the context read them from the same store
+// the audio worklet module of the wavetable oscillator with its Rust core (dsp/wavetable-osc), bundled by esbuild
+// (`npm run worklets`) into assets/worklets/wavetable-osc.js with the bytes of wavetable-osc.wasm; it runs in
+// the AudioWorkletGlobalScope (one per AudioContext): no window, document or React. One instance of the core for
+// the scope: the store processor receives the tables into its memory (from the worker in chunks, or posted to its
+// node), the voice processors play them from there
 
 declare const sampleRate: number;
 declare const currentFrame: number;
@@ -30,48 +30,75 @@ declare function registerProcessor(
   processor: new (options: AudioWorkletNodeOptions) => AudioWorkletProcessor
 ): void;
 
-// main thread → store: the port of the worker (a MessageChannel), the tables come through it
-export interface StorePortMessage {
-  port: MessagePort;
-}
-// store → main thread: a version is in the store, new voices play it
-export interface StoreStoredMessage {
-  stored: string;
-  version: number;
-}
+const scope = createOscScope(instantiateCore<OscExports>(new WebAssembly.Module(bytes)));
 
-let workerPort: MessagePort | null = null;
-// a version no voice plays anymore goes back to the worker, which reuses its buffer: the audio thread never
-// collects it
-const store = createTableStore((levels) => {
-  const freed: StoreFreedMessage = { freed: levels.data.buffer };
-  workerPort?.postMessage(freed, [levels.data.buffer]);
-});
+// the functions of a block compile lazily, on their first call: while the module loads, a voice of both
+// oscillators (the placeholder sine) on a store and a shared of its own renders a moving position (the direct
+// path, the filter, a route), then a steady one (the mix builds, the pairs), and is freed with them (the first
+// block of the first note 0.014 ms instead of 0.93 in Node, the module 2 ms longer: before the first note)
+const prewarm = () => {
+  const warmStore = createTableStoreWasm(scope);
+  const warmShared = createVoiceSharedWasm(scope);
+  const envelope = { attack: 0.001, hold: 0, decay: 0.01, sustain: 0.5, release: 0.01 };
+  const voice = createVoiceWasm(
+    scope,
+    sampleRate,
+    {
+      osc: [
+        { table: '', unison: 4, phase: 0.5, phaseRand: 1 },
+        { table: '', unison: 3, phase: 0, phaseRand: 0 },
+      ],
+      start: 0,
+      envelopes: [envelope, envelope, envelope],
+      envStart: 0,
+      phrase: -1,
+      routes: [{ env: 1, param: 'gain1', amount: -0.5, min: 0, max: 1 }],
+      filter: { type: 'lowpass', cutoff: 4000, resonance: 3, gain: 0 },
+    },
+    warmStore,
+    Math.random,
+    warmShared
+  );
+  const [outL, outR] = [new Float32Array(128), new Float32Array(128)];
+  const params = Object.fromEntries(
+    VOICE_PARAMETERS.map(({ name, defaultValue }) => [name, Float32Array.of(defaultValue)])
+  ) as Record<VoiceParam, Float32Array>;
+  params.spread1 = Float32Array.of(20);
+  params.spread2 = Float32Array.of(10);
+  const moving = Float32Array.from({ length: 128 }, (_, i) => i / 128);
+  for (let block = 0; block < 6; block++) {
+    params.position1 = block < 2 ? moving : Float32Array.of(0.5);
+    voice.process(block * 128, params, outL, outR);
+  }
+  voice.end();
+  warmStore.free();
+  warmShared.free();
+};
+prewarm();
+
+const store = createTableStoreWasm(scope);
+const shared = createVoiceSharedWasm(scope);
 
 class StoreProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
-    const receive = ({ data }: MessageEvent<StoreTableMessage | StorePortMessage | StatsRequest>) => {
-      if ('port' in data) {
-        workerPort = data.port;
-        workerPort.onmessage = receive;
-        return;
-      }
-      if ('stats' in data) {
+    // (the processor of a retry takes it over)
+    store.listen((bytes) => {
+      const freed: StoreFreedBytesMessage = { freedBytes: bytes };
+      this.port.postMessage(freed);
+    });
+    this.port.onmessage = createStoreReceiver(
+      store,
+      (message) => this.port.postMessage(message),
+      () => {
         // the counters of the store and of the voices of the scope (the perf build)
         if (!__PERF__) return;
         const answer: StoreStatsMessage = {
-          stats: { ...store.stats(), ...voiceStats(), frame: currentFrame },
+          stats: { ...store.stats(), ...shared.stats(), frame: currentFrame },
         };
         this.port.postMessage(answer);
-        return;
       }
-      if (data.remove) store.remove(data.table);
-      else if (data.levels) store.set(data.table, data.version, data.levels);
-      const stored: StoreStoredMessage = { stored: data.table, version: data.version };
-      this.port.postMessage(stored);
-    };
-    this.port.onmessage = receive;
+    );
   }
 
   process() {
@@ -79,61 +106,7 @@ class StoreProcessor extends AudioWorkletProcessor {
   }
 }
 
-// a node of one output (2 channels) has both; a missing one renders into this
-let scratch = new Float32Array(128);
-
-class VoiceProcessor extends AudioWorkletProcessor {
-  static get parameterDescriptors() {
-    return VOICE_PARAMETERS;
-  }
-
-  private dsp: ReturnType<typeof createVoiceDsp>;
-  // posts the frames of its start once: traced (VoiceOptions.trace), or started after them (its node came
-  // late: the fx and Poly follow its first sample)
-  private trace: boolean;
-  private reported = false;
-
-  constructor(options: AudioWorkletNodeOptions) {
-    super();
-    const voiceOptions = options.processorOptions as VoiceOptions;
-    this.dsp = createVoiceDsp(sampleRate, voiceOptions, store);
-    this.trace = __PERF__ && !!voiceOptions.trace;
-    this.port.onmessage = ({ data }: MessageEvent<Partial<VoiceRoutesMessage & VoiceFilterMessage>>) => {
-      if (data.routes) this.dsp.setRoutes(data.routes);
-      if (data.filter !== undefined) this.dsp.setFilter(data.filter);
-    };
-  }
-
-  process(
-    _inputs: Float32Array[][],
-    [output]: Float32Array[][],
-    parameters: Record<VoiceParam, Float32Array>
-  ) {
-    const outL = output[0];
-    if (scratch.length !== outL.length) scratch = new Float32Array(outL.length);
-    try {
-      const playing = this.dsp.process(currentFrame, parameters, outL, output[1] ?? scratch);
-      const { startedAt, startFrame } = this.dsp;
-      if (!this.reported && startedAt >= 0) {
-        this.reported = true;
-        const started: VoiceStartedMessage = { started: startedAt, scheduled: startFrame };
-        if (this.trace || startedAt > startFrame) this.port.postMessage(started);
-      }
-      if (playing) return true;
-    } catch (error) {
-      // a voice that throws ends like one released: it gives its tables back to the store (a processor that
-      // failed would hold them for the life of the context) and its node is taken off the graph; the other
-      // voices and the new notes play on
-      console.error('A voice of the wavetable oscillator failed', error);
-      this.dsp.end();
-      outL.fill(0);
-      output[1]?.fill(0);
-    }
-    const ended: VoiceEndedMessage = { ended: true };
-    this.port.postMessage(ended);
-    return false;
-  }
-}
-
 registerProcessor(STORE_PROCESSOR, StoreProcessor);
-registerProcessor(VOICE_PROCESSOR, VoiceProcessor);
+registerVoiceProcessor(VOICE_PROCESSOR, (options: VoiceOptions) =>
+  createVoiceWasm(scope, sampleRate, options, store, Math.random, shared)
+);

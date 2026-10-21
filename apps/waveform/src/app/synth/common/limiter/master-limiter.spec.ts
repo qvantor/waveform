@@ -1,6 +1,6 @@
 import { withoutAudioWorklet } from '../../../../test-utils/no-audio-worklet';
 import { FxStatus } from '../../fx/effects/types';
-import { LIMITER_PROCESSOR } from './limiter-dsp';
+import { LIMITER_PROCESSOR } from '../processors';
 import { compressorMakeupGain, createMasterLimiter, FALLBACK_LIMITER } from './master-limiter';
 
 interface WorkletNodeStub extends AudioWorkletNode {
@@ -38,7 +38,7 @@ const setup = () => {
 };
 
 describe('createMasterLimiter', () => {
-  it('plays through the compressor while the limiter module loads', () => {
+  it('plays through the compressor while the limiter module loads (with its Rust core)', () => {
     const { audioCtx, limiter, statuses } = setup();
     expect(statuses).toEqual(['loading']);
     expect(audioCtx.audioWorklet.addModule).toHaveBeenCalledWith(
@@ -47,6 +47,16 @@ describe('createMasterLimiter', () => {
     expect(lastTarget(limiter.input)).toBe(limiter.compressor);
     expect(limiter.compressor.connect).toHaveBeenCalledWith(limiter.compensation);
     expect(limiter.compensation.connect).toHaveBeenCalledWith(limiter.output);
+  });
+
+  it('stays on the compressor without wasm SIMD (Safari before 16.4)', async () => {
+    const validate = jest.spyOn(WebAssembly, 'validate').mockReturnValue(false);
+    const { audioCtx, limiter, statuses } = setup();
+    validate.mockRestore();
+    await flush();
+    expect(statuses).toEqual(['unsupported']);
+    expect(audioCtx.audioWorklet.addModule).not.toHaveBeenCalled();
+    expect(lastTarget(limiter.input)).toBe(limiter.compressor);
   });
 
   it('switches the input to the limiter worklet once it is ready', async () => {

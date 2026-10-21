@@ -1,24 +1,99 @@
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import FFT from 'fft.js';
 import { frequencyResponseDb } from '@waveform/ui-kit';
-import * as biquad from '@waveform/math/biquad';
-import * as curve from '../envelope/envelope-curve';
 import { EnvelopeParams, envelopeValue } from '../envelope/envelope-curve';
-import { seeded, storeWith, VOICE_DEFAULTS } from '../../../../test-utils/voice-dsp';
+import { withCurves } from '../../../../test-utils/envelopes';
+import { seeded, VOICE_DEFAULTS } from '../../../../test-utils/voice-dsp';
+import { wasmCore } from '../../../../test-utils/wasm';
 import { buildLevels } from './wavetable-mipmap';
+import type { WavetableLevels } from './wavetable-levels';
 import {
-  createTableStore,
-  createVoiceDsp,
-  createVoiceShared,
-  TableStore,
+  TableStoreStats,
+  UNISON_SHAPE,
+  UnisonShape,
+  UnisonStack,
+  VoiceFilterOptions,
+  VoiceOptions,
   VoiceOscOptions,
-  VoiceShared,
-} from './wavetable-osc-dsp';
+  VoiceRoute,
+  VoiceStats,
+} from './voice-options';
 import { RELEASE_GATE, VoiceParam } from './wavetable-osc-params';
-import type { VoiceRoute } from './voice-modulation';
-import type { VoiceFilterOptions } from './voice-filter';
+import {
+  createOscScope,
+  createTableStoreWasm,
+  createVoiceSharedWasm,
+  createVoiceWasm,
+  OscExports,
+  TableStoreWasm,
+  VoiceSharedWasm,
+} from './wavetable-osc-wasm';
+// the Rust core (dsp/wavetable-osc), its stores and shareds in one instance for the spec (a scope), through `core`
+interface CoreEntry {
+  levels: WavetableLevels;
+}
+interface CoreStore {
+  set(table: string, version: number, levels: WavetableLevels): unknown;
+  remove(table: string): void;
+  latest(table: string): CoreEntry | null;
+  acquire(entry: CoreEntry): CoreEntry;
+  release(entry: CoreEntry): void;
+  stats(): TableStoreStats;
+}
+interface CoreShared {
+  stats(): VoiceStats;
+}
+interface CoreVoice {
+  process(
+    frame: number,
+    params: Record<VoiceParam, Float32Array>,
+    outL: Float32Array,
+    outR: Float32Array
+  ): boolean;
+  setRoutes(routes: VoiceRoute[]): void;
+  setFilter(filter: VoiceFilterOptions | null): void;
+  end(): void;
+  readonly ended: boolean;
+  startFrame: number;
+  readonly startedAt: number;
+}
+interface Core {
+  storeWith(tables: Record<string, number[][]>): { store: CoreStore; freed: unknown[] };
+  createTableStore(onFree?: (levels: WavetableLevels) => void): CoreStore;
+  createVoiceShared(): CoreShared;
+  createVoiceDsp(
+    rate: number,
+    options: VoiceOptions,
+    store: CoreStore,
+    random: () => number,
+    shared: CoreShared
+  ): CoreVoice;
+}
+const scope = createOscScope(wasmCore<OscExports>('wavetable-osc'));
+const core: Core = {
+  storeWith: (tables) => {
+    const freed: unknown[] = [];
+    const store = createTableStoreWasm(scope, (levels) => freed.push(levels));
+    Object.entries(tables).forEach(([id, frames]) => store.set(id, 1, buildLevels(frames)));
+    return { store, freed };
+  },
+  createTableStore: (onFree) => createTableStoreWasm(scope, onFree ?? (() => undefined)),
+  createVoiceShared: () => createVoiceSharedWasm(scope),
+  createVoiceDsp: (rate, options, store, random, shared) =>
+    createVoiceWasm(scope, rate, options, store as TableStoreWasm, random, shared as VoiceSharedWasm),
+};
 
 const RATE = 48000;
 const BLOCK = 128;
+// an Audio Unit playing tables of ours (scripts/renders/run.mjs)
+const MEASURED_UNISON: {
+  modes: Record<string, number[]>;
+  stacks: Record<string, { step: number; detune: number; side: string }[]>;
+} = JSON.parse(readFileSync(join(__dirname, '../../../../../../../dsp/measurements/unison.json'), 'utf8'));
+const MEASURED_FRAMES: {
+  played: Record<'3' | '4', { edge: number; below: number; above: number }[]>;
+} = JSON.parse(readFileSync(join(__dirname, '../../../../../../../dsp/measurements/frames.json'), 'utf8'));
 
 const cycle = (size: number, harmonics: [number, number, number?][]) =>
   Array.from({ length: size }, (_, n) =>
@@ -55,7 +130,7 @@ const gateAt =
 const FLAT: EnvelopeParams = { attack: 0, hold: 0, decay: 0, sustain: 1, release: 0 };
 
 interface RenderOptions {
-  store: TableStore;
+  store: CoreStore;
   oscs?: (VoiceOscOptions | null)[];
   params?: Params;
   frames: number;
@@ -73,9 +148,9 @@ interface RenderOptions {
   // the frame of the first block processed (its node came late), 0 by default
   from?: number;
   // called before the block at that frame
-  before?: (frame: number, dsp: ReturnType<typeof createVoiceDsp>) => void;
+  before?: (frame: number, dsp: CoreVoice) => void;
   // the resources the voices of a context share; a render has its own by default
-  shared?: VoiceShared;
+  shared?: CoreShared;
 }
 
 // renders a voice block by block: a param is a number (one value per block) or a function of the frame (one
@@ -96,9 +171,9 @@ const render = ({
   rate = RATE,
   from = 0,
   before,
-  shared = createVoiceShared(),
+  shared = core.createVoiceShared(),
 }: RenderOptions) => {
-  const dsp = createVoiceDsp(
+  const dsp = core.createVoiceDsp(
     rate,
     { osc: oscs, start, envelopes: [envelope, ...envelopes], envStart, phrase, routes, filter },
     store,
@@ -204,23 +279,23 @@ const measureFrequency = (signal: Float32Array, rate = RATE) => {
   return ((crossings.length - 1) * rate) / (crossings[crossings.length - 1] - crossings[0]);
 };
 
-describe('wavetable voice dsp', () => {
+describe('the wavetable voice', () => {
   describe('pitch', () => {
     it.each([55, 440, 3520])('plays %s Hz within 0.01 cent', (frequency) => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       const { left } = render({ store, params: { frequency }, frames: 10 * RATE });
       const cents = 1200 * Math.log2(measureFrequency(left) / frequency);
       expect(Math.abs(cents)).toBeLessThan(0.01);
     });
 
     it('adds the detune of the oscillator in cents', () => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       const { left } = render({ store, params: { frequency: 220, detune1: 1200 }, frames: RATE });
       expect(measureFrequency(left)).toBeCloseTo(440, 2);
     });
 
     it('steps a changing pitch every 32 samples within 0.1 cent', () => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       // a vibrato of ±100 cents at 6 Hz against the same pitch per sample
       const detune = (frame: number) => 100 * Math.sin((2 * Math.PI * 6 * frame) / RATE);
       const { left } = render({ store, params: { frequency: 440, detune1: detune }, frames: RATE });
@@ -253,7 +328,7 @@ describe('wavetable voice dsp', () => {
     it.each(NATIVE)(
       'keeps the aliasing of a saw at bin %s within 1 dB of a native oscillator, as bright',
       (bin, aliasing, spur, highest) => {
-        const { store } = storeWith({ a: [saw] });
+        const { store } = core.storeWith({ a: [saw] });
         const { left } = render({ store, params: { frequency: binPitch(bin) }, frames: SIZE + 4096 });
         const result = harmonicAnalysis(left, bin);
         expect(result.aliasing).toBeLessThanOrEqual(aliasing + 1);
@@ -264,20 +339,19 @@ describe('wavetable voice dsp', () => {
     );
 
     it('plays the harmonics of the additive synthesis at their level', () => {
-      const { store } = storeWith({ a: [saw] });
+      const { store } = core.storeWith({ a: [saw] });
       const bin = 1428;
       const { left } = render({ store, params: { frequency: binPitch(bin) }, frames: SIZE + 4096 });
       const spectrum = powerSpectrum(left);
-      // the saw normalized by its peak: harmonic h at 1/h / peak (the levels below their crossfade)
-      const peak = Math.max(...saw.map(Math.abs));
+      // the saw at its volume: harmonic h at 1/h (the levels below their crossfade)
       for (const h of [1, 2, 5, 10]) {
         const amplitude = (2 * Math.sqrt(spectrum[h * bin])) / SIZE;
-        expect(amplitude).toBeCloseTo(1 / h / peak, 3);
+        expect(amplitude).toBeCloseTo(1 / h, 3);
       }
     });
 
     it('fades a fundamental above the nyquist out to silence', () => {
-      const { store } = storeWith({ a: [saw] });
+      const { store } = core.storeWith({ a: [saw] });
       const { left } = render({ store, params: { frequency: 30000 }, frames: 4096 });
       expect(rms(left)).toBe(0);
     });
@@ -292,33 +366,42 @@ describe('wavetable voice dsp', () => {
     );
 
     it('plays exactly frame k at k / (N - 1)', () => {
-      const { store } = storeWith({ a: table, b: [table[100]] });
+      const { store } = core.storeWith({ a: table, b: [table[100]] });
       const position = Math.fround(100 / 255);
       const { left } = render({ store, params: { position1: position }, frames: 4096 });
       const { left: alone } = render({ store, oscs: [osc({ table: 'b' })], frames: 4096 });
       expect(left).toEqual(alone);
     });
 
-    it('morphs two frames linearly', () => {
-      const { store } = storeWith({ a: [sine, square], s: [sine], q: [square] });
-      const { left } = render({ store, params: { position1: 0.25 }, frames: 1024 });
-      const { left: a } = render({ store, oscs: [osc({ table: 's' })], frames: 1024 });
-      const { left: b } = render({ store, oscs: [osc({ table: 'q' })], frames: 1024 });
-      // (a table of one frame has its own levels: the same harmonics, other lengths)
-      left.forEach((value, i) => expect(value).toBeCloseTo(0.75 * a[i] + 0.25 * b[i], 4));
+    // dsp/measurements/frames.json: the frame just below and above each edge k / N of the position
+    it.each(['3', '4'])('plays one frame of %s, never a mix: q = share × N in (k, k + 1] is frame k', (n) => {
+      const count = Number(n);
+      const frames = [sine, square, saw, sine.map((v) => -v)].slice(0, count);
+      const { store } = core.storeWith({ a: frames });
+      const at = (position: number) => render({ store, params: { position1: position }, frames: 1024 }).left;
+      const alone = (k: number) => at(k / (count - 1));
+      for (const { edge, below, above } of MEASURED_FRAMES.played[n as '3' | '4']) {
+        expect(at(edge - 1e-4)).toEqual(alone(below));
+        expect(at(edge + 1e-4)).toEqual(alone(above));
+      }
     });
 
-    it('morphs through the table without clicks', () => {
-      const { store } = storeWith({ a: table.slice(0, 32) });
-      const { left: morph } = render({ store, params: { position1: (frame) => frame / RATE }, frames: RATE });
-      const stationary = Array.from({ length: 32 }, (_, k) =>
-        maxStep(render({ store, params: { position1: k / 31 }, frames: 2048 }).left)
-      );
-      expect(maxStep(morph)).toBeLessThanOrEqual(1.1 * Math.max(...stationary));
+    it('steps to the next frame at the first sample a moving position plays it, no mix between', () => {
+      const { store } = core.storeWith({ a: [sine, square, saw] });
+      // q from 0.6 to 1.8 over 512 samples: past 1 (frame 1) from sample 171
+      const { left } = render({
+        store,
+        params: { position1: (frame) => (0.6 + (1.2 * frame) / 512) / 3 },
+        frames: 512,
+      });
+      const still = (k: number) => render({ store, params: { position1: k / 2 }, frames: 512 }).left;
+      const [zero, one] = [still(0), still(1)];
+      // (a moving position plays the levels themselves, a still one their mix)
+      for (let i = 0; i < 512; i++) expect(left[i]).toBeCloseTo(i < 171 ? zero[i] : one[i], 3);
     });
 
     it('clamps a position outside 0..1', () => {
-      const { store } = storeWith({ a: [sine, square], s: [sine], q: [square] });
+      const { store } = core.storeWith({ a: [sine, square], s: [sine], q: [square] });
       const below = render({ store, params: { position1: -0.5 }, frames: 512 }).left;
       const above = render({ store, params: { position1: (frame) => 2 + frame }, frames: 512 }).left;
       expect(below).toEqual(render({ store, params: { position1: 0 }, frames: 512 }).left);
@@ -329,7 +412,7 @@ describe('wavetable voice dsp', () => {
     });
 
     it('plays a table of one frame at any position', () => {
-      const { store } = storeWith({ a: [square], q: [square] });
+      const { store } = core.storeWith({ a: [square], q: [square] });
       const { left } = render({ store, params: { position1: (frame) => frame / 512 }, frames: 512 });
       expect(left).toEqual(render({ store, oscs: [osc({ table: 'q' })], frames: 512 }).left);
     });
@@ -337,7 +420,7 @@ describe('wavetable voice dsp', () => {
 
   describe('glide', () => {
     it('glides 55 Hz to 7 kHz without steps of the waveform', () => {
-      const { store } = storeWith({ a: [saw] });
+      const { store } = core.storeWith({ a: [saw] });
       const seconds = 2;
       const frequency = (frame: number) => 55 * (7000 / 55) ** Math.min(1, frame / (seconds * RATE));
       const { left } = render({ store, params: { frequency }, frames: seconds * RATE });
@@ -351,13 +434,12 @@ describe('wavetable voice dsp', () => {
     // level q is the whole tone from pitch range x = q (1 + 3·log2(1024 · f / nyquist)) on, crossfaded into
     // level q + 1 up to x = q + 1: a harmonic between their counts fades out over a third of an octave
     it('crossfades the levels: no step of the harmonics at a level boundary', () => {
-      const { store } = storeWith({ a: [saw] });
+      const { store } = core.storeWith({ a: [saw] });
       const pitch = (x: number) => (RATE / 2 / 1024) * 2 ** ((x - 1) / 3);
       const play = (x: number) => render({ store, params: { frequency: pitch(x) }, frames: RATE / 2 }).left;
       // level 10 keeps 101 harmonics, level 11 80
-      const peak = Math.max(...saw.map(Math.abs));
       // harmonic h of the note at x, against its level in the saw
-      const harmonic = (x: number, h: number) => toneAmplitude(play(x), h * pitch(x)) * h * peak;
+      const harmonic = (x: number, h: number) => toneAmplitude(play(x), h * pitch(x)) * h;
       for (const h of [1, 50, 90, 101]) {
         expect(harmonic(10 - 0.002, h)).toBeCloseTo(1, 1);
         expect(harmonic(10 + 0.002, h)).toBeCloseTo(1, 1);
@@ -370,7 +452,7 @@ describe('wavetable voice dsp', () => {
 
   describe('table versions', () => {
     it('crossfades a playing voice into a new version within 10 ms', () => {
-      const { store, freed } = storeWith({ a: [sine], q: [square] });
+      const { store, freed } = core.storeWith({ a: [sine], q: [square] });
       const old = store.latest('a');
       const switchAt = 4096;
       const { left } = render({
@@ -389,9 +471,9 @@ describe('wavetable voice dsp', () => {
     });
 
     it('starts with a sine until the table arrives', () => {
-      const store = createTableStore();
+      const store = core.createTableStore();
       const { left } = render({ store, params: { frequency: 375 }, frames: 1024 });
-      const { store: sineStore } = storeWith({ a: [sine] });
+      const { store: sineStore } = core.storeWith({ a: [sine] });
       const { left: expected } = render({ store: sineStore, params: { frequency: 375 }, frames: 1024 });
       left.forEach((value, i) => expect(value).toBeCloseTo(expected[i], 4));
     });
@@ -399,8 +481,9 @@ describe('wavetable voice dsp', () => {
 
   describe('unison', () => {
     it('detunes the voices evenly from -spread/2 to +spread/2, the middle one of an odd count both', () => {
-      const { store } = storeWith({ a: [sine] });
-      // an octave below and above the note and the note itself: voice 0 left, the middle one both, 2 right
+      const { store } = core.storeWith({ a: [sine] });
+      // an octave below and above the note and the note itself: voice 0 right, the middle one both,
+      // 2 left
       const { left, right } = render({
         store,
         oscs: [osc({ unison: 3 })],
@@ -408,18 +491,18 @@ describe('wavetable voice dsp', () => {
         frames: RATE,
       });
       const level = 1 / Math.sqrt(2);
-      expect(toneAmplitude(left, 200)).toBeCloseTo(level, 2);
-      expect(toneAmplitude(left, 400)).toBeCloseTo(level, 2);
-      expect(toneAmplitude(left, 800)).toBeCloseTo(0, 2);
-      expect(toneAmplitude(right, 200)).toBeCloseTo(0, 2);
+      expect(toneAmplitude(right, 200)).toBeCloseTo(level, 2);
       expect(toneAmplitude(right, 400)).toBeCloseTo(level, 2);
-      expect(toneAmplitude(right, 800)).toBeCloseTo(level, 2);
+      expect(toneAmplitude(right, 800)).toBeCloseTo(0, 2);
+      expect(toneAmplitude(left, 200)).toBeCloseTo(0, 2);
+      expect(toneAmplitude(left, 400)).toBeCloseTo(level, 2);
+      expect(toneAmplitude(left, 800)).toBeCloseTo(level, 2);
     });
 
     it.each([3, 5, 7])(
       'puts the voices of u%s around the middle one: the channels mirror each other',
       (unison) => {
-        const { store } = storeWith({ a: [sine] });
+        const { store } = core.storeWith({ a: [sine] });
         const spread = 2400;
         const { left, right } = render({
           store,
@@ -432,10 +515,10 @@ describe('wavetable voice dsp', () => {
         const cents = (j: number) => spread * (j / (unison - 1) - 0.5);
         for (let j = 0; j < unison; j++) {
           const pitch = 400 * 2 ** (cents(j) / 1200);
-          // the voices below the middle from the left, the ones above it continue the turns
+          // the voices below the middle from the right, the ones above it continue the turns
           const side = j > middle ? j - 1 : j;
-          const inLeft = j === middle || side % 2 === 0;
-          const inRight = j === middle || side % 2 === 1;
+          const inLeft = j === middle || side % 2 === 1;
+          const inRight = j === middle || side % 2 === 0;
           expect(toneAmplitude(left, pitch)).toBeCloseTo(inLeft ? level : 0, 2);
           expect(toneAmplitude(right, pitch)).toBeCloseTo(inRight ? level : 0, 2);
           // its mirror (the same detune, the other way) is on the other side
@@ -446,7 +529,7 @@ describe('wavetable voice dsp', () => {
     );
 
     it('pairs 8 voices into the channels at the level of 4 per channel', () => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       const { left, right } = render({
         store,
         oscs: [osc({ unison: 8 })],
@@ -456,14 +539,14 @@ describe('wavetable voice dsp', () => {
       // voice j at 400 · 2^((j / 7 - 1/2) · 1400 / 1200)
       const pitch = (j: number) => 400 * 2 ** (((j / 7 - 0.5) * 1400) / 1200);
       for (let j = 0; j < 8; j++) {
-        const [own, other] = j % 2 === 0 ? [left, right] : [right, left];
+        const [own, other] = j % 2 === 0 ? [right, left] : [left, right];
         expect(toneAmplitude(own, pitch(j))).toBeCloseTo(0.5, 2);
         expect(toneAmplitude(other, pitch(j))).toBeCloseTo(0, 2);
       }
     });
 
     it('plays one voice at detune 0', () => {
-      const { store } = storeWith({ a: [saw] });
+      const { store } = core.storeWith({ a: [saw] });
       const unison = render({ store, oscs: [osc({ unison: 8 })], frames: 4096 });
       const single = render({ store, oscs: [osc({ unison: 1 })], frames: 4096 });
       expect(unison.left).toEqual(single.left);
@@ -473,7 +556,7 @@ describe('wavetable voice dsp', () => {
     // the start of a note over many notes: at Phase rand 1 the voices start at random phases and add up to
     // the power of one voice
     it.each([2, 3, 8])('keeps the level of u%s at that of one voice at Phase rand 1', (unison) => {
-      const { store } = storeWith({ a: [saw] });
+      const { store } = core.storeWith({ a: [saw] });
       const frames = 0.1 * RATE;
       const measure = (voices: number) => {
         let power = 0;
@@ -500,7 +583,7 @@ describe('wavetable voice dsp', () => {
     });
 
     it('gives a channel 1/√ceil(n/2) per voice', () => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       for (const [unison, level] of [
         [1, 1],
         [2, 1],
@@ -508,14 +591,303 @@ describe('wavetable voice dsp', () => {
         [8, 0.5],
       ]) {
         // far apart: no beats between the voices
-        const { left } = render({
+        // (the lowest voice on the right)
+        const { right } = render({
           store,
           oscs: [osc({ unison })],
           params: { frequency: 300, spread1: 4800 },
           frames: RATE,
         });
-        expect(toneAmplitude(left, unison === 1 ? 300 : 300 * 2 ** -2)).toBeCloseTo(level, 2);
+        expect(toneAmplitude(right, unison === 1 ? 300 : 300 * 2 ** -2)).toBeCloseTo(level, 2);
       }
+    });
+  });
+
+  describe('unison shape', () => {
+    const shaped = (unison: number, shape: Partial<UnisonShape>, config: Partial<VoiceOscOptions> = {}) =>
+      osc({ unison, unisonShape: { ...UNISON_SHAPE, ...shape }, ...config });
+    // the amplitude of each voice in each channel: [pitch, left, right]
+    const expectVoices = (
+      { left, right }: { left: Float32Array; right: Float32Array },
+      voices: [number, number, number][]
+    ) =>
+      voices.forEach(([pitch, inLeft, inRight]) => {
+        expect(toneAmplitude(left, pitch)).toBeCloseTo(inLeft, 2);
+        expect(toneAmplitude(right, pitch)).toBeCloseTo(inRight, 2);
+      });
+
+    describe('blend', () => {
+      // u5 an octave below to an octave above: 200 right, 283 left, 400 both (the centre), 566 right, 800 left
+      const u5 = (blend: number) => {
+        const { store } = core.storeWith({ a: [sine] });
+        return render({
+          store,
+          oscs: [shaped(5, { blend })],
+          params: { frequency: 400, spread1: 2400 },
+          frames: RATE,
+        });
+      };
+      const pitch = (cents: number) => 400 * 2 ** (cents / 1200);
+
+      it.each([
+        // the centre and the others at 1/√3 × their gain: c = min(1, 2(1 - b)), s = min(1, 2b), × √(3 / (c² + 2s²))
+        [0, 1, 0],
+        [0.25, Math.sqrt(2 / 3), Math.sqrt(1 / 6)],
+        [0.5, 1 / Math.sqrt(3), 1 / Math.sqrt(3)],
+        [0.75, 1 / 3, 2 / 3],
+        [1, 0, 1 / Math.sqrt(2)],
+      ])(
+        'at %s plays the centre and the others at their gains, the power of one voice',
+        (blend, center, side) => {
+          const out = u5(blend);
+          expectVoices(out, [
+            [pitch(-1200), 0, side],
+            [pitch(-600), side, 0],
+            [pitch(0), center, center],
+            [pitch(600), 0, side],
+            [pitch(1200), side, 0],
+          ]);
+          expect(center ** 2 + 2 * side ** 2).toBeCloseTo(1, 6);
+        }
+      );
+
+      it('has the middle two voices of an even count as its centre', () => {
+        const { store } = core.storeWith({ a: [sine] });
+        // u4: 200 right, 317 left (the centre), 504 right (the centre), 800 left, at 1/√2 × their gain
+        const out = render({
+          store,
+          oscs: [shaped(4, { blend: 0 })],
+          params: { frequency: 400, spread1: 2400 },
+          frames: RATE,
+        });
+        expectVoices(out, [
+          [pitch(-1200), 0, 0],
+          [pitch(-400), 1, 0],
+          [pitch(400), 0, 1],
+          [pitch(1200), 0, 0],
+        ]);
+      });
+
+      it('changes nothing in a unison of 2: it is all centre', () => {
+        const { store } = core.storeWith({ a: [saw] });
+        const play = (blend: number) =>
+          render({ store, oscs: [shaped(2, { blend })], params: { spread1: 20 }, frames: 2048 });
+        expect(play(0).left).toEqual(play(0.5).left);
+        expect(play(1).right).toEqual(play(0.5).right);
+      });
+    });
+
+    describe('width', () => {
+      // u3: 200 right, 400 both, 800 left at 1/√2
+      const u3 = (width: number) => {
+        const { store } = core.storeWith({ a: [sine] });
+        return render({
+          store,
+          oscs: [shaped(3, { width })],
+          params: { frequency: 400, spread1: 2400 },
+          frames: RATE,
+        });
+      };
+
+      it('pans the side voices to the middle at equal power, the centre stays', () => {
+        const level = 1 / Math.sqrt(2);
+        const [own, other] = [Math.cos(Math.PI / 8) * level, Math.sin(Math.PI / 8) * level];
+        expectVoices(u3(0.5), [
+          [200, other, own],
+          [400, level, level],
+          [800, own, other],
+        ]);
+        expectVoices(u3(0), [
+          [200, 0.5, 0.5],
+          [400, level, level],
+          [800, 0.5, 0.5],
+        ]);
+      });
+
+      it('is mono at 0: both channels the same', () => {
+        const { left, right } = u3(0);
+        left.forEach((value, i) => expect(value).toBeCloseTo(right[i], 6));
+      });
+    });
+
+    // the voices as measured (scripts/renders/run.mjs --only=unison-modes): the peaks of a sine
+    // at C4 over 2^18 samples (Hann), their cents refined by the parabola of their bins, the side of each
+    const C4 = 440 * 2 ** ((60 - 69) / 12);
+    const PEAKS = 1 << 18;
+    const peaksOf = (
+      { left, right }: { left: Float32Array; right: Float32Array },
+      low: number,
+      high: number
+    ) => {
+      const spectrum = (x: Float32Array) => {
+        const fft = new FFT(PEAKS);
+        const bins = fft.createComplexArray();
+        fft.realTransform(
+          bins,
+          Array.from(
+            { length: PEAKS },
+            (_, i) => x[i + 9600] * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / PEAKS))
+          )
+        );
+        return Float64Array.from({ length: PEAKS / 2 }, (_, k) => Math.hypot(bins[2 * k], bins[2 * k + 1]));
+      };
+      const [l, r] = [spectrum(left), spectrum(right)];
+      const bin = (cents: number) => (C4 * 2 ** (cents / 1200) * PEAKS) / RATE;
+      const found: { cents: number; side: string }[] = [];
+      for (let k = Math.floor(bin(low)) + 1; k < Math.ceil(bin(high)); k++) {
+        const [y0, y1, y2] = [l[k - 1] + r[k - 1], l[k] + r[k], l[k + 1] + r[k + 1]];
+        if (y1 > y0 && y1 >= y2 && y1 > 0.001 * (PEAKS / 4)) {
+          const d = (0.5 * (y0 - y2)) / (y0 - 2 * y1 + y2);
+          const [a, b] = [Math.hypot(l[k - 1], l[k], l[k + 1]), Math.hypot(r[k - 1], r[k], r[k + 1])];
+          found.push({
+            cents: 1200 * Math.log2(((k + d) * RATE) / PEAKS / C4),
+            side: a > 2 * b ? 'L' : b > 2 * a ? 'R' : 'C',
+          });
+        }
+      }
+      return found;
+    };
+    const sineVoices = (unison: number, shape: Partial<UnisonShape>, spread: number) => {
+      const { store } = core.storeWith({ a: [sine] });
+      return render({
+        store,
+        oscs: [shaped(unison, shape)],
+        params: { frequency: C4, spread1: spread },
+        frames: PEAKS + 9600,
+      });
+    };
+
+    describe('stack', () => {
+      const STACKS: Record<string, UnisonStack> = {
+        off: 'off',
+        '12 (1x)': '12x1',
+        '12 (2x)': '12x2',
+        '12 (3x)': '12x3',
+        '12+7 (1x)': '12+7x1',
+        '12+7 (2x)': '12+7x2',
+        '12+7 (3x)': '12+7x3',
+        'Center-12': 'center-12',
+        'Center-24': 'center-24',
+      };
+      const STEPS = [-24, -12, 0, 7, 12, 19, 24, 31, 36];
+      // measured at Detune 0.5 (the voices at ±35 cents), up to the 8 voices of ours
+      const cases = Object.entries(MEASURED_UNISON.stacks).filter(([key]) => Number(key.split(' u')[1]) <= 8);
+
+      it.each(cases)('moves the voices as measured: %s', (key, measured) => {
+        const [name, n] = key.split(' u');
+        const voices = peaksOf(sineVoices(Number(n), { stack: STACKS[name] }, 70), -2500, 4000)
+          .map(({ cents, side }) => {
+            const step = STEPS.reduce((a, b) =>
+              Math.abs(cents / 100 - b) < Math.abs(cents / 100 - a) ? b : a
+            );
+            return { step, detune: Math.round(cents - 100 * step), side };
+          })
+          .sort((a, b) => a.detune - b.detune);
+        expect(voices.map(({ step }) => step)).toEqual(measured.map(({ step }) => step));
+        voices.forEach(({ detune }, j) =>
+          expect(Math.abs(detune - measured[j].detune)).toBeLessThanOrEqual(7)
+        );
+        // (two centre voices close together show as one peak on both sides)
+        voices.forEach(
+          ({ side }, j) => measured[j].side !== 'C' && side !== 'C' && expect(side).toBe(measured[j].side)
+        );
+      });
+    });
+
+    describe('detune', () => {
+      // measured at Detune 1 (the outer voices at ±200 cents), up to the 8 voices of ours
+      const cases = Object.entries(MEASURED_UNISON.modes).filter(([key]) => Number(key.split(' u')[1]) <= 8);
+
+      it.each(cases)('shares the spread as measured: %s', (key, measured) => {
+        const [mode, n] = key.split(' u');
+        const cents = peaksOf(
+          sineVoices(Number(n), { detune: mode as UnisonShape['detune'] }, 400),
+          -300,
+          300
+        ).map((peak) => peak.cents);
+        expect(cents).toHaveLength(measured.length);
+        // (the measured voices 0.05 cents above ours: their note, ours at 440 · 2^(-9/12) exactly)
+        cents.forEach((c, j) => expect(Math.abs(c - measured[j])).toBeLessThan(0.3));
+      });
+
+      it('detunes the voices at random shares of the spread, sorted from the lowest, drawn after the phases', () => {
+        const { store } = core.storeWith({ a: [sine] });
+        const out = render({
+          store,
+          oscs: [shaped(4, { detune: 'random' })],
+          params: { frequency: 400, spread1: 1200 },
+          frames: RATE,
+          random: seeded(3),
+        });
+        const random = seeded(3);
+        Array.from({ length: 8 }, random);
+        const shares = Array.from({ length: 4 }, random).sort((a, b) => a - b);
+        // even: from the lowest right, left, right, left at 1/√2
+        expectVoices(
+          out,
+          shares.map((share, j): [number, number, number] => {
+            const level = 1 / Math.sqrt(2);
+            return [400 * 2 ** (share - 0.5), j % 2 === 1 ? level : 0, j % 2 === 0 ? level : 0];
+          })
+        );
+      });
+
+      it('draws 8 shares more per oscillator only for a random detune', () => {
+        const { store } = core.storeWith({ a: [saw] });
+        const calls = (detune: UnisonShape['detune']) => {
+          let count = 0;
+          const random = () => (count++ % 10) / 10;
+          render({ store, oscs: [shaped(8, { detune }), null], frames: 0, random });
+          return count;
+        };
+        expect(calls('linear')).toBe(8);
+        expect(calls('random')).toBe(16);
+      });
+    });
+
+    describe('position spread', () => {
+      // frame 0 the fundamental, 1 the 2nd harmonic, 2 the 3rd
+      const table = [cycle(2048, [[1, 1]]), cycle(2048, [[2, 1]]), cycle(2048, [[3, 1]])];
+
+      it('plays the positions of the voices spread as their pitch, within the table', () => {
+        const { store } = core.storeWith({ a: table });
+        // u3 at frame 1 and a spread of the whole table: voice 0 (right) frame 0, the middle one 1, voice 2 (left)
+        // frame 2; at frame 2 voice 2 stays on the last frame
+        const level = 1 / Math.sqrt(2);
+        const at = (position: number) =>
+          render({
+            store,
+            oscs: [shaped(3, { positionSpread: 1 })],
+            params: { frequency: 400, position1: position },
+            frames: RATE,
+          });
+        expectVoices(at(0.5), [
+          [400, 0, level],
+          [800, level, level],
+          [1200, level, 0],
+        ]);
+        expectVoices(at(1), [
+          [400, 0, 0],
+          [800, 0, level],
+          [1200, 2 * level, level],
+        ]);
+      });
+
+      it('spreads a moving position the same way', () => {
+        const { store } = core.storeWith({ a: table });
+        const play = (position1: ParamValue) =>
+          render({
+            store,
+            oscs: [shaped(3, { positionSpread: 0.5 })],
+            params: { frequency: 400, position1 },
+            frames: 4096,
+          });
+        // (moving by less than a float32 step of 0.5 in a few samples: every block is played as moving)
+        const moving = play((frame) => 0.5 + (frame % 2) * 6e-8);
+        const still = play(0.5);
+        moving.left.forEach((value, i) => expect(value).toBeCloseTo(still.left[i], 4));
+        moving.right.forEach((value, i) => expect(value).toBeCloseTo(still.right[i], 4));
+      });
     });
   });
 
@@ -527,7 +899,7 @@ describe('wavetable voice dsp', () => {
       // 4 voices at 1/2 a channel
       [8, 2],
     ])('starts all u%s voices at the phase at Phase rand 0, without a fade', (unison, peak) => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       const { left, right } = render({
         store,
         oscs: [osc({ unison, phase: 0.25 })],
@@ -539,7 +911,7 @@ describe('wavetable voice dsp', () => {
     });
 
     it('shifts each voice by a random share of its own, fading in', () => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       // voices 0 and 2 at the phase, voice 1 (the middle: both channels, at 1/√2 as the others) half a
       // period off
       const shares = [0, 0.5, 0];
@@ -557,8 +929,9 @@ describe('wavetable voice dsp', () => {
       expect(Math.max(...right.subarray(1000).map(Math.abs))).toBeLessThan(1e-3);
     });
 
-    it('fades in within 1.5 ms', () => {
-      const { store } = storeWith({ a: [sine] });
+    // a voice at a random phase starts at once (its click on a fast attack is part of the sound)
+    it('starts at once at a random phase', () => {
+      const { store } = core.storeWith({ a: [sine] });
       const { left } = render({
         store,
         oscs: [osc({ phase: 0.25, phaseRand: 1e-9 })],
@@ -566,13 +939,31 @@ describe('wavetable voice dsp', () => {
         frames: 256,
       });
       const wave = (i: number) => Math.sin(2 * Math.PI * (0.25 + (10 * i) / RATE));
-      expect(left[0]).toBe(0);
-      expect(left[36]).toBeCloseTo(0.5 * wave(36), 3);
+      expect(left[0]).toBeCloseTo(wave(0), 3);
+      expect(left[36]).toBeCloseTo(wave(36), 3);
       expect(left[72]).toBeCloseTo(wave(72), 3);
     });
 
+    it('fades a note of a legato phrase in within 1.5 ms (it would step to the level of the phrase)', () => {
+      const { store } = core.storeWith({ a: [sine] });
+      // its envelopes started 10 ms before it, at its phase without a random share
+      const { left } = render({
+        store,
+        oscs: [osc({ phase: 0.25, phaseRand: 0 })],
+        params: { frequency: 10 },
+        frames: 1024,
+        start: 512 / RATE,
+        envStart: 512 / RATE - 0.01,
+        from: 512,
+      });
+      const wave = (i: number) => Math.sin(2 * Math.PI * (0.25 + (10 * (i - 512)) / RATE));
+      expect(left[512]).toBe(0);
+      expect(left[548]).toBeCloseTo(0.5 * wave(548), 3);
+      expect(left[584]).toBeCloseTo(wave(584), 3);
+    });
+
     it('shifts every voice by a random share of phaseRand, u1 too', () => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       // 0.5 · 0.5: a quarter period after the phase
       const { left } = render({
         store,
@@ -585,7 +976,7 @@ describe('wavetable voice dsp', () => {
     });
 
     it('draws the random shares only at the note on', () => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       const random = jest.fn(seeded(3));
       const { dsp } = render({ store, oscs: [osc({ unison: 8, phaseRand: 1 })], frames: 0, random });
       const calls = random.mock.calls.length;
@@ -601,14 +992,14 @@ describe('wavetable voice dsp', () => {
 
   describe('lifecycle', () => {
     it('starts exactly at the start time', () => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       const { left } = render({ store, oscs: [osc({ phase: 0.25 })], start: 300.5 / RATE, frames: 512 });
       expect(left.subarray(0, 301).every((value) => value === 0)).toBe(true);
       expect(left[301]).toBeCloseTo(1, 4);
     });
 
     it('stops exactly where the gate drops to 0 without a release and ends', () => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       const { left, endedAt, dsp } = render({
         store,
         oscs: [osc({ phase: 0.25 })],
@@ -622,7 +1013,7 @@ describe('wavetable voice dsp', () => {
     });
 
     it('fades a stolen voice out in 20 ms (a raised cosine) from where the gate drops below 0', () => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       const { left, endedAt } = render({
         store,
         oscs: [osc({ phase: 0.25 })],
@@ -642,7 +1033,7 @@ describe('wavetable voice dsp', () => {
     // a sine of period 512 stolen at its peak (the worst case: a cut there steps from 1), through a Hann window
     // of 4096 centred on the steal: the energy above 4 · f0 against a cut at the same sample
     it('fades a stolen voice out with a splatter at least 50 dB below a cut', () => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       const steal = 4096;
       const size = 4096;
       const { left } = render({
@@ -670,7 +1061,7 @@ describe('wavetable voice dsp', () => {
     });
 
     it('frees its versions when it ends', () => {
-      const { store, freed } = storeWith({ a: [sine] });
+      const { store, freed } = core.storeWith({ a: [sine] });
       const entry = store.latest('a');
       render({ store, frames: 512, params: { gate: gateAt(100) } });
       store.set('a', 2, buildLevels([square]));
@@ -678,7 +1069,7 @@ describe('wavetable voice dsp', () => {
     });
 
     it('stays silent and ends at a gate closed before its start', () => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       const { left, endedAt } = render({
         store,
         start: 500 / RATE,
@@ -695,7 +1086,7 @@ describe('wavetable voice dsp', () => {
     // a constant level: a table of 1 (the DC and the nyquist are dropped from a frame, so a square at 1/2 the
     // rate can't be used): the voice of a sine at its peak, slower than the envelope
     const peak = (frames: number, options: Partial<RenderOptions> = {}) => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       return render({ store, oscs: [osc({ phase: 0.25 })], params: { frequency: 0.01 }, frames, ...options });
     };
     const sec = (frame: number) => frame / RATE;
@@ -709,6 +1100,22 @@ describe('wavetable voice dsp', () => {
       expect(left[0]).toBe(0);
       expect(left[480]).toBeCloseTo(1, 4);
       expect(left[3000]).toBeCloseTo(0.5, 4);
+    });
+
+    // the decay and the release curved (the default shape); the release still ends where a linear one does
+    it('curves the decay and the release', () => {
+      const curved = withCurves(env);
+      // (its end within a block)
+      const release = 2300;
+      const { left, endedAt } = peak(8192, {
+        envelope: curved,
+        params: { frequency: 0.01, gate: gateAt(release) },
+      });
+      for (let i = 0; i < 8192; i += 5)
+        expect(left[i]).toBeCloseTo(envelopeValue(curved, sec(i), sec(release)), 4);
+      // in the decay: below the line
+      expect(left[960]).toBeLessThan(envelopeValue(env, sec(960)) - 0.05);
+      expect(endedAt).toBe(Math.floor((release + 0.03 * RATE) / BLOCK) * BLOCK);
     });
 
     it('releases from the level reached, in the attack and in the decay, and ends exactly at its end', () => {
@@ -780,7 +1187,7 @@ describe('wavetable voice dsp', () => {
     it('starts the envelopes of a note of a phrase where its first voice, processed late, started them', () => {
       // the first note scheduled at 100 is processed from 1280, the second one of the phrase from 2048: it is in
       // the decay of the phrase started at 1280 (in its sustain from 100)
-      const shared = createVoiceShared();
+      const shared = core.createVoiceShared();
       peak(4096, { envelope: env, start: sec(100), from: 1280, shared });
       const { left } = peak(4096, {
         envelope: env,
@@ -796,9 +1203,9 @@ describe('wavetable voice dsp', () => {
 
     it('starts the envelopes of a note of a phrase where its first voice will, processed after it in a block', () => {
       // both are processed from 1280 on, the second one first: the first voice starts there in this block
-      const shared = createVoiceShared();
-      const { store } = storeWith({ a: [sine] });
-      const first = createVoiceDsp(
+      const shared = core.createVoiceShared();
+      const { store } = core.storeWith({ a: [sine] });
+      const first = core.createVoiceDsp(
         RATE,
         {
           osc: [osc()],
@@ -828,7 +1235,7 @@ describe('wavetable voice dsp', () => {
     it('keeps the phrase of a held note when a note out of legato starts its own meanwhile', () => {
       // the first note scheduled at 100 is processed from 1280; legato off, a note starts its envelopes at
       // 1536; legato on again, a note of the first phrase from 2048: in the decay of the phrase started at 1280
-      const shared = createVoiceShared();
+      const shared = core.createVoiceShared();
       peak(4096, { envelope: env, start: sec(100), from: 1280, shared });
       peak(4096, { envelope: env, start: sec(1536), from: 1536, phrase: 1, shared });
       const { left } = peak(4096, {
@@ -847,7 +1254,7 @@ describe('wavetable voice dsp', () => {
       // a key released and the next one pressed within a device buffer: both phrases are scheduled at 100, the
       // first one processed from 1280 (still playing), the next one from 1792; a note of the next one from 2048
       // goes on from 1792 (in its attack), not from the first one
-      const shared = createVoiceShared();
+      const shared = core.createVoiceShared();
       peak(4096, { envelope: env, start: sec(100), from: 1280, shared });
       peak(4096, { envelope: env, start: sec(100), from: 1792, phrase: 1, shared });
       const { left } = peak(4096, {
@@ -866,7 +1273,7 @@ describe('wavetable voice dsp', () => {
     it('forgets a phrase once its voices have ended: a note of it goes on from its start', () => {
       // the only voice of the phrase, processed from 1280, released at 1400, has ended (a release of 1 ms)
       const short = { ...env, release: 0.001 };
-      const shared = createVoiceShared();
+      const shared = core.createVoiceShared();
       const first = peak(4096, {
         envelope: short,
         start: sec(100),
@@ -934,7 +1341,7 @@ describe('wavetable voice dsp', () => {
     const env: EnvelopeParams = { attack: 0.01, hold: 0.005, decay: 0.02, sustain: 0.5, release: 0.03 };
     // the volume: a sine at its peak, slower than the envelope
     const peak = (frames: number, options: Partial<RenderOptions> = {}) => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       return render({ store, oscs: [osc({ phase: 0.25 })], params: { frequency: 0.01 }, frames, ...options });
     };
     const sec = (frame: number) => frame / RATE;
@@ -1063,9 +1470,30 @@ describe('wavetable voice dsp', () => {
     });
     // a sine at its peak, slower than the envelope: the output is the gain
     const peak = (frames: number, options: Partial<RenderOptions> = {}) => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       return render({ store, oscs: [osc({ phase: 0.25 })], params: { frequency: 0.01 }, frames, ...options });
     };
+
+    // Firefox gives a param without automation as 128 equal values, Chromium and WebKit as one
+    it('plays params of 128 equal values as one, routes on their sustain too: the same bits', () => {
+      const { store } = core.storeWith({ a: [saw, square, sine] });
+      const values: Params = { frequency: 220, position1: 0.3, spread1: 20, gain1: 0.6, gate: 1 };
+      const play = (params: Params) =>
+        render({
+          store,
+          oscs: [osc({ unison: 4 })],
+          params,
+          frames: 8192,
+          envelopes: [decay(0.5), FLAT],
+          routes: [route('position1', 0.5), route('spread1', 50, 0, 100), route('gain1', -0.05)],
+        });
+      const one = play(values);
+      const equal = play(
+        Object.fromEntries(Object.entries(values).map(([name, value]) => [name, () => value as number]))
+      );
+      expect(equal.left).toEqual(one.left);
+      expect(equal.right).toEqual(one.right);
+    });
 
     it('moves the gain by amount × the envelope, sample by sample', () => {
       const env = decay(0);
@@ -1089,7 +1517,7 @@ describe('wavetable voice dsp', () => {
     });
 
     it('moves the wave as a share of the table, like the knob there', () => {
-      const { store } = storeWith({ a: [sine, square, saw] });
+      const { store } = core.storeWith({ a: [sine, square, saw] });
       const routed = render({
         store,
         envelopes: [decay(0.5), FLAT],
@@ -1102,7 +1530,7 @@ describe('wavetable voice dsp', () => {
     });
 
     it('moves the unison detune in cents, a unison at detune 0 is not collapsed with a route raising it', () => {
-      const { store } = storeWith({ a: [saw] });
+      const { store } = core.storeWith({ a: [saw] });
       const env = decay(0.5);
       const routed = render({
         store,
@@ -1131,41 +1559,6 @@ describe('wavetable voice dsp', () => {
       lowered.left.forEach((value, i) => expect(value).toBeCloseTo(one.left[i], 4));
     });
 
-    it('plays from its mix tables again once its envelopes are in a flat stage', () => {
-      const { store } = storeWith({ a: [sine, square, saw] });
-      const shared = createVoiceShared();
-      const builds: number[] = [];
-      const takeBuild = shared.takeBuild;
-      shared.takeBuild = (frame, cost) => {
-        builds.push(frame);
-        return takeBuild(frame, cost);
-      };
-      render({
-        store,
-        shared,
-        envelopes: [decay(0.3), FLAT],
-        routes: [route('position1', 1)],
-        frames: 4096,
-      });
-      // the wave moves for 20 ms (960 samples): no mix, then a mix on the sustain
-      expect(builds.length).toBeGreaterThan(0);
-      expect(Math.min(...builds)).toBeGreaterThanOrEqual(1024);
-      expect(Math.min(...builds)).toBeLessThanOrEqual(1152);
-    });
-
-    it('renders only the envelopes routes read', () => {
-      const { store } = storeWith({ a: [sine] });
-      const [env2, env3] = [decay(0.3), decay(0.2)];
-      const stage = jest.spyOn(curve, 'envelopeStage');
-      const rendered = (env: EnvelopeParams) => stage.mock.calls.filter(([params]) => params === env).length;
-      render({ store, envelopes: [env2, env3], frames: 1280 });
-      expect([rendered(env2), rendered(env3)]).toEqual([0, 0]);
-      render({ store, envelopes: [env2, env3], routes: [route('gain1', -0.5)], frames: 1280 });
-      // ten blocks: the decay, one of them crosses its end; then the sustain, worked out once
-      expect([rendered(env2), rendered(env3)]).toEqual([10, 0]);
-      stage.mockRestore();
-    });
-
     it('glides a changed amount on a playing note in 10 ms, a removed route back to the base', () => {
       const routes = [route('gain1', -1)];
       const { left } = peak(4096, {
@@ -1189,7 +1582,7 @@ describe('wavetable voice dsp', () => {
     const lowpass: VoiceFilterOptions = { type: 'lowpass', cutoff: 1000, resonance: 6, gain: 0 };
     // the steady tone of a sine at `frequency` through the voice (the second half: the filter has settled)
     const tone = (frequency: number, options: Partial<RenderOptions> = {}) => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       const { left, right } = render({ store, params: { frequency }, frames: 16384, ...options });
       return { left: left.subarray(8192), right: right.subarray(8192) };
     };
@@ -1213,7 +1606,7 @@ describe('wavetable voice dsp', () => {
     });
 
     it('filters both channels of a unison, the middle voice in both', () => {
-      const { store } = storeWith({ a: [saw] });
+      const { store } = core.storeWith({ a: [saw] });
       const { left, right } = render({
         store,
         oscs: [osc({ unison: 3 })],
@@ -1227,7 +1620,7 @@ describe('wavetable voice dsp', () => {
     });
 
     it('passes the sound unchanged when off', () => {
-      const { store } = storeWith({ a: [saw] });
+      const { store } = core.storeWith({ a: [saw] });
       const off = render({ store, oscs: [osc({ unison: 3 })], params: { spread1: 30 }, frames: 2048 });
       const on = render({
         store,
@@ -1261,23 +1654,8 @@ describe('wavetable voice dsp', () => {
       routed.left.forEach((value, i) => expect(value).toBeCloseTo(knob.left[i], 4));
     });
 
-    it('works the coefficients out once while the values stay, every 32 samples while one moves', () => {
-      const into = jest.spyOn(biquad, 'coefficientsInto');
-      const { store } = storeWith({ a: [sine] });
-      render({ store, filter: lowpass, frames: 2048 });
-      expect(into).toHaveBeenCalledTimes(1);
-      into.mockClear();
-      // the cutoff moves for 20 ms (960 samples), then stays
-      const decaying: EnvelopeParams = { attack: 0, hold: 0, decay: 0.02, sustain: 0.5, release: 0 };
-      const route: VoiceRoute = { env: 1, param: 'cutoff', amount: 2, min: 10, max: 22050, log: true };
-      render({ store, filter: lowpass, envelopes: [decaying, FLAT], routes: [route], frames: 4096 });
-      expect(into.mock.calls.length).toBeGreaterThanOrEqual(30);
-      expect(into.mock.calls.length).toBeLessThanOrEqual(34);
-      into.mockRestore();
-    });
-
     it('glides a changed knob on a playing note in about 10 ms, starts a filter turned on from silence', () => {
-      const { store } = storeWith({ a: [saw] });
+      const { store } = core.storeWith({ a: [saw] });
       const play = (filter: VoiceFilterOptions, before?: RenderOptions['before']) =>
         render({ store, params: { frequency: 220 }, filter, frames: 8192, before }).left;
       const low = play(lowpass);
@@ -1301,7 +1679,7 @@ describe('wavetable voice dsp', () => {
     it('takes the knobs of another type at once: the units of the resonance differ', () => {
       // the Q of a bandpass is linear, that of a lowpass in dB: gliding from 1000 to 20 would pass through
       // a lowpass of several hundred dB
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       const bandpass: VoiceFilterOptions = { type: 'bandpass', cutoff: 1000, resonance: 1000, gain: 0 };
       const resonant: VoiceFilterOptions = { type: 'lowpass', cutoff: 1000, resonance: 20, gain: 0 };
       const play = (filter: VoiceFilterOptions, before?: RenderOptions['before']) =>
@@ -1315,7 +1693,7 @@ describe('wavetable voice dsp', () => {
 
   describe('oscillators', () => {
     it('adds both oscillators with their gains', () => {
-      const { store } = storeWith({ a: [sine], b: [square] });
+      const { store } = core.storeWith({ a: [sine], b: [square] });
       const both = render({
         store,
         oscs: [osc(), osc({ table: 'b' })],
@@ -1328,13 +1706,13 @@ describe('wavetable voice dsp', () => {
     });
 
     it('skips an oscillator that is off', () => {
-      const { store } = storeWith({ a: [sine], b: [square] });
+      const { store } = core.storeWith({ a: [sine], b: [square] });
       const second = render({ store, oscs: [null, osc({ table: 'b' })], frames: 512 });
       expect(second.left).toEqual(render({ store, oscs: [osc({ table: 'b' })], frames: 512 }).left);
     });
 
     it('follows a changing gain per sample', () => {
-      const { store } = storeWith({ a: [sine] });
+      const { store } = core.storeWith({ a: [sine] });
       const { left } = render({ store, params: { gain1: (frame) => frame / 512 }, frames: 512 });
       const full = render({ store, frames: 512 }).left;
       left.forEach((value, i) => expect(value).toBeCloseTo((full[i] * i) / 512, 5));
@@ -1349,7 +1727,7 @@ describe('wavetable voice dsp', () => {
       ['a negative spread', { spread1: -50 }],
       ['a changing frequency up to 1 MHz', { frequency: (frame: number) => frame * 10 }],
     ])('renders %s without NaN', (_, params) => {
-      const { store } = storeWith({ a: [saw, sine] });
+      const { store } = core.storeWith({ a: [saw, sine] });
       const { left, right } = render({
         store,
         oscs: [osc({ unison: 4 })],
@@ -1360,7 +1738,7 @@ describe('wavetable voice dsp', () => {
     });
 
     it('renders a table of silent frames as silence', () => {
-      const { store } = storeWith({ a: [[0, 0]] });
+      const { store } = core.storeWith({ a: [[0, 0]] });
       const { left } = render({ store, frames: 256 });
       expect(left.every((value) => value === 0)).toBe(true);
     });
@@ -1368,7 +1746,7 @@ describe('wavetable voice dsp', () => {
 
   describe('start frames', () => {
     it('tells the frame it is scheduled at and the one it started at', () => {
-      const { store } = storeWith({ a: [saw] });
+      const { store } = core.storeWith({ a: [saw] });
       const before: number[] = [];
       const { dsp } = render({
         store,
@@ -1383,8 +1761,8 @@ describe('wavetable voice dsp', () => {
     });
 
     it('starts at its first block when it is processed after its start', () => {
-      const { store } = storeWith({ a: [saw] });
-      const dsp = createVoiceDsp(
+      const { store } = core.storeWith({ a: [saw] });
+      const dsp = core.createVoiceDsp(
         RATE,
         {
           osc: [osc()],
@@ -1397,7 +1775,7 @@ describe('wavetable voice dsp', () => {
         },
         store,
         seeded(1),
-        createVoiceShared()
+        core.createVoiceShared()
       );
       const values = Object.fromEntries(
         Object.entries(DEFAULTS).map(([name, value]) => [name, Float32Array.of(value)])
@@ -1410,9 +1788,9 @@ describe('wavetable voice dsp', () => {
 
   describe('stats', () => {
     it('counts the voices playing and their unison voices until they end', () => {
-      const { store } = storeWith({ a: [saw] });
-      const shared = createVoiceShared();
-      const during: ReturnType<VoiceShared['stats']>[] = [];
+      const { store } = core.storeWith({ a: [saw] });
+      const shared = core.createVoiceShared();
+      const during: VoiceStats[] = [];
       render({
         store,
         shared,
@@ -1429,8 +1807,8 @@ describe('wavetable voice dsp', () => {
     });
 
     it('counts the samples played directly and from the mix tables, and the mix builds', () => {
-      const { store } = storeWith({ a: [saw, square] });
-      const shared = createVoiceShared();
+      const { store } = core.storeWith({ a: [saw, square] });
+      const shared = core.createVoiceShared();
       render({ store, shared, oscs: [osc({ unison: 2 })], params: { spread1: 10 }, frames: 4 * BLOCK });
       const stats = shared.stats();
       // the first block plays directly, the second builds the mixes and plays them, as do the next ones
@@ -1444,8 +1822,8 @@ describe('wavetable voice dsp', () => {
     });
 
     it('counts each sample once through a crossfade into a new version', () => {
-      const { store } = storeWith({ a: [saw, square] });
-      const shared = createVoiceShared();
+      const { store } = core.storeWith({ a: [saw, square] });
+      const shared = core.createVoiceShared();
       render({
         store,
         shared,
@@ -1461,15 +1839,15 @@ describe('wavetable voice dsp', () => {
     });
 
     it('plays a moving position directly, without a mix', () => {
-      const { store } = storeWith({ a: [saw, square] });
-      const shared = createVoiceShared();
+      const { store } = core.storeWith({ a: [saw, square] });
+      const shared = core.createVoiceShared();
       render({ store, shared, params: { position1: (frame) => frame / 4096 }, frames: 4 * BLOCK });
       expect(shared.stats()).toMatchObject({ mixSamples: 0, directSamples: 4 * BLOCK, builds: 0 });
     });
 
     it('counts the builds the budget refuses and the peak cost of a block, read once', () => {
-      const { store } = storeWith({ a: [saw, square] });
-      const shared = createVoiceShared();
+      const { store } = core.storeWith({ a: [saw, square] });
+      const shared = core.createVoiceShared();
       // 8 voices between two frames: their mixes take more than the budget of one block
       render({
         store,
@@ -1488,7 +1866,7 @@ describe('wavetable voice dsp', () => {
 
   describe('table store', () => {
     it('counts the versions it holds and their bytes, a replaced one until no voice holds it', () => {
-      const store = createTableStore();
+      const store = core.createTableStore();
       const one = buildLevels([sine]);
       const two = buildLevels([square]);
       const [bytesOne, bytesTwo] = [one.data.byteLength, two.data.byteLength];
@@ -1509,7 +1887,7 @@ describe('wavetable voice dsp', () => {
 
     it('counts a freed version off before it hands its buffer over', () => {
       const seen: number[] = [];
-      const store = createTableStore(() => seen.push(store.stats().bytes));
+      const store = core.createTableStore(() => seen.push(store.stats().bytes));
       store.set('a', 1, buildLevels([sine]));
       store.remove('a');
       expect(seen).toEqual([0]);
@@ -1517,7 +1895,7 @@ describe('wavetable voice dsp', () => {
 
     it('keeps the latest version, a stale one is freed at once', () => {
       const freed: unknown[] = [];
-      const store = createTableStore((levels) => freed.push(levels));
+      const store = core.createTableStore((levels) => freed.push(levels));
       const one = buildLevels([sine]);
       const two = buildLevels([square]);
       store.set('a', 2, two);
@@ -1528,7 +1906,7 @@ describe('wavetable voice dsp', () => {
 
     it('frees a replaced version once no voice holds it', () => {
       const freed: unknown[] = [];
-      const store = createTableStore((levels) => freed.push(levels));
+      const store = core.createTableStore((levels) => freed.push(levels));
       const one = buildLevels([sine]);
       store.set('a', 1, one);
       const held = store.acquire(store.latest('a') as NonNullable<ReturnType<typeof store.latest>>);
@@ -1540,7 +1918,7 @@ describe('wavetable voice dsp', () => {
 
     it('frees a removed table', () => {
       const freed: unknown[] = [];
-      const store = createTableStore((levels) => freed.push(levels));
+      const store = core.createTableStore((levels) => freed.push(levels));
       const one = buildLevels([sine]);
       store.set('a', 1, one);
       store.remove('a');

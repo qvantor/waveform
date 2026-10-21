@@ -8,6 +8,7 @@ import { exec, out, root, tryExec } from './util.mjs';
 
 const BUILD = 'dist/apps/waveform-perf';
 const STAMP = 'perf-build-stamp.txt';
+const WASM_STAMP = 'wasm-stamp.txt';
 
 // `build`: its perf build too (the browser cases; the DSP bundles its sources)
 export const prepareReference = async (ref, { build = true } = {}) => {
@@ -51,6 +52,15 @@ export const prepareReference = async (ref, { build = true } = {}) => {
       },
     });
     fs.writeFileSync(stamp, sha);
+  }
+  // the cores of a tree with Rust ones (scripts/wasm.mjs): the DSP runs those of production (tmp/wasm), which
+  // the perf build doesn't make
+  const wasmStamp = path.join(dir, WASM_STAMP);
+  const wasmBuilt = fs.existsSync(wasmStamp) && fs.readFileSync(wasmStamp, 'utf8') === sha;
+  if (fs.existsSync(path.join(dir, 'scripts/wasm.mjs')) && !wasmBuilt) {
+    console.log(`against ${ref}: the wasm cores of ${short} (npm run wasm)…`);
+    await exec('npm', ['run', 'wasm', '--', '--only=prod'], { cwd: dir });
+    fs.writeFileSync(wasmStamp, sha);
   }
   return { ref, sha, short, dir, siteDir, notes };
 };

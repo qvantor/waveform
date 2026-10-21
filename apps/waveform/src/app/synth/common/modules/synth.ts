@@ -5,10 +5,16 @@ import { PrimitiveBS, rxModel, rxModelReact } from '@waveform/rxjs-react';
 import { ENVELOPES, MOD_SOURCES } from '@waveform/preset-schema';
 import { getFq, stringToNote, noteToString } from '../../services';
 import { urlSnapshotPlugin } from '../../../app';
-import type { VoiceEndedMessage, VoiceOscOptions, VoiceStartedMessage } from '../wavetable/wavetable-osc-dsp';
+import type {
+  VoiceEndedMessage,
+  VoiceFilterMessage,
+  VoiceFilterOptions,
+  VoiceOscOptions,
+  VoiceRoute,
+  VoiceRoutesMessage,
+  VoiceStartedMessage,
+} from '../wavetable/voice-options';
 import { EnvelopeParams, envelopeValue } from '../envelope/envelope-curve';
-import type { VoiceRoute, VoiceRoutesMessage } from '../wavetable/voice-modulation';
-import type { VoiceFilterMessage, VoiceFilterOptions } from '../wavetable/voice-filter';
 import { amountInUnits, filterTargetScale, MOD_TARGETS } from '../modulation/modulation-targets';
 import type { FilterModule } from '../../filter/modules/filter';
 import type { FxNote } from '../../fx/effects/fx-modulation';
@@ -65,7 +71,10 @@ const setParam = (param: AudioParam, value: number, now: number) => {
   param.setValueAtTime(value, now);
 };
 
-type VoiceOscillator = Pick<OscillatorModel, 'id' | '$active' | '$osc' | '$params' | 'buses' | '$busSources'>;
+type VoiceOscillator = Pick<
+  OscillatorModel,
+  'id' | '$active' | '$osc' | '$unisonShape' | '$params' | 'buses' | '$busSources'
+>;
 
 // the routes of a note to its params: of the oscillators on for it and of the filter while it is on, in the
 // range of its type (a knob its type doesn't use is left out); an amount of 0 is left out (its envelope isn't
@@ -110,7 +119,8 @@ interface Phrase {
   from?: number[];
 }
 
-// the envelopes of a voice are those of the knobs (equal values: a preset applied again makes new objects)
+// the envelopes of a voice are those of the knobs and their curves (equal values: a preset applied again makes
+// new objects)
 const sameEnvelopes = (envelopes: EnvelopeParams[], knobs: Envelopes) =>
   ENVELOPES.every((id, k) => isEqual(envelopes[k], knobs[id]));
 
@@ -143,8 +153,8 @@ interface VoiceConfig {
 }
 
 // the node of a note: both oscillators (off: not active when it was pressed) with their unison voices and its
-// envelopes (ENV 1 is its volume); the knobs are the base of its params (oscillator $params), the unison, the
-// phases, on/off and the envelopes are read now
+// envelopes (ENV 1 is its volume); the knobs are the base of its params (oscillator $params), the unison and its
+// shape, the phases, on/off and the envelopes are read now
 const createVoiceNode = ({
   audioCtx,
   createNode,
@@ -161,9 +171,10 @@ const createVoiceNode = ({
     const params = oscillator.$params.value;
     OSC_PARAMS.forEach((param) => (parameterData[oscParamName(param, index)] = params[param]));
     if (!oscillator.$active.value) return null;
-    // the phases at the note on: options, not params (an AudioParam costs every block, ~2% of a held note)
+    // the phases and the shape of the unison at the note on: options, not params (an AudioParam costs every
+    // block, ~2% of a held note)
     const { unison, phase, phaseRand } = oscillator.$osc.value;
-    return { table: oscillator.id, unison, phase, phaseRand };
+    return { table: oscillator.id, unison, phase, phaseRand, unisonShape: oscillator.$unisonShape.value };
   });
   const on = oscillators.map(({ $active }) => $active.value);
   const node = createNode(
@@ -432,6 +443,7 @@ class Voicing {
     const now = audioCtx.currentTime;
     const own: Phrase = {
       id: ++phrases,
+      // the knobs and the curves of their stages
       envelopes: ENVELOPES.map((id) => $envelopes.value[id]),
       start: now,
       started: now,
@@ -461,7 +473,11 @@ class Voicing {
         this.sounding.delete(voice);
         // the voice of mono ended by itself (its processor failed): the next note starts one
         if (this.mono?.voice === voice) this.mono = null;
-        if (this.forget(voice)) this.config.onCount();
+        const key = noteToString(voice.note);
+        // a held voice ended by itself: its key holds nothing (Poly doesn't count it, no glide from it)
+        if (this.voices[key] === voice) this.letGo(key, voice);
+        else if (!this.forget(voice)) return;
+        this.config.onCount();
       },
       // processed late: the envelopes of the first note of a phrase started with it; the fx follow them (and
       // its release) from there while they are those of the last note
@@ -609,11 +625,17 @@ class Voicing {
       }
     }
     const voice = this.voices[stringNote];
-    // the voice of a stolen note has already stopped, the held ones keep playing
+    // the voice of a stolen note has already stopped (or it ended by itself), the held ones keep playing
     if (!voice) return;
-    voice.stop();
-    delete this.voices[stringNote];
+    this.letGo(stringNote, voice);
     this.released.push(voice);
+  };
+
+  // the voice of a held key no longer plays it: its key is released, or it ended by itself (its node is off, the
+  // release only tells the fx when)
+  private letGo(key: string, voice: Voice) {
+    voice.stop();
+    delete this.voices[key];
     const held = Object.keys(this.voices).length;
     // the fx release their envelopes with the last note (at its release), in legato with the last key of the
     // phrase
@@ -623,7 +645,7 @@ class Voicing {
     }
     // the last key of a legato phrase: the next note starts a new one
     if (held === 0) this.phrase = undefined;
-  };
+  }
 
   // Poly came to 1 or left it: the voice of mono plays on as a voice of its note (its other keys release
   // nothing), the next note follows the new mode

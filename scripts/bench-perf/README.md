@@ -55,8 +55,7 @@ warns), makes its perf build once (`npm run build:perf` there, ~1.5 min) and ser
 
 `--against=HEAD` with a clean tree is an A/A run: both sides the same code, nothing should fail (the check of the
 verdicts on the machine). A run without `--against` checks no regression: budgets, invariants and the drift from
-the baseline. The worktrees stay for the next run (a reference is built once): `rm -rf tmp/bench-perf/against &&
-git worktree prune` removes them.
+the baseline. The worktrees stay for the next run (a reference is built once): `rm -rf tmp/bench-perf/against && git worktree prune` removes them.
 
 ## The baseline
 
@@ -73,11 +72,11 @@ macOS release or output.
 48 kHz, whatever the rate of the output (`SCENE_RATE`: the app asks for none, its context would run at the
 output's; a page whose context runs at another rate errors).
 
-| Id | Case | Measures |
-| --- | --- | --- |
+| Id     | Case                                                                                                                                                                                                                                                                                                                                   | Measures                                                                                                                                        |
+| ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | **S5** | the heavy patch, 12 notes held: osc1 `ESW Analog - 303 Saw`, osc2 `ESW Basics - PWM Saw 01` at Oct −1 (256 frames each), unison 8 each, detune 25 / 35, Phase rand 100%; lowpass 2.5 kHz, res 6; distortion (mix 1, drive 8) → delay (mix 0.3) → reverb (mix 0.3, decay 3 s); envelope 10 ms / 100 ms / 300 ms / 0.8 / 300 ms; Poly 12 | the cycles of the audio thread, the main thread and the worker, the memory of the page, the render quanta, dropouts, the counters of the engine |
-| **L1** | 50 single notes, a key every 300 ms (one oscillator, u1, no attack) | latency to the voice and to the output, jitter |
-| **L3** | L1 on top of 8 held notes (2 × u8) | latency under audio load |
+| **L1** | 50 single notes, a key every 300 ms (one oscillator, u1, no attack)                                                                                                                                                                                                                                                                    | latency to the voice and to the output, jitter                                                                                                  |
+| **L3** | L1 on top of 8 held notes (2 × u8)                                                                                                                                                                                                                                                                                                     | latency under audio load                                                                                                                        |
 
 - **A CPU run** (~22 s): a fresh browser context, a click (the AudioContext runs), `ready()`, the snapshot, its
   notes, 3 s of warm-up (the mix tables built, the reverb filled), then Instruments records 10 s
@@ -94,9 +93,14 @@ output's; a page whose context runs at another rate errors).
   voice was scheduled at and the one it started at (posted by its processor, matched to its press), the onsets
   an extra worklet (`probe.worklet.ts`, served by the runner) hears before the filter and after the limiter
   (L1).
-- **The DSP** (Node): voices, table building, reverb, distortion, limiter, ns per sample divided by the ns of a
+- **The DSP** (Node): voices (held, a moving position, a chord of 12 notes × 2 × u8 struck every 40 blocks:
+  its attack, the direct path and the mix builds under the budget), table building, reverb, distortion,
+  limiter, ns per sample divided by the ns of a
   fixed multiply-add of the same run (the speed of the machine out), 7 samples each. V8, not JSC: it catches
-  algorithmic regressions (a hot loop that boxes doubles) the operation counts of the specs can't.
+  algorithmic regressions (a hot loop that boxes doubles) the operation counts of the specs can't. A module with
+  a Rust core (`dsp/`, `tmp/wasm` of the tree) runs it under the names of its cases; a tree of before stage 5 of
+  the plan runs its TS cores under them (`--against=<ref>` of then compares the cores), a tree of the port has
+  both, the TS ones as `<case> (ts)`.
 
 ## What the report shows
 
@@ -129,14 +133,14 @@ Mann–Whitney U test of the values of the working tree against those of the ref
 ties at their mean ranks; above, the normal approximation with the corrections for ties and continuity) **and** a
 shift of the median over a threshold (`verdict.mjs`, `REGRESSIONS` of `report.mjs`):
 
-| Metric | Values a side | Regression | Level |
-| --- | --- | --- | --- |
-| S5 audio thread | the runs (5) | p < 0.05, +5% and +2 Mcps | FAIL |
-| S5 memory | the runs | p < 0.05, +5% and +10 MB | FAIL |
-| S5 main thread | the runs | p < 0.05, +15% and +5 Mcps | WARN |
-| L1, L3 to the voice | the notes (50) | p < 0.01 and +0.5 ms | FAIL |
-| L1, L3 to the output (Chromium) | the notes | p < 0.01 and +0.5 ms | WARN (the output path is the browser's and the device's) |
-| DSP | the samples (7) | p < 0.05 and +5% | FAIL |
+| Metric                          | Values a side   | Regression                 | Level                                                    |
+| ------------------------------- | --------------- | -------------------------- | -------------------------------------------------------- |
+| S5 audio thread                 | the runs (5)    | p < 0.05, +5% and +2 Mcps  | FAIL                                                     |
+| S5 memory                       | the runs        | p < 0.05, +5% and +10 MB   | FAIL                                                     |
+| S5 main thread                  | the runs        | p < 0.05, +15% and +5 Mcps | WARN                                                     |
+| L1, L3 to the voice             | the notes (50)  | p < 0.01 and +0.5 ms       | FAIL                                                     |
+| L1, L3 to the output (Chromium) | the notes       | p < 0.01 and +0.5 ms       | WARN (the output path is the browser's and the device's) |
+| DSP                             | the samples (7) | p < 0.05 and +5%           | FAIL                                                     |
 
 Fewer than 5 runs or samples, or 20 notes, on a side: a warning (too few values to compare), never a silent
 pass. The drift from the baseline (S5 audio +25% and +5 Mcps, memory +10% and +20 MB, to the voice +1 ms, the DSP
@@ -159,43 +163,43 @@ The verdicts are tested without a browser: `npm run test:scripts` (`verdict.test
 The cases the suite had before (git history of this folder) and what checks the same now, deterministic, in
 `npx nx test waveform` (CI):
 
-| Was | What it showed | Now |
-| --- | --- | --- |
-| S0 | the fixed cost: the limiter, idle effects | the idle paths of `distortion-dsp.spec.ts`, `reverb-dsp.spec.ts`, `true-peak.spec.ts` |
-| S1, S2, S3, S4 | the cost of a voice, a unison voice, a note, each effect; held notes on their mix tables | `synth/common/wavetable/wavetable-osc-budget.spec.ts` (the samples of each path, the mix builds and their cost per block) |
-| S6 | voices moving on the direct path | `wavetable-osc-budget.spec.ts` |
-| S7 | note-on peaks, release tails, stealing | `wavetable-osc-budget.spec.ts`, `synth/common/modules/synth-work.spec.ts`, `synth/endurance.spec.ts` |
-| S8 | table switches: crossfades, the worker, the memory peak, the store settling | `synth/common/wavetable/wavetable-memory.spec.ts`, `endurance.spec.ts` |
-| S9 | a frame edited every 50 ms | `wavetable-osc-budget.spec.ts` (back on the mix tables within the throttle of the edits) |
-| S10 | leaks over a random patch every 5 s | `endurance.spec.ts` |
-| S11 | 44.1 / 96 kHz, the mix-table budget above 88.2 kHz | `wavetable-osc-budget.spec.ts` |
-| S12 | the table of an oscillator that is off | `wavetable-memory.spec.ts` |
-| L2 | the chain latency = limiter + distortion | `app/perf/chain-latency.spec.ts` |
-| L4 | notes on the piano | `libs/ui-kit/src/piano-keyboard/piano-keyboard.spec.tsx` (a pointer plays its note at once) |
-| L5, L7, L8 | a note right after a table switch, WebMIDI, trills | `synth/common/modules/note-path.spec.ts` (the input reaches its voice in the same task), `synth-work.spec.ts` (the work of a note on) |
-| L6 | the first note after the load, after the background | dropped: the code path is in `synth.spec.ts` (loading) and `synth-core.spec.ts` (resume) |
-| devices | the load of the heavy patch on an iPhone, an iPad 10 (`device.mjs`) | dropped (git history) |
+| Was            | What it showed                                                                           | Now                                                                                                                                   |
+| -------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| S0             | the fixed cost: the limiter, idle effects                                                | the idle paths of `distortion-dsp.spec.ts`, `reverb-dsp.spec.ts`, `true-peak.spec.ts`                                                 |
+| S1, S2, S3, S4 | the cost of a voice, a unison voice, a note, each effect; held notes on their mix tables | `synth/common/wavetable/wavetable-osc-budget.spec.ts` (the samples of each path, the mix builds and their cost per block)             |
+| S6             | voices moving on the direct path                                                         | `wavetable-osc-budget.spec.ts`                                                                                                        |
+| S7             | note-on peaks, release tails, stealing                                                   | `wavetable-osc-budget.spec.ts`, `synth/common/modules/synth-work.spec.ts`, `synth/endurance.spec.ts`                                  |
+| S8             | table switches: crossfades, the worker, the memory peak, the store settling              | `synth/common/wavetable/wavetable-memory.spec.ts`, `endurance.spec.ts`                                                                |
+| S9             | a frame edited every 50 ms                                                               | `wavetable-osc-budget.spec.ts` (back on the mix tables within the throttle of the edits)                                              |
+| S10            | leaks over a random patch every 5 s                                                      | `endurance.spec.ts`                                                                                                                   |
+| S11            | 44.1 / 96 kHz, the mix-table budget above 88.2 kHz                                       | `wavetable-osc-budget.spec.ts`                                                                                                        |
+| S12            | the table of an oscillator that is off                                                   | `wavetable-memory.spec.ts`                                                                                                            |
+| L2             | the chain latency = limiter + distortion                                                 | `app/perf/chain-latency.spec.ts`                                                                                                      |
+| L4             | notes on the piano                                                                       | `libs/ui-kit/src/piano-keyboard/piano-keyboard.spec.tsx` (a pointer plays its note at once)                                           |
+| L5, L7, L8     | a note right after a table switch, WebMIDI, trills                                       | `synth/common/modules/note-path.spec.ts` (the input reaches its voice in the same task), `synth-work.spec.ts` (the work of a note on) |
+| L6             | the first note after the load, after the background                                      | dropped: the code path is in `synth.spec.ts` (loading) and `synth-core.spec.ts` (resume)                                              |
+| devices        | the load of the heavy patch on an iPhone, an iPad 10 (`device.mjs`)                      | dropped (git history)                                                                                                                 |
 
 What only the browser tells stays here: the time of the code in a real engine (JIT, boxing, JSC), the cycles the
 browser adds around the worklet, GC and the heap, dropouts, the device callback and the jitter of real input.
 
 ## Files
 
-| File |  |
-| --- | --- |
-| `run.mjs` | the CLI, the CPU runs, the order of everything |
-| `scenes.mjs` | the cases as data |
-| `site.mjs` | the perf build, the tables, the server |
-| `browser.mjs` | Playwright: launch, a page of the app, the hook |
-| `xctrace.mjs` | recording and reading the traces (threads, cycles, memory) |
-| `chrome-trace.mjs` | the render quanta and the glitches of Chromium |
-| `latency.mjs` | the latency cases |
-| `reference.mjs` | the reference of an A/B run: its worktree, its perf build |
-| `dsp.mjs` | the DSP in Node |
-| `report.mjs` | summaries, the checks, the report, the baseline |
-| `verdict.mjs` | Mann–Whitney, the regressions, the conditions, the merge of the baseline (pure) |
-| `*.test.mjs` | the specs of the verdicts (`npm run test:scripts`) |
-| `baselines/` | the baselines of the machines |
+| File                  |                                                                                           |
+| --------------------- | ----------------------------------------------------------------------------------------- |
+| `run.mjs`             | the CLI, the CPU runs, the order of everything                                            |
+| `scenes.mjs`          | the cases as data                                                                         |
+| `site.mjs`            | the perf build, the tables, the server                                                    |
+| `browser.mjs`         | Playwright: launch, a page of the app, the hook                                           |
+| `xctrace.mjs`         | recording and reading the traces (threads, cycles, memory)                                |
+| `chrome-trace.mjs`    | the render quanta, the messages of the worklet thread and the glitches of Chromium        |
+| `latency.mjs`         | the latency cases                                                                         |
+| `reference.mjs`       | the reference of an A/B run: its worktree, its perf build                                 |
+| `dsp.mjs`             | the DSP in Node                                                                           |
+| `report.mjs`          | summaries, the checks, the report, the baseline                                           |
+| `verdict.mjs`         | Mann–Whitney, the regressions, the conditions, the merge of the baseline (pure)           |
+| `*.test.mjs`          | the specs of the verdicts (`npm run test:scripts`)                                        |
+| `baselines/`          | the baselines of the machines                                                             |
 | `../bench-common.mjs` | shared with bench-osc: the root of the repo, Playwright, `.env`, the tables of the bucket |
 
 When Chromium renames its trace events (a Playwright update), quanta show "found by its rate" or n/a: run with

@@ -113,18 +113,18 @@ export const git = async () => {
   return { commit, dirty };
 };
 
-// a hash of what a build of the app is made of: the commit, the changes of the app and the libs (tracked and
-// not), the dependencies
+// a hash of what a build of the app is made of: the commit, the changes of the app, the libs and the Rust cores
+// (tracked and not), the dependencies
 export const sourceStamp = async () => {
   const hash = crypto.createHash('sha1');
   hash.update(await tryExec('git', ['rev-parse', 'HEAD'], { cwd: root }));
   hash.update(
-    await tryExec('git', ['diff', 'HEAD', '--', 'apps', 'libs', 'package.json', 'package-lock.json'], {
+    await tryExec('git', ['diff', 'HEAD', '--', 'apps', 'libs', 'dsp', 'package.json', 'package-lock.json'], {
       cwd: root,
     })
   );
   const untracked = (
-    await tryExec('git', ['ls-files', '--others', '--exclude-standard', 'apps', 'libs'], { cwd: root })
+    await tryExec('git', ['ls-files', '--others', '--exclude-standard', 'apps', 'libs', 'dsp'], { cwd: root })
   )
     .split('\n')
     .filter(Boolean);

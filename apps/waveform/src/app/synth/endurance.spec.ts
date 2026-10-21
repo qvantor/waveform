@@ -4,7 +4,7 @@ import { createSynth, stopModels } from '../../test-utils/models';
 import { createOfflineEngine } from '../../test-utils/offline-engine';
 import { seeded } from '../../test-utils/voice-dsp';
 import { tableBytes } from './common/wavetable/wavetable-mipmap';
-import { KILL_FADE } from './common/wavetable/wavetable-osc-dsp';
+import { KILL_FADE } from './common/wavetable/voice-options';
 
 // the synth played for a long time, offline (it replaces the endurance scene of the browser suite, its random
 // patches every 5 s for 10 min, and the settling of its table switches): the models, the worker's builder,

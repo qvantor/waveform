@@ -1,8 +1,9 @@
 import { mapValues } from 'lodash';
 import { FX_PARAMS } from '@waveform/preset-schema';
 import { withoutAudioWorklet } from '../../../../test-utils/no-audio-worklet';
+import { DISTORTION_PROCESSOR } from '../../common/processors';
 import { distortion } from './distortion';
-import { DISTORTION_LATENCY, DISTORTION_PROCESSOR } from './distortion-dsp';
+import { DISTORTION_LATENCY } from './distortion-params';
 import { DISTORTION_MODES } from './distortion-modes';
 import { WORKLETS_PATH } from './load-worklet';
 

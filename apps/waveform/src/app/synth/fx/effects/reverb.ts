@@ -1,11 +1,12 @@
 import { mapValues, omit } from 'lodash';
 import { FX_PARAMS } from '@waveform/preset-schema';
 import { number } from '@waveform/math';
+import { REVERB_PROCESSOR } from '../../common/processors';
 import { FxDefinition } from './types';
 import { ReverbParam, REVERB_PRESETS } from './reverb-presets';
 import { formatHz, formatMs, formatSeconds } from './format';
 import { eraIndex, REVERB_ERAS } from './reverb-era';
-import { REVERB_PROCESSOR, ReverbDspParams, ReverbMessage, ReverbOptions } from './reverb-dsp';
+import { ReverbDspParams, ReverbMessage, ReverbOptions } from './reverb-params';
 import { createWorkletFx, STEREO_WORKLET_OPTIONS } from './worklet-fx';
 import type { FxModMessage } from './fx-modulation';
 

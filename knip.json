@@ -12,16 +12,30 @@
     "scripts/*.mjs",
     "scripts/bench-osc/run.mjs",
     "scripts/bench-perf/run.mjs",
+    "scripts/wasm-browsers/run.mjs",
+    "scripts/wasm-browsers/app.mjs",
+    "scripts/renders/run.mjs",
     "scripts/**/*.test.mjs",
     "{apps/*,libs/*,netlify}/jest.config.ts",
     "**/*.spec.{ts,tsx}",
     "{apps/waveform,libs/ui-kit}/src/test-setup.ts",
     "apps/waveform/src/test-utils/*.{ts,tsx}",
-    "apps/waveform/__mocks__/*.ts"
+    "apps/waveform/__mocks__/*.ts",
+    "dsp/gen/*.{mjs,ts}",
+    "apps/waveform/wasm-transform.js"
   ],
-  "project": ["apps/**/*.{ts,tsx,js}", "libs/**/*.{ts,tsx}", "netlify/**/*.{ts,mts}", "scripts/**/*.mjs"],
+  "project": [
+    "apps/**/*.{ts,tsx,js}",
+    "libs/**/*.{ts,tsx}",
+    "netlify/**/*.{ts,mts}",
+    "scripts/**/*.mjs",
+    "dsp/gen/*.{mjs,ts}"
+  ],
   "babel": {
-    "config": ["babel.config.json", "{apps,libs}/*/.babelrc"]
+    "config": [
+      "babel.config.json",
+      "{apps,libs}/*/.babelrc"
+    ]
   },
   "jest": false,
   "ignoreDependencies": [
@@ -36,9 +50,18 @@
     "eslint-plugin-jsx-a11y",
     "eslint-plugin-react",
     "eslint-plugin-react-hooks",
-    "playwright"
+    "playwright",
+    "@babel/plugin-transform-exponentiation-operator"
   ],
-  "ignoreBinaries": ["mkcert", "caffeinate", "notifyutil"],
-  "ignoreUnresolved": ["^[\\w-]+=apps/waveform/src/.+\\.(worklet|worker)\\.ts$"],
+  "ignoreBinaries": [
+    "mkcert",
+    "caffeinate",
+    "notifyutil",
+    "swiftc"
+  ],
+  "ignoreUnresolved": [
+    "^[\\w.-]+=apps/waveform/src/.+\\.(worklet|worker)\\.ts$",
+    "^@waveform/wasm/"
+  ],
   "ignoreExportsUsedInFile": true
 }

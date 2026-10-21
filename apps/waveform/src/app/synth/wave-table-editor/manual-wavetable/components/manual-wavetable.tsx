@@ -12,7 +12,7 @@ const Root = styled.div`
 `;
 
 export const ManualWavetable = () => {
-  const [{ $waveTable, $wave, $position }, { setPosition }] = useOscillatorContext();
+  const [{ $waveTable, $wave, $position, $morph }, { setPosition }] = useOscillatorContext();
   const [{ $rate, rateRange }, { cloneCurrent, setRate, updateCurrentWave }] = useManualWavetable();
   return (
     <Root>
@@ -20,6 +20,7 @@ export const ManualWavetable = () => {
         $wave={$wave}
         $waveTable={$waveTable}
         $position={$position}
+        $morph={$morph}
         setPosition={setPosition}
         cloneCurrent={cloneCurrent}
       />

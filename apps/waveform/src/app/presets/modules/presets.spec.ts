@@ -473,11 +473,13 @@ describe('presets model', () => {
       env: [{ $envelopes }, { setEnvelopeValue }],
       model: [{ $current, $loadedHash, $dirty }, { loadById, reset }],
     } = setup();
-    // sustain 0 and decay 0 are falsy: the defaults come back, not the preset values
+    // sustain 0, decay 0 and a curve of 0 are falsy: the defaults come back, not the preset values
     getPresetMock.mockResolvedValue({
       id: 'p1',
       name: 'Pluck',
-      data: { env: { e1: { attack: 0.5, hold: 0, decay: 0.3, sustain: 0, release: 0.2 } } },
+      data: {
+        env: { e1: { attack: 0.5, hold: 0, decay: 0.3, sustain: 0, release: 0.2, curves: { release: 0 } } },
+      },
     } as unknown as Preset);
     await loadById('p1');
     setEnvelopeValue('env1', 'decay', 0);
@@ -486,7 +488,14 @@ describe('presets model', () => {
 
     reset();
 
-    expect($envelopes.value.env1).toEqual({ attack: 0.005, hold: 0.1, decay: 0, sustain: 1, release: 0.005 });
+    expect($envelopes.value.env1).toEqual({
+      attack: 0.005,
+      hold: 0.1,
+      decay: 0,
+      sustain: 1,
+      release: 0.005,
+      curves: { attack: 0, decay: 3.49, release: 3.49 },
+    });
     expect(presetHash(getSnapshot())).toBe(presetHash({}));
     expect($current.value).toBeNull();
     expect($loadedHash.value).toBeNull();

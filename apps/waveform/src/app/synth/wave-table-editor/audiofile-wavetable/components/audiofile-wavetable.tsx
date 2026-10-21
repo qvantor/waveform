@@ -13,10 +13,16 @@ const Root = styled.div`
 `;
 
 export const AudiofileWavetable = () => {
-  const [{ $waveTable, $position, $wave }, { setPosition }] = useOscillatorContext();
+  const [{ $waveTable, $position, $wave, $morph }, { setPosition }] = useOscillatorContext();
   return (
     <Root>
-      <WaveSelector $wave={$wave} $waveTable={$waveTable} $position={$position} setPosition={setPosition} />
+      <WaveSelector
+        $wave={$wave}
+        $waveTable={$waveTable}
+        $position={$position}
+        $morph={$morph}
+        setPosition={setPosition}
+      />
       <AudiofileWavePicker />
       <WavePreview />
     </Root>

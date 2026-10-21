@@ -4,9 +4,8 @@
 // frame f of level r: lengths[r] + FRAME_GUARD samples from offsets[r] + f · (lengths[r] + FRAME_GUARD), sample
 // j at offset 1 + j: the last sample of the cycle comes first, the first two after it again (the
 // interpolation reads around a sample without a wrap). The last level is silent (0
-// harmonics): a pitch above the fundamental's nyquist fades into it. The frames of a level are normalized
-// together with the frame on level 0: each one divided by the peak of its full band (as createPeriodicWave
-// normalizes), so a level is the same frame with fewer harmonics
+// harmonics): a pitch above the fundamental's nyquist fades into it. A level is the same frame with fewer
+// harmonics, at the volume of the frame (not normalized)
 export interface WavetableLevels {
   frames: number;
   // per level: the harmonics it keeps (1..harmonics[r]), its length (a power of two) and the start of frame 0

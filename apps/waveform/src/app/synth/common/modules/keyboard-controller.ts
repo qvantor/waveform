@@ -62,22 +62,32 @@ const isTextInput = (target: EventTarget | null) =>
   (target.isContentEditable || ['INPUT', 'TEXTAREA'].includes(target.tagName));
 
 export const keyboardController = ({
-  app: [{ $keyDown, $keyUp }],
+  app: [{ $keyDown, $keyUp, $blur }],
   inputController: [, { onPress, onRelease }],
 }: Dependencies) =>
-  rxModel({}).subscriptions(() => [
-    $keyDown
-      .pipe(
-        filter((e) => keyFilter(e) && !isTextInput(e.target)),
-        tap((e) => e.preventDefault())
-      )
-      .subscribe((e) => {
-        onPress(keyboardToNotes[e.code]);
-      }),
-    $keyUp.pipe(filter(keyFilter)).subscribe((e) => {
-      onRelease(keyboardToNotes[e.code]);
-    }),
-  ]);
+  rxModel({}).subscriptions(() => {
+    // the keys that pressed a note: a keyup releases only its own (whatever the modifiers: a key pressed before
+    // Ctrl or Cmd), not a note of another input; all of them once Cmd is released (macOS sends no keyup of a key
+    // let go while Cmd is held) or the window loses focus
+    const held = new Set<string>();
+    const release = (code: string) => {
+      if (held.delete(code)) onRelease(keyboardToNotes[code]);
+    };
+    const releaseAll = () => [...held].forEach(release);
+    return [
+      $keyDown
+        .pipe(
+          filter((e) => keyFilter(e) && !isTextInput(e.target)),
+          tap((e) => e.preventDefault())
+        )
+        .subscribe((e) => {
+          held.add(e.code);
+          onPress(keyboardToNotes[e.code]);
+        }),
+      $keyUp.subscribe((e) => (e.key === 'Meta' ? releaseAll() : release(e.code))),
+      $blur.subscribe(releaseAll),
+    ];
+  });
 
 export const { ModelProvider: KeyboardControllerProvider, useModel: useKeyboardController } = rxModelReact(
   'keyboardController',

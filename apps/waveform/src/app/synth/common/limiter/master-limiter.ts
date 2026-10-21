@@ -1,5 +1,5 @@
 import { createWorkletFx, STEREO_WORKLET_OPTIONS } from '../../fx/effects/worklet-fx';
-import { LIMITER_PROCESSOR } from './limiter-dsp';
+import { LIMITER_PROCESSOR } from '../processors';
 
 // the fallback without the worklet: a DynamicsCompressor with a hard knee keeps the peaks below 0 dBFS. It
 // overshoots its curve on the onset of dense unison chords struck at once (in Chrome ~2.5 dB at a 5 ms

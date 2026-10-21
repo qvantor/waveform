@@ -44,7 +44,7 @@ const wavetables: CascadeOption[] = [{ value: 'ESW', label: 'ESW', children: cat
 const setup = async (initialWavePath = ['ESW', 'Analog', 'ESW/Analog/Square.wav'], options = wavetables) => {
   (useWavetables as jest.Mock).mockReturnValue(options);
   const oscillator = createOscillator(undefined, 'osc1', { active: true, initialWavePath }, () =>
-    Promise.resolve([[0, 1, 0, -1]])
+    Promise.resolve({ frames: [[0, 1, 0, -1]], morph: false })
   );
   const [model] = oscillator;
   await waitFor(() => expect(model.$waveTableLoading.value).toBe(false));

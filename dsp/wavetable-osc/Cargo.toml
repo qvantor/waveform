@@ -1,0 +1,22 @@
+[package]
+name = "wavetable-osc"
+description = "The wavetable oscillator worklet core: the store of the tables and the voices (wavetable-osc-dsp.ts)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[lints]
+workspace = true
+
+[dependencies]
+wasm-rt = { path = "../wasm-rt" }
+jsmath = { path = "../jsmath" }
+dsp-core = { path = "../dsp-core" }
+
+[features]
+# the counters of the perf build (as __PERF__ of the TS): VoiceStats and TableStoreStats
+perf = []

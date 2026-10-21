@@ -1,14 +1,19 @@
+import { isWasmSimdSupported, WASM_MODULES } from '../../common/wasm/wasm-support';
+
 // worklet modules are bundled by esbuild (`npm run worklets`) and served next to the app assets
 export const WORKLETS_PATH = 'assets/worklets/';
 
-// AudioWorklet exists only in secure contexts (https, localhost) and not in old Safari
-export const isWorkletSupported = (audioCtx: BaseAudioContext) =>
-  Boolean(audioCtx.audioWorklet) && typeof AudioWorkletNode !== 'undefined';
+// AudioWorklet exists only in secure contexts (https, localhost) and not in old Safari; the module `name` with its
+// wasm core (WASM_MODULES) needs wasm SIMD too (Safari 16.4+)
+export const isWorkletSupported = (audioCtx: BaseAudioContext, name?: string) =>
+  Boolean(audioCtx.audioWorklet) &&
+  typeof AudioWorkletNode !== 'undefined' &&
+  (name === undefined || !WASM_MODULES.includes(name) || isWasmSimdSupported());
 
 const loaded = new WeakMap<BaseAudioContext, Map<string, Promise<void>>>();
 
-// adds the module `name` (assets/worklets/<name>.js) to the context once, every effect awaits the same promise.
-// Never throws: no audioWorklet rejects too. A failed load is forgotten, so the next call adds the module again
+// adds the module `name` to the context once (assets/worklets/<name>.js), every effect awaits the same promise. Never throws: no audioWorklet rejects too. A failed load is
+// forgotten, so the next call adds the module again
 export const loadWorklet = (audioCtx: BaseAudioContext, name: string) => {
   const modules = loaded.get(audioCtx) ?? new Map<string, Promise<void>>();
   loaded.set(audioCtx, modules);

@@ -1,4 +1,5 @@
 import { createTableBuilder } from './wavetable-builder';
+import * as mipmap from './wavetable-mipmap';
 import { buildLevels, tableBytes } from './wavetable-mipmap';
 import type { WavetableLevels } from './wavetable-levels';
 
@@ -21,7 +22,7 @@ const setup = () => {
     builder.receive({ stats: true });
     return reply.mock.calls[0][0].stats;
   };
-  return { builder, port, run, connect, posted, stats };
+  return { builder, port, run, connect, posted, stats, reply };
 };
 
 describe('wavetable builder', () => {
@@ -35,6 +36,41 @@ describe('wavetable builder', () => {
     expect(message.version).toBe(1);
     expect(message.levels.data).toEqual(buildLevels([sine, saw]).data);
     expect(transfer).toEqual([message.levels.data.buffer]);
+  });
+
+  it('builds a frame with samples that are not finite as if they were 0: every level finite', () => {
+    const { builder, port, run, connect } = setup();
+    connect();
+    const broken = Float32Array.from(saw);
+    [3, 700, 1500].forEach((at, i) => (broken[at] = [NaN, Infinity, -Infinity][i]));
+    builder.receive({ table: 'osc1', version: 1, frames: [sine, broken] });
+    run();
+    const [[message]] = port.postMessage.mock.calls;
+    const fixed = Float32Array.from(saw);
+    [3, 700, 1500].forEach((at) => (fixed[at] = 0));
+    expect(message.levels.data.every(Number.isFinite)).toBe(true);
+    expect(message.levels.data).toEqual(buildLevels([sine, fixed]).data);
+  });
+
+  it('a version that fails to build is reported, its table keeps the one before, the next table is built', () => {
+    jest.spyOn(mipmap, 'buildLevels').mockImplementationOnce(() => {
+      throw new RangeError('Array buffer allocation failed');
+    });
+    const { builder, run, connect, posted, reply } = setup();
+    connect();
+    builder.receive({ table: 'osc1', version: 2, frames: [sine] });
+    builder.receive({ table: 'osc2', version: 1, frames: [saw] });
+    run();
+    expect(reply).toHaveBeenCalledWith({
+      failed: 'osc1',
+      version: 2,
+      reason: 'RangeError: Array buffer allocation failed',
+    });
+    expect(posted()).toEqual([expect.objectContaining({ table: 'osc2', version: 1 })]);
+    // a version after it builds
+    builder.receive({ table: 'osc1', version: 3, frames: [sine] });
+    run();
+    expect(posted().at(-1)).toMatchObject({ table: 'osc1', version: 3 });
   });
 
   it('builds the tables posted before the port of the store once it arrives', () => {
@@ -87,6 +123,128 @@ describe('wavetable builder', () => {
     builder.receive({ table: 'osc2', version: 1, frames: [short] });
     run();
     expect((posted()[1] as { levels: WavetableLevels }).levels.data.buffer).not.toBe(small);
+  });
+
+  describe('in chunks (the store of the wasm core)', () => {
+    // a store that asked for chunks of `size` samples; ack() hands the buffer of the last chunk back
+    const chunked = (size: number) => {
+      const context = setup();
+      context.connect();
+      context.port.onmessage?.({ data: { chunks: size } });
+      const ack = () => {
+        const [message] = context.port.postMessage.mock.lastCall as [{ chunk: ArrayBuffer }];
+        context.port.onmessage?.({ data: { ack: message.chunk } });
+      };
+      return { ...context, ack };
+    };
+
+    it('a chunk that fails stops its version: the store drops it, the next table goes', () => {
+      // (a chunk past the longest buffer: its allocation throws, as one no memory is left for)
+      const { builder, run, posted, reply } = chunked(2 ** 53);
+      builder.receive({ table: 'osc1', version: 1, frames: [sine] });
+      builder.receive({ table: 'osc2', version: 1, frames: [saw] });
+      run();
+      expect(posted()).toEqual([
+        expect.objectContaining({ table: 'osc1', version: 1, begin: expect.anything() }),
+        { table: 'osc1', version: 1, abort: true },
+      ]);
+      expect(reply).toHaveBeenCalledWith(expect.objectContaining({ failed: 'osc1', version: 1 }));
+      run();
+      expect(posted()[2]).toMatchObject({ table: 'osc2', version: 1, begin: expect.anything() });
+    });
+
+    it('sends the layout of a version, then its data in chunks, the next once the store acked the last', () => {
+      const { builder, run, posted, ack, port } = chunked(5000);
+      builder.receive({ table: 'osc1', version: 1, frames: [sine, saw] });
+      run();
+      const levels = buildLevels([sine, saw]);
+      const { data, ...layout } = levels;
+      expect(posted()).toEqual([
+        { table: 'osc1', version: 1, begin: { ...layout, length: data.length } },
+        expect.objectContaining({ table: 'osc1', version: 1, at: 0, length: 5000, last: false }),
+      ]);
+      // one chunk at a time
+      run();
+      expect(posted()).toHaveLength(2);
+      const received = new Float32Array(data.length);
+      for (;;) {
+        const [message, transfer] = port.postMessage.mock.lastCall as [
+          { chunk: ArrayBuffer; at: number; length: number; last: boolean },
+          ArrayBuffer[]
+        ];
+        expect(transfer).toEqual([message.chunk]);
+        received.set(new Float32Array(message.chunk, 0, message.length), message.at);
+        if (message.last) break;
+        ack();
+      }
+      expect(received).toEqual(data);
+      // the chunk buffers are reused: one in all
+      const buffers = new Set(
+        posted().flatMap((message) =>
+          'chunk' in (message as object) ? [(message as { chunk: ArrayBuffer }).chunk] : []
+        )
+      );
+      expect(buffers.size).toBe(1);
+    });
+
+    it('sends the next table once the last chunk of a version is acked, and frees its levels', () => {
+      const { builder, run, posted, ack, stats } = chunked(1 << 20);
+      const transfer = jest.spyOn(
+        ArrayBuffer.prototype as ArrayBuffer & { transfer: (length: number) => ArrayBuffer },
+        'transfer'
+      );
+      builder.receive({ table: 'osc1', version: 1, frames: [saw] });
+      builder.receive({ table: 'osc2', version: 1, frames: [short] });
+      run();
+      expect(transfer).not.toHaveBeenCalled();
+      // one chunk holds the table: the second waits for its ack
+      expect(posted().map((message) => (message as { table: string }).table)).toEqual(['osc1', 'osc1']);
+      ack();
+      run();
+      expect(
+        posted()
+          .slice(2)
+          .map((message) => (message as { table: string }).table)
+      ).toEqual(['osc2', 'osc2']);
+      // the levels of osc1 are freed at once (their buffer detached): nothing stays in the worker
+      expect(transfer).toHaveBeenCalledTimes(1);
+      expect(transfer).toHaveBeenCalledWith(0);
+      const [freed] = transfer.mock.instances as unknown as (ArrayBuffer & { detached: boolean })[];
+      expect(freed.detached).toBe(true);
+      expect(stats()).toMatchObject({ pooled: 0, pool: 0 });
+      transfer.mockRestore();
+    });
+
+    it('a version that comes during a transfer waits for it, a removal goes after it', () => {
+      const { builder, run, posted, ack } = chunked(1 << 20);
+      builder.receive({ table: 'osc1', version: 1, frames: [saw] });
+      run();
+      builder.receive({ table: 'osc1', version: 2, frames: [sine] });
+      builder.receive({ table: 'osc2', version: 2, remove: true });
+      run();
+      expect(posted()).toHaveLength(2);
+      ack();
+      run();
+      expect(posted().slice(2)).toEqual([
+        expect.objectContaining({ table: 'osc1', version: 2, begin: expect.anything() }),
+        expect.objectContaining({ table: 'osc1', version: 2, at: 0 }),
+      ]);
+      ack();
+      run();
+      expect(posted()[4]).toEqual({ table: 'osc2', version: 2, remove: true });
+    });
+
+    it('a new port of a store starts over: whole versions until it asks for chunks', () => {
+      const { builder, run, posted, connect } = chunked(1000);
+      builder.receive({ table: 'osc1', version: 1, frames: [saw] });
+      run();
+      connect();
+      builder.receive({ table: 'osc1', version: 2, frames: [sine] });
+      run();
+      expect(posted().at(-1)).toEqual(
+        expect.objectContaining({ table: 'osc1', version: 2, levels: expect.anything() })
+      );
+    });
   });
 
   describe('stats', () => {

@@ -9,10 +9,14 @@ import { useAudiofile } from '../../modules';
 export const Pickers = () => {
   const { scaleX, height, padding } = useLineChartContext();
   const [{ $wavePickers, $waveSize }] = useAudiofile();
-  const [{ $position }] = useOscillatorContext();
+  const [{ $position, $waveTable, $morph }] = useOscillatorContext();
   const wavePickers = useBehaviorSubject($wavePickers);
   const waveSize = useBehaviorSubject($waveSize);
-  const current = frameIndex(useBehaviorSubject($position));
+  const current = frameIndex(
+    useBehaviorSubject($position),
+    useBehaviorSubject($waveTable).length,
+    useBehaviorSubject($morph)
+  );
 
   const width = scaleX(number.powerOfTwo(waveSize));
   return (

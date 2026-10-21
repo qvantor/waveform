@@ -2,11 +2,27 @@ const PCM = 1;
 const FLOAT = 3;
 const EXTENSIBLE = 0xfffe;
 
+// the mark of a wavetable (its clm chunk: `<!>2048 10000000 …`): the
+// samples of a frame, and a morph (its first flag not 0): the table plays expanded to 256 frames by crossfades
+// (wavetable-frames.ts)
+export interface WavetableMark {
+  frameSize: number;
+  morph: boolean;
+}
+
 export interface Wav {
   sampleRate: number;
   // the first channel, as stored in the file (no resampling)
   samples: Float32Array;
+  mark?: WavetableMark;
 }
+
+const readMark = (view: DataView, offset: number, size: number): WavetableMark | undefined => {
+  const value = String.fromCharCode(...Array.from({ length: size }, (_, i) => view.getUint8(offset + i)));
+  const match = /^<!>(\d+) (\d)/.exec(value);
+  if (!match) return undefined;
+  return { frameSize: Number(match[1]), morph: match[2] !== '0' };
+};
 
 interface Format {
   format: number;
@@ -43,7 +59,14 @@ const sampleReader = ({ format, bits }: Format): ((view: DataView, offset: numbe
   throw new Error(`Unsupported WAV format ${format} with ${bits} bits`);
 };
 
-// the samples of a RIFF WAVE file as stored, without resampling
+// a sample that is not finite (NaN, an infinity: a float file may have them, a double above the range of a float
+// is one) as 0, in place: it would play as NaN through the voices and stop the effects
+export const finiteSamples = (samples: Float32Array) => {
+  for (let i = 0; i < samples.length; i++) if (!Number.isFinite(samples[i])) samples[i] = 0;
+  return samples;
+};
+
+// the samples of a RIFF WAVE file as stored, without resampling (the ones that are not finite as 0)
 export const parseWav = (buffer: ArrayBuffer): Wav => {
   const view = new DataView(buffer);
   if (buffer.byteLength < 12 || text(view, 0) !== 'RIFF' || text(view, 8) !== 'WAVE')
@@ -51,11 +74,14 @@ export const parseWav = (buffer: ArrayBuffer): Wav => {
 
   let fmt: Format | undefined;
   let data: { offset: number; size: number } | undefined;
+  let mark: WavetableMark | undefined;
   for (let offset = 12; offset + 8 <= buffer.byteLength && !data; ) {
     const id = text(view, offset);
     // a truncated file still has the bytes it has
     const size = Math.min(view.getUint32(offset + 4, true), buffer.byteLength - offset - 8);
     if (id === 'fmt ') fmt = readFormat(view, offset + 8, size);
+    // (the files have it before the data)
+    if (id === 'clm ') mark = readMark(view, offset + 8, size);
     if (id === 'data') data = { offset: offset + 8, size };
     // chunks are word aligned
     offset += 8 + size + (size % 2);
@@ -69,5 +95,5 @@ export const parseWav = (buffer: ArrayBuffer): Wav => {
     throw new Error(`Invalid WAV block align ${blockAlign}`);
   const samples = new Float32Array(Math.floor(data.size / blockAlign));
   for (let i = 0; i < samples.length; i++) samples[i] = read(view, data.offset + i * blockAlign);
-  return { sampleRate: fmt.sampleRate, samples };
+  return { sampleRate: fmt.sampleRate, samples: finiteSamples(samples), ...(mark && { mark }) };
 };

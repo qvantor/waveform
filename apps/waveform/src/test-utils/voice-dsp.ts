@@ -1,18 +1,22 @@
 import { buildLevels } from '../app/synth/common/wavetable/wavetable-mipmap';
-import {
-  createTableStore,
-  createVoiceDsp,
-  createVoiceShared,
-  TableStore,
-  VoiceOptions,
-  VoiceShared,
-  VoiceStats,
-} from '../app/synth/common/wavetable/wavetable-osc-dsp';
+import type { VoiceOptions, VoiceStats } from '../app/synth/common/wavetable/voice-options';
 import type { EnvelopeParams } from '../app/synth/common/envelope/envelope-curve';
 import { VoiceParam } from '../app/synth/common/wavetable/wavetable-osc-params';
+import {
+  createOscScope,
+  createTableStoreWasm,
+  createVoiceSharedWasm,
+  createVoiceWasm,
+  OscExports,
+  OscScope,
+  TableStoreWasm,
+  VoiceSharedWasm,
+} from '../app/synth/common/wavetable/wavetable-osc-wasm';
+import { seeded } from './seeded';
+import { wasmCore } from './wasm';
 
-// the voice dsp of the wavetable oscillator run offline, as the worklet runs it: tables in a store, the
-// voices of a scope one after another every block of 128 frames
+// the voice of the wavetable oscillator (its Rust core) run offline, as the worklet runs it: tables in a store,
+// the voices of a scope one after another every block of 128 frames
 
 export const BLOCK = 128;
 
@@ -21,17 +25,16 @@ export const BLOCK = 128;
 const FLAT: EnvelopeParams = { attack: 0, hold: 0, decay: 0, sustain: 1, release: 0 };
 
 // a seeded random() (mulberry32): the phases of a note are reproducible
-export const seeded = (seed: number) => () => {
-  seed = (seed + 0x6d2b79f5) | 0;
-  let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-};
+export { seeded };
 
-// a store with version 1 of each table (frames of samples), the levels it frees
-export const storeWith = (tables: Record<string, number[][]>) => {
+// an instance of the core for the spec file, as the AudioWorkletGlobalScope of a context: its stores and voices
+let instance: OscScope | null = null;
+export const oscScope = () => (instance ??= createOscScope(wasmCore<OscExports>('wavetable-osc')));
+
+// a store with version 1 of each table (frames of samples) in the instance `scope`, the versions it frees
+export const storeWith = (tables: Record<string, number[][]>, scope = oscScope()) => {
   const freed: unknown[] = [];
-  const store = createTableStore((levels) => freed.push(levels));
+  const store = createTableStoreWasm(scope, (levels) => freed.push(levels));
   Object.entries(tables).forEach(([id, frames]) => store.set(id, 1, buildLevels(frames)));
   return { store, freed };
 };
@@ -66,8 +69,18 @@ const blockValues = (params: VoiceParams, frame: number) =>
     })
   ) as Record<VoiceParam, Float32Array>;
 
+// a voice
+interface VoiceDsp {
+  process: (
+    frame: number,
+    params: Record<VoiceParam, Float32Array>,
+    outL: Float32Array,
+    outR: Float32Array
+  ) => boolean;
+}
+
 export interface ScopeVoice {
-  dsp: ReturnType<typeof createVoiceDsp>;
+  dsp: VoiceDsp;
   // read every block: change them between blocks
   params: VoiceParams;
   ended: boolean;
@@ -75,18 +88,27 @@ export interface ScopeVoice {
 
 // the voices of an AudioWorkletGlobalScope: add() a note (it starts at the frame of the next block unless
 // options.start says otherwise), block() renders every voice alive for one block in the order they were
-// added and returns the counters of the scope over it (the peak cost is the cost of the builds of the block)
+// added and returns the counters of the scope over it (the peak cost is the cost of the builds of the block).
+// The store and the shared are in the instance `scope`
 export const createVoiceScope = ({
   rate,
   store,
-  shared = createVoiceShared(),
+  scope = oscScope(),
+  shared = createVoiceSharedWasm(scope),
   random = seeded(1),
 }: {
   rate: number;
-  store: TableStore;
-  shared?: VoiceShared;
+  store: TableStoreWasm;
+  scope?: OscScope;
+  shared?: VoiceSharedWasm;
   random?: () => number;
-}) => {
+}) => scopeOf(rate, shared, (options) => createVoiceWasm(scope, rate, options, store, random, shared));
+
+const scopeOf = <Shared extends { stats: () => VoiceStats }>(
+  rate: number,
+  shared: Shared,
+  createVoice: (options: VoiceOptions) => VoiceDsp
+) => {
   const voices: ScopeVoice[] = [];
   const outL = new Float32Array(BLOCK);
   const outR = new Float32Array(BLOCK);
@@ -100,22 +122,16 @@ export const createVoiceScope = ({
     },
     add: (osc: VoiceOptions['osc'], params: VoiceParams = {}, start = frame / rate) => {
       const voice: ScopeVoice = {
-        dsp: createVoiceDsp(
-          rate,
-          // a phrase of its own: the voices of a scope are notes, not of a legato phrase
-          {
-            osc,
-            start,
-            envelopes: [FLAT, FLAT, FLAT],
-            envStart: start,
-            phrase: voices.length,
-            routes: [],
-            filter: null,
-          },
-          store,
-          random,
-          shared
-        ),
+        // a phrase of its own: the voices of a scope are notes, not of a legato phrase
+        dsp: createVoice({
+          osc,
+          start,
+          envelopes: [FLAT, FLAT, FLAT],
+          envStart: start,
+          phrase: voices.length,
+          routes: [],
+          filter: null,
+        }),
         // its own: a spec changes them for this voice
         params: { ...params },
         ended: false,

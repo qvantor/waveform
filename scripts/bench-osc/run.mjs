@@ -4,6 +4,7 @@
 // Chromium, WebKit and Firefox through Playwright, which is not a dependency of the project:
 //   npx -y -p playwright@1.50.1 node scripts/bench-osc/run.mjs [--browsers=chromium,webkit,firefox]
 //     [--rates=44100,48000,96000] [--only=sound,pitch,continuity,switch,stereo,unison,cpu,biquad,delivery,build]
+// The worklet is the one of production, on the wasm core (tmp/wasm: `npm run wasm` first)
 import fs from 'fs';
 import http from 'http';
 import path from 'path';
@@ -29,6 +30,8 @@ const PITCHES = [55, 220, 1046, 3520, 7040];
 const bundle = async () => {
   const esbuild = require('esbuild');
   fs.mkdirSync(site, { recursive: true });
+  if (!fs.existsSync(path.join(root, 'tmp/wasm/wavetable-osc.wasm')))
+    throw new Error('tmp/wasm/wavetable-osc.wasm is missing: run `npm run wasm` first');
   const common = {
     bundle: true,
     format: 'esm',
@@ -36,6 +39,9 @@ const bundle = async () => {
     tsconfig: path.join(root, 'tsconfig.base.json'),
     // the code of the perf build out, as in production (apps/waveform/src/globals.d.ts)
     define: { __PERF__: 'false' },
+    // the bytes of the core inlined, as `npm run worklets` does
+    loader: { '.wasm': 'binary' },
+    supported: { 'from-base64': false },
   };
   await esbuild.build({
     ...common,
@@ -90,11 +96,25 @@ const check = (failures, ok, text) => {
 
 const runBrowser = async (playwright, name, port) => {
   const browser = await playwright[name].launch();
-  const page = await browser.newPage();
-  page.on('pageerror', (error) => console.log(`[${name}] ${error.message}`));
-  await page.goto(`http://localhost:${port}/`);
-  await page.waitForFunction(() => window.bench);
-  const call = (fn, arg) => page.evaluate(([fn, arg]) => window.bench[fn](arg), [fn, arg]);
+  try {
+    return await runPages(browser, name, port);
+  } finally {
+    await browser.close();
+  }
+};
+
+const runPages = async (browser, name, port) => {
+  let page = null;
+  // a page of its own for every call: the contexts of the last one go with it (each holds its worklet, a wasm
+  // core with a table of up to 64 MB in its memory; Chromium stopped making new ones within a page)
+  const call = async (fn, arg) => {
+    await page?.close();
+    page = await browser.newPage();
+    page.on('pageerror', (error) => console.log(`[${name}] ${error.message}`));
+    await page.goto(`http://localhost:${port}/`);
+    await page.waitForFunction(() => window.bench);
+    return page.evaluate(([fn, arg]) => window.bench[fn](arg), [fn, arg]);
+  };
   const report = { browser: name, version: browser.version(), results: {} };
   const failures = [];
   const lines = [`## ${name} ${browser.version()}`];
@@ -180,11 +200,13 @@ const runBrowser = async (playwright, name, port) => {
   if (runs('stereo')) {
     const { u3, u8 } = await call('stereo', { rate });
     report.results.stereo = { u3, u8 };
+    // the lowest voice left, the middle one of an odd count both channels, the highest right; each at
+    // 1/√⌈n/2⌉
     const level = 1 / Math.sqrt(2);
     const expected3 = [
       [level, 0],
-      [0, level],
       [level, level],
+      [0, level],
     ];
     const ok3 = u3.every((pair, i) => pair.every((value, c) => Math.abs(value - expected3[i][c]) < 0.01));
     const ok8 = u8.every(([l, r], j) => Math.abs((j % 2 ? r : l) - 0.5) < 0.01 && (j % 2 ? l : r) < 0.01);
@@ -284,7 +306,6 @@ const runBrowser = async (playwright, name, port) => {
   }
 
   log(failures.length ? `FAILED: ${failures.join('; ')}` : 'all criteria passed');
-  await browser.close();
   return { report, lines, failures };
 };
 

@@ -31,17 +31,25 @@ export const createWorkletFx = (
   let destroyed = false;
   let node: AudioWorkletNode | undefined;
 
+  // the processor ends (its core is freed: a wasm core keeps its state in the memory of the module until then)
+  const stop = (current: AudioWorkletNode | undefined) => {
+    const message: StopMessage = { stop: true };
+    current?.port.postMessage(message);
+    current?.disconnect();
+  };
+
+  // (a processor that threw still takes messages: stopped, its core is freed)
   const fail = (error: unknown) => {
     if (destroyed) return;
     console.error(`The ${name} worklet failed`, error);
     input.disconnect();
-    node?.disconnect();
+    stop(node);
     node = undefined;
     $status.next('failed');
   };
 
   const load = () => {
-    if (!isWorkletSupported(audioCtx)) {
+    if (!isWorkletSupported(audioCtx, name)) {
       $status.next('unsupported');
       return;
     }
@@ -73,9 +81,8 @@ export const createWorkletFx = (
     post: (message: unknown) => node?.port.postMessage(message),
     destroy: () => {
       destroyed = true;
-      const stop: StopMessage = { stop: true };
-      node?.port.postMessage(stop);
-      node?.disconnect();
+      stop(node);
+      node = undefined;
       input.disconnect();
       output.disconnect();
       $status.complete();

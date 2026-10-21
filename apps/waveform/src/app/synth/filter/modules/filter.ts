@@ -4,7 +4,7 @@ import { FilterRanges, FilterParams } from '@waveform/ui-kit';
 import { ObjectBS, PrimitiveBS, rxModel, rxModelReact } from '@waveform/rxjs-react';
 import { number } from '@waveform/math';
 import { SynthCoreModule } from '../../common/modules/synth-core';
-import type { VoiceFilterOptions } from '../../common/wavetable/voice-filter';
+import type { VoiceFilterOptions } from '../../common/wavetable/voice-options';
 import { urlSnapshotPlugin } from '../../../app';
 import { defaultFilterRanges, rangesOf } from '../constants';
 

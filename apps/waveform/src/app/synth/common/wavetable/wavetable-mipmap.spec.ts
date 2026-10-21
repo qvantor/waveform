@@ -85,17 +85,17 @@ describe('wavetable mipmap', () => {
     const level0 = frameOf(levels, 0, 0);
     const mean = level0.reduce((sum, value) => sum + value, 0) / level0.length;
     expect(mean).toBeCloseTo(0, 6);
-    // only the sine is left, normalized to its peak
-    expect(Math.max(...level0)).toBeCloseTo(1, 4);
-    expect(magnitudes(spectrumOf(levels, 0, 0))[1]).toBeCloseTo(1, 4);
+    // only the sine is left, at its amplitude
+    expect(Math.max(...level0)).toBeCloseTo(0.5, 4);
+    expect(magnitudes(spectrumOf(levels, 0, 0))[1]).toBeCloseTo(0.5, 4);
   });
 
-  it('normalizes every level of a frame by the peak of its full band', () => {
+  it('plays every level of a frame at the volume of the frame (not normalized)', () => {
     const quiet = saw().map((value) => value * 0.1);
     const levels = buildLevels([quiet, saw()]);
+    const peaks = [0, 1].map((index) => Math.max(...frameOf(levels, 0, index).map(Math.abs)));
+    expect(peaks[0]).toBeCloseTo(0.1 * peaks[1], 5);
     for (const index of [0, 1]) {
-      const full = frameOf(levels, 0, index);
-      expect(Math.max(...full.map(Math.abs))).toBeCloseTo(1, 4);
       const reference = magnitudes(spectrumOf(levels, 0, index));
       for (const level of [1, 5, 15]) {
         const spectrum = magnitudes(spectrumOf(levels, level, index));
@@ -112,12 +112,11 @@ describe('wavetable mipmap', () => {
     ]);
     const levels = buildLevels([frame]);
     const [real, imag] = wave.realWithImag(frame);
-    const peak = Math.max(...frame.map(Math.abs));
     for (const level of [0, 12, levels.harmonics.length - 8]) {
       const [levelReal, levelImag] = spectrumOf(levels, level, 0);
       for (const k of [1, 2, 7].filter((h) => h <= levels.harmonics[level])) {
-        expect(levelReal[k]).toBeCloseTo(real[k] / peak, 4);
-        expect(levelImag[k]).toBeCloseTo(imag[k] / peak, 4);
+        expect(levelReal[k]).toBeCloseTo(real[k], 4);
+        expect(levelImag[k]).toBeCloseTo(imag[k], 4);
       }
     }
   });

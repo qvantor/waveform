@@ -90,6 +90,14 @@
     },
     "test": {
       "executor": "@nrwl/jest:jest",
+      "inputs": [
+        "default",
+        "^production",
+        "{workspaceRoot}/jest.preset.js",
+        "{workspaceRoot}/dsp/goldens/**/*",
+        "{workspaceRoot}/dsp/measurements/**/*",
+        { "runtime": "cat tmp/wasm-perf/*.wasm 2>/dev/null | git hash-object --stdin" }
+      ],
       "outputs": ["coverage/apps/waveform"],
       "options": {
         "jestConfig": "apps/waveform/jest.config.ts",

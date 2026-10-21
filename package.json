@@ -4,20 +4,22 @@
   "license": "MIT",
   "scripts": {
     "start": "concurrently -k -p \"[{name}]\" -n \"api,client\" -c  \"yellow.bold,green.bold\" \"netlify dev\" \"npm run client:start\"",
-    "client:start": "npm run worklets && concurrently -k -n worklets,serve \"npm run worklets -- --watch=forever\" \"nx serve\"",
-    "build": "npm run worklets -- --minify && nx build",
-    "build:perf": "npm run worklets -- --minify --define:__PERF__=true --outdir=tmp/worklets-perf && nx build waveform --configuration=perf --skip-nx-cache",
-    "worklets": "esbuild reverb=apps/waveform/src/app/synth/fx/effects/reverb.worklet.ts limiter=apps/waveform/src/app/synth/common/limiter/limiter.worklet.ts distortion=apps/waveform/src/app/synth/fx/effects/distortion.worklet.ts wavetable-osc=apps/waveform/src/app/synth/common/wavetable/wavetable-osc.worklet.ts wavetable-worker=apps/waveform/src/app/synth/common/wavetable/wavetable.worker.ts --bundle --format=esm --define:__PERF__=false --log-level=warning --outdir=tmp/worklets",
+    "client:start": "npm run wasm -- --only=prod && npm run worklets && concurrently -k -n wasm,worklets,serve \"npm run wasm -- --only=prod --watch\" \"npm run worklets -- --watch=forever\" \"nx serve\"",
+    "build": "npm run wasm -- --only=prod && npm run worklets -- --minify && nx build",
+    "build:perf": "npm run wasm -- --only=perf && npm run worklets -- --minify --define:__PERF__=true --alias:@waveform/wasm=./tmp/wasm-perf --outdir=tmp/worklets-perf && nx build waveform --configuration=perf --skip-nx-cache",
+    "wasm": "node scripts/wasm.mjs",
+    "dsp:check": "cd dsp && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test --quiet && cd .. && node scripts/wasm.mjs --check-sizes",
+    "worklets": "esbuild reverb=apps/waveform/src/app/synth/fx/effects/reverb.worklet.ts limiter=apps/waveform/src/app/synth/common/limiter/limiter.worklet.ts distortion=apps/waveform/src/app/synth/fx/effects/distortion.worklet.ts wavetable-osc=apps/waveform/src/app/synth/common/wavetable/wavetable-osc.worklet.ts wavetable-worker=apps/waveform/src/app/synth/common/wavetable/wavetable.worker.ts --bundle --format=esm --loader:.wasm=binary --supported:from-base64=false --define:__PERF__=false --log-level=warning --outdir=tmp/worklets",
     "test": "nx test",
-    "test:all": "nx run-many --target=test --all",
+    "test:all": "npm run wasm -- --only=perf && nx run-many --target=test --all",
     "test:scripts": "node --test 'scripts/**/*.test.mjs'",
     "lint": "nx run-many --target=lint --all",
-    "prettier:check": "prettier -l './apps/**/*.{ts,tsx}' './libs/**/*.{ts,tsx}' './netlify/**/*.{ts,mts}' './scripts/**/*.{mjs,ts}'",
-    "prettier:fix": "prettier --write './apps/**/*.{ts,tsx}' './libs/**/*.{ts,tsx}' './netlify/**/*.{ts,mts}' './scripts/**/*.{mjs,ts}'",
+    "prettier:check": "prettier -l './apps/**/*.{ts,tsx}' './libs/**/*.{ts,tsx}' './netlify/**/*.{ts,mts}' './scripts/**/*.{mjs,ts}' './dsp/gen/*.{mjs,ts}'",
+    "prettier:fix": "prettier --write './apps/**/*.{ts,tsx}' './libs/**/*.{ts,tsx}' './netlify/**/*.{ts,mts}' './scripts/**/*.{mjs,ts}' './dsp/gen/*.{mjs,ts}'",
     "typecheck": "tsc -p apps/waveform/tsconfig.app.json --noEmit && tsc -p apps/waveform/tsconfig.spec.json --noEmit && tsc -p libs/math/tsconfig.lib.json --noEmit && tsc -p libs/math/tsconfig.spec.json --noEmit && tsc -p libs/preset-schema/tsconfig.lib.json --noEmit && tsc -p libs/preset-schema/tsconfig.spec.json --noEmit && tsc -p libs/rxjs-react/tsconfig.lib.json --noEmit && tsc -p libs/rxjs-react/tsconfig.spec.json --noEmit && tsc -p libs/ui-kit/tsconfig.lib.json --noEmit && tsc -p libs/ui-kit/tsconfig.spec.json --noEmit && tsc -p netlify/tsconfig.json --noEmit && tsc -p netlify/tsconfig.spec.json --noEmit",
     "knip": "knip",
     "certs": "node scripts/certs.mjs",
-    "precheck": "npm run prettier:check && npm run typecheck && npm run lint && npm run knip && npm run test:all && npm run test:scripts"
+    "precheck": "npm run prettier:check && npm run typecheck && npm run lint && npm run knip && npm run dsp:check && npm run test:all && npm run test:scripts"
   },
   "private": true,
   "dependencies": {
@@ -54,6 +56,7 @@
     "zod": "^3.25.76"
   },
   "devDependencies": {
+    "@babel/plugin-transform-exponentiation-operator": "7.18.6",
     "@netlify/functions": "^2.8.2",
     "@nrwl/cli": "14.8.4",
     "@nrwl/eslint-plugin-nx": "14.8.4",
@@ -78,6 +81,7 @@
     "@typescript-eslint/parser": "^5.36.1",
     "babel-jest": "28.1.1",
     "babel-plugin-styled-components": "1.10.7",
+    "binaryen": "132.0.0",
     "concurrently": "^7.6.0",
     "esbuild": "^0.28.1",
     "eslint": "~8.15.0",

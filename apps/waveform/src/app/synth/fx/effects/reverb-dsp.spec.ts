@@ -1,9 +1,15 @@
 import FFT from 'fft.js';
 import { FX_PARAMS } from '@waveform/preset-schema';
+import { wasmCore } from '../../../../test-utils/wasm';
 import { DECAY_CHART_FREQS, decayCurve } from '../components/controls/reverb-decay-curve';
-import { createBiquad } from './dsp';
-import { createReverbDsp, MAX_PREDELAY, MAX_SIZE, ReverbDspParams } from './reverb-dsp';
+import { createTestBiquad } from '../../../../test-utils/biquad';
+import { MAX_PREDELAY, MAX_SIZE, ReverbDspParams, ReverbOptions } from './reverb-params';
 import { HF_RATIO } from './reverb-decay';
+import { createReverbWasm, ReverbExports } from './reverb-wasm';
+
+// the Rust core (dsp/reverb), one instance of it for the spec (a scope)
+const core = wasmCore<ReverbExports>('reverb');
+const create = (sampleRate: number, options: ReverbOptions) => createReverbWasm(core, sampleRate, options);
 
 const SAMPLE_RATE = 48000;
 const BLOCK = 128;
@@ -48,6 +54,7 @@ const sine =
     amplitude * Math.sin((2 * Math.PI * freq * frame) / SAMPLE_RATE);
 
 // renders in render quanta like the worklet, the changes apply at the start of the block holding `at`
+
 const render = (
   params: Partial<ReverbDspParams>,
   seconds: number,
@@ -55,7 +62,7 @@ const render = (
   changes: Change[] = [],
   active = true
 ) => {
-  const dsp = createReverbDsp(SAMPLE_RATE, { params: { ...BASE, ...params }, active });
+  const dsp = create(SAMPLE_RATE, { params: { ...BASE, ...params }, active });
   const frames = Math.ceil((seconds * SAMPLE_RATE) / BLOCK) * BLOCK;
   const [L, R] = [new Float32Array(frames), new Float32Array(frames)];
   const block = new Float32Array(BLOCK);
@@ -79,9 +86,8 @@ const frame = (seconds: number) => Math.round(seconds * SAMPLE_RATE);
 
 // an octave around `freq` (2 bandpasses), or a lowpass below it
 const filtered = (data: Float32Array, type: 'bandpass' | 'lowpass', freq: number) => {
-  const filters = [createBiquad(), createBiquad()];
-  filters.forEach((filter) =>
-    filter.set(type, { frequency: freq, Q: type === 'bandpass' ? 1.41 : -3.01, gain: 0 }, SAMPLE_RATE)
+  const filters = [0, 1].map(() =>
+    createTestBiquad(type, { frequency: freq, Q: type === 'bandpass' ? 1.41 : -3.01, gain: 0 }, SAMPLE_RATE)
   );
   return Float32Array.from(data, (value) => filters[1].process(filters[0].process(value)));
 };
@@ -146,7 +152,7 @@ const maxStep = (data: Float32Array, from: number, to: number) => {
   return max;
 };
 
-describe('createReverbDsp', () => {
+describe('the reverb', () => {
   it('allocates the buffers for the whole param ranges', () => {
     expect(MAX_PREDELAY).toBe(FX_PARAMS.reverb.pre.max);
     expect(MAX_SIZE).toBe(FX_PARAMS.reverb.size.max);
@@ -374,7 +380,7 @@ describe('createReverbDsp', () => {
     });
 
     it('ignores unknown and missing params', () => {
-      const dsp = createReverbDsp(SAMPLE_RATE, { params: BASE, active: true });
+      const dsp = create(SAMPLE_RATE, { params: BASE, active: true });
       expect(() => dsp.set({ time: 1, decay: undefined } as never)).not.toThrow();
     });
   });

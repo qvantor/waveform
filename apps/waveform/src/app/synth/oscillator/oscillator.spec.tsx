@@ -298,20 +298,23 @@ describe('Oscillator', () => {
     expect(model.$osc.value.phaseRand).toBe(0);
   });
 
-  it('shows the frame of the Wave from 1 under the wave, of the frames of the table', () => {
+  it('shows the frame of the Wave from 1 under the wave, of the frames played', () => {
     const { actions } = setup();
+    const frames = [
+      [0, 1, 0, -1],
+      [1, 0, -1, 0],
+      [0, -1, 0, 1],
+    ];
     expect(screen.getByText('1/1')).toBeDefined();
-    act(() =>
-      actions.setWaveTable([
-        [0, 1, 0, -1],
-        [1, 0, -1, 0],
-        [0, -1, 0, 1],
-      ])
-    );
+    act(() => actions.setWaveTable(frames));
     act(() => actions.setPosition(2));
     expect(screen.getByText('3/3')).toBeDefined();
     act(() => actions.setPosition(1.37));
     expect(screen.getByText('2.4/3')).toBeDefined();
+    // a table with a morph mark plays its 256 frames: its frame 2 at 128
+    act(() => actions.setWaveTable(frames, true));
+    act(() => actions.setPosition(128));
+    expect(screen.getByText('129/256')).toBeDefined();
   });
 
   // the fade itself is in the spec of the overlay

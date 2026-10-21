@@ -68,10 +68,11 @@ describe('manualWavetable', () => {
     actions.setRate(2);
     actions.updateCurrentWave([0, 1]);
     jest.advanceTimersByTime(100);
-    expect(setTable).toHaveBeenLastCalledWith(oscillator.id, [
-      [1, 1, 1, 1, ...new Array(12).fill(0)],
-      new Array(16).fill(0.5),
-    ]);
+    expect(setTable).toHaveBeenLastCalledWith(
+      oscillator.id,
+      [[1, 1, 1, 1, ...new Array(12).fill(0)], new Array(16).fill(0.5)],
+      false
+    );
     jest.useRealTimers();
   });
 });

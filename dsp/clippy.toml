@@ -1,0 +1,21 @@
+# the cores compute as the TS ones do: the Math of JS from jsmath (V8's fdlibm, glibc's pow, the JS semantics of
+# round, max and min), never the libm of Rust or a fused multiply-add
+disallowed-methods = [
+  { path = "f64::sin", reason = "jsmath::sin (V8's fdlibm)" },
+  { path = "f64::cos", reason = "jsmath::cos (V8's fdlibm)" },
+  { path = "f64::tan", reason = "not ported to jsmath" },
+  { path = "f64::tanh", reason = "jsmath::tanh (V8's fdlibm)" },
+  { path = "f64::exp", reason = "jsmath::exp (V8's fdlibm)" },
+  { path = "f64::exp2", reason = "jsmath::pow(2.0, x)" },
+  { path = "f64::exp_m1", reason = "jsmath::expm1 (V8's fdlibm)" },
+  { path = "f64::ln", reason = "jsmath::log (V8's fdlibm)" },
+  { path = "f64::log2", reason = "jsmath::log2 (V8's fdlibm)" },
+  { path = "f64::log10", reason = "jsmath::log10 (V8's fdlibm)" },
+  { path = "f64::powf", reason = "jsmath::pow (std::pow of glibc, as V8)" },
+  { path = "f64::powi", reason = "jsmath::pow (std::pow of glibc, as V8)" },
+  { path = "f64::round", reason = "jsmath::round (Math.round: the half up)" },
+  { path = "f64::max", reason = "jsmath::max (Math.max: NaN, +0 over -0)" },
+  { path = "f64::min", reason = "jsmath::min (Math.min: NaN, -0 under +0)" },
+  { path = "f64::mul_add", reason = "no fused multiply-add: the TS rounds the product" },
+  { path = "f32::mul_add", reason = "no fused multiply-add" },
+]

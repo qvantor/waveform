@@ -26,7 +26,7 @@ const failFirstWorkletLoad = () => {
   jest.spyOn(console, 'error').mockImplementation(() => undefined);
   let failed = false;
   const addModule = jest.fn((url: string) => {
-    if (failed || !url.endsWith('/reverb.js')) return Promise.resolve();
+    if (failed || !url.endsWith(`/reverb.js`)) return Promise.resolve();
     failed = true;
     return Promise.reject(new Error('404'));
   });

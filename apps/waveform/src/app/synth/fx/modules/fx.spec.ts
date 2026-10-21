@@ -5,7 +5,7 @@ import { createFx, createSynthCore } from '../../../../test-utils/models';
 import { withoutAudioWorklet } from '../../../../test-utils/no-audio-worklet';
 import { workletLoads } from '../../../../test-utils/worklet-loads';
 import { DELAY_PRESETS } from '../effects/delay-presets';
-import { DISTORTION_LATENCY } from '../effects/distortion-dsp';
+import { DISTORTION_LATENCY } from '../effects/distortion-params';
 import { REVERB_PRESETS } from '../effects/reverb-presets';
 import { findFxPreset, FxStatus } from '../effects';
 import { getChain } from './fx';
@@ -40,7 +40,7 @@ const setupFailing = () => {
   const addModule = synthCore[0].audioCtx.audioWorklet.addModule as jest.Mock;
   let failed = false;
   addModule.mockImplementation((url: string) => {
-    if (failed || !url.endsWith('/reverb.js')) return Promise.resolve();
+    if (failed || !url.endsWith(`/reverb.js`)) return Promise.resolve();
     failed = true;
     return Promise.reject(new Error('404'));
   });

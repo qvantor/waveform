@@ -1,8 +1,9 @@
 import { FX_MIX_PARAMS, FX_PARAMS, normalizePreset } from '@waveform/preset-schema';
 import { mapValues } from 'lodash';
+import { wasmCore } from '../../../../test-utils/wasm';
 import { mixGains } from './create-fx-slot';
-import { createDistortionDsp, DISTORTION_LATENCY } from './distortion-dsp';
-import { REFERENCE_PEAK } from './distortion-makeup';
+import { DISTORTION_LATENCY, REFERENCE_PEAK } from './distortion-params';
+import { createDistortionWasm, DistortionExports } from './distortion-wasm';
 import { DISTORTION_PRESETS } from './distortion-presets';
 import { findFxPreset } from '.';
 
@@ -10,13 +11,14 @@ const PARAM_KEYS = Object.keys(FX_PARAMS.distortion).sort();
 
 const SAMPLE_RATE = 48000;
 const BLOCK = 128;
+const core = wasmCore<DistortionExports>('distortion');
 
 // dB of a preset against the dry sound for the reference sine (a note at the fx input), mixed like the fx
 // slot mixes the distortion: linearly, with the dry signal delayed by the latency
 const loudnessDb = (id: string) => {
   const preset = DISTORTION_PRESETS.find((item) => item.id === id);
   if (!preset) throw new Error(id);
-  const dsp = createDistortionDsp(SAMPLE_RATE, { params: preset.params });
+  const dsp = createDistortionWasm(core, SAMPLE_RATE, { params: preset.params });
   const input = (frame: number) =>
     frame < 0 ? 0 : REFERENCE_PEAK * Math.sin((2 * Math.PI * 220 * frame) / SAMPLE_RATE);
   const [dryGain, wetGain] = mixGains(preset.mix, true);
