@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { Popover } from 'antd';
 import toast from 'react-hot-toast';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
+import { ToastActions, ToastBody, ToastButton } from '../../common/components';
 import { useSynthCore } from '../common/modules';
 import { canCountDropouts } from '../common/latency/dropouts';
 import {
@@ -47,31 +48,6 @@ const NoteButton = styled.button`
   color: ${theme.colors.secondAccent};
   text-decoration: underline;
   cursor: pointer;
-`;
-
-const ToastBody = styled.div`
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-`;
-
-const ToastActions = styled.div`
-  display: flex;
-  gap: 8px;
-`;
-
-const ToastButton = styled.button`
-  border: none;
-  border-radius: 3px;
-  padding: 4px 10px;
-  cursor: pointer;
-  color: ${theme.colors.white};
-  background: ${theme.colors.primaryDark};
-
-  &.secondary {
-    color: ${theme.colors.primaryDark};
-    background: ${theme.colors.primary};
-  }
 `;
 
 // a square key of the icon alone, as ◀ ▶ of the presets above it

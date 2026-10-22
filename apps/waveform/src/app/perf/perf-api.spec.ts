@@ -4,6 +4,7 @@ import { withoutAudioWorklet } from '../../test-utils/no-audio-worklet';
 import { WorkerStub } from '../../test-utils/worker-stub';
 import { getSnapshot } from '../app';
 import { presets } from '../presets/modules/presets';
+import { LIMITER_PROCESSOR } from '../synth/common/processors';
 import { STORE_PROCESSOR, VOICE_PROCESSOR } from '../synth/common/wavetable/wavetable-osc-params';
 import { fx } from '../synth/fx/modules/fx';
 import { noteToString, Wavetable } from '../synth/services';
@@ -133,6 +134,16 @@ describe('perf test hook api', () => {
       withoutAudioWorklet();
       const { api } = await setup();
       await expect(api.ready()).rejects.toThrow('The wavetable oscillator is unsupported');
+    });
+
+    // the master is silent without it: nothing to measure
+    it('rejects at once when the limiter failed', async () => {
+      const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      const { api, nodes } = await setup();
+      const [limiter] = nodes(LIMITER_PROCESSOR);
+      limiter.onprocessorerror?.call(limiter, new Event('processorerror'));
+      await expect(api.ready()).rejects.toThrow('The limiter is failed');
+      error.mockRestore();
     });
 
     it('rejects after the timeout with what it waits for', async () => {

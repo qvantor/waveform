@@ -13,8 +13,10 @@ jest.mock('../../common/modules', () => ({
 }));
 
 const setup = (status: WavetableStatus, table: TableState | null = null) => {
-  const wavetables = { $status: new BehaviorSubject<WavetableStatus>(status), retry: jest.fn() };
-  (useSynthCore as jest.Mock).mockReturnValue([{ wavetables }]);
+  const wavetables = { $status: new BehaviorSubject<WavetableStatus>(status) };
+  // loads again the oscillators and the limiter that failed
+  const retryAudio = jest.fn();
+  (useSynthCore as jest.Mock).mockReturnValue([{ wavetables }, { retryAudio }]);
   // the oscillator: the state of its table, its Retry
   const $tableState = new BehaviorSubject<TableState | null>(table);
   const retryTable = jest.fn();
@@ -26,7 +28,7 @@ const setup = (status: WavetableStatus, table: TableState | null = null) => {
       <OscillatorStatus />
     </OscillatorContext.Provider>
   );
-  return { wavetables, $tableState, retryTable, user: userEvent.setup() };
+  return { wavetables, retryAudio, $tableState, retryTable, user: userEvent.setup() };
 };
 
 describe('OscillatorStatus', () => {
@@ -71,18 +73,19 @@ describe('OscillatorStatus', () => {
   });
 
   it('the oscillators that cannot play come first: their Retry loads the module', async () => {
-    const { wavetables, retryTable, user } = setup('failed', 'refused');
+    const { retryAudio, retryTable, user } = setup('failed', 'refused');
     expect(screen.getByRole('alert')).toHaveTextContent("Oscillators can't play: Failed to load");
     await user.click(screen.getByRole('button', { name: 'Retry' }));
-    expect(wavetables.retry).toHaveBeenCalled();
+    expect(retryAudio).toHaveBeenCalled();
     expect(retryTable).not.toHaveBeenCalled();
   });
 
+  // (the limiter too, if it failed: retryAudio of the synth core)
   it('a failed module: Retry loads it again', async () => {
-    const { wavetables, user } = setup('failed');
+    const { wavetables, retryAudio, user } = setup('failed');
     expect(screen.getByRole('alert')).toHaveTextContent('Failed to load');
     await user.click(screen.getByRole('button', { name: 'Retry' }));
-    expect(wavetables.retry).toHaveBeenCalled();
+    expect(retryAudio).toHaveBeenCalled();
     act(() => wavetables.$status.next('ready'));
     expect(screen.queryByRole('alert')).toBeNull();
   });
