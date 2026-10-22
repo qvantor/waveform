@@ -1,6 +1,6 @@
 //! The reverb (ported bit for bit from the TS core it replaced, the tables of reverb-decay.ts and reverb-era.ts of the
 //! app; the goldens hold its sound): a 16-line FDN with early reflections, input diffusion and the input stage of the eras. The C ABI of a
-//! stereo core (fx_new, fx_buffers, fx_process, fx_free) and fx_set, fx_set_active, fx_idle; the params of
+//! stereo core (fx_new, fx_buffers, fx_process, fx_free) and fx_set, fx_set_active, fx_clear, fx_idle; the params of
 //! fx_new and fx_set come through fx_command (reverb-wasm.ts wraps it)
 
 #![cfg_attr(target_arch = "wasm32", no_std)]
@@ -363,6 +363,17 @@ impl Reverb {
         self.fade.set(if value { 1.0 } else { 0.0 }, false, None);
     }
 
+    /// the tail is forgotten (a preset switch, the output muted): as once drained, the lines are empty, the next
+    /// sound starts at the params as they are then, no glide from those of before
+    pub fn forget(&mut self) {
+        // (an idle reverb has cleared them: the lines of the largest room are megabytes)
+        if !self.idle {
+            self.clear();
+        }
+        self.outs.fill(0.0);
+        self.idle = true;
+    }
+
     // stepAll of the values of `keys`: each is stepped, true if any of them glides
     fn step_all(&mut self, keys: &[usize], frames: f64) -> bool {
         let mut gliding = false;
@@ -588,6 +599,13 @@ pub unsafe extern "C" fn fx_set(reverb: *mut Reverb, routed: bool) {
 #[no_mangle]
 pub unsafe extern "C" fn fx_set_active(reverb: *mut Reverb, active: bool) {
     (*reverb).set_active(active);
+}
+
+/// # Safety
+/// `reverb` comes from fx_new and was not freed
+#[no_mangle]
+pub unsafe extern "C" fn fx_clear(reverb: *mut Reverb) {
+    (*reverb).forget();
 }
 
 /// # Safety

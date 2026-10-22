@@ -1,13 +1,22 @@
 import toast from 'react-hot-toast';
 import {
   DEFAULT_WAVETABLE_PATH,
+  ENVELOPE_DEFAULTS,
   normalizePreset,
   presetHash,
   Preset,
   PresetListItem,
 } from '@waveform/preset-schema';
-import { createEnvelopes, createFx, createSynth, initModel } from '../../../test-utils/models';
+import {
+  createEnvelopes,
+  createFx,
+  createSynth,
+  immediateSoundSwitch,
+  initModel,
+} from '../../../test-utils/models';
+import * as app from '../../app';
 import { getSnapshot } from '../../app';
+import type { SoundSwitchModule } from '../../synth/common/modules/sound-switch';
 import {
   clearUrlPresetId,
   getEditToken,
@@ -17,7 +26,7 @@ import {
   markPresetOpened,
   setUrlPresetId,
 } from '../services';
-import { presets } from './presets';
+import { CurrentPreset, presets } from './presets';
 
 jest.mock('../services', () => ({
   clearUrlPresetId: jest.fn(),
@@ -47,12 +56,24 @@ const deferred = <T>() => {
 
 const listItem = (id: string) => ({ id, name: id } as PresetListItem);
 
+// the state of the tab before a reload: its preset (the hash it was loaded with) and the attack of its sound
+const storeTabState = (current: CurrentPreset | null, attack: number, loadedAttack?: number) =>
+  sessionStorage.setItem(
+    'presetState',
+    JSON.stringify({
+      current,
+      loadedHash: loadedAttack === undefined ? null : presetHash(preset('', loadedAttack).data),
+      data: preset('', attack).data,
+    })
+  );
+const tabState = () => JSON.parse(sessionStorage.getItem('presetState') ?? 'null');
+
 // resolves pending getPreset promises
 const flush = () => new Promise((resolve) => jest.requireActual('timers').setImmediate(resolve));
 
 const setup = () => {
   const env = createEnvelopes();
-  const model = initModel(presets(), 'presets', undefined);
+  const model = initModel(presets({ soundSwitch: immediateSoundSwitch() }), 'presets', undefined);
   return { env, model };
 };
 
@@ -93,6 +114,50 @@ describe('presets model', () => {
     expect($loadedHash.value).toBe(presetHash(getSnapshot()));
     expect($dirty.value).toBe(false);
     expect(setUrlPresetId).toHaveBeenCalledWith('p1');
+  });
+
+  it('applies a preset and Init through the sound switch: the sound and the current preset change in it', async () => {
+    // the switch applies them once the sound before has faded out
+    const pending: (() => void)[] = [];
+    const soundSwitch = [
+      {},
+      { switchSound: (apply: () => void) => pending.push(apply) },
+    ] as unknown as SoundSwitchModule;
+    const [{ $envelopes }] = createEnvelopes();
+    const [{ $current }, { loadById, reset }] = initModel(presets({ soundSwitch }), 'presets', undefined);
+    getPresetMock.mockResolvedValue(preset('p1', 0.5));
+
+    await loadById('p1');
+    expect($current.value).toBeNull();
+    expect($envelopes.value.env1.attack).toBe(ENVELOPE_DEFAULTS.env1.attack);
+    pending.shift()?.();
+    expect($current.value?.id).toBe('p1');
+    expect($envelopes.value.env1.attack).toBe(0.5);
+
+    reset();
+    expect($current.value?.id).toBe('p1');
+    pending.shift()?.();
+    expect($current.value).toBeNull();
+    expect($envelopes.value.env1.attack).toBe(ENVELOPE_DEFAULTS.env1.attack);
+  });
+
+  it('a preset that throws as it is applied shows an error and does not become current', async () => {
+    // the switch applies it from its poll, after loadById returned
+    const pending: (() => void)[] = [];
+    const soundSwitch = [
+      {},
+      { switchSound: (apply: () => void) => pending.push(apply) },
+    ] as unknown as SoundSwitchModule;
+    const [{ $current }, { loadById }] = initModel(presets({ soundSwitch }), 'presets', undefined);
+    getPresetMock.mockResolvedValue(preset('p1', 0.5));
+    jest.spyOn(app, 'applySnapshot').mockImplementationOnce(() => {
+      throw new Error('Broken preset');
+    });
+
+    await loadById('p1');
+    expect(() => pending.shift()?.()).not.toThrow();
+    expect(toast.error).toHaveBeenCalledWith('Broken preset');
+    expect($current.value).toBeNull();
   });
 
   it('applies only the last requested preset', async () => {
@@ -575,6 +640,165 @@ describe('presets model', () => {
     expect(getPresetMock).not.toHaveBeenCalled();
   });
 
+  describe('the state of the tab', () => {
+    it('a reload keeps the edits of the preset of the link', async () => {
+      getUrlPresetIdMock.mockReturnValue('p1');
+      getTopPresetsMock.mockResolvedValue(['a'].map(listItem));
+      storeTabState({ id: 'p1', name: 'Preset p1' }, 0.3, 0.5);
+      const {
+        env: [{ $envelopes }],
+        model: [{ $current, $loadedHash, $dirty, $top }],
+      } = setup();
+
+      expect($envelopes.value.env1.attack).toBe(0.3);
+      expect($current.value).toEqual({ id: 'p1', name: 'Preset p1' });
+      expect($loadedHash.value).toBe(presetHash(preset('p1', 0.5).data));
+      expect($dirty.value).toBe(true);
+      expect(setUrlPresetId).toHaveBeenCalledWith('p1');
+      await flush();
+      expect(getPresetMock).not.toHaveBeenCalled();
+      // for ◀ ▶
+      expect($top.value?.map(({ id }) => id)).toEqual(['a']);
+    });
+
+    it('the preset opened on start stays after a reload, still out of the url', async () => {
+      getTopPresetsMock.mockResolvedValue(['b'].map(listItem));
+      storeTabState({ id: 'a', name: 'Preset a', auto: true }, 0.5, 0.5);
+      const {
+        env: [{ $envelopes }],
+        model: [{ $current, $dirty }],
+      } = setup();
+      await flush();
+
+      expect($current.value).toEqual({ id: 'a', name: 'Preset a', auto: true });
+      expect($envelopes.value.env1.attack).toBe(0.5);
+      expect($dirty.value).toBe(false);
+      expect(getPresetMock).not.toHaveBeenCalled();
+      expect(setUrlPresetId).not.toHaveBeenCalled();
+    });
+
+    it('a reload keeps the edits of Init and opens no popular preset', async () => {
+      getTopPresetsMock.mockResolvedValue(['a'].map(listItem));
+      storeTabState(null, 0.3);
+      const {
+        env: [{ $envelopes }],
+        model: [{ $current, $dirty }],
+      } = setup();
+      await flush();
+
+      expect($current.value).toBeNull();
+      expect($envelopes.value.env1.attack).toBe(0.3);
+      expect($dirty.value).toBe(false);
+      expect(getPresetMock).not.toHaveBeenCalled();
+    });
+
+    it.each<[string, CurrentPreset | null]>([
+      ['another preset', { id: 'p1', name: 'Preset p1' }],
+      ['the preset opened on start', { id: 'a', name: 'Preset a', auto: true }],
+      ['Init', null],
+    ])('a link opens its preset over the state of %s', async (_, current) => {
+      getUrlPresetIdMock.mockReturnValue('p2');
+      getPresetMock.mockImplementation((id) => Promise.resolve(preset(id, 0.5)));
+      storeTabState(current, 0.3, 0.4);
+      const {
+        env: [{ $envelopes }],
+        model: [{ $current }],
+      } = setup();
+      await flush();
+
+      expect(getPresetMock).toHaveBeenCalledWith('p2');
+      expect($current.value).toEqual({ id: 'p2', name: 'Preset p2' });
+      expect($envelopes.value.env1.attack).toBe(0.5);
+    });
+
+    it.each([
+      ['broken json', 'broken'],
+      ['a wrong preset', JSON.stringify({ current: { id: 1 }, loadedHash: null, data: {} })],
+      [
+        'params out of the schema',
+        JSON.stringify({ current: null, loadedHash: null, data: { env: 'slow' } }),
+      ],
+    ])('%s in the storage is ignored', async (_, raw) => {
+      getUrlPresetIdMock.mockReturnValue('p1');
+      getPresetMock.mockImplementation((id) => Promise.resolve(preset(id, 0.5)));
+      sessionStorage.setItem('presetState', raw);
+      const {
+        model: [{ $current }],
+      } = setup();
+      await flush();
+
+      expect(getPresetMock).toHaveBeenCalledWith('p1');
+      expect($current.value).toEqual({ id: 'p1', name: 'Preset p1' });
+    });
+
+    it('keeps the edits of a preset, not a clean one: its link opens it', () => {
+      jest.useFakeTimers();
+      const {
+        env: [, { setEnvelopeValue }],
+        model: [, { setSaved }],
+      } = setup();
+      setSaved({ id: 's1', name: 'Saved' });
+      jest.advanceTimersByTime(200);
+      expect(tabState()).toBeNull();
+
+      setEnvelopeValue('env1', 'attack', 0.4);
+      jest.advanceTimersByTime(199);
+      expect(tabState()).toBeNull();
+      jest.advanceTimersByTime(1);
+      expect(tabState()).toEqual({
+        current: { id: 's1', name: 'Saved' },
+        loadedHash: presetHash({}),
+        data: getSnapshot(),
+      });
+
+      setEnvelopeValue('env1', 'attack', ENVELOPE_DEFAULTS.env1.attack);
+      jest.advanceTimersByTime(200);
+      expect(tabState()).toBeNull();
+    });
+
+    it('keeps the preset opened on start, untouched too', async () => {
+      jest.useFakeTimers();
+      getTopPresetsMock.mockResolvedValue(['a'].map(listItem));
+      getPresetMock.mockImplementation((id) => Promise.resolve(preset(id, 0.5)));
+      setup();
+      await flush();
+      jest.advanceTimersByTime(200);
+      expect(tabState()).toEqual({
+        current: { id: 'a', name: 'Preset a', auto: true },
+        loadedHash: presetHash(preset('a', 0.5).data),
+        data: getSnapshot(),
+      });
+    });
+
+    it('keeps the edits of Init, not Init itself: a start opens a popular preset', () => {
+      jest.useFakeTimers();
+      const {
+        env: [, { setEnvelopeValue }],
+        model: [, { reset }],
+      } = setup();
+      jest.advanceTimersByTime(200);
+      expect(tabState()).toBeNull();
+
+      setEnvelopeValue('env1', 'attack', 0.4);
+      jest.advanceTimersByTime(200);
+      expect(tabState()).toEqual({ current: null, loadedHash: null, data: getSnapshot() });
+
+      reset();
+      jest.advanceTimersByTime(200);
+      expect(tabState()).toBeNull();
+    });
+
+    it('a page hidden before the debounce keeps the last edit', () => {
+      jest.useFakeTimers();
+      const {
+        env: [, { setEnvelopeValue }],
+      } = setup();
+      setEnvelopeValue('env1', 'attack', 0.4);
+      window.dispatchEvent(new Event('pagehide'));
+      expect(tabState()?.data.env.e1.attack).toBe(0.4);
+    });
+  });
+
   describe('own presets', () => {
     // presets saved from this browser have edit tokens
     const ownPresets = (...ids: string[]) =>
@@ -630,6 +854,15 @@ describe('presets model', () => {
       await loadById('own');
       await loadById('own');
       expect(markPresetOpenedMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('an own preset kept by the tab is kept from the cleanup after a reload', () => {
+      ownPresets('own');
+      getUrlPresetIdMock.mockReturnValue('own');
+      storeTabState({ id: 'own', name: 'Preset own' }, 0.3, 0.5);
+      setup();
+      expect(getPresetMock).not.toHaveBeenCalled();
+      expect(markPresetOpenedMock).toHaveBeenCalledWith('own', { editToken: 'token-own' });
     });
 
     it('saving does not send it: a saved or updated preset is kept by its own dates', () => {

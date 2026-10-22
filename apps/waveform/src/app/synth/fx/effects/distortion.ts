@@ -19,15 +19,23 @@ export const distortion: FxDefinition<DistortionParam> = {
   label: 'Distortion',
   params: {
     mode: { ...mode, label: 'Mode', options: DISTORTION_MODES },
-    drive: { ...drive, label: 'Drive', precision: 10, formatValue: formatDb },
+    drive: { ...drive, label: 'Drive', name: 'Input drive', precision: 10, formatValue: formatDb },
     tone: {
       ...tone,
       label: 'Tone',
+      name: 'Tone cutoff',
       mode: 'log',
       precision: 1,
       formatValue: (value) => (value >= TONE_OPEN ? 'Open' : formatHz(value)),
     },
-    level: { ...level, label: 'Level', precision: 10, fillFrom: 0, formatValue: formatDb },
+    level: {
+      ...level,
+      label: 'Level',
+      name: 'Output level',
+      precision: 10,
+      fillFrom: 0,
+      formatValue: formatDb,
+    },
   },
   presets: DISTORTION_PRESETS,
   create: (audioCtx) => {
@@ -58,6 +66,7 @@ export const distortion: FxDefinition<DistortionParam> = {
       },
       // no loops to drain: the closed send silences the input, and the worklet idles once it is silent
       setActive: noop,
+      clear: worklet.clear,
       // the worklet moves the knobs once per block
       setModulation: (mod) => {
         const message: FxModMessage = { mod };

@@ -27,5 +27,17 @@ export const createFxParams = <K extends string>(
     };
   };
 
-  return { values, setValue, bind };
+  // runs `set` with its values set instantly: new nodes would glide from their defaults; a value that throws
+  // doesn't leave the next changes stepping
+  const instantly = (set: () => void) => {
+    const was = smooth;
+    smooth = false;
+    try {
+      set();
+    } finally {
+      smooth = was;
+    }
+  };
+
+  return { values, setValue, bind, instantly };
 };

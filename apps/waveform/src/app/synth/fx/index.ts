@@ -1,2 +1,2 @@
-export { FxProvider } from './modules';
+export { FxProvider, useFx } from './modules';
 export { FxScreen } from './components';

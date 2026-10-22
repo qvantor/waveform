@@ -31,6 +31,12 @@ describe('Select', () => {
     expect(document.activeElement).toBe(select);
   });
 
+  it('has no arrows when told so', () => {
+    render(<Select value='a' options={options} onChange={jest.fn()} arrows={false} />);
+    expect(screen.queryByRole('button', { name: 'Next' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Previous' })).toBeNull();
+  });
+
   it.each([
     ['Next', 'b', 'c'],
     ['Next', 'c', 'a'],

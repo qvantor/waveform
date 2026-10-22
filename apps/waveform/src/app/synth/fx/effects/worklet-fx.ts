@@ -1,7 +1,7 @@
 import { BehaviorSubject } from 'rxjs';
 import { FxStatus } from './types';
 import { isWorkletSupported, loadWorklet } from './load-worklet';
-import type { StopMessage } from './stereo-processor';
+import type { ClearMessage, StopMessage } from './stereo-processor';
 
 // the node of a stereo processor (stereo-processor.ts): a mono input is upmixed to both channels
 export const STEREO_WORKLET_OPTIONS: AudioWorkletNodeOptions = {
@@ -18,8 +18,9 @@ export const STEREO_WORKLET_OPTIONS: AudioWorkletNodeOptions = {
 // whether the node can be used: until it exists, or when the browser has no AudioWorklet or the module
 // failed, the input goes nowhere and the fx model keeps the effect out of the chain. retry() loads a
 // failed effect again. The effect keeps its params itself and passes them to the node it creates in
-// createNode (processorOptions), messages posted before the node exists are dropped. destroy() stops the
-// processor, so the node can be collected
+// createNode (processorOptions), messages posted before the node exists are dropped. clear() empties the
+// state of the processor (a node created later starts empty). destroy() stops the processor, so the node can
+// be collected
 export const createWorkletFx = (
   audioCtx: BaseAudioContext,
   name: string,
@@ -79,6 +80,10 @@ export const createWorkletFx = (
       if ($status.value === 'failed') load();
     },
     post: (message: unknown) => node?.port.postMessage(message),
+    clear: () => {
+      const message: ClearMessage = { clear: true };
+      node?.port.postMessage(message);
+    },
     destroy: () => {
       destroyed = true;
       stop(node);

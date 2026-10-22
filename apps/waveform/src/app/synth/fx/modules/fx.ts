@@ -115,6 +115,9 @@ export const fx = ({
           order.splice(to, 0, type);
           $order.next(order);
         },
+        // every effect forgets its tail at once, in the chain or not (a preset switch: the output is muted, a
+        // tail would play on with the params of the next preset)
+        clear: () => FX_TYPES.forEach((type) => slots[type].clear()),
       };
     })
     .subscriptions(({ $effects, $status, $chain, slots }) => [
@@ -199,3 +202,5 @@ export const fx = ({
     .destroy(({ slots }) => FX_TYPES.forEach((type) => slots[type].destroy()));
 
 export const { ModelProvider: FxProvider, useModel: useFx } = rxModelReact('fx', fx);
+
+export type FxModule = ReturnType<typeof useFx>;

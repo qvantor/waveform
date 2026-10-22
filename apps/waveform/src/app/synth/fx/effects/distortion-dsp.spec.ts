@@ -38,7 +38,9 @@ const BASE: DistortionDspParams = { mode: HARD, drive: 0, tone: TONE_OPEN, level
 type Input = (frame: number) => number;
 interface Change {
   at: number;
-  params: Partial<DistortionDspParams>;
+  params?: Partial<DistortionDspParams>;
+  // the state is forgotten (a preset switch)
+  clear?: boolean;
 }
 
 const silence: Input = () => 0;
@@ -93,7 +95,10 @@ const render = (
   for (let start = 0; start < length; start += BLOCK) {
     changes
       .filter(({ at }) => Math.floor(at / BLOCK) * BLOCK === start)
-      .forEach((change) => dsp.set(change.params));
+      .forEach((change) => {
+        if (change.params) dsp.set(change.params);
+        if (change.clear) dsp.clear();
+      });
     for (let i = 0; i < BLOCK; i++) {
       inL[i] = left(start + i);
       inR[i] = right(start + i);
@@ -400,6 +405,22 @@ describe('the distortion', () => {
     const { L } = render({ drive: 12, tone: 1000 }, loud + quiet + 512, input);
     L.subarray(loud + quiet - 8192, loud + quiet).forEach((value) => expect(value).toBe(0));
     const fresh = render({ drive: 12, tone: 1000 }, 512, impulse(0.5)).L;
+    expect(Array.from(L.subarray(loud + quiet))).toEqual(Array.from(fresh));
+  });
+
+  it('clear forgets the tails of the tone and the dc blocker at once, the next sound starts like in a new one', () => {
+    const loud = 2048;
+    const quiet = 1024;
+    const input: Input = (frame) => {
+      if (frame < loud) return pulse(0.5)(frame);
+      return frame < loud + quiet ? 0 : impulse(0.5)(frame - loud - quiet);
+    };
+    const params = { drive: 12, tone: 1000 };
+    const { L, idle } = render(params, loud + quiet + 512, input, { changes: [{ at: loud, clear: true }] });
+    expect(Math.abs(L[loud - 1])).toBeGreaterThan(0.01);
+    L.subarray(loud, loud + quiet).forEach((value) => expect(value).toBe(0));
+    expect(idle[loud / BLOCK]).toBe(true);
+    const fresh = render(params, 512, impulse(0.5)).L;
     expect(Array.from(L.subarray(loud + quiet))).toEqual(Array.from(fresh));
   });
 

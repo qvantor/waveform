@@ -1,8 +1,17 @@
-import { BehaviorSubject, debounceTime, defer } from 'rxjs';
+import { BehaviorSubject, debounceTime, defer, fromEvent, merge } from 'rxjs';
 import toast from 'react-hot-toast';
 import { PrimitiveBS, rxModel, rxModelReact } from '@waveform/rxjs-react';
-import { normalizePreset, presetHash, Preset, PresetListItem } from '@waveform/preset-schema';
+import {
+  normalizePreset,
+  presetDataSchema,
+  presetHash,
+  Preset,
+  PresetData,
+  PresetListItem,
+} from '@waveform/preset-schema';
 import { applySnapshot, getSnapshot, $snapshotChanges } from '../../app';
+import { readStored, writeStored } from '../../common/services';
+import type { SoundSwitchModule } from '../../synth/common/modules/sound-switch';
 import {
   clearUrlPresetId,
   getEditToken,
@@ -21,19 +30,55 @@ export interface CurrentPreset {
   auto?: boolean;
 }
 
-const currentHash = () => {
+// the id the url keeps: of a chosen preset, none of Init or an auto one
+const chosenId = (current: CurrentPreset | null) => (current && !current.auto ? current.id : null);
+
+// null: params out of the schema
+const hashOf = (data: Record<string, unknown>) => {
   try {
-    return presetHash(getSnapshot());
+    return presetHash(data);
   } catch (e) {
     return null;
   }
 };
+const currentHash = () => hashOf(getSnapshot());
 
 // Init is the default sound: every missing key of a preset is its default
 const INIT_HASH = presetHash({});
 const isInit = () => currentHash() === INIT_HASH;
+const isDirty = (loadedHash: string | null, hash = currentHash()) =>
+  loadedHash !== null && hash !== loadedHash;
 
-export const presets = () =>
+// the state of the tab (sessionStorage): what a reload would lose, the url keeps only the id of a chosen preset
+const TAB_STATE_KEY = 'presetState';
+
+interface TabState {
+  current: CurrentPreset | null;
+  loadedHash: string | null;
+  data: PresetData;
+}
+
+const isCurrentPreset = (value: unknown): value is CurrentPreset => {
+  const { id, name, auto } = (value ?? {}) as Partial<Record<keyof CurrentPreset, unknown>>;
+  return typeof id === 'string' && typeof name === 'string' && (auto === undefined || auto === true);
+};
+
+// params out of the schema drop the state, those of another version of the app get its defaults (`restore`)
+const isTabState = (value: unknown): value is TabState => {
+  const { current, loadedHash, data } = (value ?? {}) as Partial<Record<keyof TabState, unknown>>;
+  return (
+    (current === null || isCurrentPreset(current)) &&
+    (loadedHash === null || typeof loadedHash === 'string') &&
+    presetDataSchema.safeParse(data).success
+  );
+};
+
+interface Dependencies {
+  // a preset switch silences the synth until the next preset can play
+  soundSwitch: SoundSwitchModule;
+}
+
+export const presets = ({ soundSwitch: [, { switchSound }] }: Dependencies) =>
   rxModel(() => {
     const $current = new BehaviorSubject<CurrentPreset | null>(null);
     const $loadedHash = new BehaviorSubject<string | null>(null);
@@ -50,7 +95,8 @@ export const presets = () =>
         $current.next(current);
         $loadedHash.next(hash);
         $dirty.next(false);
-        if (current && !current.auto) setUrlPresetId(current.id);
+        const id = chosenId(current);
+        if (id !== null) setUrlPresetId(id);
         else clearUrlPresetId();
       };
 
@@ -64,11 +110,31 @@ export const presets = () =>
         markPresetOpened(id, { editToken }).catch(() => opened.delete(id));
       };
 
+      // the state the tab had before a reload, edits included
+      const restore = ({ current, loadedHash, data }: TabState) => {
+        applySnapshot(normalizePreset(data));
+        setCurrent(current, loadedHash);
+        $dirty.next(isDirty(loadedHash));
+        if (current && !current.auto) markOpened(current.id);
+      };
+
+      const loadFailed = (e: unknown, message?: string) =>
+        toast.error(message ?? (e instanceof Error ? e.message : 'Preset loading failed'));
+
+      // in silence, once the sound of the preset before has faded out (a preset chosen meanwhile replaces it);
+      // one that throws as it is applied doesn't become the current one
       const applyPreset = (preset: Preset, auto = false) => {
         const data = normalizePreset(preset.data);
-        applySnapshot(data);
-        setCurrent({ id: preset.id, name: preset.name, ...(auto && { auto }) }, presetHash(data));
-        markOpened(preset.id);
+        switchSound(() => {
+          try {
+            applySnapshot(data);
+          } catch (e) {
+            loadFailed(e);
+            return;
+          }
+          setCurrent({ id: preset.id, name: preset.name, ...(auto && { auto }) }, presetHash(data));
+          markOpened(preset.id);
+        });
       };
 
       let lastRequest = 0;
@@ -79,7 +145,7 @@ export const presets = () =>
           // fast ◀ ▶ clicks: only the last requested preset is applied
           if (request === lastRequest) applyPreset(preset);
         } catch (e) {
-          toast.error(errorMessage ?? (e instanceof Error ? e.message : 'Preset loading failed'));
+          loadFailed(e, errorMessage);
         }
       };
 
@@ -127,6 +193,7 @@ export const presets = () =>
       };
 
       return {
+        restore,
         loadById,
         loadTop,
         // start without a link: a random popular preset, unless something was loaded, saved or changed meanwhile;
@@ -147,22 +214,49 @@ export const presets = () =>
         // back to Init: the default sound without a preset
         reset: () => {
           lastRequest++; // a preset still loading is not applied over Init
-          applySnapshot(normalizePreset({}));
-          setCurrent(null, null);
+          switchSound(() => {
+            applySnapshot(normalizePreset({}));
+            setCurrent(null, null);
+          });
         },
       };
     })
-    .subscriptions(({ $loadedHash, $dirty }, { loadById, loadTop, openPopular }) => [
-      defer(() => {
-        const urlId = getUrlPresetId();
-        // with a link only its preset opens, the popular list loads meanwhile for ◀ ▶
-        return urlId
-          ? Promise.all([loadTop({ silent: true }), loadById(urlId, 'Preset from the link was not found')])
-          : openPopular();
-      }).subscribe(),
-      $snapshotChanges
-        .pipe(debounceTime(200))
-        .subscribe(() => $dirty.next($loadedHash.value !== null && currentHash() !== $loadedHash.value)),
-    ]);
+    .subscriptions(({ $current, $loadedHash, $dirty }, { restore, loadById, loadTop, openPopular }) => {
+      // a clean preset opens from the url by itself, a start without one opens a popular preset instead of Init
+      const saveTabState = (data = getSnapshot(), hash = hashOf(data)) => {
+        const current = $current.value;
+        const kept = current ? current.auto || hash !== $loadedHash.value : hash !== INIT_HASH;
+        writeStored(
+          'sessionStorage',
+          TAB_STATE_KEY,
+          kept ? { current, loadedHash: $loadedHash.value, data } : null
+        );
+      };
+      return [
+        defer(() => {
+          const urlId = getUrlPresetId();
+          const saved = readStored('sessionStorage', TAB_STATE_KEY, null, isTabState);
+          // after a reload the tab keeps its state, unless it was given a link to another preset
+          if (saved && chosenId(saved.current) === urlId) {
+            restore(saved);
+            return loadTop({ silent: true });
+          }
+          // with a link only its preset opens, the popular list loads meanwhile for ◀ ▶
+          return urlId
+            ? Promise.all([loadTop({ silent: true }), loadById(urlId, 'Preset from the link was not found')])
+            : openPopular();
+        }).subscribe(),
+        merge($snapshotChanges, $current)
+          .pipe(debounceTime(200))
+          .subscribe(() => {
+            const data = getSnapshot();
+            const hash = hashOf(data);
+            $dirty.next(isDirty($loadedHash.value, hash));
+            saveTabState(data, hash);
+          }),
+        // a reload within the debounce, while a knob is dragged
+        fromEvent(window, 'pagehide').subscribe(() => saveTabState()),
+      ];
+    });
 
 export const { ModelProvider: PresetsProvider, useModel: usePresets } = rxModelReact('presets', presets);

@@ -83,6 +83,7 @@ export const Oscillator = ({
               max={1}
               $value={$gain}
               label='Gain'
+              name='Volume'
               onChange={setGain}
               formatValue={(value) => number.percent(number.round(value, 100))}
               precision={100}
@@ -96,6 +97,7 @@ export const Oscillator = ({
               max={Math.max(0, frames - 1)}
               $value={$position}
               label='Wave'
+              name='Wave position'
               onChange={setPosition}
               precision={1}
               formatValue={formatWavePosition}
@@ -105,6 +107,7 @@ export const Oscillator = ({
           <HandlesGroup>
             <Handle
               label='Detune'
+              name='Unison detune'
               value={osc.detune}
               min={ranges.detune[0]}
               max={ranges.detune[1]}

@@ -19,10 +19,17 @@ export interface StopMessage {
   stop?: boolean;
 }
 
+// main thread → worklet: the effect forgets its tail (a preset switch, the output muted), createWorkletFx
+export interface ClearMessage {
+  clear?: boolean;
+}
+
 export interface StereoDsp {
   process: (inL: Float32Array, inR: Float32Array, outL: Float32Array, outR: Float32Array) => void;
   // a wasm core frees the state of the processor in its memory once it is stopped
   free?: () => void;
+  // its loops and lines are emptied, the next sound starts at the params as they are then
+  clear?: () => void;
 }
 
 // a disconnected input has no channels
@@ -56,9 +63,10 @@ export const registerStereoProcessor = <Dsp extends StereoDsp, Message extends o
         const { params = {} } = (options.processorOptions ?? {}) as { params?: Record<string, number> };
         this.modulator = createFxModulator(sampleRate, params);
       }
-      this.port.onmessage = ({ data }: MessageEvent<Message & StopMessage & FxModMessage>) => {
+      this.port.onmessage = ({ data }: MessageEvent<Message & StopMessage & ClearMessage & FxModMessage>) => {
         // (its dsp is freed: a message after the stop would reach a core that holds it no more)
         if (this.stopped) return;
+        if (data.clear) this.dsp.clear?.();
         const { modulator } = this;
         let message = data;
         if (modulator && data.mod !== undefined) modulator.set(data.mod);

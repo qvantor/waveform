@@ -261,6 +261,18 @@ describe('fx', () => {
     });
   });
 
+  it('clear empties every effect, in the chain or not, and changes nothing else', () => {
+    const { model, actions, synthCore } = setup();
+    actions.setAdded('reverb', true);
+    const clears = FX_TYPES.map((type) => jest.spyOn(model.slots[type], 'clear'));
+    const connects = (synthCore.fxIn.connect as jest.Mock).mock.calls.length;
+    const snapshot = getSnapshot();
+    actions.clear();
+    clears.forEach((clear) => expect(clear).toHaveBeenCalledTimes(1));
+    expect(synthCore.fxIn.connect).toHaveBeenCalledTimes(connects);
+    expect(getSnapshot()).toEqual(snapshot);
+  });
+
   it('$chain emits the added effects only when the chain changes', () => {
     const { model, actions } = setup();
     const chains: string[][] = [];

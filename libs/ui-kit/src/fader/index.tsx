@@ -8,7 +8,7 @@ import { scaleTicks, TickKind } from '../common/constants/scale-ticks';
 import { singlePointerTracker, valueScale } from '../common/utils';
 import { useModulations } from '../common/utils/use-mod-mark';
 import { Tooltip } from '../tooltip';
-import { ValueTooltipContent } from '../tooltip/value-tooltip';
+import { ValueTooltip } from '../tooltip/value-tooltip';
 import { Label } from '../label';
 import type { HandleProps } from '../handle';
 import { RoutesDot } from '../amount-dot';
@@ -213,6 +213,7 @@ export const Fader = ({
   onChange,
   formatValue,
   label,
+  name = typeof label === 'string' ? label : undefined,
   mode = 'linear',
   precision = 1000,
   disabled = false,
@@ -288,7 +289,7 @@ export const Fader = ({
 
   const formatted = formatValue?.(value) ?? value;
   return (
-    <Tooltip content={<ValueTooltipContent>{formatted}</ValueTooltipContent>}>
+    <Tooltip content={<ValueTooltip name={name}>{formatted}</ValueTooltip>}>
       <Root
         className={cls(className, { disabled })}
         onPointerDown={onPointerDown}
@@ -303,7 +304,7 @@ export const Fader = ({
           aria-valuemax={max}
           aria-valuenow={value}
           aria-valuetext={typeof formatted === 'string' ? formatted : undefined}
-          aria-label={typeof label === 'string' ? label : undefined}
+          aria-label={name}
           aria-disabled={disabled || undefined}
           onKeyDown={onKeyDown}
         >

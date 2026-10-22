@@ -76,16 +76,31 @@ type VoiceOscillator = Pick<
   'id' | '$active' | '$osc' | '$unisonShape' | '$params' | 'buses' | '$busSources'
 >;
 
-// the routes of a note to its params: of the oscillators on for it and of the filter while it is on, in the
-// range of its type (a knob its type doesn't use is left out); an amount of 0 is left out (its envelope isn't
-// rendered for it)
-const voiceRoutes = (routes: ModRoute[], on: boolean[], filter: VoiceFilterOptions | null): VoiceRoute[] =>
+// the options of an oscillator its processor reads at the note on (null: off): the phases and the shape of the
+// unison are options, not params (an AudioParam costs every block, ~2% of a held note)
+const oscOptions = ({ id, $active, $osc, $unisonShape }: VoiceOscillator): VoiceOscOptions | null => {
+  if (!$active.value) return null;
+  const { unison, phase, phaseRand } = $osc.value;
+  return { table: id, unison, phase, phaseRand, unisonShape: $unisonShape.value };
+};
+
+// the options of an oscillator but the phases: they only start a voice (taken over, it goes on with them)
+const withoutPhases = (options: VoiceOscOptions | null) => options && { ...options, phase: 0, phaseRand: 0 };
+
+// the routes of a note to its params: of the oscillators on for it (`osc`, null: off) and of the filter while it
+// is on, in the range of its type (a knob its type doesn't use is left out); an amount of 0 is left out (its
+// envelope isn't rendered for it)
+const voiceRoutes = (
+  routes: ModRoute[],
+  osc: (VoiceOscOptions | null)[],
+  filter: VoiceFilterOptions | null
+): VoiceRoute[] =>
   routes.flatMap(({ source, target, amount }) => {
     const definition = MOD_TARGETS[target];
     if (!definition || amount === 0) return [];
     const env = MOD_SOURCES.indexOf(source);
     if (definition.kind === 'osc') {
-      if (!on[definition.osc]) return [];
+      if (!osc[definition.osc]) return [];
       const [min, max] = definition.range;
       const param = oscParamName(definition.param, definition.osc);
       return [{ env, param, amount: amountInUnits(amount, definition.scale, definition.range), min, max }];
@@ -119,6 +134,28 @@ interface Phrase {
   from?: number[];
 }
 
+// the key was released: the seconds of the context then and those it was held
+interface Stopped {
+  now: number;
+  held: number;
+}
+
+// the seconds of the context the release of a voice starts at, as its processor starts it (null while the key
+// is held): as long after its first sample (or its last start again: `startedAt`) as the key was held, not
+// before it sees the gate (now, or its first sample if later), at most RELEASE_LEAD after it
+const releaseOf = (stopped: Stopped | null, startedAt: number) =>
+  stopped && releaseStart(Math.max(stopped.now, startedAt), startedAt + stopped.held, RELEASE_LEAD);
+
+// the level of envelope `env` (ENV 1: the volume) of a phrase at `now` (seconds of the context) as the processor
+// renders it: from where they started (in mono from their levels then), released at `release`
+const phraseLevel = (
+  { envelopes, started, from }: Phrase,
+  release: number | null,
+  now: number,
+  env: number
+) =>
+  envelopeValue(envelopes[env], now - started, release === null ? Infinity : release - started, from?.[env]);
+
 // the envelopes of a voice are those of the knobs and their curves (equal values: a preset applied again makes
 // new objects)
 const sameEnvelopes = (envelopes: EnvelopeParams[], knobs: Envelopes) =>
@@ -150,6 +187,9 @@ interface VoiceConfig {
   onLate: (startedAt: number) => void;
   // traces the voice: its processor posts the frames of its start
   onStarted?: (message: VoiceStartedMessage) => void;
+  // a voice of mono (Poly 1): the notes it takes over may start its envelopes again, its processor posts the
+  // frames of its start (on time too: the voice keeps its starts again until then)
+  mono: boolean;
 }
 
 // the node of a note: both oscillators (off: not active when it was pressed) with their unison voices and its
@@ -165,18 +205,14 @@ const createVoiceNode = ({
   routes,
   filter,
   onStarted,
+  mono,
 }: VoiceConfig) => {
   const parameterData: Partial<Record<VoiceParam, number>> = { frequency: pitch.from };
-  const osc = oscillators.map((oscillator, index): VoiceOscOptions | null => {
+  const osc = oscillators.map((oscillator, index) => {
     const params = oscillator.$params.value;
     OSC_PARAMS.forEach((param) => (parameterData[oscParamName(param, index)] = params[param]));
-    if (!oscillator.$active.value) return null;
-    // the phases and the shape of the unison at the note on: options, not params (an AudioParam costs every
-    // block, ~2% of a held note)
-    const { unison, phase, phaseRand } = oscillator.$osc.value;
-    return { table: oscillator.id, unison, phase, phaseRand, unisonShape: oscillator.$unisonShape.value };
+    return oscOptions(oscillator);
   });
-  const on = oscillators.map(({ $active }) => $active.value);
   const node = createNode(
     {
       osc,
@@ -184,9 +220,10 @@ const createVoiceNode = ({
       envelopes,
       envStart,
       phrase,
-      routes: voiceRoutes(routes, on, filter),
+      routes: voiceRoutes(routes, osc, filter),
       filter,
       ...(onStarted && { trace: true }),
+      ...(mono && { mono: true }),
     },
     parameterData
   );
@@ -205,16 +242,19 @@ class Voice {
   private node: AudioWorkletNode;
   // the mod buses connected to the params of the node (of the oscillators on for the note), by osc and param
   private links = new Map<string, () => void>();
-  // the oscillators on when the note was pressed
-  private on: boolean[];
+  // the options of the oscillators its processor read at the note on (null: off when it was pressed)
+  private osc: (VoiceOscOptions | null)[];
   // the milliseconds of the note on (performance.now): the time its key is held, currentTime moves by device
   // buffers
   private pressedAt = performance.now();
   // the seconds of the context its first sample is at: its start, later once its processor tells it started
   // late
   private startedAt: number;
-  // the key was released: the seconds of the context then and those it was held
-  private stopped: { now: number; held: number } | null = null;
+  // the key was released (null while it is held)
+  private stopped: Stopped | null = null;
+  // its starts again (mono) until its processor tells where it started (null from then on): when, and whether
+  // its key was released then; processed late, they are worked out again from its first sample
+  private restarts: { at: number; stopped: Stopped | null }[] | null = [];
   // the routes its processor has (JSON): a change of the routes of other knobs sends nothing
   private routes: string;
   // the note it plays (the key it is held under; in mono the top of the stack) and the glide of its pitch to it
@@ -236,8 +276,8 @@ class Voice {
     this.note = config.note;
     this.pitch = config.pitch;
     this.current = config.phrase;
-    this.on = config.oscillators.map(({ $active }) => $active.value);
-    this.routes = JSON.stringify(voiceRoutes(config.routes, this.on, config.filter));
+    this.osc = config.oscillators.map(oscOptions);
+    this.routes = JSON.stringify(voiceRoutes(config.routes, this.osc, config.filter));
     node.connect(config.outputNode);
     config.oscillators.forEach((oscillator, osc) =>
       OSC_PARAMS.forEach((param) => this.setBus(osc, param, oscillator.$busSources.value[param] > 0))
@@ -254,11 +294,8 @@ class Voice {
     node.port.onmessage = ({ data }: MessageEvent<VoiceEndedMessage | VoiceStartedMessage>) => {
       if ('started' in data) {
         if (__PERF__) config.onStarted?.(data);
-        // (a note that started its envelopes again before it is later still)
-        if (data.started > data.scheduled) {
-          this.startedAt = Math.max(this.startedAt, data.started / config.audioCtx.sampleRate);
-          config.onLate(this.startedAt);
-        }
+        if (data.started > data.scheduled) this.startLate(data.started / config.audioCtx.sampleRate);
+        this.restarts = null;
       } else if (data.ended) end();
     };
     // its processor failed outside process() (an error in process() ends the voice there): it never ends
@@ -273,7 +310,7 @@ class Voice {
     const oscillator = this.config.oscillators[osc];
     const key = oscParamName(param, osc);
     const linked = this.links.get(key);
-    if (used === Boolean(linked) || !this.on[osc]) return;
+    if (used === Boolean(linked) || !this.osc[osc]) return;
     if (linked) {
       linked();
       this.links.delete(key);
@@ -289,6 +326,36 @@ class Voice {
     return this.node.parameters.get('gate') as AudioParam;
   }
 
+  // its processor started it at `started` (seconds of the context), later than scheduled (its node came late):
+  // its envelopes start there, the fx follow them (onLate). Its starts again before it are that start (its
+  // processor sees the gate at its first sample), those after it start from the levels they have then from there
+  private startLate(started: number) {
+    this.startedAt = started;
+    if (this.restarts?.length) {
+      this.current = { ...this.config.phrase, started };
+      for (const { at, stopped } of this.restarts) {
+        if (at > started) this.startAgain(at, stopped);
+      }
+    }
+    this.config.onLate(started);
+  }
+
+  // its envelopes start again at `at` (seconds of the context), each from the level it has there, released as
+  // `stopped` (its key then) says
+  private startAgain(at: number, stopped: Stopped | null) {
+    const release = releaseOf(stopped, this.startedAt);
+    const from = this.current.envelopes.map((_, env) => phraseLevel(this.current, release, at, env));
+    this.current = { ...this.current, start: at, started: at, from };
+    this.startedAt = at;
+  }
+
+  // it plays the oscillators of the knobs: on/off, the unison and its shape are read at its note on (the phases
+  // only start it: taken over, it goes on with them)
+  playsKnobs() {
+    const knobs = this.config.oscillators.map((oscillator) => withoutPhases(oscOptions(oscillator)));
+    return isEqual(this.osc.map(withoutPhases), knobs);
+  }
+
   // mono: the voice plays `note` instead, its pitch glides there in `seconds` along the curve from where it is
   // (a glide the note interrupts goes on from its value now); 0: at once
   glide = (note: Note, seconds: number) => {
@@ -302,15 +369,14 @@ class Voice {
   // The gate held at its other value tells its processor (automation: exact to the sample)
   retrigger = () => {
     const now = this.config.audioCtx.currentTime;
-    const from = this.current.envelopes.map((_, env) => this.level(now, env));
+    this.restarts?.push({ at: now, stopped: this.stopped });
+    this.startAgain(now, this.stopped);
     // at another value than its processor has seen: one set at this same time (two notes within a device
     // buffer) is replaced before it is seen, the value stays
     if (now !== this.heldAt) this.heldGate = this.heldGate === HELD_GATE ? HELD_AGAIN_GATE : HELD_GATE;
     this.heldAt = now;
     setParam(this.gate, this.heldGate, now);
-    this.current = { ...this.current, start: now, started: now, from };
     this.pressedAt = performance.now();
-    this.startedAt = now;
     this.stopped = null;
   };
 
@@ -318,13 +384,9 @@ class Voice {
     return this.current;
   }
 
-  // the seconds of the context its release starts at, as its processor starts it (null while the key is
-  // held): as long after its first sample as the key was held, not before it sees the gate (now, or its first
-  // sample if later), at most RELEASE_LEAD after it
+  // the seconds of the context its release starts at, as its processor starts it (null while the key is held)
   get releaseAt() {
-    if (!this.stopped) return null;
-    const { now, held } = this.stopped;
-    return releaseStart(Math.max(now, this.startedAt), this.startedAt + held, RELEASE_LEAD);
+    return releaseOf(this.stopped, this.startedAt);
   }
 
   // the end of the release, Infinity while the note is held; released at 0 it ends there, as its processor
@@ -338,9 +400,7 @@ class Voice {
   // it: from the start of its phrase (its own, in legato the first note's; where they started, once processed
   // late; in mono where a note started them again, from their levels then), released at releaseAt
   level(now: number, env = 0) {
-    const { envelopes, started, from } = this.current;
-    const at = this.releaseAt;
-    return envelopeValue(envelopes[env], now - started, at === null ? Infinity : at - started, from?.[env]);
+    return phraseLevel(this.current, this.releaseAt, now, env);
   }
 
   // the key is released: the release of ENV 1 starts from the level it has reached, as long after the start as
@@ -370,7 +430,7 @@ class Voice {
 
   // the routes of the modulation or the type of the filter changed: the processor glides into the new amounts
   setRoutes = (routes: ModRoute[], filter: VoiceFilterOptions | null) => {
-    const message: VoiceRoutesMessage = { routes: voiceRoutes(routes, this.on, filter) };
+    const message: VoiceRoutesMessage = { routes: voiceRoutes(routes, this.osc, filter) };
     const json = JSON.stringify(message.routes);
     if (json === this.routes) return;
     this.routes = json;
@@ -427,6 +487,9 @@ class Voicing {
   // hands it back to the key below, the last key releases it. Null until a note in mono, after the voice ended
   // and once Poly leaves 1: the next note starts a voice
   private mono: { voice: Voice; stack: string[] } | null = null;
+  // paused (a preset switch): the keys held, in the order they were pressed (in mono its stack), and those
+  // pressed until resume; they start on the next preset. Null while it plays
+  private waiting: string[] | null = null;
 
   constructor(config: VoicingContext) {
     this.voices = {};
@@ -448,7 +511,8 @@ class Voicing {
       start: now,
       started: now,
     };
-    const phrase = $legato.value && $maxVoices.value !== 1 ? (this.phrase ??= own) : own;
+    const mono = $maxVoices.value === 1;
+    const phrase = $legato.value && !mono ? (this.phrase ??= own) : own;
     const frequency = getFq(note);
 
     const voiceConfig: VoiceConfig = {
@@ -469,6 +533,7 @@ class Voicing {
         __PERF__ && $voiceStarts.observed
           ? ({ scheduled, started }) => $voiceStarts.next({ note: noteToString(note), scheduled, started })
           : undefined,
+      mono,
       onEnded: (voice) => {
         this.sounding.delete(voice);
         // the voice of mono ended by itself (its processor failed): the next note starts one
@@ -480,10 +545,10 @@ class Voicing {
         this.config.onCount();
       },
       // processed late: the envelopes of the first note of a phrase started with it; the fx follow them (and
-      // its release) from there while they are those of the last note
+      // its release) from there while they are those of the last note (followFx changes nothing otherwise)
       onLate: (startedAt) => {
         if (phrase === own) phrase.started = startedAt;
-        if (phrase === this.last?.phrase) this.followFx();
+        this.followFx();
       },
     };
     const node = createVoiceNode(voiceConfig);
@@ -538,11 +603,11 @@ class Voicing {
     delete this.voices[key];
   }
 
-  // a new voice for a note, gliding from the last key held; the voices above Poly are stolen first (all of
-  // them when Poly went down)
-  private startVoice(note: Note) {
+  // a new voice for a note, gliding from the last key held (with `glide`); the voices above Poly are stolen
+  // first (all of them when Poly went down)
+  private startVoice(note: Note, glide = true) {
     const keys = Object.keys(this.voices);
-    const from = keys.length > 0 ? stringToNote(keys[keys.length - 1]) : undefined;
+    const from = glide && keys.length > 0 ? stringToNote(keys[keys.length - 1]) : undefined;
     const now = this.config.audioCtx.currentTime;
     while (this.voicesCount > 0 && this.voicesCount >= this.config.$maxVoices.value) this.steal(now);
     const voice = this.getVoice(note, from);
@@ -564,14 +629,16 @@ class Voicing {
   // glides there from where it is, in legato its envelopes go on, else they start again; from its release it
   // plays it at once (Always is off) and they start again. False when a new voice plays it: its release ends
   // before its processor would see the gate (it would have ended), or its envelopes would start again as
-  // others than the knobs' (its processor reads them at its note on)
+  // others than the knobs' or with other oscillators (on/off, the unison and its shape; its processor reads them
+  // at its note on; a glide in legato keeps it)
   private takeOver(note: Note, held: boolean) {
     const { mono } = this;
     if (!mono) return false;
     const { voice } = mono;
     const again = !held || !this.config.$legato.value;
     if (voice.releaseEnd <= this.config.audioCtx.currentTime + RELEASE_LEAD) return false;
-    if (again && !sameEnvelopes(voice.phrase.envelopes, this.config.$envelopes.value)) return false;
+    if (again && !(sameEnvelopes(voice.phrase.envelopes, this.config.$envelopes.value) && voice.playsKnobs()))
+      return false;
     delete this.voices[noteToString(voice.note)];
     this.voices[noteToString(note)] = voice;
     this.forget(voice);
@@ -590,8 +657,13 @@ class Voicing {
     this.mono = voice && { voice, stack };
   }
 
-  // a note played before the oscillator is ready is not played (nor later)
+  // a note played before the oscillator is ready is not played (nor later); paused, it waits for resume
   onPress = (note: Note) => {
+    if (this.waiting) {
+      const key = noteToString(note);
+      if (!this.waiting.includes(key)) this.waiting.push(key);
+      return;
+    }
     if (!this.config.isReady()) return;
     // the released voices whose release is over are not counted (their ended message is on its way)
     const now = this.config.audioCtx.currentTime;
@@ -611,6 +683,10 @@ class Voicing {
 
   onRelease = (note: Note) => {
     const stringNote = noteToString(note);
+    if (this.waiting) {
+      this.waiting = this.waiting.filter((key) => key !== stringNote);
+      return;
+    }
     const { mono } = this;
     const index = mono ? mono.stack.indexOf(stringNote) : -1;
     if (mono && index >= 0) {
@@ -652,6 +728,38 @@ class Voicing {
   leaveMono() {
     this.mono = null;
     this.phrase = undefined;
+  }
+
+  // a preset switch: every voice fades out (20 ms, as a stolen one), the fx follow no note; the keys held wait
+  // for resume, with those pressed meanwhile (a voice now would play the tables of the preset before)
+  pause() {
+    if (this.waiting) return;
+    this.waiting = this.mono ? [...this.mono.stack] : Object.keys(this.voices);
+    this.sounding.forEach((voice) => voice.immediatelyStop());
+    this.voices = {};
+    this.released = [];
+    this.mono = null;
+    this.phrase = undefined;
+    this.last = null;
+    this.fxRelease = null;
+    this.config.$fxNote.next(null);
+    this.config.onCount();
+  }
+
+  // the next preset is ready: the keys still held start on it as pressed together (no glide between them), in
+  // its mode (in mono the last one pressed, the others under it); none before the oscillator is ready
+  resume() {
+    const keys = this.waiting;
+    this.waiting = null;
+    if (!keys?.length || !this.config.isReady()) return;
+    if (this.config.$maxVoices.value !== 1) keys.forEach((key) => this.startVoice(stringToNote(key), false));
+    else this.playMono(stringToNote(keys[keys.length - 1]), false, keys);
+    this.config.onCount();
+  }
+
+  // every voice has ended (its processor posted it): a preset switch waits for those it faded out
+  get silent() {
+    return this.sounding.size === 0;
   }
 
   // the sounding voices: held and released, the stolen ones fade out uncounted
@@ -709,11 +817,14 @@ export const synth = ({
 
     return { $maxVoices, $portamento, $legato, $voicesCount, $fxNote, $voiceStarts, voicing };
   })
-    .actions(({ $maxVoices, $portamento, $legato, $voicesCount }) => ({
+    .actions(({ $maxVoices, $portamento, $legato, $voicesCount, voicing }) => ({
       setMaxVoices: (value: number) => $maxVoices.next(value),
       setPortamento: (value: number) => $portamento.next(value),
       setLegato: (value: boolean) => $legato.next(value),
       setVoicesCount: (value: number) => $voicesCount.next(value),
+      // a preset switch (soundSwitch): silence, the keys wait for the next preset; it is ready: they start on it
+      pause: () => voicing.pause(),
+      resume: () => voicing.resume(),
     }))
     .subscriptions(({ voicing, $maxVoices }, { setVoicesCount }) => [
       $onRelease.subscribe((note) => {

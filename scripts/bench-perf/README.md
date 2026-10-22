@@ -70,7 +70,11 @@ macOS release or output.
 ## The cases
 
 48 kHz, whatever the rate of the output (`SCENE_RATE`: the app asks for none, its context would run at the
-output's; a page whose context runs at another rate errors).
+output's; a page whose context runs at another rate errors). Chromium plays at low latency (`latencyHint` 0,
+128 frames: the Auto of the app in a Chrome that counts dropouts), forced by the page as the rate, not through
+the setting of the app: Chromium 133 of Playwright counts none, its Auto would be normal, and the tree of an A/B
+reference may have no setting. A baseline of before it was taken at normal (256 frames, L1 ~7 ms later):
+`--update-baseline` again.
 
 | Id     | Case                                                                                                                                                                                                                                                                                                                                   | Measures                                                                                                                                        |
 | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |

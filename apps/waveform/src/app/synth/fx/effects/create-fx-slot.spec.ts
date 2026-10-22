@@ -97,6 +97,34 @@ describe('createFxSlot', () => {
     expect(retry).toHaveBeenCalled();
   });
 
+  it('clear empties the core, a core without a tail has nothing to clear', () => {
+    const audioCtx = new AudioContext();
+    const clear = jest.fn();
+    createFxSlot(audioCtx, { ...createCore(audioCtx), clear }).clear();
+    expect(clear).toHaveBeenCalledTimes(1);
+    expect(() => createFxSlot(audioCtx, createCore(audioCtx)).clear()).not.toThrow();
+  });
+
+  it('clear sets the gains at the knobs at once, they glided there', () => {
+    const audioCtx = new AudioContext();
+    const slot = createFxSlot(audioCtx, createCore(audioCtx));
+    const last = (node: GainNode) => (node.gain.setValueAtTime as jest.Mock).mock.lastCall;
+    slot.setMix(0.5, true);
+    slot.setActive(true);
+    slot.clear();
+    expect(last(slot.send)).toEqual([1, 0]);
+    expect(last(slot.dry)).toEqual([expect.closeTo(Math.SQRT1_2, 12), 0]);
+    expect(last(slot.wet)).toEqual([expect.closeTo(Math.SQRT1_2, 12), 0]);
+    [slot.send, slot.dry, slot.wet].forEach((node) =>
+      expect(node.gain.cancelScheduledValues).toHaveBeenLastCalledWith(0)
+    );
+    // bypassed and inactive: only dry, the send closed
+    slot.setMix(0.5, false);
+    slot.setActive(false);
+    slot.clear();
+    expect([slot.send, slot.dry, slot.wet].map((node) => last(node)?.[0])).toEqual([0, 1, 0]);
+  });
+
   it('destroy destroys the core and disconnects every node, the dry delay too', () => {
     const audioCtx = new AudioContext();
     const core = createCore(audioCtx, 0.001);

@@ -6,4 +6,5 @@ export { ModulationProvider, useModulation } from './modulation';
 export { Oscillator1Provider, Oscillator2Provider, useOscillator1, useOscillator2 } from './oscillator';
 export { SynthProvider, useSynth } from './synth';
 export { SynthCoreProvider, useSynthCore } from './synth-core';
+export { SoundSwitchProvider, useSoundSwitch } from './sound-switch';
 export type { OscillatorModule, OscillatorModel, OscillatorActions } from './oscillator';

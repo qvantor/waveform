@@ -4,7 +4,7 @@ import { FxDefinition } from './types';
 import { DelayParam, DELAY_PRESETS } from './delay-presets';
 import { createFxParams } from './fx-params';
 import { formatHz, formatMs } from './format';
-import { FxModulation, FxNote, FxRoute } from './fx-modulation';
+import { FxModulation } from './fx-modulation';
 import { FxRamp, holdParam, scheduleRouted } from './fx-automation';
 
 const { time, fb, mode, pan, freq, q } = FX_PARAMS.delay;
@@ -13,10 +13,14 @@ const isPingPong = (value: number) => value >= 0.5;
 
 // time changes glide like tape (~95% in 0.3s), so a knob drag bends the echoes once instead of chirping per step
 const TIME_GLIDE = 0.1;
+// the knobs of the nodes with a state (the feedback is the gains: routing)
+const NODE_KNOBS: DelayParam[] = ['time', 'pan', 'freq', 'q'];
 
 // input → splitter → in gains → line L/R → bandpass L/R → pan L/R → merger (output)
 // feedback: bandpass L/R → fb gains → line L/R; normal: each line feeds itself,
 // ping-pong: the mono sum goes into the left line, the lines feed each other (L → R → L).
+// clear() makes the nodes with a state (the lines, the bandpasses, the pan offsets) again: a DelayNode can't be
+// emptied, fed silence it would still play its last second.
 // A knob the envelopes move (fx-modulation.ts) is automated, base + amount × level: linear ramps, exponential
 // ones for Freq and Q; Time without its tape glide (a fast envelope would be smoothed away), Feedback on the
 // gains of the mode, Pan on the delay of the side it is on
@@ -34,6 +38,7 @@ export const delay: FxDefinition<DelayParam> = {
     pan: {
       ...pan,
       label: 'Pan',
+      name: 'Stereo offset',
       precision: 1000,
       fillFrom: 0,
       formatValue: (value) => {
@@ -45,6 +50,7 @@ export const delay: FxDefinition<DelayParam> = {
     time: {
       ...time,
       label: 'Time',
+      name: 'Delay time',
       formatValue: formatMs,
     },
     fb: {
@@ -56,6 +62,7 @@ export const delay: FxDefinition<DelayParam> = {
     freq: {
       ...freq,
       label: 'Freq',
+      name: 'Filter freq',
       mode: 'log',
       precision: 1,
       formatValue: formatHz,
@@ -63,6 +70,7 @@ export const delay: FxDefinition<DelayParam> = {
     q: {
       ...q,
       label: 'Q',
+      name: 'Resonance',
       mode: 'log',
       precision: 100,
     },
@@ -96,9 +104,13 @@ export const delay: FxDefinition<DelayParam> = {
       return node;
     };
 
-    const lines = { l: line(), r: line() };
-    const filters = { l: bandpass(), r: bandpass() };
-    const offsets = { l: audioCtx.createDelay(pan.max), r: audioCtx.createDelay(pan.max) };
+    // the nodes with a state, made again by clear()
+    const stateful = () => ({
+      lines: { l: line(), r: line() },
+      filters: { l: bandpass(), r: bandpass() },
+      offsets: { l: audioCtx.createDelay(pan.max), r: audioCtx.createDelay(pan.max) },
+    });
+    let { lines, filters, offsets } = stateful();
     // inX: right input into the left line (ping-pong mono sum)
     const inputs = { l: gain(), r: gain(), x: gain() };
     // ll/rr: a line into itself, lr/rl: into the other line
@@ -108,19 +120,31 @@ export const delay: FxDefinition<DelayParam> = {
     splitter.connect(inputs.l, 0);
     splitter.connect(inputs.r, 1);
     splitter.connect(inputs.x, 1);
-    inputs.l.connect(lines.l);
-    inputs.x.connect(lines.l);
-    inputs.r.connect(lines.r);
-    lines.l.connect(filters.l);
-    lines.r.connect(filters.r);
-    filters.l.connect(feedbacks.ll).connect(lines.l);
-    filters.r.connect(feedbacks.rr).connect(lines.r);
-    filters.l.connect(feedbacks.lr).connect(lines.r);
-    filters.r.connect(feedbacks.rl).connect(lines.l);
-    filters.l.connect(offsets.l).connect(merger, 0, 0);
-    filters.r.connect(offsets.r).connect(merger, 0, 1);
+    // the gains into and out of the nodes with a state
+    const wire = () => {
+      inputs.l.connect(lines.l);
+      inputs.x.connect(lines.l);
+      inputs.r.connect(lines.r);
+      lines.l.connect(filters.l);
+      lines.r.connect(filters.r);
+      filters.l.connect(feedbacks.ll).connect(lines.l);
+      filters.r.connect(feedbacks.rr).connect(lines.r);
+      filters.l.connect(feedbacks.lr).connect(lines.r);
+      filters.r.connect(feedbacks.rl).connect(lines.l);
+      filters.l.connect(offsets.l).connect(merger, 0, 0);
+      filters.r.connect(offsets.r).connect(merger, 0, 1);
+    };
+    wire();
+    // the nodes in between: those with a state and the gains into and out of them
+    const inner = (): AudioNode[] => [
+      ...Object.values(inputs),
+      ...Object.values(feedbacks),
+      ...Object.values(lines),
+      ...Object.values(filters),
+      ...Object.values(offsets),
+    ];
 
-    const { values, setValue, bind } = createFxParams(audioCtx, FX_PARAMS.delay);
+    const { values, setValue, bind, instantly } = createFxParams(audioCtx, FX_PARAMS.delay);
     let active = true;
 
     // inactive: no feedback, so the lines drain within one delay time instead of ringing on
@@ -167,22 +191,19 @@ export const delay: FxDefinition<DelayParam> = {
         freq: () => [filters.l, filters.r].map((node) => [node.frequency, 'exponential']),
         q: () => [filters.l, filters.r].map((node) => [node.Q, 'exponential']),
       };
-    // every param a knob may move (the feedback: routing)
-    const paramsOf: Partial<Record<DelayParam, AudioParam[]>> = {
-      time: [lines.l.delayTime, lines.r.delayTime],
-      pan: [offsets.l.delayTime, offsets.r.delayTime],
-      freq: [filters.l.frequency, filters.r.frequency],
-      q: [filters.l.Q, filters.r.Q],
-    };
-    const automate = (key: DelayParam, routes: FxRoute[], note: FxNote) =>
+    // a knob its routes move is automated (true), else it is left to its value
+    const automateRoutes = (key: DelayParam) => {
+      const routes = routesOf(key);
+      if (!modulation || routes.length === 0) return false;
+      const { note } = modulation;
       automated[key]?.().forEach(([param, ramp, map]) =>
         scheduleRouted(param, audioCtx.currentTime, note, routes, values[key], ramp, map)
       );
+      return true;
+    };
     // a knob moved by its routes is automated, else it glides to its value
     const routed = (key: DelayParam, set: (value: number) => void) => (value: number) => {
-      const routes = routesOf(key);
-      if (modulation && routes.length > 0) automate(key, routes, modulation.note);
-      else set(value);
+      if (!automateRoutes(key)) set(value);
     };
     // the feedback gains follow the automation of the routes of Feedback
     let fbRouted = false;
@@ -192,11 +213,7 @@ export const delay: FxDefinition<DelayParam> = {
     const routing = () => {
       if (fbRouted) Object.values(feedbacks).forEach(({ gain }) => holdParam(gain, audioCtx.currentTime));
       applyRouting();
-      const routes = routesOf('fb');
-      fbRouted = false;
-      if (!active || !modulation || routes.length === 0) return;
-      fbRouted = true;
-      automate('fb', routes, modulation.note);
+      fbRouted = active && automateRoutes('fb');
     };
 
     const setParam = bind({
@@ -221,29 +238,23 @@ export const delay: FxDefinition<DelayParam> = {
         const before = new Set(modulation?.routes.map(({ param }) => param));
         modulation = mod;
         if (fbRouted || routesOf('fb').length > 0) routing();
-        (Object.keys(paramsOf) as DelayParam[]).forEach((key) => {
-          const routes = routesOf(key);
-          if (mod && routes.length > 0) {
-            automate(key, routes, mod.note);
-            return;
-          }
-          if (!before.has(key)) return;
+        NODE_KNOBS.forEach((key) => {
+          if (automateRoutes(key) || !before.has(key)) return;
           // its routes are gone: from where it is to its value
-          paramsOf[key]?.forEach((param) => holdParam(param, audioCtx.currentTime));
+          automated[key]?.().forEach(([param]) => holdParam(param, audioCtx.currentTime));
           apply[key](values[key]);
         });
       },
-      destroy: () =>
-        [
-          input,
-          splitter,
-          merger,
-          ...Object.values(lines),
-          ...Object.values(filters),
-          ...Object.values(offsets),
-          ...Object.values(inputs),
-          ...Object.values(feedbacks),
-        ].forEach((node) => node.disconnect()),
+      // new nodes at the values of their knobs at once (from their defaults a Time would chirp), those the
+      // routes move automated again from there; the gains keep theirs
+      clear: () => {
+        inner().forEach((node) => node.disconnect());
+        ({ lines, filters, offsets } = stateful());
+        wire();
+        instantly(() => NODE_KNOBS.forEach((key) => apply[key](values[key])));
+        NODE_KNOBS.forEach(automateRoutes);
+      },
+      destroy: () => [input, splitter, merger, ...inner()].forEach((node) => node.disconnect()),
     };
   },
 };

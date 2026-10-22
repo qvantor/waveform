@@ -1,6 +1,6 @@
 //! The master limiter (ported bit for bit from the TS core it replaced; the goldens hold its sound): a stereo
 //! linked, true peak, lookahead brickwall limiter. The C ABI of a stereo core: fx_new, fx_buffers, fx_process,
-//! fx_latency, fx_free (limiter-wasm.ts wraps it)
+//! fx_clear, fx_latency, fx_free (limiter-wasm.ts wraps it)
 
 #![cfg_attr(target_arch = "wasm32", no_std)]
 
@@ -62,6 +62,14 @@ impl SlidingMax {
         self.time += 1.0;
         self.values[self.head]
     }
+
+    fn clear(&mut self) {
+        self.values.fill(0.0);
+        self.times.fill(0.0);
+        self.head = 0;
+        self.tail = 0;
+        self.time = 0.0;
+    }
 }
 
 // the mean of the last `length` values, from 1; the sum is summed up again once per pass
@@ -95,6 +103,12 @@ impl Boxcar {
         }
         self.sum / length as f64
     }
+
+    fn clear(&mut self) {
+        self.values.fill(1.0);
+        self.sum = self.values.len() as f64;
+        self.index = 0;
+    }
 }
 
 // a whole number of samples of delay
@@ -120,6 +134,11 @@ impl Delay {
             self.index = 0;
         }
         delayed
+    }
+
+    fn clear(&mut self) {
+        self.buffer.fill(0.0);
+        self.index = 0;
     }
 }
 
@@ -216,6 +235,25 @@ impl Limiter {
         }
     }
 
+    /// the sound before is forgotten (a preset switch, the output muted): its gain reduction, its lookahead, as
+    /// a new limiter
+    pub fn forget(&mut self) {
+        self.peak_l = TruePeak::new(CEILING);
+        self.peak_r = TruePeak::new(CEILING);
+        self.held.clear();
+        self.recent.clear();
+        self.smooth1.clear();
+        self.smooth2.clear();
+        self.delay_l.clear();
+        self.delay_r.clear();
+        self.fast = 0.0;
+        self.slow = 0.0;
+        self.last_peak = 0.0;
+        self.last_over = 0.0;
+        self.last_attenuation = 0.0;
+        self.last_gain = 1.0;
+    }
+
     // the block reserved in `io`
     fn process_io(&mut self) {
         let mut io = core::mem::take(&mut self.io);
@@ -252,6 +290,13 @@ pub unsafe extern "C" fn fx_buffers(limiter: *mut Limiter, frames: usize) -> *mu
 #[no_mangle]
 pub unsafe extern "C" fn fx_process(limiter: *mut Limiter) {
     (*limiter).process_io();
+}
+
+/// # Safety
+/// `limiter` comes from fx_new and was not freed
+#[no_mangle]
+pub unsafe extern "C" fn fx_clear(limiter: *mut Limiter) {
+    (*limiter).forget();
 }
 
 /// # Safety

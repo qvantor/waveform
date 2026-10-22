@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AppProvider } from '../app/app';
 import { SynthCoreProvider, InputControllerProvider } from '../app/synth/common/modules';
 import { PresetsProvider, usePresets } from '../app/presets/modules/presets';
+import { immediateSoundSwitch } from './models';
 
 type PresetsModule = ReturnType<typeof usePresets>;
 
@@ -30,13 +31,14 @@ export const renderWithPresets = (ui: React.ReactElement) => {
     logger: { log: () => undefined, warn: () => undefined, error: () => undefined },
   });
   let presets: PresetsModule | undefined;
+  const soundSwitch = immediateSoundSwitch();
   // a wrapper, not a parent element, so rerender() keeps the same providers and models
   const wrapper = ({ children }: React.PropsWithChildren) => (
     <QueryClientProvider client={queryClient}>
       <AppProvider initial={{}}>
         <SynthCoreProvider initial={undefined}>
           <InputControllerProvider initial={undefined}>
-            <PresetsProvider initial={undefined}>
+            <PresetsProvider initial={undefined} soundSwitch={soundSwitch}>
               <Capture onModel={(module) => (presets = module)} />
               {children}
             </PresetsProvider>

@@ -7,7 +7,7 @@ import { theme } from '../common/constants';
 import { absoluteCenterX, absoluteCenterXY } from '../common/styles';
 import { ScaleMode, singlePointerTracker, valueScale } from '../common/utils';
 import { Tooltip } from '../tooltip';
-import { ValueTooltipContent } from '../tooltip/value-tooltip';
+import { ValueTooltip } from '../tooltip/value-tooltip';
 import { Label } from '../label';
 import { useModulations } from '../common/utils/use-mod-mark';
 import { AMOUNT_DOT_SIZE, RoutesDot } from '../amount-dot';
@@ -45,6 +45,9 @@ export interface HandleProps {
   onChange?: (value: number) => void;
   formatValue?: (value: number) => React.ReactNode;
   label?: React.ReactNode;
+  // the full name of what it changes (1–2 short words: Early reflections), in the tooltip before the value; a
+  // string label by default
+  name?: string;
   mode?: ScaleMode;
   precision?: number;
   plotSize?: number;
@@ -258,6 +261,7 @@ export const Handle = ({
   onChange,
   formatValue,
   label,
+  name = typeof label === 'string' ? label : undefined,
   mode = 'linear',
   precision = 1000,
   plotSize = 100,
@@ -333,7 +337,7 @@ export const Handle = ({
   );
 
   return (
-    <Tooltip content={<ValueTooltipContent>{formatValue?.(value) ?? value}</ValueTooltipContent>}>
+    <Tooltip content={<ValueTooltip name={name}>{formatValue?.(value) ?? value}</ValueTooltip>}>
       <Root
         onPointerDown={onPointerDown}
         className={cls({ disabled: disabled })}

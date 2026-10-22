@@ -32,8 +32,8 @@ export const AudiofileWavePicker = () => {
           max={pickersCountRange[1]}
           $value={$wavesPickersCount}
           onChange={setWavesPickersCount}
-          formatValue={(value) => `Waves count: ${value}`}
           label='W Count'
+          name='Wave count'
           precision={1}
         />
         <RxHandle
@@ -42,6 +42,7 @@ export const AudiofileWavePicker = () => {
           $value={$waveSize}
           onChange={setWaveSize}
           label='Size'
+          name='Wave size'
           formatValue={number.powerOfTwo}
           precision={1}
         />

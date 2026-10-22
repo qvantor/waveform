@@ -316,6 +316,27 @@ describe('the limiter', () => {
     });
   });
 
+  it('clear forgets the sound before (a preset switch): the next one plays as in a new limiter', () => {
+    const sine = (amplitude: number) =>
+      Float32Array.from({ length: BLOCK }, (_, i) => amplitude * Math.sin(i / 7.64));
+    const [loud, next] = [sine(4), sine(0.9)];
+    const used = createLimiterWasm(core, SAMPLE_RATE);
+    const fresh = createLimiterWasm(core, SAMPLE_RATE);
+    const [outL, outR, freshL, freshR] = [0, 1, 2, 3].map(() => new Float32Array(BLOCK));
+    for (let i = 0; i < 40; i++) used.process(loud, loud, outL, outR);
+    expect(samplePeak(outL)).toBeLessThan(1.1);
+
+    used.clear();
+
+    for (let i = 0; i < 40; i++) {
+      used.process(next, next, outL, outR);
+      fresh.process(next, next, freshL, freshR);
+      expect(outL).toEqual(freshL);
+      expect(outR).toEqual(freshR);
+    }
+    expect(samplePeak(outL)).toBeCloseTo(0.9, 2);
+  });
+
   it('links the sides: a loud left side turns the right one down by the same gain', () => {
     const { L, R, gain } = renderCore(
       (n, channel) => (channel ? 0.25 : 4) * Math.sin(n / (channel ? 11 : 7.64)),

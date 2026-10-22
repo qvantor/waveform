@@ -11,6 +11,7 @@ export const FX_REGISTRY: Record<FxType, FxDefinition> = { distortion, delay, re
 export const MIX_PARAM: FxParamDef = {
   ...FX_MIX_PARAM,
   label: 'Mix',
+  name: 'Dry/wet',
   precision: 100,
   formatValue: number.percent,
 };

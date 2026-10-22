@@ -83,6 +83,9 @@ export interface VoiceOptions {
   filter: VoiceFilterOptions | null;
   // posts a VoiceStartedMessage once (the perf test hook times the notes)
   trace?: boolean;
+  // a voice of mono (Poly 1): the notes it takes over may start its envelopes again, it posts a
+  // VoiceStartedMessage once, on time too
+  mono?: boolean;
 }
 
 // voice → main thread: the voice has ended, its node can be disconnected
@@ -90,8 +93,9 @@ export interface VoiceEndedMessage {
   ended: true;
 }
 // voice → main thread, once: the frame it was scheduled at and the one it started at (its first block: later
-// when the node was created after its start). A traced voice tells it always, another one only when late (the
-// fx and Poly follow it from its first sample)
+// when the node was created after its start). A traced voice and a voice of mono tell it always (the main thread
+// keeps the starts again of mono until then), another one only when late (the fx and Poly follow it from its
+// first sample)
 export interface VoiceStartedMessage {
   started: number;
   scheduled: number;

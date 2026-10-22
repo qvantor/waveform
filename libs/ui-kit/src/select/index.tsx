@@ -20,9 +20,11 @@ interface Props<T> {
   value: T;
   options: Array<{ name: React.ReactNode; value: T }>;
   onChange: (value: T) => void;
+  // ◀ ▶ step through the options; false for a choice that costs (each step would be one)
+  arrows?: boolean;
 }
 
-export const Select = <T extends string | number>({ value, options, onChange }: Props<T>) => {
+export const Select = <T extends string | number>({ value, options, onChange, arrows = true }: Props<T>) => {
   const onChangeInternal = (e: ChangeEvent<HTMLSelectElement>) => onChange(e.target.value as T);
   const setNext = () => {
     const current = options.findIndex((option) => option.value === value);
@@ -38,7 +40,7 @@ export const Select = <T extends string | number>({ value, options, onChange }: 
   };
 
   return (
-    <SelectDumb prev={setPrev} next={setNext}>
+    <SelectDumb {...(arrows && { prev: setPrev, next: setNext })}>
       <Root value={value} onChange={onChangeInternal}>
         {options.map((option) => (
           <option key={option.value} value={option.value}>

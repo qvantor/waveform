@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { FX_PARAMS } from '@waveform/preset-schema';
 import { mapValues } from 'lodash';
@@ -53,7 +53,7 @@ describe('ReverbControls', () => {
       within(levels)
         .getAllByRole('slider')
         .map((slider) => slider.getAttribute('aria-label'))
-    ).toEqual(['ER', 'Sep', 'Mod']);
+    ).toEqual(['Early reflections', 'Stereo width', 'Modulation']);
     expect(screen.getAllByRole('slider')).toHaveLength(3);
     const faders = Object.entries(reverb.params).filter(([, def]) => def.control === 'fader');
     expect(faders.map(([key]) => key).sort()).toEqual(['depth', 'er', 'sep']);
@@ -75,6 +75,25 @@ describe('ReverbControls', () => {
     expect(setParam).toHaveBeenLastCalledWith('sep', 0.98);
     fireEvent.keyDown(mod, { key: 'End' });
     expect(setParam).toHaveBeenLastCalledWith('depth', 1);
+  });
+
+  it('a knob or a fader held shows the full name of what it changes before the value', () => {
+    setup();
+    const tooltip = () => document.getElementById('tooltip')?.textContent ?? '';
+    // jsdom has no PointerEvent: a mouse event with a pointerId
+    const pointer = (type: string, target: EventTarget) => {
+      const event = new MouseEvent(type, { bubbles: true, button: 0 });
+      Object.defineProperty(event, 'pointerId', { value: 1 });
+      act(() => {
+        target.dispatchEvent(event);
+      });
+    };
+    pointer('pointerdown', screen.getByText('Hi damp'));
+    expect(tooltip()).toBe('High damping6.0kHz');
+    pointer('pointerup', document);
+    pointer('pointerdown', screen.getByText('ER'));
+    expect(tooltip()).toBe('Early reflections50%');
+    pointer('pointerup', document);
   });
 
   // the wet level is the common mix of FxPanel

@@ -3,7 +3,7 @@ import type { HandleProps } from '@waveform/ui-kit';
 import type { ParamRange } from '@waveform/preset-schema';
 import type { FxModulation } from './fx-modulation';
 
-export type FxParamDef = Pick<HandleProps, 'mode' | 'precision' | 'formatValue' | 'fillFrom'> &
+export type FxParamDef = Pick<HandleProps, 'name' | 'mode' | 'precision' | 'formatValue' | 'fillFrom'> &
   ParamRange & {
     label: string;
     // a switch instead of a knob, the value is the index of the option
@@ -27,6 +27,9 @@ export interface FxCore {
   setParam: (key: string, value: number) => void;
   // removed from the chain or bypassed: internal loops must die out, so a stale tail doesn't come back
   setActive: (active: boolean) => void;
+  // the tail is forgotten at once, its loops and lines start empty (a preset switch, the output muted);
+  // absent: it has none
+  clear?: () => void;
   // its knobs follow the envelopes of the last note (fx-modulation.ts); null: they are at their own values
   setModulation: (mod: FxModulation | null) => void;
   destroy: () => void;

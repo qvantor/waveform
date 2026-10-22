@@ -24,14 +24,16 @@ import {
   SynthCoreProvider,
   useSynthCore,
   MidiControllerProvider,
+  SoundSwitchProvider,
+  useSoundSwitch,
 } from './common/modules';
 import { FilterProvider, FilterSection, useFilter } from './filter';
 import { OscillatorsContainer, MasterHandle } from './synth/components';
 import { VoicingSection } from './voicing';
-import { MidiInput } from './settings';
+import { MidiInput, SettingsButton } from './settings';
 import { EnvelopeSection } from './envelope';
 import { MobileLayout } from './mobile';
-import { FxScreen, FxProvider } from './fx';
+import { FxScreen, FxProvider, useFx } from './fx';
 import { SYNTH_SCREENS, SynthScreen } from './screens';
 
 const Root = styled.div`
@@ -123,6 +125,26 @@ const DesktopLayout = ({ screen, onScreenChange }: ScreenProps) => (
   </>
 );
 
+// a preset switch silences the voices, the fx and the output until the next preset can play
+const SoundSwitchInternal = ({ children }: React.PropsWithChildren) => {
+  const synthCore = useSynthCore();
+  const synth = useSynth();
+  const fx = useFx();
+  const oscillator1 = useOscillator1();
+  const oscillator2 = useOscillator2();
+  return (
+    <SoundSwitchProvider
+      initial={undefined}
+      synthCore={synthCore}
+      synth={synth}
+      fx={fx}
+      oscillator={[oscillator1, oscillator2]}
+    >
+      {children}
+    </SoundSwitchProvider>
+  );
+};
+
 // the fx follow the envelopes of the last note of the synth
 const FxInternal = ({ children }: React.PropsWithChildren) => {
   const synthCore = useSynthCore();
@@ -130,8 +152,18 @@ const FxInternal = ({ children }: React.PropsWithChildren) => {
   const modulation = useModulation();
   return (
     <FxProvider initial={{}} synthCore={synthCore} synth={synth} modulation={modulation}>
-      {children}
+      <SoundSwitchInternal>{children}</SoundSwitchInternal>
     </FxProvider>
+  );
+};
+
+// a preset is applied through the sound switch
+const PresetsInternal = ({ children }: React.PropsWithChildren) => {
+  const soundSwitch = useSoundSwitch();
+  return (
+    <PresetsProvider initial={{}} soundSwitch={soundSwitch}>
+      {children}
+    </PresetsProvider>
   );
 };
 
@@ -172,7 +204,7 @@ const Internal = () => {
       <FilterProvider initial={{}} synthCore={synthCore}>
         <VoicesInternal>
           <KeyboardControllerProvider initial={{}} app={app} inputController={inputController}>
-            <PresetsProvider initial={{}}>
+            <PresetsInternal>
               {/* nothing but in the perf build (scripts/bench-perf): above the layout switch, never remounted */}
               <PerfHook />
               {isMobile ? (
@@ -180,7 +212,7 @@ const Internal = () => {
               ) : (
                 <DesktopLayout screen={screen} onScreenChange={setScreen} />
               )}
-            </PresetsProvider>
+            </PresetsInternal>
           </KeyboardControllerProvider>
         </VoicesInternal>
       </FilterProvider>
@@ -212,7 +244,14 @@ const HeaderInternal = ({ screen, onScreenChange }: ScreenProps) => {
       <HeaderEq audioCtx={audioCtx} master={output} />
       <HeaderRight>
         <TapeSwitch options={SYNTH_SCREENS} value={screen} onChange={onScreenChange} switchOnDrag />
-        <PresetSection actions={<MidiInput />} />
+        <PresetSection
+          actions={
+            <>
+              <MidiInput />
+              <SettingsButton />
+            </>
+          }
+        />
         <MasterSection>
           <MasterHandle />
           <VolumeAnalyser audioCtx={audioCtx} master={output} />

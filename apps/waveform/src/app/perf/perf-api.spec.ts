@@ -1,5 +1,5 @@
 import { registrar } from 'standardized-audio-context-mock';
-import { createSynth, initModel } from '../../test-utils/models';
+import { createSynth, immediateSoundSwitch, initModel } from '../../test-utils/models';
 import { withoutAudioWorklet } from '../../test-utils/no-audio-worklet';
 import { WorkerStub } from '../../test-utils/worker-stub';
 import { getSnapshot } from '../app';
@@ -61,7 +61,7 @@ const setup = async ({ ready = true } = {}) => {
     'fx',
     undefined
   );
-  const presetsModule = initModel(presets(), 'presets', undefined);
+  const presetsModule = initModel(presets({ soundSwitch: immediateSoundSwitch() }), 'presets', undefined);
   const models = {
     synthCore: modules.synthCore,
     inputController: modules.inputController,

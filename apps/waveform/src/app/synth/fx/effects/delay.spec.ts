@@ -22,6 +22,7 @@ const setup = () => {
   return {
     core,
     createDelay,
+    createBiquadFilter,
     input: core.input as GainNode,
     splitter,
     merger,
@@ -201,6 +202,86 @@ describe('delay', () => {
     ].forEach((node) => expect(node.disconnect).toHaveBeenCalled());
   });
 
+  describe('clear', () => {
+    // the nodes made by clear: the delays and the bandpasses created after the first ones
+    const cleared = (spy: jest.SpyInstance, from: number) =>
+      spy.mock.results.slice(from).map(({ value }) => value);
+
+    it('makes the lines, the bandpasses and the offsets again and wires them as the first ones', () => {
+      const {
+        core,
+        createDelay,
+        createBiquadFilter,
+        splitter,
+        merger,
+        lines,
+        filters,
+        offsets,
+        inputs,
+        feedbacks,
+      } = setup();
+      core.clear?.();
+      expect(createDelay.mock.calls.slice(4)).toEqual([[1], [1], [0.05], [0.05]]);
+      const [lineL, lineR, offL, offR] = cleared(createDelay, 4) as DelayNode[];
+      const [bpL, bpR] = cleared(createBiquadFilter, 2) as BiquadFilterNode[];
+      [...lines, ...filters, ...offsets, ...Object.values(inputs), ...Object.values(feedbacks)].forEach(
+        (node) => expect(node.disconnect).toHaveBeenCalled()
+      );
+      expect(splitter.disconnect).not.toHaveBeenCalled();
+      expect(inputs.l.connect).toHaveBeenLastCalledWith(lineL);
+      expect(inputs.x.connect).toHaveBeenLastCalledWith(lineL);
+      expect(inputs.r.connect).toHaveBeenLastCalledWith(lineR);
+      expect(lineL.connect).toHaveBeenCalledWith(bpL);
+      expect(lineR.connect).toHaveBeenCalledWith(bpR);
+      expect(bpL.connect).toHaveBeenCalledWith(feedbacks.ll);
+      expect(bpL.connect).toHaveBeenCalledWith(feedbacks.lr);
+      expect(bpR.connect).toHaveBeenCalledWith(feedbacks.rr);
+      expect(bpR.connect).toHaveBeenCalledWith(feedbacks.rl);
+      expect(feedbacks.ll.connect).toHaveBeenLastCalledWith(lineL);
+      expect(feedbacks.rl.connect).toHaveBeenLastCalledWith(lineL);
+      expect(feedbacks.rr.connect).toHaveBeenLastCalledWith(lineR);
+      expect(feedbacks.lr.connect).toHaveBeenLastCalledWith(lineR);
+      expect(offL.connect).toHaveBeenCalledWith(merger, 0, 0);
+      expect(offR.connect).toHaveBeenCalledWith(merger, 0, 1);
+      [bpL, bpR].forEach((filter) => expect(filter.type).toBe('bandpass'));
+    });
+
+    it('sets the new nodes at the knobs instantly (no chirp from their defaults), later changes glide', () => {
+      const { core, createDelay, createBiquadFilter } = setup();
+      core.setParam('time', 0.45);
+      core.setParam('pan', -0.02);
+      core.setParam('freq', 3000);
+      core.setParam('q', 2);
+      core.clear?.();
+      const [lineL, lineR, offL, offR] = cleared(createDelay, 4) as DelayNode[];
+      const filters = cleared(createBiquadFilter, 2) as BiquadFilterNode[];
+      [lineL, lineR].forEach((line) => expect(initialValue(line.delayTime)).toBe(0.45));
+      expect([offL, offR].map((offset) => initialValue(offset.delayTime))).toEqual([0, 0.02]);
+      filters.forEach((filter) => {
+        expect(initialValue(filter.frequency)).toBe(3000);
+        expect(initialValue(filter.Q)).toBe(2);
+      });
+      core.setParam('time', 0.3);
+      [lineL, lineR].forEach((line) => expect(lastValue(line.delayTime)).toBe(0.3));
+    });
+
+    it('keeps the gains: the feedback of the mode, killed while inactive', () => {
+      const { core, feedbacks } = setup();
+      core.setParam('fb', 0.6);
+      core.setActive(false);
+      const before = gains(feedbacks);
+      core.clear?.();
+      expect(gains(feedbacks)).toEqual(before);
+    });
+
+    it('destroy disconnects the new nodes', () => {
+      const { core, createDelay } = setup();
+      core.clear?.();
+      core.destroy();
+      cleared(createDelay, 4).forEach((node) => expect(node.disconnect).toHaveBeenCalled());
+    });
+  });
+
   it('formats pan by side', () => {
     const format = delay.params.pan.formatValue;
     expect(format?.(-0.012)).toBe('L 12ms');
@@ -237,6 +318,20 @@ describe('delay', () => {
           expect.closeTo(1.1, 9),
         ])
       );
+    });
+
+    it('clear automates the time of the new lines again, from their knob', () => {
+      const { core, createDelay } = setup();
+      core.setModulation({ note, routes: [route('time', 0.4, 0.01, 1)] });
+      core.clear?.();
+      const lines = createDelay.mock.results.slice(4, 6).map(({ value }) => value as DelayNode);
+      lines.forEach((line) => {
+        expect(calls(line.delayTime, 'setValueAtTime')[0]).toEqual([0.2, 0]);
+        expect(calls(line.delayTime, 'linearRampToValueAtTime')[1]).toEqual([
+          expect.closeTo(0.6, 9),
+          expect.closeTo(1.1, 9),
+        ]);
+      });
     });
 
     it('works the bandpass out once per block: its Freq and Q are k-rate', () => {
