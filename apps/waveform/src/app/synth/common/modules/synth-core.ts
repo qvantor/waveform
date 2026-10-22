@@ -38,8 +38,9 @@ export const synthCore = ({ wavetables: wavetableDependencies }: Dependencies = 
     // the fx chain is wired between these two by the fx model (the filter is in each voice)
     const fxIn = audioCtx.createGain();
     const fxOut = audioCtx.createGain();
-    // the oscillators of every voice (an audio worklet), loaded at the start like the limiter
-    const wavetables = createWavetableEngine(audioCtx, wavetableDependencies);
+    // the oscillators of every voice (an audio worklet, one node into preGain), loaded at the start like the
+    // limiter
+    const wavetables = createWavetableEngine(audioCtx, preGain, wavetableDependencies);
 
     preGain.gain.setValueAtTime(1, audioCtx.currentTime);
 

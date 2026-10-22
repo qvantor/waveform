@@ -73,7 +73,7 @@ export interface OscExports extends CoreExports {
   osc_scope_new: (sampleRate: number) => number;
   osc_scope_free: (scope: number, store: number, shared: number) => void;
   osc_scope_on: (scope: number, store: number, shared: number, id: number, report: number) => void;
-  osc_scope_events: (scope: number, count: number) => void;
+  osc_scope_events: (scope: number, store: number, shared: number, count: number) => void;
   osc_scope_routes: (scope: number, id: number) => void;
   osc_scope_filter: (scope: number, id: number) => void;
   osc_scope_direct: (scope: number, id: number, frames: number) => number;
@@ -541,7 +541,13 @@ export const createVoiceWasm = (
 };
 
 // the kinds of the automation events in the core (scope.rs), and the most of them a call takes (6 values each)
-const AUTOMATION: Record<VoiceAutomation['kind'], number> = { set: 0, target: 1, ramp: 2, cancel: 3 };
+const AUTOMATION: Record<VoiceAutomation['kind'], number> = {
+  set: 0,
+  target: 1,
+  ramp: 2,
+  cancel: 3,
+  linear: 4,
+};
 const EVENTS_PER_CALL = Math.floor(COMMAND_SIZE / 6);
 // the range of a param its descriptor gives none: an AudioParam's (the most of a float)
 const F32_MAX = 3.4028234663852886e38;
@@ -588,13 +594,13 @@ export const createVoiceScopeWasm = (
   const failed: number[] = [];
 
   const on = (id: number, options: VoiceOptions, params: Partial<Record<VoiceParam, number>>) => {
-    const command = scope.command();
-    const at = writeVoiceOptions(scope, command, options, random);
-    DESCRIPTORS.forEach((descriptor, k) => {
-      command[at + k] = params[VOICE_PARAM_ORDER[k]] ?? descriptor?.defaultValue ?? 0;
-    });
-    const report = (__PERF__ && !!options.trace) || !!options.mono;
     try {
+      const command = scope.command();
+      const at = writeVoiceOptions(scope, command, options, random);
+      DESCRIPTORS.forEach((descriptor, k) => {
+        command[at + k] = params[VOICE_PARAM_ORDER[k]] ?? descriptor?.defaultValue ?? 0;
+      });
+      const report = (__PERF__ && !!options.trace) || !!options.mono;
       exports.osc_scope_on(handle, store.handle, shared.handle, id, report ? 1 : 0);
     } catch (error) {
       onError(error);
@@ -602,11 +608,22 @@ export const createVoiceScopeWasm = (
     }
   };
 
+  // a call that throws (a trap of the core, options it can't read) loses what it carried, not the events after it
+  const guard = (call: () => void) => {
+    try {
+      call();
+    } catch (error) {
+      onError(error);
+    }
+  };
+
+  // (an event the core finds no memory for ends its voice: it is told ended)
   const apply = (events: VoiceEvent[]) => {
     let count = 0;
     const flush = () => {
-      if (count > 0) exports.osc_scope_events(handle, count);
+      const n = count;
       count = 0;
+      if (n > 0) guard(() => exports.osc_scope_events(handle, store.handle, shared.handle, n));
     };
     for (const event of events) {
       if (event.kind === 'on') {
@@ -614,18 +631,26 @@ export const createVoiceScopeWasm = (
         on(event.voice, event.options, event.params);
       } else if (event.kind === 'routes') {
         flush();
-        writeRoutes(scope.command(), 0, event.routes);
-        event.voices.forEach((id) => exports.osc_scope_routes(handle, id));
+        // (each voice apart: one that traps keeps its routes, the others take them)
+        guard(() => {
+          writeRoutes(scope.command(), 0, event.routes);
+          event.voices.forEach((id) => guard(() => exports.osc_scope_routes(handle, id)));
+        });
       } else if (event.kind === 'filter') {
         flush();
-        writeFilter(scope.command(), 0, event.filter);
-        event.voices.forEach((id) => exports.osc_scope_filter(handle, id));
+        guard(() => {
+          writeFilter(scope.command(), 0, event.filter);
+          event.voices.forEach((id) => guard(() => exports.osc_scope_filter(handle, id)));
+        });
       } else {
+        // (a param the core has not: nothing; as an index of -1 the core would take it as the frequency)
+        const param = VOICE_PARAM_ORDER.indexOf(event.param);
+        if (param < 0) continue;
         const command = scope.command();
         const at = 6 * count;
         command[at] = AUTOMATION[event.kind];
         command[at + 1] = event.voice;
-        command[at + 2] = VOICE_PARAM_ORDER.indexOf(event.param);
+        command[at + 2] = param;
         command[at + 3] = event.value ?? 0;
         command[at + 4] = event.time;
         command[at + 5] = event.constant ?? 0;
@@ -633,6 +658,7 @@ export const createVoiceScopeWasm = (
       }
     }
     flush();
+    store.drain();
   };
 
   // the voices of the block after the one that trapped; false: the trap was not in a voice (the block is silence)

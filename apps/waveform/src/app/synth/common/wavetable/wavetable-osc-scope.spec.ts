@@ -54,6 +54,15 @@ const render = (voices: ReturnType<typeof node>['voices'], frame: number) => {
   return { left, right, taps: voices.taps(BLOCK), report: voices.reports() };
 };
 
+// more routes than the command buffer holds: the core reads past it, it traps
+const TOO_MANY_ROUTES = Array.from({ length: 1000 }, () => ({
+  env: 1,
+  param: 'gain1',
+  amount: 1,
+  min: 0,
+  max: 1,
+}));
+
 const DEFAULTS = Object.fromEntries(VOICE_PARAMETERS.map(({ name, defaultValue }) => [name, defaultValue]));
 
 // the value of a param at `t` by the formulas of the spec, in f32
@@ -239,20 +248,53 @@ describe('the voices of one node', () => {
   it('tells a note on that traps ended', () => {
     const errors: unknown[] = [];
     const { voices } = node((error) => errors.push(error));
-    // more routes than the command buffer holds: the core reads past it
-    const routes = Array.from({ length: 1000 }, () => ({
-      env: 1,
-      param: 'gain1',
-      amount: 1,
-      min: 0,
-      max: 1,
-    }));
     voices.apply([
-      { kind: 'on', voice: 1, options: note({ routes }), params: {} },
+      { kind: 'on', voice: 1, options: note({ routes: TOO_MANY_ROUTES }), params: {} },
       { kind: 'on', voice: 2, options: note({ phrase: 2 }), params: {} },
     ]);
     expect(errors).toEqual([expect.any(WebAssembly.RuntimeError)]);
     expect(render(voices, 0)).toMatchObject({ report: { ended: [1] }, taps: [{ voice: 2 }] });
+    voices.free();
+  });
+
+  it('loses only the call that traps or the event it can not read: the events after them are applied', () => {
+    const errors: unknown[] = [];
+    const { voices } = node((error) => errors.push(error));
+    voices.apply([
+      { kind: 'on', voice: 1, options: note(), params: {} },
+      { kind: 'on', voice: 2, options: note({ phrase: 2 }), params: {} },
+      // each voice traps apart
+      { kind: 'routes', voices: [1, 2], routes: TOO_MANY_ROUTES },
+      { kind: 'set', voice: 2, param: 'gate', value: 0, time: 0 },
+      // options the facade can't write: told ended
+      {
+        kind: 'on',
+        voice: 3,
+        options: { ...note(), envelopes: undefined } as unknown as VoiceOptions,
+        params: {},
+      },
+      { kind: 'on', voice: 4, options: note({ phrase: 4 }), params: {} },
+    ]);
+    expect(errors).toEqual([
+      expect.any(WebAssembly.RuntimeError),
+      expect.any(WebAssembly.RuntimeError),
+      expect.any(TypeError),
+    ]);
+    expect(voices.stats()).toEqual({ voices: 3, events: 1 });
+    // voice 2 renders its block, released where its gate dropped
+    const { report, taps } = render(voices, 0);
+    expect(report).toEqual({ ended: [2, 3] });
+    expect(taps.map(({ voice }) => voice)).toEqual([1, 2, 4]);
+    voices.free();
+  });
+
+  it('takes an event of a param it has not as nothing', () => {
+    const { voices } = node();
+    voices.apply([
+      { kind: 'on', voice: 1, options: note(), params: { frequency: 100 } },
+      { kind: 'set', voice: 1, param: 'pitch' as VoiceParam, value: 200, time: 0 },
+    ]);
+    expect(voices.stats()).toEqual({ voices: 1, events: 0 });
     voices.free();
   });
 });

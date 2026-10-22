@@ -1,6 +1,6 @@
 //! the automation of a param of a voice as an AudioParam has it (the Web Audio spec, its computation of the value):
 //! the events the main thread sends in time (setValueAtTime, setTargetAtTime, exponentialRampToValueAtTime,
-//! cancelScheduledValues), their values in f32 as an AudioParam keeps them, the curves worked out in f64 by the
+//! linearRampToValueAtTime, cancelScheduledValues), their values in f32 as an AudioParam keeps them, the curves worked out in f64 by the
 //! formulas of the spec, each value of a frame in f32 clamped to the range of the descriptor of the param. An event
 //! acts from the first frame whose time is not before its own; one that comes after that frame (its message came
 //! late) acts from the block it is applied in, as an event in the past does. An event of the same kind at the same
@@ -18,6 +18,8 @@ pub enum Kind {
     Target,
     /// exponentialRampToValueAtTime
     Ramp,
+    /// linearRampToValueAtTime
+    Linear,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -55,6 +57,11 @@ fn exponential(t0: f64, v0: f64, t1: f64, v1: f64, t: f64) -> f64 {
         return v0;
     }
     v0 * pow(v1 / v0, (t - t0) / (t1 - t0))
+}
+
+// the value v1 has at `t` of a linear ramp from v0 at t0 to it at t1 (t0 <= t < t1)
+fn linear(t0: f64, v0: f64, t1: f64, v1: f64, t: f64) -> f64 {
+    v0 + (v1 - v0) * ((t - t0) / (t1 - t0))
 }
 
 // the value of a target (to `value` with the time constant, from `from` at `time`) at `t`; 0: there at once
@@ -99,8 +106,9 @@ impl Timeline {
         }
     }
 
-    /// an event: after those at its time, in place of one of its kind there
-    pub fn insert(&mut self, kind: Kind, time: f64, value: f64, constant: f64) {
+    /// an event: after those at its time, in place of one of its kind there; false: no memory for it (the events
+    /// stay as they were)
+    pub fn insert(&mut self, kind: Kind, time: f64, value: f64, constant: f64) -> bool {
         let event = Event {
             kind,
             time,
@@ -114,15 +122,19 @@ impl Timeline {
             if other.time == time && other.kind == kind {
                 self.events[i] = event;
                 self.resolved = self.resolved.min(i);
-                return;
+                return true;
             }
             if other.time > time {
                 at = i;
                 break;
             }
         }
+        if self.events.try_reserve(1).is_err() {
+            return false;
+        }
         self.events.insert(at, event);
         self.resolved = self.resolved.min(at);
+        true
     }
 
     /// cancelScheduledValues: the events at `time` and after it are gone
@@ -136,7 +148,7 @@ impl Timeline {
     fn end(&self, j: usize, t: f64) -> f64 {
         let event = &self.events[j];
         match event.kind {
-            Kind::Set | Kind::Ramp => event.value,
+            Kind::Set | Kind::Ramp | Kind::Linear => event.value,
             Kind::Target => target(event.from, event.value, event.time, event.constant, t),
         }
     }
@@ -159,10 +171,14 @@ impl Timeline {
     // one runs from the event before it (none: the value holds until it)
     fn value(&self, reached: usize, t: f64) -> f64 {
         if let Some(next) = self.events.get(reached) {
-            if next.kind == Kind::Ramp && reached > 0 {
+            if matches!(next.kind, Kind::Ramp | Kind::Linear) && reached > 0 {
                 let before = &self.events[reached - 1];
                 let v0 = self.end(reached - 1, before.time) as f32 as f64;
-                return exponential(before.time, v0, next.time, next.value, t);
+                return if next.kind == Kind::Ramp {
+                    exponential(before.time, v0, next.time, next.value, t)
+                } else {
+                    linear(before.time, v0, next.time, next.value, t)
+                };
             }
         }
         if reached == 0 {
@@ -212,7 +228,7 @@ impl Timeline {
             && self
                 .events
                 .get(reached)
-                .is_some_and(|next| next.kind == Kind::Ramp);
+                .is_some_and(|next| matches!(next.kind, Kind::Ramp | Kind::Linear));
         let curve = reached > 0 && self.events[reached - 1].kind == Kind::Target;
         if last == reached && !ramp && !curve {
             out[0] = self.clamp(self.value(reached, frame / self.rate));

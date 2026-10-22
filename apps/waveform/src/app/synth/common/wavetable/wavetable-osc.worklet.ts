@@ -1,13 +1,7 @@
 import bytes from '@waveform/wasm/wavetable-osc.wasm';
 import { instantiateCore } from '../wasm/wasm-core';
 import type { StoreStatsMessage, VoiceEvent, VoiceOptions } from './voice-options';
-import {
-  STORE_PROCESSOR,
-  VOICE_PARAMETERS,
-  VOICE_PROCESSOR,
-  VOICES_PROCESSOR,
-  VoiceParam,
-} from './wavetable-osc-params';
+import { STORE_PROCESSOR, VOICE_PARAMETERS, VOICES_PROCESSOR, VoiceParam } from './wavetable-osc-params';
 import {
   createOscScope,
   createStoreReceiver,
@@ -19,7 +13,6 @@ import {
   StoreFreedBytesMessage,
   VoiceScopeWasm,
 } from './wavetable-osc-wasm';
-import { registerVoiceProcessor } from './voice-processor';
 import { registerVoicesProcessor } from './voices-processor';
 
 // the audio worklet module of the wavetable oscillator with its Rust core (dsp/wavetable-osc), bundled by esbuild
@@ -132,9 +125,6 @@ class StoreProcessor extends AudioWorkletProcessor {
 }
 
 registerProcessor(STORE_PROCESSOR, StoreProcessor);
-registerVoiceProcessor(VOICE_PROCESSOR, (options: VoiceOptions) =>
-  createVoiceWasm(scope, sampleRate, options, store, Math.random, shared)
-);
 const voicesFailed = (error: unknown) => console.error('A voice of the wavetable oscillator failed', error);
 registerVoicesProcessor(
   VOICES_PROCESSOR,

@@ -1,20 +1,19 @@
-// the names and AudioParams of the wavetable oscillator worklet (wavetable-osc.worklet.ts), shared by the main
-// thread, the worklet and the AudioWorkletNode stub of the specs: no imports
+// the names of the wavetable oscillator worklet (wavetable-osc.worklet.ts) and the params of a voice, shared by
+// the main thread, the worklet and the specs: no imports
 
-// one node per voice plays both oscillators, the store holds the tables of the context
-export const VOICE_PROCESSOR = 'waveform-wavetable-voice';
-export const STORE_PROCESSOR = 'waveform-wavetable-store';
 // one node of a context plays every voice (both oscillators of each), their params from the events of the main
-// thread
+// thread; the store holds the tables of the context
 export const VOICES_PROCESSOR = 'waveform-wavetable-voices';
+export const STORE_PROCESSOR = 'waveform-wavetable-store';
 
-// the continuous controls of an oscillator, each an AudioParam of the voice node per oscillator (position1,
-// position2…): the knob is its own value, envelopes and LFOs add to it through its input
+// the continuous controls of an oscillator, each a param of the voice per oscillator (position1, position2…): the
+// knob is its value, automated by the events of the main thread; the envelopes move it in the voice (its routes)
 export const OSC_PARAMS = ['position', 'detune', 'spread', 'gain'] as const;
 export type OscParam = typeof OSC_PARAMS[number];
 export type VoiceParam = 'frequency' | 'gate' | `${OscParam}${1 | 2}`;
 
-// AudioParamDescriptor (not in the dom lib of TypeScript 4.8)
+// AudioParamDescriptor (not in the dom lib of TypeScript 4.8): a param of a voice is one, its timeline in the
+// core (timeline.rs) clamps it to its range as an AudioParam does
 export interface ParamDescriptor {
   name: string;
   defaultValue: number;
@@ -48,11 +47,10 @@ export const releaseStart = (seen: number, held: number, lead: number) =>
 
 // frequency: Hz of the note (portamento glides it), both oscillators play it; gate: 1 while the key is held,
 // RELEASE_GATE + h: released after h seconds, 0: released at that sample, below 0 fades it out (a stolen
-// voice): automated with setValueAtTime, a message would arrive whenever the audio thread takes it; position:
-// share of the table
-// (frame k of N at k / (N - 1)); detune: cents (1200 · octave + pitch modulation); spread: cents from the lowest
-// unison voice to the highest; gain: linear. The browser clamps base + modulation to min/max, the processor
-// clamps the pitch of a voice to 0..nyquist
+// voice): automated with setValueAtTime, exact to the sample from its time on (its event may come later: from the
+// block it comes in); position: share of the table (frame k of N at k / (N - 1)); detune: cents (1200 · octave +
+// pitch modulation); spread: cents from the lowest unison voice to the highest; gain: linear. The timeline clamps
+// a value to min/max, the voice clamps the pitch of a unison voice to 0..nyquist
 const oscDescriptors = (osc: number): ParamDescriptor[] => [
   {
     name: oscParamName('position', osc),

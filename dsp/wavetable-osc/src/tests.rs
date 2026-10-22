@@ -1,10 +1,52 @@
 // the parts of the core the TS has no reference of: the slots of the store, the refcounts of the versions, the
 // pool of the mix tables
-use crate::shared::Shared;
+use crate::envelope::EnvelopeParams;
+use crate::scope::{Scope, SET};
+use crate::shared::{Shared, PARAMS};
 use crate::store::{EntryRef, Store};
 use crate::timeline::{Kind, Timeline};
+use crate::voice::VoiceOptions;
 use alloc::vec;
 use alloc::vec::Vec;
+use std::alloc::{GlobalAlloc, Layout, System};
+use std::cell::Cell;
+
+// the allocator of the tests: on a thread without memory (the memory of the core used up) it has none
+struct Allocator;
+
+thread_local! {
+    static NO_MEMORY: Cell<bool> = const { Cell::new(false) };
+}
+
+unsafe impl GlobalAlloc for Allocator {
+    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        if NO_MEMORY.with(Cell::get) {
+            return core::ptr::null_mut();
+        }
+        System.alloc(layout)
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        System.dealloc(ptr, layout);
+    }
+
+    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, size: usize) -> *mut u8 {
+        if NO_MEMORY.with(Cell::get) {
+            return core::ptr::null_mut();
+        }
+        System.realloc(ptr, layout, size)
+    }
+}
+
+#[global_allocator]
+static ALLOCATOR: Allocator = Allocator;
+
+fn without_memory<T>(call: impl FnOnce() -> T) -> T {
+    NO_MEMORY.with(|no| no.set(true));
+    let result = call();
+    NO_MEMORY.with(|no| no.set(false));
+    result
+}
 
 fn layout() -> [alloc::vec::Vec<i32>; 3] {
     [vec![1, 0], vec![4, 1], vec![0, 7]]
@@ -281,6 +323,26 @@ fn an_exponential_ramp_runs_from_the_event_before_it() {
 }
 
 #[test]
+fn a_linear_ramp_runs_from_the_event_before_it() {
+    let mut param = timeline(0.0);
+    let (t0, t1) = (10.0 / RATE, 100.0 / RATE);
+    param.insert(Kind::Set, t0, 0.25, 0.0);
+    param.insert(Kind::Linear, t1, 0.75, 0.0);
+    let values = block(&mut param, 0.0, 128);
+    assert_eq!(values[9], 0.0);
+    for f in 10..100 {
+        let t = f as f64 / RATE;
+        assert_eq!(
+            values[f],
+            (0.25 + (0.75 - 0.25) * ((t - t0) / (t1 - t0))) as f32,
+            "frame {f}"
+        );
+    }
+    assert_eq!(values[100], 0.75);
+    assert_eq!(block(&mut param, 128.0, 128), [0.75]);
+}
+
+#[test]
 fn a_ramp_from_zero_or_across_zero_holds_the_value_before_it() {
     let mut param = timeline(0.0);
     param.insert(Kind::Ramp, 100.0 / RATE, 1.0, 0.0);
@@ -343,4 +405,42 @@ fn the_events_of_long_ago_are_forgotten_their_value_kept() {
     let held = block(&mut param, frame + 128.0, 128);
     assert_eq!(held.len(), 1);
     assert!((held[0] - 4.0).abs() < 1e-3);
+}
+
+// --- the voices of a node ---
+
+// a note with no oscillator on, its envelopes flat
+fn note() -> VoiceOptions {
+    let flat = EnvelopeParams {
+        sustain: 1.0,
+        ..EnvelopeParams::default()
+    };
+    VoiceOptions {
+        osc: [None, None],
+        start: 0.0,
+        envelopes: vec![flat; 3],
+        env_start: 0.0,
+        phrase: 0.0,
+        routes: Vec::new(),
+        filter: None,
+    }
+}
+
+#[test]
+fn an_event_without_memory_ends_its_voice_the_others_take_theirs() {
+    let (mut store, mut shared) = (Store::default(), Shared::default());
+    let mut scope = Scope::new(RATE, [(-BIG, BIG); PARAMS]);
+    for id in [1.0, 2.0] {
+        scope.on(id, note(), [0.0; PARAMS], false, &mut store, &mut shared);
+    }
+    scope.event(SET, 1.0, 0, 100.0, 0.0, 0.0, &mut store, &mut shared);
+    // in place of one of its kind at its time: no memory needed
+    without_memory(|| scope.event(SET, 1.0, 0, 200.0, 0.0, 0.0, &mut store, &mut shared));
+    assert_eq!((scope.voices(), scope.events()), (2, 1));
+    // the release of voice 1 finds none: it ends, told ended
+    without_memory(|| scope.event(SET, 1.0, 1, 0.0, 0.1, 0.0, &mut store, &mut shared));
+    assert_eq!((scope.voices(), scope.ended.as_slice()), (1, [1.0].as_slice()));
+    scope.event(SET, 2.0, 1, 0.0, 0.1, 0.0, &mut store, &mut shared);
+    assert_eq!(scope.events(), 1);
+    scope.end(&mut store, &mut shared);
 }

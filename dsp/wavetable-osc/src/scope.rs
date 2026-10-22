@@ -12,11 +12,13 @@ use crate::voice::{Params, Voice, VoiceOptions};
 use alloc::{vec, vec::Vec};
 use core::sync::atomic::{compiler_fence, Ordering};
 
-/// an automation event: setValueAtTime, setTargetAtTime, exponentialRampToValueAtTime, cancelScheduledValues
+/// an automation event: setValueAtTime, setTargetAtTime, exponentialRampToValueAtTime, cancelScheduledValues,
+/// linearRampToValueAtTime
 pub const SET: u32 = 0;
 pub const TARGET: u32 = 1;
 pub const RAMP: u32 = 2;
 pub const CANCEL: u32 = 3;
+pub const LINEAR: u32 = 4;
 
 struct ScopeVoice {
     id: f64,
@@ -121,18 +123,39 @@ impl Scope {
         self.voices.push(voice);
     }
 
-    /// an automation event of param `param` of voice `id` (none: it has ended, nothing happens)
-    pub fn event(&mut self, kind: u32, id: f64, param: usize, value: f64, time: f64, constant: f64) {
-        let Some(voice) = self.voice(id) else { return };
-        let Some(timeline) = voice.timelines.get_mut(param) else {
+    /// an automation event of param `param` of voice `id` (none: it has ended, nothing happens). One there is no
+    /// memory for ends the voice, told ended: without it the voice would play on wrong (a release lost would hold
+    /// its note)
+    pub fn event(
+        &mut self,
+        kind: u32,
+        id: f64,
+        param: usize,
+        value: f64,
+        time: f64,
+        constant: f64,
+        store: &mut Store,
+        shared: &mut Shared,
+    ) {
+        let Some(at) = self.voices.iter().position(|voice| voice.id == id) else {
             return;
         };
-        match kind {
+        let Some(timeline) = self.voices[at].timelines.get_mut(param) else {
+            return;
+        };
+        let stored = match kind {
             SET => timeline.insert(Kind::Set, time, value, 0.0),
             TARGET => timeline.insert(Kind::Target, time, value, constant),
             RAMP => timeline.insert(Kind::Ramp, time, value, 0.0),
-            CANCEL => timeline.cancel(time),
-            _ => {}
+            CANCEL => {
+                timeline.cancel(time);
+                true
+            }
+            LINEAR => timeline.insert(Kind::Linear, time, value, 0.0),
+            _ => true,
+        };
+        if !stored {
+            self.end_voice(at, store, shared);
         }
     }
 
@@ -260,14 +283,19 @@ impl Scope {
             return false;
         }
         self.in_voice = false;
-        let voice = self.voices.remove(self.cursor);
+        self.end_voice(self.cursor, store, shared);
+        true
+    }
+
+    // voice `at` ends now (gives its versions and mixes back) and is told ended
+    fn end_voice(&mut self, at: usize, store: &mut Store, shared: &mut Shared) {
+        let voice = self.voices.remove(at);
         self.ended.push(voice.id);
         // (kept while it ends: if that traps too, the next call drops it)
         let failed = self.failed.insert(voice);
         compiler_fence(Ordering::SeqCst);
         failed.voice.end(store, shared);
         self.failed = None;
-        true
     }
 
     /// every voice ends (the node is gone): their versions and mixes are given back

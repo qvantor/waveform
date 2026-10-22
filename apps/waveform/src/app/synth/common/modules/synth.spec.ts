@@ -5,20 +5,17 @@ import { createSynth, stopModels } from '../../../../test-utils/models';
 import { withoutAudioWorklet } from '../../../../test-utils/no-audio-worklet';
 import { WorkerStub } from '../../../../test-utils/worker-stub';
 import { withCurves } from '../../../../test-utils/envelopes';
+import { eventsOf, voiceEvents, VoiceView, voicesNodes } from '../../../../test-utils/voice-events';
 import { getFq } from '../../services';
-import { RELEASE_GATE, VOICE_PROCESSOR } from '../wavetable/wavetable-osc-params';
+import { RELEASE_GATE, VoiceParam } from '../wavetable/wavetable-osc-params';
 import { envelopeValue } from '../envelope/envelope-curve';
-import { UNISON_SHAPE, VoiceOptions } from '../wavetable/voice-options';
+import { UNISON_SHAPE } from '../wavetable/voice-options';
 import { glideValue } from './glide';
-
-interface VoiceNode extends AudioWorkletNode {
-  name: string;
-  options: AudioWorkletNodeOptions;
-  port: AudioWorkletNode['port'] & { onmessage: ((event: { data: unknown }) => void) | null };
-}
 
 // the wavetable oscillator loads its module asynchronously
 const flush = () => new Promise((resolve) => setTimeout(resolve));
+// the values of the events in f32, as an AudioParam keeps them
+const f32 = Math.fround;
 
 const setup = async ({ ready = true } = {}) => {
   const modules = createSynth();
@@ -28,16 +25,17 @@ const setup = async ({ ready = true } = {}) => {
   const [synthModel, synthActions] = modules.synth;
   if (ready) await flush();
 
-  const voices = () =>
-    (
-      registrar.getAudioNodes(audioCtx as never, 'AudioWorkletNode' as never) as unknown as VoiceNode[]
-    ).filter(({ name }) => name === VOICE_PROCESSOR);
-  const param = (voice: VoiceNode, name: string) => voice.parameters.get(name) as AudioParam;
+  // the voices the synth made in the voices node, from its events
+  const events = voiceEvents(audioCtx, wavetables);
+  const { voices, end, started } = events;
+  // a param of a voice: its events so far played into an AudioParam mock
+  const param = (voice: VoiceView, name: VoiceParam) => {
+    voices();
+    return voice.params[name];
+  };
   const gains = () => createGain.mock.results.map(({ value }) => value as GainNode);
-  // the options a voice node was created with
-  const options = (voice: VoiceNode) => voice.options.processorOptions as VoiceOptions;
-  // the processor of a voice tells its node it has ended
-  const end = (voice: VoiceNode) => voice.port.onmessage?.({ data: { ended: true } });
+  // the options a voice was made with
+  const options = (voice: VoiceView) => voice.options;
   const travel = (seconds: number) => registrar.getDeLorean(audioCtx as never)?.travel(seconds);
   // the milliseconds of performance.now, the time a key is held: they stay unless a test moves them
   const wall = jest.spyOn(performance, 'now').mockReturnValue(0);
@@ -57,6 +55,7 @@ const setup = async ({ ready = true } = {}) => {
     gains,
     options,
     end,
+    started,
     travel,
     wall,
   };
@@ -68,6 +67,7 @@ type Method =
   | 'linearRampToValueAtTime'
   | 'exponentialRampToValueAtTime'
   | 'cancelScheduledValues';
+// the calls an event of each kind played into a param (set, target, ramp, cancel: those of an AudioParam)
 const calls = (param: AudioParam, method: Method) => (param[method] as jest.Mock).mock.calls;
 // the order a call was made in among all the mocks
 const order = (param: AudioParam, method: Method, index = 0) =>
@@ -82,7 +82,7 @@ describe('synth', () => {
     const [voice] = voices();
     expect(voices()).toHaveLength(1);
     // osc1 is active with unison 2, osc2 is inactive
-    expect(voice.options.processorOptions).toEqual({
+    expect(voice.options).toEqual({
       osc: [{ table: osc1[0].id, unison: 2, phase: 0.5, phaseRand: 1, unisonShape: UNISON_SHAPE }, null],
       start: 0,
       // the knobs with the curves of a fresh envelope
@@ -118,7 +118,7 @@ describe('synth', () => {
     onPress([4, 'A']);
 
     const [voice] = voices();
-    expect((voice.options.processorOptions as { osc: unknown[] }).osc).toEqual([
+    expect((voice.options as { osc: unknown[] }).osc).toEqual([
       { table: osc1[0].id, unison: 2, phase: 0.5, phaseRand: 1, unisonShape: UNISON_SHAPE },
       {
         table: osc2[0].id,
@@ -131,7 +131,7 @@ describe('synth', () => {
     ]);
     // the octave in cents, the position as a share of the table
     expect(param(voice, 'detune2').value).toBe(-1200);
-    expect(param(voice, 'gain2').value).toBe(0.3);
+    expect(param(voice, 'gain2').value).toBe(f32(0.3));
     expect(param(voice, 'position2').value).toBe(0.5);
   });
 
@@ -142,11 +142,64 @@ describe('synth', () => {
     expect(gains()).toEqual([]);
   });
 
-  it('connects the node of a voice straight to the synth output', async () => {
-    const { onPress, voices, preGain } = await setup();
+  it('plays every voice in the voices node, connected straight to the synth output', async () => {
+    const { onPress, voices, preGain, audioCtx } = await setup();
     onPress([4, 'A']);
-    const [voice] = voices();
-    expect(voice.connect).toHaveBeenCalledWith(preGain);
+    onPress([4, 'C']);
+    const [node] = voicesNodes(audioCtx);
+    expect(voicesNodes(audioCtx)).toHaveLength(1);
+    expect(node.connect).toHaveBeenCalledWith(preGain);
+    expect(voices().map(({ node: of }) => of)).toEqual([node, node]);
+  });
+
+  it('sends the events of a task to the voices node in one message, in the order they were made', async () => {
+    const { onPress, onRelease, voices, audioCtx, synthActions } = await setup();
+    synthActions.setPortamento(100);
+    const [node] = voicesNodes(audioCtx);
+    onPress([4, 'C']);
+    onPress([4, 'E']);
+    onRelease([4, 'C']);
+    // (a microtask sends them)
+    expect(eventsOf(node)).toEqual([]);
+    await Promise.resolve();
+    const [{ events }] = eventsOf(node);
+    expect(eventsOf(node)).toHaveLength(1);
+    const [c, e] = voices();
+    expect(events.map(({ kind }) => kind)).toEqual([
+      'on',
+      'on',
+      // E glides from C: its frequency held at C, then 8 ramps
+      'set',
+      ...Array(8).fill('ramp'),
+      // C released
+      'cancel',
+      'set',
+    ]);
+    expect(events[0]).toEqual({
+      kind: 'on',
+      voice: c.id,
+      options: c.options,
+      // in f32, as an AudioParam keeps them
+      params: {
+        frequency: Math.fround(getFq([4, 'C'])),
+        position1: 0,
+        detune1: 0,
+        spread1: 5,
+        gain1: 0.5,
+        position2: 0,
+        detune2: 0,
+        spread2: 5,
+        gain2: 0.5,
+      },
+    });
+    expect(events[2]).toEqual({
+      kind: 'set',
+      voice: e.id,
+      param: 'frequency',
+      value: Math.fround(getFq([4, 'C'])),
+      time: 0,
+    });
+    expect(events.at(-1)).toEqual({ kind: 'set', voice: c.id, param: 'gate', value: RELEASE_GATE, time: 0 });
   });
 
   it('gives a note the envelopes at its note on, they start with it', async () => {
@@ -184,7 +237,7 @@ describe('synth', () => {
   });
 
   it('releases a note: its gate tells the processor now how long its key was held', async () => {
-    const { onPress, onRelease, voices, param, synthModel, envelopeModel, travel } = await setup();
+    const { onPress, onRelease, voices, param, synthModel, envelopeModel, travel, end } = await setup();
     envelopeModel[1].setEnvelopeValue('env1', 'release', 0.5);
     onPress([4, 'C']);
     await travel(1);
@@ -196,7 +249,7 @@ describe('synth', () => {
     expect(calls(param(voice, 'gate'), 'setValueAtTime')).toEqual([[RELEASE_GATE, 1]]);
     // it sounds until its release is over
     expect(synthModel.$voicesCount.value).toBe(1);
-    voice.port.onmessage?.({ data: { ended: true } });
+    end(voice);
     expect(synthModel.$voicesCount.value).toBe(0);
   });
 
@@ -206,7 +259,7 @@ describe('synth', () => {
     // currentTime hasn't moved (it moves by device buffers), the key was held 4 ms
     wall.mockReturnValue(4);
     onRelease([4, 'C']);
-    expect(calls(param(voices()[0], 'gate'), 'setValueAtTime')).toEqual([[RELEASE_GATE + 0.004, 0]]);
+    expect(calls(param(voices()[0], 'gate'), 'setValueAtTime')).toEqual([[f32(RELEASE_GATE + 0.004), 0]]);
     // the fx release their envelopes then too
     expect(synthModel.$fxNote.value?.release).toBe(0.004);
   });
@@ -221,56 +274,74 @@ describe('synth', () => {
     expect(synthModel.$fxNote.value?.release).toBe(0.05);
   });
 
-  it('takes the node of a voice off once it has ended', async () => {
-    const { onPress, onRelease, voices, end } = await setup();
+  it('sends a voice that has ended nothing more', async () => {
+    const { onPress, onRelease, voices, end, osc1, param } = await setup();
     onPress([4, 'C']);
     onRelease([4, 'C']);
     const [voice] = voices();
-    expect(voice.disconnect).not.toHaveBeenCalled();
 
     end(voice);
+    osc1[1].setGain(0.2);
 
-    expect(voice.disconnect).toHaveBeenCalled();
+    expect(calls(param(voice, 'gain1'), 'setTargetAtTime')).toEqual([]);
   });
 
-  it('takes a held voice off when its processor fails, the others and new notes play on', async () => {
-    const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
-    const { onPress, onRelease, voices, wavetables, osc1, audioCtx } = await setup();
-    osc1[1].connectBus('gain', audioCtx.createOscillator());
+  it('takes a held voice off when it fails in the node (told ended), the others and new notes play on', async () => {
+    const { onPress, onRelease, voices, wavetables, osc1, param, end } = await setup();
     onPress([4, 'C']);
     onPress([4, 'E']);
     const [c, e] = voices();
 
-    c.onprocessorerror?.(new Event('processorerror'));
+    end(c);
 
-    expect(error).toHaveBeenCalledWith('A voice of the wavetable oscillator failed', expect.any(Event));
-    expect(c.disconnect).toHaveBeenCalled();
-    expect(osc1[0].buses.gain.disconnect).toHaveBeenCalledTimes(1);
-    expect(e.disconnect).not.toHaveBeenCalled();
     expect(wavetables.$status.value).toBe('ready');
     // a voice that ended doesn't follow the knobs, its key releases nothing
-    osc1[1].connectBus('spread', audioCtx.createOscillator());
-    expect(osc1[0].buses.spread.connect).toHaveBeenCalledTimes(1);
+    osc1[1].setGain(0.2);
+    expect(calls(param(c, 'gain1'), 'setTargetAtTime')).toEqual([]);
+    expect(calls(param(e, 'gain1'), 'setTargetAtTime')).toHaveLength(1);
     onRelease([4, 'C']);
+    expect(calls(param(c, 'gate'), 'setValueAtTime')).toEqual([]);
     onPress([4, 'G']);
     expect(voices()).toHaveLength(3);
-    error.mockRestore();
   });
 
   it('a held voice that failed takes no voice of Poly: the next note steals no voice that plays', async () => {
-    const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
-    const { onPress, voices, param, synthModel, synthActions } = await setup();
+    const { onPress, voices, param, synthModel, synthActions, end } = await setup();
     synthActions.setMaxVoices(2);
     onPress([4, 'C']);
     onPress([4, 'E']);
     const [c, e] = voices();
 
-    c.onprocessorerror?.(new Event('processorerror'));
+    end(c);
     expect(synthModel.$voicesCount.value).toBe(1);
 
     onPress([4, 'G']);
     expect(calls(param(e, 'gate'), 'setValueAtTime')).toEqual([]);
     expect(synthModel.$voicesCount.value).toBe(2);
+  });
+
+  it('ends every voice when the voices node fails: their keys are free, Retry makes the node again', async () => {
+    const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { onPress, onRelease, voices, wavetables, synthModel, audioCtx } = await setup();
+    onPress([4, 'C']);
+    onPress([4, 'E']);
+    voices();
+    const [node] = voicesNodes(audioCtx);
+
+    node.onprocessorerror?.(new Event('processorerror'));
+
+    expect(error).toHaveBeenCalledWith('The wavetable oscillator failed', expect.any(Event));
+    expect(wavetables.$status.value).toBe('failed');
+    expect(synthModel.$voicesCount.value).toBe(0);
+    expect(node.port.postMessage).toHaveBeenCalledWith({ stop: true });
+    expect(node.disconnect).toHaveBeenCalled();
+    onRelease([4, 'C']);
+    wavetables.retry();
+    await flush();
+    expect(voicesNodes(audioCtx)).toHaveLength(2);
+    onPress([4, 'G']);
+    expect(voices().map(({ node: of }) => of)).toEqual([node, node, voicesNodes(audioCtx)[1]]);
+    expect(synthModel.$voicesCount.value).toBe(1);
     error.mockRestore();
   });
 
@@ -285,7 +356,7 @@ describe('synth', () => {
     onPress([4, 'G']);
 
     const [, , g] = voices();
-    expect(calls(param(g, 'frequency'), 'setValueAtTime')).toEqual([[getFq([4, 'C']), 0]]);
+    expect(calls(param(g, 'frequency'), 'setValueAtTime')).toEqual([[f32(getFq([4, 'C'])), 0]]);
   });
 
   it('the fx release the envelopes of a held note whose voice ended by itself', async () => {
@@ -431,16 +502,14 @@ describe('synth', () => {
     });
 
     it('counts a released voice processed late until its release from its first sample is over', async () => {
-      const { onPress, onRelease, voices, param, synthActions, travel, envelopeModel, audioCtx } =
+      const { onPress, onRelease, voices, param, synthActions, travel, envelopeModel, audioCtx, started } =
         await setup();
       envelopeModel[1].setEnvelopeValue('env1', 'attack', 0);
       envelopeModel[1].setEnvelopeValue('env1', 'release', 1);
       synthActions.setMaxVoices(2);
       onPress([4, 'C']);
       // its processor started it 40 ms late and released it there: its release is over at 1.04
-      voices()[0].port.onmessage?.({
-        data: { started: Math.round(0.04 * audioCtx.sampleRate), scheduled: 0 },
-      });
+      started(voices()[0], Math.round(0.04 * audioCtx.sampleRate), 0);
       onRelease([4, 'C']);
       onPress([4, 'D']);
       await travel(1.02);
@@ -452,18 +521,22 @@ describe('synth', () => {
     });
   });
 
-  it('takes a stolen voice off once its node has ended', async () => {
-    const { onPress, voices, end, synthActions } = await setup();
+  it('takes a stolen voice off once it has ended: a preset switch waits for it', async () => {
+    const { onPress, voices, end, synthActions, synthModel } = await setup();
     synthActions.setMaxVoices(2);
     onPress([4, 'C']);
     onPress([4, 'E']);
     onPress([4, 'G']);
-    const [c, e] = voices();
+    const [c] = voices();
+    synthModel.voicing.pause();
+    const [, e, g] = voices();
+    end(e);
+    end(g);
+    expect(synthModel.voicing.silent).toBe(false);
 
     end(c);
 
-    expect(c.disconnect).toHaveBeenCalled();
-    expect(e.disconnect).not.toHaveBeenCalled();
+    expect(synthModel.voicing.silent).toBe(true);
   });
 
   it('a released voice whose level is 0 at its release ends there: not counted', async () => {
@@ -489,10 +562,10 @@ describe('synth', () => {
     const [, glide] = voices();
     const frequency = param(glide, 'frequency');
     expect(frequency.value).toBeCloseTo(getFq([4, 'C']));
-    expect(calls(frequency, 'setValueAtTime')).toEqual([[getFq([4, 'C']), 1]]);
+    expect(calls(frequency, 'setValueAtTime')).toEqual([[f32(getFq([4, 'C'])), 1]]);
     const ramps = calls(frequency, 'exponentialRampToValueAtTime');
     expect(ramps).toHaveLength(8);
-    expect(ramps[7]).toEqual([getFq([4, 'E']), expect.closeTo(1.2, 9)]);
+    expect(ramps[7]).toEqual([f32(getFq([4, 'E'])), expect.closeTo(1.2, 9)]);
   });
 
   it('glides in legato too: the new voice goes on with the envelopes of the phrase', async () => {
@@ -505,7 +578,7 @@ describe('synth', () => {
     const [c, e] = voices();
     expect(options(e)).toMatchObject({ envStart: 0, phrase: options(c).phrase });
     expect(calls(param(e, 'frequency'), 'exponentialRampToValueAtTime').at(-1)).toEqual([
-      getFq([4, 'E']),
+      f32(getFq([4, 'E'])),
       expect.closeTo(1.1, 9),
     ]);
     // the note before plays on
@@ -542,7 +615,8 @@ describe('synth', () => {
       context.synthActions.setPortamento(portamento);
       return context;
     };
-    const fq = (name: 'A' | 'B' | 'C' | 'D') => getFq([4, name]);
+    // the frequency of a note, in f32 as its events have it
+    const fq = (name: 'A' | 'B' | 'C' | 'D') => f32(getFq([4, name]));
 
     it('in legato a note over the held one takes its voice over: it glides there, its envelopes go on', async () => {
       const { onPress, voices, param, synthModel, travel } = await mono();
@@ -584,9 +658,9 @@ describe('synth', () => {
       await travel(0.05);
       onPress([4, 'C']);
       const frequency = param(voices()[0], 'frequency');
-      const at = glideValue({ from: fq('A'), to: fq('B'), start: 1, seconds: 0.2 }, 1.05);
+      const at = glideValue({ from: getFq([4, 'A']), to: getFq([4, 'B']), start: 1, seconds: 0.2 }, 1.05);
       expect(at).toBeGreaterThan(fq('A'));
-      expect(calls(frequency, 'setValueAtTime')[1]).toEqual([expect.closeTo(at, 9), 1.05]);
+      expect(calls(frequency, 'setValueAtTime')[1]).toEqual([f32(at), 1.05]);
       expect(calls(frequency, 'cancelScheduledValues')[1]).toEqual([expect.closeTo(1.05, 3)]);
       expect(calls(frequency, 'exponentialRampToValueAtTime').at(-1)).toEqual([
         fq('C'),
@@ -759,7 +833,7 @@ describe('synth', () => {
       onRelease([4, 'A']);
       onRelease([4, 'B']);
       expect(calls(param(voices()[0], 'gate'), 'setValueAtTime').at(-1)).toEqual([
-        expect.closeTo(RELEASE_GATE + 0.3, 9),
+        f32(RELEASE_GATE + 0.3),
         expect.closeTo(1.3, 9),
       ]);
       expect(synthModel.$fxNote.value).toMatchObject({ start: 1, release: expect.closeTo(1.3, 9) });
@@ -838,7 +912,7 @@ describe('synth', () => {
       onPress([4, 'F']);
       expect(voices()).toHaveLength(4);
       expect(calls(param(voices()[3], 'frequency'), 'exponentialRampToValueAtTime').at(-1)?.[0]).toBe(
-        getFq([4, 'F'])
+        f32(getFq([4, 'F']))
       );
     });
 
@@ -852,7 +926,7 @@ describe('synth', () => {
         // its processor tells it started at `seconds` (the frame of the context)
         const started = (seconds: number) => {
           const frame = Math.round(seconds * rate);
-          context.voices()[0].port.onmessage?.({ data: { started: frame, scheduled: 0 } });
+          context.started(context.voices()[0], frame, 0);
           return frame / rate;
         };
         return { ...context, envelopes: [env1, env2, env3], started };
@@ -903,7 +977,7 @@ describe('synth', () => {
         const { onPress, synthModel, travel, voices, started } = await late();
         onPress([4, 'A']);
         // its processor tells its start, on time too
-        expect(voices()[0].options.processorOptions).toMatchObject({ mono: true });
+        expect(voices()[0].options).toMatchObject({ mono: true });
         await travel(0.01);
         onPress([4, 'B']);
         const note = synthModel.$fxNote.value;
@@ -1054,7 +1128,7 @@ describe('synth', () => {
       osc1[1].setPosition(2);
       osc1[1].setOscValue('octave', 1);
 
-      expect(calls(param(voice, 'gain1'), 'setTargetAtTime')).toEqual([[0.1, now, expect.any(Number)]]);
+      expect(calls(param(voice, 'gain1'), 'setTargetAtTime')).toEqual([[f32(0.1), now, expect.any(Number)]]);
       expect(calls(param(voice, 'spread1'), 'setTargetAtTime')).toEqual([[30, now, expect.any(Number)]]);
       expect(calls(param(voice, 'position1'), 'setTargetAtTime')).toEqual([[1, now, expect.any(Number)]]);
       expect(calls(param(voice, 'detune1'), 'setTargetAtTime')).toEqual([]);
@@ -1067,12 +1141,12 @@ describe('synth', () => {
       const [voice] = voices();
       osc1[1].setGain(0.1);
       const gain = param(voice, 'gain1');
-      const [[, settle]] = calls(gain, 'setValueAtTime').filter(([value]) => value === 0.1);
+      const [[, settle]] = calls(gain, 'setValueAtTime').filter(([value]) => value === f32(0.1));
       expect(settle).toBeGreaterThan(0.01);
       expect(settle).toBeLessThan(0.03);
 
       osc1[1].setGain(0.2);
-      expect(gain.cancelScheduledValues).toHaveBeenLastCalledWith(0);
+      expect(param(voice, 'gain1').cancelScheduledValues).toHaveBeenLastCalledWith(0);
       await travel(0.1);
       expect(gain.value).toBeCloseTo(0.2, 5);
     });
@@ -1082,7 +1156,7 @@ describe('synth', () => {
       onPress([4, 'C']);
       const [voice] = voices();
       osc2[1].setGain(0.9);
-      expect(calls(param(voice, 'gain2'), 'setTargetAtTime')).toEqual([[0.9, 0, expect.any(Number)]]);
+      expect(calls(param(voice, 'gain2'), 'setTargetAtTime')).toEqual([[f32(0.9), 0, expect.any(Number)]]);
       expect(calls(param(voice, 'gain1'), 'setTargetAtTime')).toEqual([]);
     });
 
@@ -1107,7 +1181,7 @@ describe('synth', () => {
       osc2[1].setOscValue('phase', 0.75);
       onPress([4, 'C']);
       const [voice] = voices();
-      expect((voice.options.processorOptions as { osc: unknown[] }).osc).toEqual([
+      expect((voice.options as { osc: unknown[] }).osc).toEqual([
         expect.objectContaining({ phase: 0.25, phaseRand: 0.5 }),
         expect.objectContaining({ phase: 0.75, phaseRand: 1 }),
       ]);
@@ -1119,7 +1193,7 @@ describe('synth', () => {
       osc2[1].setOscValue('unison', 8);
       onPress([4, 'C']);
       const [voice] = voices();
-      expect(JSON.stringify(voice.options.processorOptions).length).toBeLessThan(1024);
+      expect(JSON.stringify(voice.options).length).toBeLessThan(1024);
     });
 
     it('unison and on/off take effect on new notes only', async () => {
@@ -1129,7 +1203,7 @@ describe('synth', () => {
       osc2[1].toggleActive();
       onPress([4, 'E']);
       const [first, second] = voices().map(
-        (voice) => (voice.options.processorOptions as { osc: ({ unison: number } | null)[] }).osc
+        (voice) => (voice.options as { osc: ({ unison: number } | null)[] }).osc
       );
       expect(first[0]?.unison).toBe(2);
       expect(first[1]).toBeNull();
@@ -1165,8 +1239,7 @@ describe('synth', () => {
       onPress([4, 'E']);
       onRelease([4, 'E']);
       const [c, e] = voices();
-      const posted = (voice: VoiceNode) =>
-        (voice.port.postMessage as jest.Mock).mock.calls.map(([data]) => data);
+      const posted = (voice: VoiceView) => voices().find(({ id }) => id === voice.id)?.messages;
 
       addRoute('env2', 'osc1.gain');
       setAmount('env2', 'osc1.gain', -1);
@@ -1189,9 +1262,25 @@ describe('synth', () => {
     });
   });
 
+  it('sends the new routes of the voices that have the same ones, and the filter of them all, in one event', async () => {
+    const { onPress, voices, modulation, filter, audioCtx } = await setup();
+    onPress([4, 'C']);
+    onPress([4, 'E']);
+    const [c, e] = voices();
+    modulation[1].addRoute('env2', 'osc1.gain');
+    filter[1].toggleActive();
+    await Promise.resolve();
+    const events = eventsOf(voicesNodes(audioCtx)[0]).flatMap((message) => message.events);
+    expect(events.filter(({ kind }) => kind === 'routes')).toEqual([
+      { kind: 'routes', voices: [c.id, e.id], routes: [expect.objectContaining({ param: 'gain1' })] },
+    ]);
+    expect(events.filter(({ kind }) => kind === 'filter')).toEqual([
+      { kind: 'filter', voices: [c.id, e.id], filter: expect.objectContaining({ type: 'lowpass' }) },
+    ]);
+  });
+
   describe('filter', () => {
-    const posted = (voice: VoiceNode) =>
-      (voice.port.postMessage as jest.Mock).mock.calls.map(([data]) => data);
+    const posted = (voice: VoiceView) => voice.messages;
 
     it('gives a note the filter while it is on, its playing notes follow its knobs', async () => {
       const { onPress, voices, options, filter } = await setup();
@@ -1294,12 +1383,12 @@ describe('synth', () => {
     });
 
     it('follow a voice processed late from its first sample: its start and its release', async () => {
-      const { onPress, onRelease, voices, synthModel, audioCtx, travel, wall } = await setup();
+      const { onPress, onRelease, voices, synthModel, audioCtx, travel, wall, started } = await setup();
       const rate = audioCtx.sampleRate;
       await travel(1);
       onPress([4, 'C']);
       // its node came 30 ms late: its processor started it there
-      voices()[0].port.onmessage?.({ data: { started: Math.round(1.03 * rate), scheduled: rate } });
+      started(voices()[0], Math.round(1.03 * rate), rate);
       expect(synthModel.$fxNote.value?.start).toBeCloseTo(1.03, 6);
       expect(synthModel.$fxNote.value?.release).toBeNull();
       await travel(0.1);
@@ -1310,30 +1399,28 @@ describe('synth', () => {
     });
 
     it('released before the late start of its voice is known: the release moves with it', async () => {
-      const { onPress, onRelease, voices, synthModel, audioCtx, wall } = await setup();
+      const { onPress, onRelease, voices, synthModel, audioCtx, wall, started } = await setup();
       onPress([4, 'C']);
       wall.mockReturnValue(4);
       onRelease([4, 'C']);
       expect(synthModel.$fxNote.value?.release).toBe(0.004);
       // its processor started it 30 ms late and sees the gate there: released 4 ms after its first sample
-      voices()[0].port.onmessage?.({
-        data: { started: Math.round(0.03 * audioCtx.sampleRate), scheduled: 0 },
-      });
+      started(voices()[0], Math.round(0.03 * audioCtx.sampleRate), 0);
       expect(synthModel.$fxNote.value?.start).toBeCloseTo(0.03, 6);
       expect(synthModel.$fxNote.value?.release).toBeCloseTo(0.034, 6);
     });
 
     it('in legato from where the first voice of the phrase started, its notes scheduled as before', async () => {
-      const { onPress, voices, options, synthModel, synthActions, audioCtx, travel } = await setup();
+      const { onPress, voices, options, synthModel, synthActions, audioCtx, travel, started } = await setup();
       const rate = audioCtx.sampleRate;
       synthActions.setLegato(true);
       onPress([4, 'C']);
-      voices()[0].port.onmessage?.({ data: { started: Math.round(0.03 * rate), scheduled: 0 } });
+      started(voices()[0], Math.round(0.03 * rate), 0);
       await travel(1);
       onPress([4, 'E']);
       expect(synthModel.$fxNote.value?.start).toBeCloseTo(0.03, 6);
       // a note of the phrase processed late: its own start, not the phrase's
-      voices()[1].port.onmessage?.({ data: { started: Math.round(1.01 * rate), scheduled: rate } });
+      started(voices()[1], Math.round(1.01 * rate), rate);
       expect(synthModel.$fxNote.value?.start).toBeCloseTo(0.03, 6);
       // its processor finds the phrase by its number
       expect(options(voices()[1])).toMatchObject({
@@ -1344,81 +1431,20 @@ describe('synth', () => {
     });
 
     it('stay those of the last note when an earlier voice tells it started late', async () => {
-      const { onPress, voices, synthModel, envelopeModel, audioCtx, travel } = await setup();
+      const { onPress, voices, synthModel, envelopeModel, audioCtx, travel, started } = await setup();
       const { $envelopes } = envelopeModel[0];
       const envelopes = [$envelopes.value.env1, $envelopes.value.env2, $envelopes.value.env3];
       onPress([4, 'C']);
       await travel(1);
       onPress([4, 'E']);
-      voices()[0].port.onmessage?.({
-        data: { started: Math.round(0.03 * audioCtx.sampleRate), scheduled: 0 },
-      });
+      started(voices()[0], Math.round(0.03 * audioCtx.sampleRate), 0);
       expect(synthModel.$fxNote.value).toEqual({ envelopes, start: 1, release: null });
     });
   });
 
-  describe('mod buses', () => {
-    it('connects no bus without a source: the params of a held note stay constant', async () => {
-      const { onPress, osc1 } = await setup();
-      onPress([4, 'C']);
-      Object.values(osc1[0].buses).forEach((bus) => expect(bus.connect).not.toHaveBeenCalled());
-    });
-
-    it('connects the bus of a param with a source to the new voices of the active oscillators', async () => {
-      const { onPress, voices, param, osc1, osc2, audioCtx } = await setup();
-      const lfo = audioCtx.createOscillator();
-      osc1[1].connectBus('position', lfo);
-      osc2[1].connectBus('position', lfo);
-      expect(lfo.connect).toHaveBeenCalledWith(osc1[0].buses.position);
-
-      onPress([4, 'C']);
-      onPress([4, 'E']);
-
-      voices().forEach((voice) =>
-        expect(osc1[0].buses.position.connect).toHaveBeenCalledWith(param(voice, 'position1'))
-      );
-      expect(osc1[0].buses.gain.connect).not.toHaveBeenCalled();
-      // osc2 is off for the notes
-      expect(osc2[0].buses.position.connect).not.toHaveBeenCalled();
-    });
-
-    it('connects the playing notes when a bus gets its first source, lets them go after its last', async () => {
-      const { onPress, voices, param, osc1, audioCtx } = await setup();
-      onPress([4, 'C']);
-      const [voice] = voices();
-      const bus = osc1[0].buses.detune;
-      const [lfo, envelope] = [audioCtx.createOscillator(), audioCtx.createOscillator()];
-
-      osc1[1].connectBus('detune', lfo);
-      osc1[1].connectBus('detune', envelope);
-      expect(bus.connect).toHaveBeenCalledTimes(1);
-      expect(bus.connect).toHaveBeenCalledWith(param(voice, 'detune1'));
-
-      osc1[1].disconnectBus('detune', lfo);
-      expect(bus.disconnect).not.toHaveBeenCalled();
-      osc1[1].disconnectBus('detune', envelope);
-      expect(bus.disconnect).toHaveBeenCalledWith(param(voice, 'detune1'));
-      expect(envelope.disconnect).toHaveBeenCalledWith(bus);
-    });
-
-    it('disconnects the buses from the node of a voice that has ended', async () => {
-      const { onPress, onRelease, voices, param, osc1, end, audioCtx } = await setup();
-      osc1[1].connectBus('gain', audioCtx.createOscillator());
-      onPress([4, 'C']);
-      onRelease([4, 'C']);
-      const [voice] = voices();
-      const { buses } = osc1[0];
-      expect(buses.gain.disconnect).not.toHaveBeenCalled();
-      end(voice);
-      expect(buses.gain.disconnect).toHaveBeenCalledWith(param(voice, 'gain1'));
-      // a later source doesn't reach it
-      osc1[1].connectBus('spread', audioCtx.createOscillator());
-      expect(buses.spread.connect).not.toHaveBeenCalled();
-    });
-  });
-
   describe('a preset switch: pause and resume', () => {
-    const fq = (name: 'A' | 'B' | 'C' | 'E' | 'G') => getFq([4, name]);
+    // the frequency of a note, in f32 as its events have it
+    const fq = (name: 'A' | 'B' | 'C' | 'E' | 'G') => f32(getFq([4, name]));
 
     it('pause fades every voice out, held and released ones, the fx follow no note', async () => {
       const { onPress, onRelease, voices, param, synthModel, synthActions, travel } = await setup();
@@ -1559,28 +1585,28 @@ describe('synth', () => {
     it('traces no voice unless its starts are observed', async () => {
       const { onPress, voices } = await setup();
       onPress([4, 'A']);
-      expect(voices()[0].options.processorOptions).not.toHaveProperty('trace');
+      expect(voices()[0].options).not.toHaveProperty('trace');
       // out of mono it tells its start only when late
-      expect(voices()[0].options.processorOptions).not.toHaveProperty('mono');
+      expect(voices()[0].options).not.toHaveProperty('mono');
     });
 
     it('traces the voices while observed: their starts come with their note', async () => {
-      const { onPress, voices, synthModel, end } = await setup();
+      const { onPress, voices, synthModel, end, started } = await setup();
       const starts: unknown[] = [];
       const subscription = synthModel.$voiceStarts.subscribe((start) => starts.push(start));
       onPress([4, 'A']);
       const [voice] = voices();
-      expect(voice.options.processorOptions).toMatchObject({ trace: true });
-      voice.port.onmessage?.({ data: { started: 140, scheduled: 0 } });
+      expect(voice.options).toMatchObject({ trace: true });
+      started(voice, 140, 0);
       expect(starts).toEqual([{ note: 'A4', scheduled: 0, started: 140 }]);
       // a start doesn't end the voice, the end still does
-      expect(voice.disconnect).not.toHaveBeenCalled();
+      expect(synthModel.voicing.silent).toBe(false);
       end(voice);
-      expect(voice.disconnect).toHaveBeenCalled();
+      expect(synthModel.voicing.silent).toBe(true);
 
       subscription.unsubscribe();
       onPress([4, 'C']);
-      expect(voices()[1].options.processorOptions).not.toHaveProperty('trace');
+      expect(voices()[1].options).not.toHaveProperty('trace');
     });
   });
 

@@ -5,8 +5,9 @@
 // them: their modules load with the app, these are the first blocks they sound; in Chromium no render quantum may
 // run over its deadline in a trace of it, nor a glitch (headless: the device callbacks aren't real, the render times
 // are). Then the tables are switched under the notes (one of 256 frames no buffer of the store holds yet, one of 11
-// frames), traced as well. It checks that the oscillator, the master limiter and every effect are ready, that the engine counts the
-// voices and their mix samples, that the output sounds and that the page threw nothing. The tables come from the
+// frames), traced as well. It checks that the oscillator, the master limiter and every effect are ready, that the
+// engine counts the voices (in the voices node) and their mix samples, that the output sounds and that the page
+// threw nothing. The tables come from the
 // cache of bench-perf (S3 keys in .env otherwise). Exit 1 on a failed check
 import { loadPlaywright, parseArgs } from '../bench-common.mjs';
 import { launch, openPage } from '../bench-perf/browser.mjs';
@@ -168,6 +169,11 @@ try {
         loaded.join(', ')
       );
       check('the 12 notes play', after?.worklet.voices === 12, `${after?.worklet.voices} voices`);
+      check(
+        'they play in the voices node',
+        after?.worklet.scopeVoices === 12,
+        `${after?.worklet.scopeVoices} voices, ${after?.worklet.events} events held`
+      );
       check(
         'the voices play from their mix tables',
         after && before && after.worklet.mixSamples > before.worklet.mixSamples,

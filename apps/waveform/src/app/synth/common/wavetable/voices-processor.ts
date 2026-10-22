@@ -62,16 +62,22 @@ export const registerVoicesProcessor = (
       }
       if (events) dsp.apply(events);
       this.port.onmessage = ({ data }: MessageEvent<VoiceEventsMessage & StopMessage>) => {
-        if (!this.dsp) return;
+        const { dsp } = this;
+        if (!dsp) return;
         if (data.stop) {
-          this.dsp.free();
+          // (stopped before it frees: a free that throws leaves no voices half freed to render)
           this.dsp = null;
+          try {
+            dsp.free();
+          } catch (error) {
+            onError(error);
+          }
           return;
         }
         try {
-          this.dsp.apply(data.events);
+          dsp.apply(data.events);
         } catch (error) {
-          // (a trap of the core outside a voice: the events after it are lost, the voices play on)
+          // (a message it can't read; a call of the core that traps loses only its own events: apply)
           onError(error);
         }
       };

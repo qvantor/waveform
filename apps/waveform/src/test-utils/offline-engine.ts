@@ -1,28 +1,24 @@
 import { registrar } from 'standardized-audio-context-mock';
 import { BuilderMessage, createTableBuilder } from '../app/synth/common/wavetable/wavetable-builder';
-import type { StoreTableMessage, VoiceOptions } from '../app/synth/common/wavetable/voice-options';
-import {
-  STORE_PROCESSOR,
-  VOICE_PARAMETERS,
-  VOICE_PROCESSOR,
-} from '../app/synth/common/wavetable/wavetable-osc-params';
+import type { StoreTableMessage } from '../app/synth/common/wavetable/voice-options';
+import { STORE_PROCESSOR } from '../app/synth/common/wavetable/wavetable-osc-params';
 import {
   createTableStoreWasm,
+  createVoiceScopeWasm,
   createVoiceSharedWasm,
-  createVoiceWasm,
 } from '../app/synth/common/wavetable/wavetable-osc-wasm';
+import { eventsOf, VoicesNodeStub, voicesNodes } from './voice-events';
 import { BLOCK, oscScope, seeded } from './voice-dsp';
 import { WorkerStub } from './worker-stub';
 
-// the wavetable oscillator of the models run offline: the worker's builder, the store and a voice per voice node
-// (the Rust core, one instance as one scope), as the worker and the worklet would run them. Create it before the synth core (it installs the
-// worker); the builds run when flushWorker() says so (a note meanwhile plays the previous version), render()
-// processes the voices block by block and moves the context time on. The params are read once a block
-// (k-rate: a gate that closes within a block ends the voice at most a block later)
+// the wavetable oscillator of the models run offline: the worker's builder, the store and the voices of the voices
+// node (the Rust core, one instance as one scope), as the worker and the worklet would run them. Create it before
+// the synth core (it installs the worker); the builds run when flushWorker() says so (a note meanwhile plays the
+// previous version), render() takes the events the main thread sent the node (their params by the timelines of
+// the core), renders its voices block by block, tells the node their starts and ends and moves the context time on
 
-interface VoiceNode extends AudioWorkletNode {
+interface StoreNode extends AudioWorkletNode {
   name: string;
-  options: AudioWorkletNodeOptions;
   port: AudioWorkletNode['port'] & { onmessage: ((event: { data: unknown }) => void) | null };
 }
 
@@ -46,8 +42,10 @@ export const createOfflineEngine = (random = seeded(1)) => {
   const scope = oscScope();
   const store = createTableStoreWasm(scope);
   const shared = createVoiceSharedWasm(scope);
-  let storeNode: VoiceNode | null = null;
+  let storeNode: StoreNode | null = null;
   let audioCtx: BaseAudioContext | null = null;
+  // the events of a task of the main thread go when its microtask would send them
+  let flushEvents = () => undefined as void;
 
   class OfflineWorker extends WorkerStub {
     override postMessage = jest.fn((message: BuilderMessage) =>
@@ -56,48 +54,36 @@ export const createOfflineEngine = (random = seeded(1)) => {
   }
   Object.assign(globalThis, { Worker: OfflineWorker });
 
-  const voices = new Map<VoiceNode, { dsp: ReturnType<typeof createVoiceWasm>; ended: boolean }>();
+  // the voices of each voices node, and the messages of events taken from it
+  const nodes = new Map<VoicesNodeStub, { voices: ReturnType<typeof createVoiceScopeWasm>; read: number }>();
+  let made = 0;
   const outL = new Float32Array(BLOCK);
   const outR = new Float32Array(BLOCK);
 
-  // the voice nodes created since the last block get their dsp
+  // the voices nodes created since the last block get their voices
   const discover = (context: BaseAudioContext) => {
-    const nodes = registrar.getAudioNodes(
+    const workletNodes = registrar.getAudioNodes(
       context as never,
       'AudioWorkletNode' as never
-    ) as unknown as VoiceNode[];
-    storeNode = nodes.find(({ name }) => name === STORE_PROCESSOR) ?? storeNode;
-    nodes
-      .filter((node) => node.name === VOICE_PROCESSOR && !voices.has(node))
+    ) as unknown as StoreNode[];
+    storeNode = workletNodes.find(({ name }) => name === STORE_PROCESSOR) ?? storeNode;
+    voicesNodes(context)
+      .filter((node) => !nodes.has(node))
       .forEach((node) =>
-        voices.set(node, {
-          dsp: createVoiceWasm(
-            scope,
-            context.sampleRate,
-            node.options.processorOptions as VoiceOptions,
-            store,
-            random,
-            shared
-          ),
-          ended: false,
+        nodes.set(node, {
+          voices: createVoiceScopeWasm(scope, context.sampleRate, store, shared, random),
+          read: 0,
         })
       );
   };
 
-  const values = (node: VoiceNode) =>
-    Object.fromEntries(
-      VOICE_PARAMETERS.map(({ name }) => [
-        name,
-        Float32Array.of((node.parameters.get(name) as AudioParam).value),
-      ])
-    ) as Parameters<ReturnType<typeof createVoiceWasm>['process']>[1];
-
   return {
     store,
     shared,
-    // the context of the synth core (render needs it)
-    attach: (context: BaseAudioContext) => {
+    // the context of the synth core (render needs it) and its wavetable oscillator
+    attach: (context: BaseAudioContext, engine: { flush: () => void }) => {
       audioCtx = context;
+      flushEvents = engine.flush;
       discover(context);
     },
     flushWorker: () => queue.splice(0).forEach((run) => run()),
@@ -110,17 +96,25 @@ export const createOfflineEngine = (random = seeded(1)) => {
     render: (blocks = 1) => {
       const context = audioCtx as BaseAudioContext;
       for (let i = 0; i < blocks; i++) {
+        flushEvents();
         discover(context);
         const frame = Math.round(context.currentTime * context.sampleRate);
-        voices.forEach((voice, node) => {
-          if (voice.ended) return;
-          voice.ended = !voice.dsp.process(frame, values(node), outL, outR);
-          if (voice.ended) node.port.onmessage?.({ data: { ended: true } });
+        nodes.forEach((entry, node) => {
+          const messages = eventsOf(node);
+          messages.slice(entry.read).forEach(({ events }) => {
+            made += events.filter(({ kind }) => kind === 'on').length;
+            entry.voices.apply(events);
+          });
+          entry.read = messages.length;
+          entry.voices.process(frame, outL, outR);
+          const report = entry.voices.reports();
+          if (report) node.port.onmessage?.({ data: report });
         });
         registrar.getDeLorean(context as never)?.travel(BLOCK / context.sampleRate);
       }
     },
-    alive: () => [...voices.values()].filter(({ ended }) => !ended).length,
-    nodes: () => [...voices.keys()],
+    // the voices playing, and those made so far
+    alive: () => [...nodes.values()].reduce((sum, { voices }) => sum + voices.stats().voices, 0),
+    made: () => made,
   };
 };

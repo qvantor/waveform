@@ -186,11 +186,17 @@ pub unsafe extern "C" fn osc_scope_on(
 }
 
 /// `count` automation events in the command buffer, in order: kind, voice, param, value, time, time constant each
+/// (a voice an event finds no memory for ends)
 ///
 /// # Safety
-/// `scope` comes from osc_scope_new and was not freed
+/// `scope`, `store` and `shared` come from their constructors and were not freed
 #[no_mangle]
-pub unsafe extern "C" fn osc_scope_events(scope: *mut Scope, count: usize) {
+pub unsafe extern "C" fn osc_scope_events(
+    scope: *mut Scope,
+    store: *mut Store,
+    shared: *mut Shared,
+    count: usize,
+) {
     let command = command();
     for event in command.chunks_exact(6).take(count) {
         (*scope).event(
@@ -200,6 +206,8 @@ pub unsafe extern "C" fn osc_scope_events(scope: *mut Scope, count: usize) {
             event[3],
             event[4],
             event[5],
+            &mut *store,
+            &mut *shared,
         );
     }
 }
