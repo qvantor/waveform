@@ -1,7 +1,14 @@
 import { installWorkletScope, WorkletProcessorStub } from '../../../../test-utils/worklet-scope';
 import { buildLevels } from './wavetable-mipmap';
-import { STORE_PROCESSOR, VOICE_PARAMETERS, VOICE_PROCESSOR, VoiceParam } from './wavetable-osc-params';
+import {
+  STORE_PROCESSOR,
+  VOICE_PARAMETERS,
+  VOICE_PROCESSOR,
+  VOICES_PROCESSOR,
+  VoiceParam,
+} from './wavetable-osc-params';
 import { STORE_CHUNK } from './wavetable-osc-wasm';
+import type { VoiceEvent, VoiceOptions } from './voice-options';
 
 const RATE = 48000;
 const processors = installWorkletScope(RATE);
@@ -255,5 +262,146 @@ describe('wavetable oscillator wasm worklet', () => {
     Object.assign(globalThis, { currentFrame: 0 });
     expect(voice('none').process([], outputs, params({ gain1: 1 }))).toBe(true);
     expect(outputs[0][0][0]).toBeCloseTo(1, 4);
+  });
+
+  describe('the voices of one node', () => {
+    const options = (table: string, more: Partial<VoiceOptions> = {}): VoiceOptions => ({
+      osc: [{ table, unison: 1, phase: 0.25, phaseRand: 0 }, null],
+      start: 0,
+      envelopes: [FLAT, FLAT, FLAT],
+      envStart: 0,
+      routes: [],
+      filter: null,
+      phrase: 0,
+      ...more,
+    });
+    const on = (voice: number, table: string, more: Partial<VoiceOptions> = {}): VoiceEvent => ({
+      kind: 'on',
+      voice,
+      options: options(table, { phrase: voice, ...more }),
+      params: { gain1: 1, frequency: 100 },
+    });
+    const renderNode = (processor: WorkletProcessorStub, frame: number, channels = 2) => {
+      Object.assign(globalThis, { currentFrame: frame });
+      const outputs = [Array.from({ length: channels }, () => new Float32Array(128))];
+      const alive = processor.process([], outputs, {});
+      return { alive, channels: outputs[0] };
+    };
+    const reports = (processor: WorkletProcessorStub) =>
+      processor.port.postMessage.mock.calls.map(([message]) => message);
+
+    it('plays the voices of the events posted to it, their sum into its output', () => {
+      const store = new processors[STORE_PROCESSOR]({});
+      store.port.onmessage({
+        data: { table: 'node', version: 1, levels: buildLevels([sine.map((x) => x / 4)]) },
+      });
+      const node = new processors[VOICES_PROCESSOR]({});
+      node.port.onmessage({ data: { events: [on(1, 'node'), on(2, 'node')] } });
+      const { alive, channels } = renderNode(node, 0);
+      expect(alive).toBe(true);
+      // two voices of a quarter at phase 0.25
+      expect(channels[0][0]).toBeCloseTo(0.5, 4);
+      expect(channels[1][0]).toBeCloseTo(0.5, 4);
+      expect(reports(node)).toEqual([]);
+    });
+
+    it('takes the events of its options before its first block, a tap renders each voice into its channels', () => {
+      const node = new processors[VOICES_PROCESSOR]({
+        processorOptions: {
+          tap: true,
+          events: [
+            on(1, 'none'),
+            on(2, 'none', { start: 64 / RATE, envStart: 64 / RATE }),
+            { kind: 'set', voice: 1, param: 'gate', value: 0, time: 32 / RATE },
+          ],
+        },
+      });
+      const { channels } = renderNode(node, 0, 4);
+      expect(channels[0][0]).toBeCloseTo(1, 4);
+      expect(channels[0].subarray(32).every((value) => value === 0)).toBe(true);
+      expect(channels[2][63]).toBe(0);
+      expect(channels[2][64]).toBeCloseTo(1, 4);
+      // voice 1 ended where its gate dropped
+      expect(reports(node)).toEqual([{ ended: [1] }]);
+      const next = renderNode(node, 128, 4).channels;
+      expect(next[0].every((value) => value === 0)).toBe(true);
+      expect(next[2][0]).not.toBe(0);
+    });
+
+    it('tells the starts later than scheduled and the ends of a block in one message', () => {
+      const node = new processors[VOICES_PROCESSOR]({});
+      renderNode(node, 0);
+      node.port.onmessage({
+        data: {
+          events: [
+            on(1, 'none', { start: 100 / RATE }),
+            on(2, 'none', { start: 1300 / RATE, mono: true }),
+            on(3, 'none', { start: 1300 / RATE }),
+            { kind: 'set', voice: 3, param: 'gate', value: 0, time: 1350 / RATE },
+          ],
+        },
+      });
+      renderNode(node, 1280);
+      expect(reports(node)).toEqual([
+        {
+          started: [
+            [1, 1280, 100],
+            [2, 1300, 1300],
+          ],
+          ended: [3],
+        },
+      ]);
+    });
+
+    it('stops: its voices end and give their versions back, it renders no more', () => {
+      const store = new processors[STORE_PROCESSOR]({});
+      store.port.onmessage({ data: { table: 'stopped', version: 1, levels: buildLevels([saw]) } });
+      const node = new processors[VOICES_PROCESSOR]({});
+      node.port.onmessage({ data: { events: [on(1, 'stopped')] } });
+      renderNode(node, 0);
+      store.port.onmessage({ data: { table: 'stopped', version: 2, levels: buildLevels([sine]) } });
+      const held = stats(store);
+      expect(held).toMatchObject({ scopeVoices: 1 });
+      node.port.onmessage({ data: { stop: true } });
+      expect(stats(store)).toMatchObject({ versions: held.versions - 1, scopeVoices: 0, events: 0 });
+      expect(renderNode(node, 128).alive).toBe(false);
+      // a message after the stop reaches nothing
+      node.port.onmessage({ data: { events: [on(2, 'stopped')] } });
+    });
+
+    it('counts the voices of the node and the events of their timelines', () => {
+      const store = new processors[STORE_PROCESSOR]({});
+      const node = new processors[VOICES_PROCESSOR]({});
+      node.port.onmessage({
+        data: {
+          events: [
+            on(1, 'none'),
+            { kind: 'set', voice: 1, param: 'gain1', value: 0.5, time: 1 },
+            { kind: 'ramp', voice: 1, param: 'frequency', value: 200, time: 1 },
+          ],
+        },
+      });
+      expect(stats(store)).toMatchObject({ scopeVoices: 1, events: 2 });
+      node.port.onmessage({ data: { stop: true } });
+    });
+
+    it('keeps playing when a message breaks the core: the error is told', () => {
+      const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      const node = new processors[VOICES_PROCESSOR]({});
+      node.port.onmessage({ data: { events: [on(1, 'none')] } });
+      // more routes than the command buffer holds: the core reads past it
+      const routes = Array.from({ length: 1000 }, () => ({
+        env: 1,
+        param: 'gain1',
+        amount: 1,
+        min: 0,
+        max: 1,
+      }));
+      node.port.onmessage({ data: { events: [{ kind: 'routes', voices: [1], routes }] } });
+      expect(error).toHaveBeenCalledWith('A voice of the wavetable oscillator failed', expect.any(Error));
+      expect(renderNode(node, 0).channels[0][0]).toBeCloseTo(1, 4);
+      node.port.onmessage({ data: { stop: true } });
+      error.mockRestore();
+    });
   });
 });

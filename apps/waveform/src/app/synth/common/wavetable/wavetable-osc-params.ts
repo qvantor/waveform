@@ -4,6 +4,9 @@
 // one node per voice plays both oscillators, the store holds the tables of the context
 export const VOICE_PROCESSOR = 'waveform-wavetable-voice';
 export const STORE_PROCESSOR = 'waveform-wavetable-store';
+// one node of a context plays every voice (both oscillators of each), their params from the events of the main
+// thread
+export const VOICES_PROCESSOR = 'waveform-wavetable-voices';
 
 // the continuous controls of an oscillator, each an AudioParam of the voice node per oscillator (position1,
 // position2…): the knob is its own value, envelopes and LFOs add to it through its input

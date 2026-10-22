@@ -1,5 +1,6 @@
 import type { EnvelopeParams } from '../envelope/envelope-curve';
 import type { WavetableLevels } from './wavetable-levels';
+import type { VoiceParam } from './wavetable-osc-params';
 
 // the options of a voice of the wavetable oscillator (its node, processorOptions), the messages between the main
 // thread, the store, the worker and the voices, the routes and the filter of a voice: the API of its Rust core
@@ -88,6 +89,50 @@ export interface VoiceOptions {
   mono?: boolean;
 }
 
+// main thread → voices processor, the events of a task in the order they were made: a voice of a note (`on`), the
+// automation of its params (the AudioParam call of the same name: setValueAtTime, setTargetAtTime,
+// exponentialRampToValueAtTime, cancelScheduledValues; values in f32, times in seconds of the context), and
+// the routes and the filter of playing voices. An event of a voice that has ended changes nothing
+export interface VoiceOn {
+  kind: 'on';
+  voice: number;
+  options: VoiceOptions;
+  // the values of its params at the note on (a param left out: the default of its descriptor)
+  params: Partial<Record<VoiceParam, number>>;
+}
+export interface VoiceAutomation {
+  kind: 'set' | 'target' | 'ramp' | 'cancel';
+  voice: number;
+  param: VoiceParam;
+  time: number;
+  // (none for cancel)
+  value?: number;
+  // the time constant of a target
+  constant?: number;
+}
+export interface VoicesRoutes {
+  kind: 'routes';
+  voices: number[];
+  routes: VoiceRoute[];
+}
+export interface VoicesFilter {
+  kind: 'filter';
+  voices: number[];
+  filter: VoiceFilterOptions | null;
+}
+export type VoiceEvent = VoiceOn | VoiceAutomation | VoicesRoutes | VoicesFilter;
+export interface VoiceEventsMessage {
+  events: VoiceEvent[];
+}
+
+// voices processor → main thread, after a block that has any: the voices that started (late, of mono, traced: its
+// id, the frame it started at and the one it was scheduled at, once) and those that ended (released to 0, stolen,
+// or failed)
+export interface VoicesReportMessage {
+  started?: [number, number, number][];
+  ended?: number[];
+}
+
 // voice → main thread: the voice has ended, its node can be disconnected
 export interface VoiceEndedMessage {
   ended: true;
@@ -129,9 +174,14 @@ export interface VoiceStats {
   mixes: number;
   mixBytes: number;
 }
+// the voices of the node of the voices and the automation events their timelines hold
+export interface VoiceScopeStats {
+  scopeVoices: number;
+  events: number;
+}
 // store → main thread: the answer to a StatsRequest, at the frame it was read
 export interface StoreStatsMessage {
-  stats: TableStoreStats & VoiceStats & { frame: number };
+  stats: TableStoreStats & VoiceStats & VoiceScopeStats & { frame: number };
 }
 
 // worker → store (its MessagePort): a new version of a table (its data buffer transferred), or a table that

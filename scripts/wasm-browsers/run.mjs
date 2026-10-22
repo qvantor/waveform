@@ -2,7 +2,9 @@
 // scripts/wasm-browsers/run.mjs [--browsers=chromium,webkit,firefox] [--only=<scene>]`, after `npm run wasm` and
 // `npm run worklets`): every scene renders in an OfflineAudioContext with the worklet bundle of the app and in Node
 // with its wasm core alone (tmp/wasm); the worklet must give the bits of Node in every browser (jsmath: the same
-// Math everywhere). The params go only through processorOptions (a message would arrive in an unpredictable block).
+// Math everywhere). The params go only through processorOptions (a message would arrive in an unpredictable block):
+// the voices of the oscillator in the events of their node, their params at the note on and the steps of the gate
+// worked out by the timelines of the core (in Node: the arrays of each block).
 // Exit 1 when a render differs
 import fs from 'node:fs';
 import http from 'node:http';
@@ -69,8 +71,9 @@ const renderInPage = (page, { bundle, processor, options, rate, input }) =>
     { bundle, processor, options, rate, input }
   );
 
-// renders an oscillator scene in the page: the store node gets the tables (the page waits for their acks), each
-// voice node its options, initial params and gate events; the channels of each voice apart in the destination
+// renders an oscillator scene in the page: the store node gets the tables (the page waits for their acks), the
+// voices node every voice of the scene from the events of its options (each voice, its params at the note on, the
+// steps of its gate), each voice into a pair of channels of its own (a tap) split into the destination
 const renderOscInPage = (page, { bundle, rate, frames, tables, voices }) =>
   page.evaluate(
     async ({ bundle, rate, frames, tables, voices }) => {
@@ -87,7 +90,8 @@ const renderOscInPage = (page, { bundle, rate, frames, tables, voices }) =>
           binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
         return btoa(binary);
       };
-      const context = new OfflineAudioContext(2 * voices.length, frames, rate);
+      const channels = 2 * voices.length;
+      const context = new OfflineAudioContext(channels, frames, rate);
       await context.audioWorklet.addModule(`/${bundle}.js`);
       const store = new AudioWorkletNode(context, 'waveform-wavetable-store', {
         numberOfInputs: 0,
@@ -112,22 +116,21 @@ const renderOscInPage = (page, { bundle, rate, frames, tables, voices }) =>
           })
         );
       });
-      const merger = context.createChannelMerger(2 * voices.length);
-      merger.connect(context.destination);
-      voices.forEach(({ options, params, gate }, v) => {
-        const node = new AudioWorkletNode(context, 'waveform-wavetable-voice', {
-          numberOfInputs: 0,
-          numberOfOutputs: 1,
-          outputChannelCount: [2],
-          processorOptions: options,
-          parameterData: params,
-        });
-        gate.forEach(([frame, value]) => node.parameters.get('gate').setValueAtTime(value, frame / rate));
-        const split = context.createChannelSplitter(2);
-        node.connect(split);
-        split.connect(merger, 0, 2 * v);
-        split.connect(merger, 1, 2 * v + 1);
+      const events = voices.flatMap(({ options, params, gate }, voice) => [
+        { kind: 'on', voice, options, params },
+        ...gate.map(([frame, value]) => ({ kind: 'set', voice, param: 'gate', value, time: frame / rate })),
+      ]);
+      const node = new AudioWorkletNode(context, 'waveform-wavetable-voices', {
+        numberOfInputs: 0,
+        numberOfOutputs: 1,
+        outputChannelCount: [channels],
+        processorOptions: { events, tap: true },
       });
+      const split = context.createChannelSplitter(channels);
+      const merger = context.createChannelMerger(channels);
+      node.connect(split);
+      for (let channel = 0; channel < channels; channel++) split.connect(merger, channel, channel);
+      merger.connect(context.destination);
       const rendered = await context.startRendering();
       return Array.from({ length: rendered.numberOfChannels }, (_, channel) =>
         encode(rendered.getChannelData(channel))
