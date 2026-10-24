@@ -1,5 +1,6 @@
 import { BehaviorSubject } from 'rxjs';
 import { isWorkletSupported, loadWorklet, WORKLETS_PATH } from '../../fx/effects/load-worklet';
+import type { StopMessage } from '../../fx/effects/stereo-processor';
 import type {
   BuilderFailedMessage,
   BuilderPortMessage,
@@ -12,9 +13,14 @@ import type {
   StoreStatsMessage,
   StoreStoredMessage,
   StoreTableMessage,
+  VoiceEvent,
+  VoiceEventsMessage,
+  VoiceFilterOptions,
   VoiceOptions,
+  VoiceRoute,
+  VoicesReportMessage,
 } from './voice-options';
-import { STORE_PROCESSOR, VOICE_PROCESSOR, VoiceParam } from './wavetable-osc-params';
+import { STORE_PROCESSOR, VOICE_PARAMETERS, VOICES_PROCESSOR, VoiceParam } from './wavetable-osc-params';
 import type { StoreFreedBytesMessage, StoreRefusedMessage } from './wavetable-osc-wasm';
 
 // the worklet module (wavetable-osc.worklet.ts) and the worker (wavetable.worker.ts), bundled by `npm run
@@ -32,12 +38,30 @@ export type WavetableStatus = 'loading' | 'ready' | 'unsupported' | 'failed';
 // before it plays on, retryTable() sends it again
 export type TableState = 'sending' | 'stored' | 'refused' | 'failed';
 
-// a voice node: no input, both oscillators into one stereo output
-const VOICE_NODE_OPTIONS: AudioWorkletNodeOptions = {
+// the voices node: no input, every voice into one stereo output
+const VOICES_NODE_OPTIONS: AudioWorkletNodeOptions = {
   numberOfInputs: 0,
   numberOfOutputs: 1,
   outputChannelCount: [2],
 };
+
+// a param of a voice as the synth automates it: the calls of an AudioParam it makes, each sent to the voices node
+// as an event (its value in f32, as an AudioParam keeps it), worked out there by the formulas of the spec
+export interface ParamAutomation {
+  setValueAtTime: (value: number, time: number) => void;
+  setTargetAtTime: (value: number, time: number, constant: number) => void;
+  exponentialRampToValueAtTime: (value: number, time: number) => void;
+  cancelScheduledValues: (time: number) => void;
+}
+
+// a voice of the voices node: its params; the node tells its start (late, of mono or traced: the frames it
+// started and was scheduled at, once) and its end (released to 0, stolen, failed, or the node failed)
+export interface VoiceHandle {
+  readonly id: number;
+  readonly params: Record<VoiceParam, ParamAutomation>;
+  onStarted: ((started: number, scheduled: number) => void) | null;
+  onEnded: (() => void) | null;
+}
 
 // the worker and the channel to the store (jsdom has neither: the specs pass stubs)
 export interface WavetableEngineDependencies {
@@ -55,14 +79,16 @@ export interface WavetableEngineStats {
 type Waiter<T> = (answer: T | null) => void;
 
 // the wavetable oscillator of an AudioContext, one for both oscillators: loads the worklet module (the synth
-// core does it at its start, like the limiter), creates the store node (it receives the tables, the voice
-// processors of the context read them) and the worker that builds the levels of the tables, connected to the
+// core does it at its start, like the limiter), creates the store node (it receives the tables), the voices node
+// (every note plays in it, into `output`) and the worker that builds the levels of the tables, connected to the
 // store by a MessageChannel: the levels go from the worker to the audio thread, transferred, never through
 // the main thread. setTable() sends a new version of a table (the latest frames are kept: they are sent once
-// it is ready, and again after a retry); createVoice() creates the node of a note, null until it is ready
-// (a note played meanwhile is not played later)
+// it is ready, and again after a retry); createVoice() makes the voice of a note, null until it is ready (a note
+// played meanwhile is not played later). What the voices do goes to the node as events, those of a task in one
+// message (a microtask sends them), in the order they were made
 export const createWavetableEngine = (
   audioCtx: BaseAudioContext,
+  output: AudioNode,
   {
     createWorker = (url) => new Worker(url),
     createChannel = typeof MessageChannel === 'undefined' ? undefined : defaultChannel,
@@ -83,19 +109,53 @@ export const createWavetableEngine = (
     return version;
   };
   let store: AudioWorkletNode | null = null;
+  let voices: AudioWorkletNode | null = null;
   let worker: Worker | null = null;
   let destroyed = false;
+  // the voices playing, by id (unique in the engine: the node of a retry starts empty), and the events of this
+  // task
+  const handles = new Map<number, VoiceHandle>();
+  let lastVoice = 0;
+  let events: VoiceEvent[] = [];
+  let sending = false;
   // the version of each table the store has acknowledged (when it is the latest, new voices play it)
   const stored = new Map<string, number>();
   // the answers to stats requests, in the order they were asked (each port answers in order)
   const storeWaiters: Waiter<StoreStatsMessage['stats']>[] = [];
   const workerWaiters: Waiter<BuilderStats>[] = [];
 
-  const teardown = () => {
+  // the events of this task to the voices node, in one message
+  const flush = () => {
+    sending = false;
+    if (events.length === 0) return;
+    const message: VoiceEventsMessage = { events };
+    events = [];
+    voices?.port.postMessage(message);
+  };
+  const enqueue = (event: VoiceEvent) => {
+    events.push(event);
+    if (sending) return;
+    sending = true;
+    queueMicrotask(flush);
+  };
+
+  // the voices node stopped (its voices give their tables back to the store); `end`: every voice is ended (the
+  // synth lets their keys go)
+  const teardown = (end: boolean) => {
     worker?.terminate();
     worker = null;
     store?.disconnect();
     store = null;
+    if (voices) {
+      const stop: StopMessage = { stop: true };
+      voices.port.postMessage(stop);
+      voices.disconnect();
+      voices = null;
+    }
+    events = [];
+    const ended = [...handles.values()];
+    handles.clear();
+    if (end) ended.forEach((handle) => handle.onEnded?.());
     stored.clear();
     storeWaiters.splice(0).forEach((answer) => answer(null));
     workerWaiters.splice(0).forEach((answer) => answer(null));
@@ -104,8 +164,41 @@ export const createWavetableEngine = (
   const fail = (error: unknown) => {
     if (destroyed || $status.value === 'failed') return;
     console.error('The wavetable oscillator failed', error);
-    teardown();
+    teardown(true);
     $status.next('failed');
+  };
+
+  // the starts and the ends of a block of the voices node
+  const report = ({ started, ended }: VoicesReportMessage) => {
+    started?.forEach(([id, at, scheduled]) => handles.get(id)?.onStarted?.(at, scheduled));
+    ended?.forEach((id) => {
+      const handle = handles.get(id);
+      handles.delete(id);
+      handle?.onEnded?.();
+    });
+  };
+
+  // the params of voice `id`: their calls as events (none once it has ended)
+  const automation = (id: number, param: VoiceParam): ParamAutomation => {
+    const automate = (kind: 'set' | 'target' | 'ramp', value: number, time: number, constant?: number) => {
+      if (handles.has(id))
+        enqueue({
+          kind,
+          voice: id,
+          param,
+          value: Math.fround(value),
+          time,
+          ...(constant !== undefined && { constant }),
+        });
+    };
+    return {
+      setValueAtTime: (value, time) => automate('set', value, time),
+      setTargetAtTime: (value, time, constant) => automate('target', value, time, constant),
+      exponentialRampToValueAtTime: (value, time) => automate('ramp', value, time),
+      cancelScheduledValues: (time) => {
+        if (handles.has(id)) enqueue({ kind: 'cancel', voice: id, param, time });
+      },
+    };
   };
 
   const setState = (table: string, state: TableState | null) => {
@@ -188,7 +281,18 @@ export const createWavetableEngine = (
         const toWorker: BuilderPortMessage = { port: port2 };
         node.port.postMessage(toStore, [port1]);
         created.postMessage(toWorker, [port2]);
+        // every voice in one node: an error outside its voices (a voice that traps only ends) fails the engine,
+        // its voices end, Retry makes it again
+        const voicesNode = new AudioWorkletNode(audioCtx, VOICES_PROCESSOR, VOICES_NODE_OPTIONS);
+        voicesNode.onprocessorerror = (event) => {
+          if (voices === voicesNode) fail(event);
+        };
+        voicesNode.port.onmessage = ({ data }: MessageEvent<VoicesReportMessage>) => {
+          if (voices === voicesNode) report(data);
+        };
+        voicesNode.connect(output);
         store = node;
+        voices = voicesNode;
         worker = created;
         $status.next('ready');
         tables.forEach((_, table) => send(table));
@@ -236,16 +340,31 @@ export const createWavetableEngine = (
       const message: StoreTableMessage = { table, version, remove: true };
       worker.postMessage(message);
     },
-    // the node of a note; an error of its processor ends only that voice (the synth takes it off), the store,
-    // the worker and the other voices play on
-    createVoice: (options: VoiceOptions, parameterData: Partial<Record<VoiceParam, number>>) => {
+    // the voice of a note, its options and the values of its params at the note on (in f32); a voice that fails
+    // ends alone (the synth takes it off), the store, the worker and the other voices play on
+    createVoice: (options: VoiceOptions, values: Partial<Record<VoiceParam, number>>): VoiceHandle | null => {
       if ($status.value !== 'ready') return null;
-      return new AudioWorkletNode(audioCtx, VOICE_PROCESSOR, {
-        ...VOICE_NODE_OPTIONS,
-        processorOptions: options,
-        parameterData,
-      });
+      const id = ++lastVoice;
+      const params = Object.fromEntries(
+        VOICE_PARAMETERS.map(({ name }) => [name, automation(id, name as VoiceParam)])
+      ) as Record<VoiceParam, ParamAutomation>;
+      const handle: VoiceHandle = { id, params, onStarted: null, onEnded: null };
+      handles.set(id, handle);
+      const initial = Object.fromEntries(
+        Object.entries(values).map(([name, value]) => [name, Math.fround(value)])
+      ) as Partial<Record<VoiceParam, number>>;
+      enqueue({ kind: 'on', voice: id, options, params: initial });
+      return handle;
     },
+    // the routes, the filter of playing voices changed (one event for them all)
+    setRoutes: (ids: number[], routes: VoiceRoute[]) => {
+      if (ids.length > 0) enqueue({ kind: 'routes', voices: ids, routes });
+    },
+    setFilter: (ids: number[], filter: VoiceFilterOptions | null) => {
+      if (ids.length > 0) enqueue({ kind: 'filter', voices: ids, filter });
+    },
+    // the events of this task to the node now (the specs)
+    flush,
     // the tables whose latest version the store hasn't acknowledged yet (a note meanwhile plays the previous
     // version, or a sine for a new table); the perf build only
     pending: () =>
@@ -277,7 +396,7 @@ export const createWavetableEngine = (
     },
     destroy: () => {
       destroyed = true;
-      teardown();
+      teardown(false);
       $status.complete();
       $tables.complete();
     },

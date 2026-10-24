@@ -1,3 +1,5 @@
+import type { ParamAutomation } from '../wavetable/wavetable-engine';
+
 // the glide of the pitch of a voice (portamento, the slide of mono): convex in pitch, it leaves the note it
 // comes from fast and slows down into the target, there exactly after its time.
 // GLIDE_SEGMENTS exponential ramps of the frequency (each linear in pitch): not setValueCurveAtTime, an event
@@ -21,18 +23,18 @@ const shape = (x: number) => 1 - (1 - x) ** 2;
 const point = ({ from, to }: Glide, i: number) =>
   i >= GLIDE_SEGMENTS ? to : from * (to / from) ** shape(i / GLIDE_SEGMENTS);
 
-// what was scheduled after the point a glide is held at is cancelled from this long after it: Firefox takes an
-// event within a sample of the time as at it, and cancels the point too (as fx-automation.ts)
+// what was scheduled after the point a glide is held at is cancelled from this long after it: a cancel takes the
+// events at its time too, the point among them
 const CANCEL_AFTER = 1e-4;
 
 // the ramps of a glide on `param` (none for 0 seconds); the value at its start is the caller's
-export const scheduleGlide = (param: AudioParam, glide: Glide) => {
+export const scheduleGlide = (param: ParamAutomation, glide: Glide) => {
   if (glide.seconds <= 0) return;
   for (let i = 1; i <= GLIDE_SEGMENTS; i++)
     param.exponentialRampToValueAtTime(point(glide, i), glide.start + (glide.seconds * i) / GLIDE_SEGMENTS);
 };
 
-// the frequency at `t` (seconds of the context) as the browser ramps it, exponential between the points: where
+// the frequency at `t` (seconds of the context) as its timeline ramps it, exponential between the points: where
 // a glide the next note interrupts goes on from
 export const glideValue = (glide: Glide, t: number) => {
   const { from, to, start, seconds } = glide;
@@ -53,10 +55,15 @@ export const steady = (value: number, start: number): Glide => ({
 });
 
 // `param`, on `current`, goes to `to` (Hz) from `start` on: in `seconds` along the curve from where current has
-// it then (0: a step there). Held at that point of its own line (the browser renders the same up to it), what
-// comes after it cancelled, then the ramps; not cancelAndHoldAtTime, Chrome's audio thread works the held value
-// out itself and got it wrong over a ramp (fx-automation.ts). The new glide
-export const glideFrom = (param: AudioParam, current: Glide, to: number, start: number, seconds: number) => {
+// it then (0: a step there). Held at that point of its own line (its timeline renders the same up to it), what
+// comes after it cancelled, then the ramps (no cancelAndHoldAtTime). The new glide
+export const glideFrom = (
+  param: ParamAutomation,
+  current: Glide,
+  to: number,
+  start: number,
+  seconds: number
+) => {
   const glide: Glide =
     seconds > 0 ? { from: glideValue(current, start), to, start, seconds } : steady(to, start);
   param.setValueAtTime(glide.from, start);

@@ -1,12 +1,6 @@
-import { registrar } from 'standardized-audio-context-mock';
 import { createFx, createSynth, initModel, stopModels } from '../../../../test-utils/models';
-import { VOICE_PROCESSOR } from '../wavetable/wavetable-osc-params';
+import { voiceEvents } from '../../../../test-utils/voice-events';
 import { soundSwitch } from './sound-switch';
-
-interface VoiceNode extends AudioWorkletNode {
-  name: string;
-  port: AudioWorkletNode['port'] & { onmessage: ((event: { data: unknown }) => void) | null };
-}
 
 // the wavetable oscillator loads its module asynchronously
 const flush = () => new Promise((resolve) => setTimeout(resolve));
@@ -25,12 +19,8 @@ const setup = async ({ running = true } = {}) => {
     configurable: true,
   });
   const synthActions = modules.synth[1] as Pick<typeof modules.synth[1], 'pause' | 'resume'>;
-  // the voice nodes of the notes played; a processor tells its node it has ended
-  const voices = () =>
-    (
-      registrar.getAudioNodes(audioCtx as never, 'AudioWorkletNode' as never) as unknown as VoiceNode[]
-    ).filter(({ name }) => name === VOICE_PROCESSOR);
-  const end = (voice: VoiceNode) => voice.port.onmessage?.({ data: { ended: true } });
+  // the voices of the notes played; the voices node tells one has ended
+  const { voices, end } = voiceEvents(audioCtx, wavetables);
   const [, { onPress }] = modules.inputController;
   const pause = jest.spyOn(synthActions, 'pause');
   const resume = jest.spyOn(synthActions, 'resume');

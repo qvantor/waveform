@@ -150,13 +150,6 @@ describe('oscillator', () => {
     expect(first.id).not.toBe(second.id);
   });
 
-  it('has a mod bus per param of the voices, taken off when it stops', () => {
-    const [{ buses }] = createOscillator();
-    expect(Object.keys(buses)).toEqual(['position', 'detune', 'spread', 'gain']);
-    stopModels();
-    Object.values(buses).forEach((bus) => expect(bus.disconnect).toHaveBeenCalled());
-  });
-
   describe('table delivery', () => {
     const setup = () => {
       const synthCore = createSynthCore();

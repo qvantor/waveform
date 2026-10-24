@@ -26,7 +26,7 @@ import {
   playedFrame,
   playedFrames,
 } from '../wavetable/wavetable-frames';
-import { OSC_PARAMS, OscParam } from '../wavetable/wavetable-osc-params';
+import { OscParam } from '../wavetable/wavetable-osc-params';
 import { SynthCoreModule } from './synth-core';
 
 // one sine cycle, played until a table loads (a wave of 2 samples has no harmonics)
@@ -62,7 +62,7 @@ const baseParams = (position: number, frames: number, octave: number, detune: nu
 });
 
 export const oscillator = ({
-  synthCore: [{ audioCtx, wavetables }],
+  synthCore: [{ wavetables }],
   loadWavetable: load = loadWavetable,
 }: Dependencies) =>
   rxModel(({ active, initialWavePath }: { active: boolean; initialWavePath: string[] }) => {
@@ -138,21 +138,6 @@ export const oscillator = ({
     const $params = new BehaviorSubject<Record<OscParam, number>>(
       baseParams(0, 1, $osc.value.octave, $osc.value.detune, $gain.value)
     );
-    // the mod buses: a global source (an LFO) plays into the bus of a param (connectBus), every voice connects
-    // the bus to its param of this oscillator (added to the base, in its units: share of the table, cents,
-    // linear) while a source plays into it: a param with an input, even a silent one, is computed per sample
-    // by the browser (+14% CPU of a held note in Chrome)
-    const buses = Object.fromEntries(OSC_PARAMS.map((param) => [param, audioCtx.createGain()])) as Record<
-      OscParam,
-      GainNode
-    >;
-    // the sources playing into each bus
-    const $busSources = new BehaviorSubject<Record<OscParam, number>>({
-      position: 0,
-      detune: 0,
-      spread: 0,
-      gain: 0,
-    });
     // its notes play the table of its path: loaded and in the wavetable oscillator (stored, or refused or failed:
     // the version before plays); the table loaded goes to the oscillator before loading ends (setWaveTable sets
     // it sending), so no moment between them reads as played
@@ -172,44 +157,31 @@ export const oscillator = ({
       $frames,
       $gain,
       $params,
-      buses,
-      $busSources,
       $waveTablePath,
       $waveTableLoading,
       $tableState,
       tablePlayed,
     };
   })
-    .actions(
-      ({ $osc, $position, $active, $gain, $waveTable, $waveTablePath, $morph, buses, $busSources }) => ({
-        // a global source modulates a param of the voices of this oscillator, until disconnectBus
-        connectBus: (param: OscParam, source: AudioNode) => {
-          source.connect(buses[param]);
-          $busSources.next({ ...$busSources.value, [param]: $busSources.value[param] + 1 });
-        },
-        disconnectBus: (param: OscParam, source: AudioNode) => {
-          source.disconnect(buses[param]);
-          $busSources.next({ ...$busSources.value, [param]: Math.max(0, $busSources.value[param] - 1) });
-        },
-        setOscValue: (key: keyof typeof $osc.value, value: number) =>
-          $osc.next({
-            ...$osc.value,
-            [key]: value,
-          }),
-        setPosition: (position: number) => $position.next(position),
-        toggleActive: () => $active.next(!$active.value),
-        setGain: (value: number) => $gain.next(value),
-        // a new table (its frames played expanded with a morph); fewer frames played: the position is kept
-        // within them
-        setWaveTable: (wavetable: number[][], morph = false) => {
-          const last = Math.max(0, playedFrames(wavetable.length, morph) - 1);
-          if (last < $position.value) $position.next(last);
-          $morph.next(morph);
-          $waveTable.next(wavetable.map((value) => new BehaviorSubject(value)));
-        },
-        setWaveTablePath: (path: (string | number)[]) => $waveTablePath.next(path),
-      })
-    )
+    .actions(({ $osc, $position, $active, $gain, $waveTable, $waveTablePath, $morph }) => ({
+      setOscValue: (key: keyof typeof $osc.value, value: number) =>
+        $osc.next({
+          ...$osc.value,
+          [key]: value,
+        }),
+      setPosition: (position: number) => $position.next(position),
+      toggleActive: () => $active.next(!$active.value),
+      setGain: (value: number) => $gain.next(value),
+      // a new table (its frames played expanded with a morph); fewer frames played: the position is kept
+      // within them
+      setWaveTable: (wavetable: number[][], morph = false) => {
+        const last = Math.max(0, playedFrames(wavetable.length, morph) - 1);
+        if (last < $position.value) $position.next(last);
+        $morph.next(morph);
+        $waveTable.next(wavetable.map((value) => new BehaviorSubject(value)));
+      },
+      setWaveTablePath: (path: (string | number)[]) => $waveTablePath.next(path),
+    }))
     .actions(({ $unisonShape }) => ({
       setUnisonShape: (shape: Partial<UnisonShape>) => $unisonShape.next({ ...$unisonShape.value, ...shape }),
     }))
@@ -307,9 +279,8 @@ export const oscillator = ({
         },
       })
     )
-    .destroy(({ id, buses }) => {
+    .destroy(({ id }) => {
       wavetables.removeTable(id);
-      Object.values(buses).forEach((bus) => bus.disconnect());
     });
 
 export const { ModelProvider: Oscillator1Provider, useModel: useOscillator1 } = rxModelReact(

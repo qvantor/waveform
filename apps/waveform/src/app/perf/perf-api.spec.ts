@@ -4,7 +4,9 @@ import { withoutAudioWorklet } from '../../test-utils/no-audio-worklet';
 import { WorkerStub } from '../../test-utils/worker-stub';
 import { getSnapshot } from '../app';
 import { presets } from '../presets/modules/presets';
-import { STORE_PROCESSOR, VOICE_PROCESSOR } from '../synth/common/wavetable/wavetable-osc-params';
+import { LIMITER_PROCESSOR } from '../synth/common/processors';
+import { STORE_PROCESSOR } from '../synth/common/wavetable/wavetable-osc-params';
+import { voiceEvents } from '../../test-utils/voice-events';
 import { fx } from '../synth/fx/modules/fx';
 import { noteToString, Wavetable } from '../synth/services';
 import { createPerfApi, PerfModels } from './perf-api';
@@ -135,6 +137,16 @@ describe('perf test hook api', () => {
       await expect(api.ready()).rejects.toThrow('The wavetable oscillator is unsupported');
     });
 
+    // the master is silent without it: nothing to measure
+    it('rejects at once when the limiter failed', async () => {
+      const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      const { api, nodes } = await setup();
+      const [limiter] = nodes(LIMITER_PROCESSOR);
+      limiter.onprocessorerror?.call(limiter, new Event('processorerror'));
+      await expect(api.ready()).rejects.toThrow('The limiter is failed');
+      error.mockRestore();
+    });
+
     it('rejects after the timeout with what it waits for', async () => {
       const { api } = await setup();
       await expect(api.ready(60)).rejects.toThrow(/Not ready in 60 ms.*"loading":true/);
@@ -223,8 +235,9 @@ describe('perf test hook api', () => {
       document.addEventListener('keydown', play);
       document.body.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyY', bubbles: true }));
       document.removeEventListener('keydown', play);
-      const [voice] = nodes(VOICE_PROCESSOR);
-      voice.port.onmessage?.({ data: { started: 140, scheduled: 128 } });
+      const [{ audioCtx: context, wavetables }] = modules.synthCore;
+      const { voices, started } = voiceEvents(context, wavetables);
+      started(voices()[0], 140, 128);
       probe.port.onmessage?.({ data: { onset: 150, input: 0 } });
       probe.port.onmessage?.({ data: { onset: 260, input: 1 } });
       const { notes } = api.trace.stop();

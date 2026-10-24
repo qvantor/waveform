@@ -42,6 +42,16 @@ describe('synthCore', () => {
     expect(wavetables.$status.value).toBe('loading');
   });
 
+  // each loads again only when it failed (a network down at the start fails both)
+  it('retryAudio loads again the wavetable oscillator and the limiter', () => {
+    const [{ masterLimiter, wavetables }, { retryAudio }] = createSynthCore();
+    const retryLimiter = jest.spyOn(masterLimiter, 'retry');
+    const retryWavetables = jest.spyOn(wavetables, 'retry');
+    retryAudio();
+    expect(retryWavetables).toHaveBeenCalledTimes(1);
+    expect(retryLimiter).toHaveBeenCalledTimes(1);
+  });
+
   it('setMasterGain updates the master gain', () => {
     const [{ masterGain }, { setMasterGain }] = createSynthCore();
     setMasterGain(0.3);

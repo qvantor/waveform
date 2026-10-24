@@ -4,7 +4,13 @@ import '../../../../test-utils/js-math';
 import { EnvelopeParams } from '../envelope/envelope-curve';
 import { withCurves } from '../../../../test-utils/envelopes';
 import { pick, Random } from '../../../../test-utils/fuzz-signals';
-import { createBitsHash, createGoldens, expectFinite, FUZZ_SCALE } from '../../../../test-utils/parity';
+import {
+  createBitsHash,
+  createGoldens,
+  expectFinite,
+  expectSameBits,
+  FUZZ_SCALE,
+} from '../../../../test-utils/parity';
 import { seeded } from '../../../../test-utils/seeded';
 import { wasmCore } from '../../../../test-utils/wasm';
 import { expandFrames } from './wavetable-frames';
@@ -22,6 +28,7 @@ import { HELD_AGAIN_GATE, RELEASE_GATE, VoiceParam } from './wavetable-osc-param
 import {
   createOscScope,
   createTableStoreWasm,
+  createVoiceScopeWasm,
   createVoiceSharedWasm,
   createVoiceWasm,
   OscExports,
@@ -30,7 +37,9 @@ import {
 // the Rust core of the wavetable oscillator (dsp/wavetable-osc): a scope of voices on a store and a shared,
 // rendered block by block as the worklet does; the bits of every output sample of every voice on the golden
 // scenarios (dsp/goldens/wavetable-osc.json), and random scopes: finite, every voice ends, the store and the shared
-// give everything back
+// give everything back. Each again as the voices of one node (scope.rs: the params of each voice given as the
+// arrays of the block, every voice tapped): the same bits for every voice, and the sum of a block the f32 sum of
+// the voices in the order they were made (its own golden)
 
 const core = wasmCore<OscExports>('wavetable-osc');
 const goldens = createGoldens('wavetable-osc');
@@ -94,9 +103,8 @@ const production = (options: VoiceOptions): VoiceOptions => ({
   envelopes: options.envelopes.map(withCurves),
 });
 
-// the scenario on the core, its envelopes curved as the app gives them: the hash of its outputs
-const run = (name: string, scenario: Scenario) => {
-  const { rate, blocks, tables, versions = {}, voices } = scenario;
+// a scope of voices on a store with the tables of a scenario (its new versions set by `before`)
+const scopeOf = ({ tables, versions = {} }: Scenario) => {
   const scope = createOscScope(core);
   const store = createTableStoreWasm(scope);
   const shared = createVoiceSharedWasm(scope);
@@ -114,12 +122,32 @@ const run = (name: string, scenario: Scenario) => {
     }
   };
   Object.entries(tables).forEach(([table, frames]) => setTable(table, frames));
+  return {
+    scope,
+    store,
+    shared,
+    before: (block: number) => versions[block]?.forEach(([table, frames]) => setTable(table, frames)),
+    // every version and mix table is given back, the scope freed (thousands of scopes in one instance: its memory
+    // would grow past 2 GiB)
+    free: (name: string) => {
+      expect({ name, ...shared.stats() }).toMatchObject({ name, voices: 0, unison: 0 });
+      expect({ name, ...store.stats() }).toMatchObject({ name, tables: live.size, versions: live.size });
+      store.free();
+      shared.free();
+    },
+  };
+};
+
+// the scenario on the core, its envelopes curved as the app gives them: the hash of its outputs
+const run = (name: string, scenario: Scenario) => {
+  const { rate, blocks, voices } = scenario;
+  const { scope, store, shared, before, free } = scopeOf(scenario);
   const random = seeded(scenario.seed);
   const alive: { voice: ScenarioVoice; wasm: ReturnType<typeof createVoiceWasm> }[] = [];
   const hash = createBitsHash();
   let frame = 0;
   blocks.forEach((n, block) => {
-    versions[block]?.forEach(([table, frames]) => setTable(table, frames));
+    before(block);
     voices.forEach((voice) => {
       if (voice.at === block)
         alive.push({
@@ -144,12 +172,82 @@ const run = (name: string, scenario: Scenario) => {
   });
   // the voices still playing end (their processors are stopped): every version and mix table is given back
   alive.forEach(({ wasm }) => wasm.end());
-  expect({ name, ...shared.stats() }).toMatchObject({ name, voices: 0, unison: 0 });
-  expect({ name, ...store.stats() }).toMatchObject({ name, tables: live.size, versions: live.size });
-  // (thousands of scopes in one instance: its memory would grow past 2 GiB)
-  store.free();
-  shared.free();
+  free(name);
   return hash.digest();
+};
+
+// the scenario as the voices of one node: the hash of the outputs of its voices (tapped) and of their sum, which
+// must be the f32 sum of the voices in the order they were made. `trap`: that voice traps in that block (its
+// params read past their end), it ends alone
+const runScope = (name: string, scenario: Scenario, trap?: { block: number; voice: number }) => {
+  const { rate, blocks, voices } = scenario;
+  const { scope, store, shared, before, free } = scopeOf(scenario);
+  const errors: unknown[] = [];
+  const node = createVoiceScopeWasm(scope, rate, store, shared, seeded(scenario.seed), (error) =>
+    errors.push(error)
+  );
+  node.tap(true);
+  let trapped = false;
+  const alive = new Map<number, ScenarioVoice>();
+  const [hash, sum] = [createBitsHash(), createBitsHash()];
+  let frame = 0;
+  blocks.forEach((n, block) => {
+    before(block);
+    voices.forEach((voice, id) => {
+      if (voice.at !== block) return;
+      node.on(id, production(voice.options), {});
+      alive.set(id, voice);
+    });
+    alive.forEach((voice, id) => {
+      const routes = voice.routes?.[block];
+      if (routes) node.setRoutes(id, routes);
+      const filter = voice.filters?.[block];
+      if (filter !== undefined) node.setFilter(id, filter);
+      const params = blockParams(voice, frame, n);
+      if (trap?.block !== block || trap.voice !== id) node.params(id, params, n);
+      else {
+        // arrays of half a block: the core reads a block of each
+        const half = Object.fromEntries(
+          PARAM_NAMES.map((param) => [param, new Float32Array(n >> 1).fill(params[param][0])])
+        ) as typeof params;
+        node.params(id, half, n >> 1);
+        trapped = true;
+      }
+    });
+    const [outL, outR] = [new Float32Array(n), new Float32Array(n)];
+    node.process(frame, outL, outR);
+    const tapped = node.taps(n);
+    const failed = trap?.block === block && alive.has(trap.voice);
+    expect({ name, block, voices: tapped.map(({ voice }) => voice) }).toEqual({
+      name,
+      block,
+      voices: [...alive.keys()].filter((id) => !failed || id !== trap.voice),
+    });
+    const [left, right] = [new Float32Array(n), new Float32Array(n)];
+    tapped.forEach((voice) => {
+      hash.add(voice.left);
+      hash.add(voice.right, false);
+      for (let i = 0; i < n; i++) {
+        left[i] = Math.fround(left[i] + voice.left[i]);
+        right[i] = Math.fround(right[i] + voice.right[i]);
+      }
+    });
+    expectSameBits(name, block, 'sum left', left, outL);
+    expectSameBits(name, block, 'sum right', right, outR);
+    sum.add(outL);
+    sum.add(outR, false);
+    const ended = node.reports()?.ended ?? [];
+    if (failed)
+      expect({ name, block, ended }).toEqual({ name, block, ended: expect.arrayContaining([trap.voice]) });
+    ended.forEach((id) => alive.delete(id));
+    frame += n;
+  });
+  expect({ name, errors: errors.length }).toEqual({ name, errors: trapped ? 1 : 0 });
+  // the voices still playing end with the node
+  expect({ name, voices: node.stats().voices }).toEqual({ name, voices: alive.size });
+  node.free();
+  free(name);
+  return { voices: hash.digest(), sum: sum.digest() };
 };
 
 // --- tables ---
@@ -676,15 +774,35 @@ const randomScenario = (random: Random, seed: number): Scenario => {
 
 describe('wavetable oscillator wasm core', () => {
   it.each(GOLDEN)('%s: its golden', (name, scenario) => {
-    goldens.check(name, run(name, scenario));
+    const golden = run(name, scenario);
+    goldens.check(name, golden);
+    // the voices of one node: the same bits, and the golden of their sum
+    const { voices, sum } = runScope(name, scenario);
+    expect(voices.sha256).toBe(golden.sha256);
+    goldens.check(`${name}: the sum of one node`, sum);
+  });
+
+  const traps = 50 * FUZZ_SCALE;
+  it(`renders ${traps} random scopes whose voices trap: each ends alone, the others play on`, () => {
+    for (let seed = 1; seed <= traps; seed++) {
+      const name = `trap ${seed}`;
+      const random = seeded(seed * 104729);
+      const scenario = randomScenario(random, seed);
+      // a voice at a block it plays in (it may have ended by then: no trap)
+      const voice = Math.floor(random() * scenario.voices.length);
+      const from = scenario.voices[voice].at;
+      const block = from + Math.floor(random() * (scenario.blocks.length - from));
+      runScope(name, scenario, { block, voice });
+    }
   });
 
   const count = 150 * FUZZ_SCALE;
-  it(`renders ${count} random scopes, finite, every voice ending`, () => {
+  it(`renders ${count} random scopes, finite, every voice ending, the same as the voices of one node`, () => {
     for (let seed = 1; seed <= count; seed++) {
       const name = `seed ${seed}`;
       try {
-        run(name, randomScenario(seeded(seed * 7919), seed));
+        const scenario = randomScenario(seeded(seed * 7919), seed);
+        expect(runScope(name, scenario).voices.sha256).toBe(run(name, scenario).sha256);
       } catch (error) {
         // (a trap of the core says nothing of its scenario)
         throw new Error(`${name}: ${(error as Error).message}`);

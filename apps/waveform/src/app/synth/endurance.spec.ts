@@ -1,16 +1,16 @@
 import { Note } from '@waveform/ui-kit';
-import { isOff, work } from '../../test-utils/audio-work';
 import { createSynth, stopModels } from '../../test-utils/models';
 import { createOfflineEngine } from '../../test-utils/offline-engine';
+import { voicesNodes, voiceWork } from '../../test-utils/voice-events';
 import { seeded } from '../../test-utils/voice-dsp';
 import { tableBytes } from './common/wavetable/wavetable-mipmap';
 import { KILL_FADE } from './common/wavetable/voice-options';
 
 // the synth played for a long time, offline (it replaces the endurance scene of the browser suite, its random
 // patches every 5 s for 10 min, and the settling of its table switches): the models, the worker's builder,
-// the store and the voice dsp of every note together. Whatever was played, once the notes have ended
-// nothing is left: the store holds one version a table, no voice, no node on the graph, no knob follows a
-// voice, and the store is empty once the oscillators are gone
+// the store and the voices node of the notes together. Whatever was played, once the notes have ended
+// nothing is left: the store holds one version a table, no voice, no knob follows a voice, and the store is
+// empty once the oscillators are gone
 
 const NOTES = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
 const note = (n: number): Note => [3 + Math.floor(n / NOTES.length), NOTES[n % NOTES.length]] as Note;
@@ -22,15 +22,15 @@ const setup = async (random = seeded(10)) => {
   const engine = createOfflineEngine(random);
   const modules = createSynth();
   await flush();
-  const [{ audioCtx }] = modules.synthCore;
-  engine.attach(audioCtx);
+  const [{ audioCtx, wavetables }] = modules.synthCore;
+  engine.attach(audioCtx, wavetables);
   engine.flushWorker();
   const [, { onPress, onRelease }] = modules.inputController;
   // renders until every voice has ended (the release, the fade of a stolen voice)
   const settle = (most = 400) => {
     for (let i = 0; i < most && engine.alive() > 0; i++) engine.render();
   };
-  return { ...modules, audioCtx, engine, onPress, onRelease, settle };
+  return { ...modules, audioCtx, wavetables, engine, onPress, onRelease, settle };
 };
 
 // a table of `frames` random frames of 64 samples (cheap to build)
@@ -40,9 +40,8 @@ const randomTable = (random: () => number, frames: number) =>
 describe('the synth played for a long time', () => {
   it('after 30 random patches with chords, steals, legato and new tables nothing is left', async () => {
     const random = seeded(10);
-    const { engine, onPress, onRelease, settle, osc1, osc2, synth, envelopes, audioCtx } = await setup(
-      random
-    );
+    const { engine, onPress, onRelease, settle, osc1, osc2, synth, envelopes, audioCtx, wavetables } =
+      await setup(random);
     const [, synthActions] = synth;
     envelopes[1].setEnvelopeValue('env1', 'release', 0.05);
     let peak = 0;
@@ -78,7 +77,7 @@ describe('the synth played for a long time', () => {
     expect(mixSamples).toBeGreaterThan(0);
     expect(directSamples).toBeGreaterThan(0);
     expect(builds).toBeGreaterThan(0);
-    expect(engine.nodes().length).toBeGreaterThan(200);
+    expect(engine.made()).toBeGreaterThan(200);
     // one version a table, the bytes of the latest tables of the oscillators
     const tables = [osc1, osc2].map(([model]) => model.$waveTable.value.map((frame) => frame.value));
     expect(engine.store.stats()).toEqual({
@@ -87,9 +86,10 @@ describe('the synth played for a long time', () => {
       bytes: tables.reduce((sum, frames) => sum + tableBytes(frames), 0),
     });
     expect(engine.shared.stats()).toMatchObject({ voices: 0, unison: 0 });
-    engine.nodes().forEach((node) => expect(isOff(node)).toBe(true));
+    // every note in one node
+    expect(voicesNodes(audioCtx)).toHaveLength(1);
     expect(engine.pool().pooled).toBeLessThanOrEqual(2);
-    expect(work(audioCtx, () => osc1[1].setGain(0.3)).automation).toBe(0);
+    expect(voiceWork(audioCtx, wavetables, () => osc1[1].setGain(0.3)).messages).toBe(0);
     // the oscillators gone: their tables are removed from the store
     stopModels();
     engine.flushWorker();
@@ -126,7 +126,7 @@ describe('the synth played for a long time', () => {
       most = Math.max(most, engine.alive());
     }
     settle();
-    expect(engine.nodes()).toHaveLength(200);
+    expect(engine.made()).toBe(200);
     expect(most).toBe(2);
     expect(engine.alive()).toBe(0);
   });

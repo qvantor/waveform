@@ -78,24 +78,26 @@ export const createPerfApi = (models: PerfModels) => {
     };
   };
 
-  // ready to play what the state says: the oscillator ready, the tables loaded and in the store, the limiter
-  // and the effects out of loading
+  // ready to play what the state says: the oscillator and the limiter ready, the tables loaded and in the store,
+  // the effects out of loading
   const settled = () => {
     const { wavetables: status, limiter, fx } = statuses();
     return (
       status === 'ready' &&
       !loading() &&
       wavetables.pending().length === 0 &&
-      limiter !== 'loading' &&
+      limiter === 'ready' &&
       Object.values(fx).every((value) => value !== 'loading')
     );
   };
   const ready = async (timeout = 30000) => {
     const begin = performance.now();
     for (;;) {
-      const { wavetables: status } = statuses();
+      const { wavetables: status, limiter } = statuses();
       if (status === 'unsupported' || status === 'failed')
         throw new Error(`The wavetable oscillator is ${status}`);
+      // the master is silent without it
+      if (limiter === 'unsupported' || limiter === 'failed') throw new Error(`The limiter is ${limiter}`);
       if (settled()) return stats();
       if (performance.now() - begin > timeout) {
         const state = { ...statuses(), loading: loading(), pending: wavetables.pending() };

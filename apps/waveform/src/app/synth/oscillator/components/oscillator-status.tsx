@@ -75,10 +75,10 @@ export const tableStateMessage = (state: TableState | null) => {
   }
 };
 
-// over the wave of an oscillator: the reason it doesn't play, Retry for a module that failed to load; else why its
-// table doesn't, Retry sends it again
+// over the wave of an oscillator: the reason it doesn't play, Retry for a module that failed to load (the limiter
+// too, if it failed: LimiterStatus shows it); else why its table doesn't, Retry sends it again
 export const OscillatorStatus = () => {
-  const [{ wavetables }] = useSynthCore();
+  const [{ wavetables }, { retryAudio }] = useSynthCore();
   const [{ $tableState }, { retryTable }] = useOscillatorContext();
   const status = useBehaviorSubject(wavetables.$status);
   const tableState = useObservable($tableState, null);
@@ -86,7 +86,7 @@ export const OscillatorStatus = () => {
   const tableMessage = tableStateMessage(tableState);
   if (!message && !tableMessage) return null;
   // (the module first: without it no table plays)
-  const retry = message ? status === 'failed' && wavetables.retry : retryTable;
+  const retry = message ? status === 'failed' && retryAudio : retryTable;
   return (
     <Root role='alert'>
       <MdWarningAmber aria-hidden />

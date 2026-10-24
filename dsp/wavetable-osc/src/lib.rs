@@ -2,7 +2,9 @@
 //! envelopes; the goldens hold its sound): the store of the tables in the linear memory of
 //! the core, the voices of a scope and what they share. The C ABI: handles of stores, shareds and voices; the
 //! options of a voice, its routes and the layout of a table come through osc_command (a Float64Array of the
-//! wrapper, wavetable-osc-wasm.ts), the params and the outputs of a block through osc_io
+//! wrapper, wavetable-osc-wasm.ts), the params and the outputs of a block through osc_io. The voices of a node play
+//! in a scope (scope.rs): their params as AudioParams would give them (timeline.rs), the events of the main thread
+//! and the options of a new voice through osc_command too, the sum of their outputs at osc_scope_output
 
 #![cfg_attr(target_arch = "wasm32", no_std)]
 
@@ -13,8 +15,10 @@ use wasm_rt as _;
 pub mod envelope;
 pub mod filter;
 pub mod modulation;
+pub mod scope;
 pub mod shared;
 pub mod store;
+pub mod timeline;
 pub mod voice;
 
 use alloc::{boxed::Box, vec::Vec};
@@ -22,6 +26,7 @@ use dsp_core::biquad::FilterType;
 use envelope::EnvelopeParams;
 use filter::FilterOptions;
 use modulation::VoiceRoute;
+use scope::Scope;
 use shared::{Shared, PARAMS};
 use store::Store;
 use voice::{OscOptions, Params, UnisonShape, Voice, VoiceOptions, MAX_UNISON};
@@ -83,6 +88,8 @@ fn read_filter(reader: &mut Reader) -> Option<FilterOptions> {
     })
 }
 
+// (one copy for osc_voice_new and osc_scope_on)
+#[inline(never)]
 // VoiceOptions: start, envStart, phrase; per oscillator present, table, unison, phase, phaseRand and its 8 random
 // shares, its UnisonShape (blend, width, stack, detune, position spread and the 8 random shares of a random
 // detune); the envelopes (count, then 5 each), the filter, the routes
@@ -136,6 +143,222 @@ fn read_voice_options(reader: &mut Reader) -> VoiceOptions {
         routes,
         filter,
     }
+}
+
+/// the scope of the voices of a node at `sample_rate`, the range of each param in the command buffer (min, max)
+#[no_mangle]
+pub extern "C" fn osc_scope_new(sample_rate: f64) -> *mut Scope {
+    let command = command();
+    let ranges = core::array::from_fn(|k| (command[2 * k] as f32, command[2 * k + 1] as f32));
+    Box::into_raw(Box::new(Scope::new(sample_rate, ranges)))
+}
+
+/// every voice of the scope ends (gives its versions and mixes back), the scope is freed
+///
+/// # Safety
+/// `scope`, `store` and `shared` come from their constructors and were not freed
+#[no_mangle]
+pub unsafe extern "C" fn osc_scope_free(scope: *mut Scope, store: *mut Store, shared: *mut Shared) {
+    let mut scope = Box::from_raw(scope);
+    scope.end(&mut *store, &mut *shared);
+}
+
+/// a voice `id` of a note, its options in the command buffer followed by the values of its params at the note on;
+/// `report`: it tells its start on time too (mono, traced)
+///
+/// # Safety
+/// `scope`, `store` and `shared` come from their constructors and were not freed
+#[no_mangle]
+pub unsafe extern "C" fn osc_scope_on(
+    scope: *mut Scope,
+    store: *mut Store,
+    shared: *mut Shared,
+    id: f64,
+    report: i32,
+) {
+    let mut reader = Reader {
+        values: command(),
+        at: 0,
+    };
+    let options = read_voice_options(&mut reader);
+    let values = core::array::from_fn(|_| reader.next());
+    (*scope).on(id, options, values, report != 0, &mut *store, &mut *shared);
+}
+
+/// `count` automation events in the command buffer, in order: kind, voice, param, value, time, time constant each
+/// (a voice an event finds no memory for ends)
+///
+/// # Safety
+/// `scope`, `store` and `shared` come from their constructors and were not freed
+#[no_mangle]
+pub unsafe extern "C" fn osc_scope_events(
+    scope: *mut Scope,
+    store: *mut Store,
+    shared: *mut Shared,
+    count: usize,
+) {
+    let command = command();
+    for event in command.chunks_exact(6).take(count) {
+        (*scope).event(
+            event[0] as u32,
+            event[1],
+            event[2] as usize,
+            event[3],
+            event[4],
+            event[5],
+            &mut *store,
+            &mut *shared,
+        );
+    }
+}
+
+/// the routes of voice `id` changed (in the command buffer)
+///
+/// # Safety
+/// `scope` comes from osc_scope_new and was not freed
+#[no_mangle]
+pub unsafe extern "C" fn osc_scope_routes(scope: *mut Scope, id: f64) {
+    let routes = read_routes(&mut Reader {
+        values: command(),
+        at: 0,
+    });
+    (*scope).set_routes(id, &routes);
+}
+
+/// the knobs of the filter of voice `id` changed (in the command buffer: on, type, cutoff, resonance, gain)
+///
+/// # Safety
+/// `scope` comes from osc_scope_new and was not freed
+#[no_mangle]
+pub unsafe extern "C" fn osc_scope_filter(scope: *mut Scope, id: f64) {
+    let filter = read_filter(&mut Reader {
+        values: command(),
+        at: 0,
+    });
+    (*scope).set_filter(id, filter);
+}
+
+/// the params of voice `id` given directly from now on, for blocks of `frames`: their lengths (1: one value), then
+/// param k from PARAMS + k · frames; null: no such voice
+///
+/// # Safety
+/// `scope` comes from osc_scope_new and was not freed
+#[no_mangle]
+pub unsafe extern "C" fn osc_scope_direct(scope: *mut Scope, id: f64, frames: usize) -> *mut f32 {
+    match (*scope).direct(id, frames) {
+        Some(params) => params.as_mut_ptr(),
+        None => core::ptr::null_mut(),
+    }
+}
+
+/// a block of `frames` at `frame`: every voice in the order they were created, their sum at osc_scope_output
+///
+/// # Safety
+/// `scope`, `store` and `shared` come from their constructors and were not freed
+#[no_mangle]
+pub unsafe extern "C" fn osc_scope_process(
+    scope: *mut Scope,
+    store: *mut Store,
+    shared: *mut Shared,
+    frame: f64,
+    frames: usize,
+) {
+    (*scope).process(frame, frames, &mut *store, &mut *shared);
+}
+
+/// the voices of the block after the one that failed
+///
+/// # Safety
+/// `scope`, `store` and `shared` come from their constructors and were not freed
+#[no_mangle]
+pub unsafe extern "C" fn osc_scope_resume(scope: *mut Scope, store: *mut Store, shared: *mut Shared) {
+    (*scope).resume(&mut *store, &mut *shared);
+}
+
+/// osc_scope_process or osc_scope_resume trapped: the voice rendering then ends; 0: the trap was not in a voice
+///
+/// # Safety
+/// `scope`, `store` and `shared` come from their constructors and were not freed
+#[no_mangle]
+pub unsafe extern "C" fn osc_scope_fail(scope: *mut Scope, store: *mut Store, shared: *mut Shared) -> i32 {
+    (*scope).fail(&mut *store, &mut *shared) as i32
+}
+
+/// the sum of the block: left at 0, right at `frames`
+///
+/// # Safety
+/// `scope` comes from osc_scope_new and was not freed
+#[no_mangle]
+pub unsafe extern "C" fn osc_scope_output(scope: *mut Scope) -> *mut f32 {
+    (*scope).sum.as_mut_ptr()
+}
+
+/// the starts and the ends since the last call into the command buffer: the count of the starts, then id, the
+/// frame it started at and the one it was scheduled at of each, the count of the ends, then their ids; 0: none
+///
+/// # Safety
+/// `scope` comes from osc_scope_new and was not freed
+#[no_mangle]
+pub unsafe extern "C" fn osc_scope_reports(scope: *mut Scope) -> usize {
+    let scope = &mut *scope;
+    let count = scope.started.len() + scope.ended.len();
+    if count == 0 {
+        return 0;
+    }
+    let command = command();
+    // (more than the buffer holds would be thousands of voices in a block)
+    let started = scope.started.len().min((COMMAND_SIZE - 2) / 4);
+    command[0] = started as f64;
+    let mut at = 1;
+    for report in scope.started.iter().take(started) {
+        command[at..at + 3].copy_from_slice(report);
+        at += 3;
+    }
+    let ended = scope.ended.len().min(COMMAND_SIZE - at - 1);
+    command[at] = ended as f64;
+    command[at + 1..at + 1 + ended].copy_from_slice(&scope.ended[..ended]);
+    scope.started.clear();
+    scope.ended.clear();
+    count
+}
+
+/// the outputs of the voices of every block apart from now on (on) or no more
+///
+/// # Safety
+/// `scope` comes from osc_scope_new and was not freed
+#[no_mangle]
+pub unsafe extern "C" fn osc_scope_tap(scope: *mut Scope, on: i32) {
+    (*scope).set_tap(on != 0);
+}
+
+/// the ids of the voices of the last block in the command buffer, their count; their outputs (left, then right of
+/// each) at osc_scope_tap_data
+///
+/// # Safety
+/// `scope` comes from osc_scope_new and was not freed
+#[no_mangle]
+pub unsafe extern "C" fn osc_scope_taps(scope: *mut Scope) -> usize {
+    let scope = &*scope;
+    let count = scope.tapped.len().min(COMMAND_SIZE);
+    command()[..count].copy_from_slice(&scope.tapped[..count]);
+    count
+}
+
+/// # Safety
+/// `scope` comes from osc_scope_new and was not freed
+#[no_mangle]
+pub unsafe extern "C" fn osc_scope_tap_data(scope: *mut Scope) -> *mut f32 {
+    (*scope).taps.as_mut_ptr()
+}
+
+/// the voices of the scope and the events their timelines hold, into the command buffer
+///
+/// # Safety
+/// `scope` comes from osc_scope_new and was not freed
+#[no_mangle]
+pub unsafe extern "C" fn osc_scope_stats(scope: *mut Scope) {
+    let scope = &*scope;
+    command()[..2].copy_from_slice(&[scope.voices() as f64, scope.events() as f64]);
 }
 
 #[no_mangle]

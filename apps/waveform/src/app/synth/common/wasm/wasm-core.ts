@@ -18,6 +18,10 @@ const UNGUARDED = new Set([
   'osc_voice_process',
   'osc_io',
   'osc_voice_started_at',
+  'osc_scope_process',
+  'osc_scope_resume',
+  'osc_scope_output',
+  'osc_scope_reports',
 ]);
 
 // every other function of the core puts the stack pointer back when it traps: a trap (an allocation that failed,

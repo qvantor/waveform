@@ -3,7 +3,8 @@ import { withoutAudioWorklet } from '../../../../test-utils/no-audio-worklet';
 import { workletLoads } from '../../../../test-utils/worklet-loads';
 import { MessageChannelStub, WorkerStub } from '../../../../test-utils/worker-stub';
 import { createWavetableEngine, WavetableStatus } from './wavetable-engine';
-import { STORE_PROCESSOR, VOICE_PROCESSOR } from './wavetable-osc-params';
+import { STORE_PROCESSOR, VOICES_PROCESSOR } from './wavetable-osc-params';
+import type { VoiceOptions } from './voice-options';
 
 interface NodeStub extends AudioWorkletNode {
   name: string;
@@ -20,7 +21,9 @@ const setup = ({ failFirstLoad = false } = {}) => {
   // (no audioWorklet without AudioWorklet)
   const addModule = audioCtx.audioWorklet?.addModule as jest.Mock;
   if (failFirstLoad) addModule.mockRejectedValueOnce(new Error('404'));
-  const engine = createWavetableEngine(audioCtx, { createChannel });
+  // the input the voices play into
+  const output = audioCtx.createGain();
+  const engine = createWavetableEngine(audioCtx, output, { createChannel });
   const statuses: WavetableStatus[] = [];
   engine.$status.subscribe((status) => statuses.push(status));
   const worker = () => WorkerStub.created.at(-1);
@@ -30,10 +33,15 @@ const setup = ({ failFirstLoad = false } = {}) => {
       .map(([message]) => message)
       .filter((message) => 'frames' in message);
   // the store node and what it posts to the main thread: an ack of a version, its counters
-  const store = () =>
-    (registrar.getAudioNodes(audioCtx as never, 'AudioWorkletNode' as never) as unknown as NodeStub[])
-      .filter(({ name }) => name === STORE_PROCESSOR)
-      .at(-1);
+  const nodes = (name: string) =>
+    (registrar.getAudioNodes(audioCtx as never, 'AudioWorkletNode' as never) as unknown as NodeStub[]).filter(
+      (node) => node.name === name
+    );
+  const store = () => nodes(STORE_PROCESSOR).at(-1);
+  // the voices node, the events posted to it
+  const voices = () => nodes(VOICES_PROCESSOR).at(-1);
+  const events = (node = voices()) =>
+    (node?.port.postMessage.mock.calls ?? []).flatMap(([message]) => message.events ?? []);
   const fromStore = (data: unknown, node = store()) => node?.port.onmessage?.({ data } as MessageEvent);
   const ack = (table: string, version: number) => fromStore({ stored: table, version });
   // both answers to a stats request
@@ -41,7 +49,31 @@ const setup = ({ failFirstLoad = false } = {}) => {
     fromStore({ stats: worklet });
     worker()?.onmessage?.({ data: { stats: builder } } as MessageEvent);
   };
-  return { audioCtx, addModule, engine, statuses, worker, builds, store, fromStore, ack, answer };
+  return {
+    audioCtx,
+    addModule,
+    output,
+    engine,
+    statuses,
+    worker,
+    builds,
+    store,
+    voices,
+    events,
+    fromStore,
+    ack,
+    answer,
+  };
+};
+
+const NOTE: VoiceOptions = {
+  osc: [{ table: 'osc1', unison: 2, phase: 0, phaseRand: 0 }, null],
+  start: 1,
+  envelopes: [{ attack: 0, hold: 0, decay: 0, sustain: 1, release: 0.1 }],
+  envStart: 1,
+  phrase: 0,
+  routes: [],
+  filter: null,
 };
 
 const saw = [-1, -0.5, 0, 0.5];
@@ -80,11 +112,17 @@ describe('wavetable engine', () => {
         }
       },
     });
-    createWavetableEngine(audioCtx, { createChannel });
+    const output = audioCtx.createGain();
+    createWavetableEngine(audioCtx, output, { createChannel });
     await flush();
-    const [store] = created;
+    const [store, voices] = created;
     expect(store.name).toBe(STORE_PROCESSOR);
     expect(store.options).toEqual({ numberOfInputs: 0, numberOfOutputs: 1 });
+    // every voice in one node, into the output
+    expect(voices.name).toBe(VOICES_PROCESSOR);
+    expect(voices.options).toEqual({ numberOfInputs: 0, numberOfOutputs: 1, outputChannelCount: [2] });
+    expect(voices.connect).toHaveBeenCalledWith(output);
+    expect(created).toHaveLength(2);
     const [toStore, transfer] = store.port.postMessage.mock.calls[0];
     expect(transfer).toEqual([toStore.port]);
     expect(toStore.port).not.toBe(WorkerStub.created.at(-1)?.postMessage.mock.calls[0][0].port);
@@ -123,29 +161,50 @@ describe('wavetable engine', () => {
     expect(worker()?.postMessage).toHaveBeenLastCalledWith({ table: 'osc1', version: 2, remove: true });
   });
 
-  it('creates the node of a voice once ready', async () => {
-    const { engine } = setup();
+  it('makes a voice once ready: its note on and the automation of its params as events, in f32', async () => {
+    const { engine, voices, events } = setup();
     await flush();
-    const options = {
-      osc: [{ table: 'osc1', unison: 2, phase: 0, phaseRand: 0 }, null],
-      start: 1,
-      envelopes: [{ attack: 0, hold: 0, decay: 0, sustain: 1, release: 0.1 }],
-      envStart: 1,
-      phrase: 0,
-      routes: [],
-      filter: null,
-    };
-    const node = engine.createVoice(options, { frequency: 220, gain1: 0.5 }) as NodeStub;
-    expect(node.name).toBe(VOICE_PROCESSOR);
-    expect(node.options).toEqual({
-      numberOfInputs: 0,
-      numberOfOutputs: 1,
-      outputChannelCount: [2],
-      processorOptions: options,
-      parameterData: { frequency: 220, gain1: 0.5 },
-    });
-    expect(node.parameters.get('frequency')?.value).toBe(220);
-    expect(node.parameters.get('gain2')?.value).toBe(0.5);
+    const voice = engine.createVoice(NOTE, { frequency: 220.1, gain1: 0.5 });
+    expect(voice?.id).toBe(1);
+    voice?.params.gate.cancelScheduledValues(1.5);
+    voice?.params.gate.setValueAtTime(2.1, 1.5);
+    voice?.params.gain1.setTargetAtTime(0.3, 1.5, 0.0033);
+    voice?.params.frequency.exponentialRampToValueAtTime(440, 2);
+    const other = engine.createVoice(NOTE, {});
+    engine.setRoutes([1, 2], [{ env: 1, param: 'gain1', amount: 0.5, min: 0, max: 1 }]);
+    engine.setFilter([2], null);
+    // a microtask sends the events of the task, in one message
+    expect(events()).toEqual([]);
+    await Promise.resolve();
+    expect(voices()?.port.postMessage).toHaveBeenCalledTimes(1);
+    expect(events()).toEqual([
+      { kind: 'on', voice: 1, options: NOTE, params: { frequency: Math.fround(220.1), gain1: 0.5 } },
+      { kind: 'cancel', voice: 1, param: 'gate', time: 1.5 },
+      { kind: 'set', voice: 1, param: 'gate', value: Math.fround(2.1), time: 1.5 },
+      { kind: 'target', voice: 1, param: 'gain1', value: Math.fround(0.3), time: 1.5, constant: 0.0033 },
+      { kind: 'ramp', voice: 1, param: 'frequency', value: 440, time: 2 },
+      { kind: 'on', voice: 2, options: NOTE, params: {} },
+      { kind: 'routes', voices: [1, 2], routes: [{ env: 1, param: 'gain1', amount: 0.5, min: 0, max: 1 }] },
+      { kind: 'filter', voices: [2], filter: null },
+    ]);
+    expect(other?.id).toBe(2);
+  });
+
+  it('tells a voice its late start and its end from the reports of the node; an ended voice is sent nothing', async () => {
+    const { engine, voices, events } = setup();
+    await flush();
+    const voice = engine.createVoice(NOTE, {});
+    const [onStarted, onEnded] = [jest.fn(), jest.fn()];
+    Object.assign(voice ?? {}, { onStarted, onEnded });
+    voices()?.port.onmessage?.({ data: { started: [[1, 140, 128]], ended: [1] } } as MessageEvent);
+    expect(onStarted).toHaveBeenCalledWith(140, 128);
+    expect(onStarted.mock.invocationCallOrder[0]).toBeLessThan(onEnded.mock.invocationCallOrder[0]);
+    // once
+    voices()?.port.onmessage?.({ data: { ended: [1] } } as MessageEvent);
+    expect(onEnded).toHaveBeenCalledTimes(1);
+    voice?.params.gate.setValueAtTime(2, 1);
+    await Promise.resolve();
+    expect(events().map(({ kind }) => kind)).toEqual(['on']);
   });
 
   it('without AudioWorklet or Worker: unsupported, no voices', async () => {
@@ -166,7 +225,8 @@ describe('wavetable engine', () => {
   });
 
   it('without MessageChannel (and none passed): unsupported', () => {
-    const engine = createWavetableEngine(new AudioContext());
+    const audioCtx = new AudioContext();
+    const engine = createWavetableEngine(audioCtx, audioCtx.createGain());
     expect(engine.$status.value).toBe('unsupported');
   });
 
@@ -231,14 +291,17 @@ describe('wavetable engine', () => {
     ).not.toBeNull();
   });
 
-  it('stays ready when a voice fails: the synth takes only that voice off', async () => {
-    const { engine, statuses, worker } = setup();
+  it('stays ready when a voice fails: the node tells it ended, the synth takes only that voice off', async () => {
+    const { engine, statuses, worker, voices } = setup();
     await flush();
     const voice = engine.createVoice(
       { osc: [], start: 0, envelopes: [], envStart: 0, phrase: 0, routes: [], filter: null },
       {}
     );
-    expect(voice?.onprocessorerror).toBeNull();
+    const onEnded = jest.fn();
+    Object.assign(voice ?? {}, { onEnded });
+    voices()?.port.onmessage?.({ data: { ended: [voice?.id] } } as MessageEvent);
+    expect(onEnded).toHaveBeenCalled();
     expect(statuses).toEqual(['loading', 'ready']);
     expect(worker()?.terminate).not.toHaveBeenCalled();
     expect(
@@ -249,6 +312,30 @@ describe('wavetable engine', () => {
     ).not.toBeNull();
   });
 
+  it('fails when the voices node fails: it stops, every voice ends; retry makes it again', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { engine, statuses, voices, events } = setup();
+    await flush();
+    const node = voices();
+    const voice = engine.createVoice(NOTE, {});
+    const onEnded = jest.fn();
+    Object.assign(voice ?? {}, { onEnded });
+    node?.onprocessorerror?.(new Event('processorerror'));
+    expect(statuses.at(-1)).toBe('failed');
+    expect(onEnded).toHaveBeenCalled();
+    expect(node?.port.postMessage).toHaveBeenCalledWith({ stop: true });
+    expect(node?.disconnect).toHaveBeenCalled();
+    // (the events of the task are dropped with it)
+    await Promise.resolve();
+    expect(events(node)).toEqual([]);
+
+    engine.retry();
+    await flush();
+    expect(statuses.at(-1)).toBe('ready');
+    expect(voices()).not.toBe(node);
+    expect(engine.createVoice(NOTE, {})?.id).toBe(2);
+  });
+
   it('retry does nothing unless it failed', async () => {
     const { engine, addModule } = setup();
     engine.retry();
@@ -257,13 +344,21 @@ describe('wavetable engine', () => {
     expect(workletLoads(addModule, 'wavetable-osc')).toBe(1);
   });
 
-  it('destroy terminates the worker and completes the status', async () => {
-    const { engine, worker } = setup();
+  it('destroy terminates the worker, stops the voices node and completes the status', async () => {
+    const { engine, worker, voices } = setup();
     await flush();
     const complete = jest.fn();
     engine.$status.subscribe({ complete });
+    const voice = engine.createVoice(NOTE, {});
+    const onEnded = jest.fn();
+    Object.assign(voice ?? {}, { onEnded });
+    const node = voices();
     engine.destroy();
     expect(worker()?.terminate).toHaveBeenCalled();
+    expect(node?.port.postMessage).toHaveBeenCalledWith({ stop: true });
+    expect(node?.disconnect).toHaveBeenCalled();
+    // (the synth is gone too: no voice is told ended)
+    expect(onEnded).not.toHaveBeenCalled();
     expect(complete).toHaveBeenCalled();
   });
 

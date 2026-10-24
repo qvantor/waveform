@@ -200,16 +200,16 @@ const runPages = async (browser, name, port) => {
   if (runs('stereo')) {
     const { u3, u8 } = await call('stereo', { rate });
     report.results.stereo = { u3, u8 };
-    // the lowest voice left, the middle one of an odd count both channels, the highest right; each at
-    // 1/√⌈n/2⌉
+    // the middle voice of an odd count both channels, the others right and left in turn from the lowest (the
+    // measurements of dsp/measurements/unison.json); each at 1/√⌈n/2⌉
     const level = 1 / Math.sqrt(2);
     const expected3 = [
-      [level, 0],
-      [level, level],
       [0, level],
+      [level, level],
+      [level, 0],
     ];
     const ok3 = u3.every((pair, i) => pair.every((value, c) => Math.abs(value - expected3[i][c]) < 0.01));
-    const ok8 = u8.every(([l, r], j) => Math.abs((j % 2 ? r : l) - 0.5) < 0.01 && (j % 2 ? l : r) < 0.01);
+    const ok8 = u8.every(([l, r], j) => Math.abs((j % 2 ? l : r) - 0.5) < 0.01 && (j % 2 ? r : l) < 0.01);
     log(`stereo: u3 ${check(failures, ok3, 'stereo u3')}, u8 ${check(failures, ok8, 'stereo u8')}`);
   }
 
@@ -229,11 +229,10 @@ const runPages = async (browser, name, port) => {
   if (runs('cpu')) {
     const table = fileName(TABLES[1]);
     // ENV 2 on its sustain costs what the same sound does without routes (the mix tables: its budget, that run
-    // of ours, still-sustain); moving, it costs what an LFO on the same params does, without the inputs of the
-    // AudioParams (its budget: that run of ours)
+    // of ours, still-sustain); moving, it costs what an LFO on the same params does (its budget: that run of
+    // ours)
     for (const [modulation, budget] of [
       ['none', 1],
-      ['buses', 1],
       ['position', 1.3],
       ['detune', 1.3],
       ['still-sustain', 1],

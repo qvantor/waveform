@@ -48,6 +48,8 @@ const WASM_CORES = [
     core: 'wavetable-osc',
     facade: 'apps/waveform/src/app/synth/common/wavetable/wavetable-osc-wasm',
     create: 'createOscScope, createTableStoreWasm, createVoiceSharedWasm, createVoiceWasm',
+    // (a tree of the voices node: its scope too)
+    optional: 'createVoiceScopeWasm',
   },
 ];
 
@@ -66,7 +68,13 @@ const loadDsp = async (source = root, name) => {
   const instantiate = cores.length > 0 && fs.existsSync(path.join(source, `${WASM_CORE}.ts`));
   const contents = `${ENTRY}${[
     ...ts.map(({ module, create }) => [module, create]),
-    ...cores.map(({ facade, create }) => [facade, create]),
+    ...cores.map(({ facade, create, optional }) => [
+      facade,
+      optional &&
+      fs.readFileSync(path.join(source, `${facade}.ts`), 'utf8').includes(`export const ${optional} `)
+        ? `${create}, ${optional}`
+        : create,
+    ]),
     ...(instantiate ? [[WASM_CORE, 'instantiateCore']] : []),
   ]
     .map(([module, create]) => `export { ${create} } from './${module}';\n`)
@@ -248,6 +256,33 @@ const createCases = (dsp) => {
       block++;
     };
   };
+  // the same chord as the voices of one node (scope.rs): their note ons as events, their params from their
+  // timelines, their sum; struck again, a node of its own (the voices before end at once, as above)
+  const scopeChord = () => {
+    const shared = createShared.wasm();
+    const options = {
+      osc: [0, 1].map(() => ({ table: 'a', unison: 8, phase: 0, phaseRand: 1 })),
+      start: 0,
+      envelopes: [0, 1, 2].map(() => ({ attack: 0.01, hold: 0.1, decay: 0.3, sustain: 0.8, release: 0.3 })),
+      envStart: 0,
+      phrase: 0,
+      routes: [],
+      filter: null,
+    };
+    const notes = chord.map((params) => Object.fromEntries(Object.entries(params).map(([k, [v]]) => [k, v])));
+    let voices = null;
+    let block = 0;
+    return () => {
+      if (block % ATTACK === 0) {
+        voices?.free();
+        voices = dsp.createVoiceScopeWasm(oscScope, RATE, wasmStore, shared);
+        voices.apply(notes.map((params, voice) => ({ kind: 'on', voice, options, params })));
+      }
+      voices.process(block * BLOCK, outL, outR);
+      voices.reports();
+      block++;
+    };
+  };
   const held = constant(BASE);
   // a position that moves in every block: the direct path. Its blocks over a period of the LFO (2 s) are worked
   // out once, not in the call: making them there (Float32Array.from, 128 sines) cost 34 ns/sample, more than the
@@ -304,6 +339,7 @@ const createCases = (dsp) => {
       oscScope && (() => chordOf('wasm')),
       store && (() => chordOf('ts'))
     ),
+    ...(dsp.createVoiceScopeWasm && { 'scope chord attack': scopeChord }),
     'build 256 frames': {
       build: () => {
         const start = process.hrtime.bigint();

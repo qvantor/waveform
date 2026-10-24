@@ -28,7 +28,7 @@ import {
   useSoundSwitch,
 } from './common/modules';
 import { FilterProvider, FilterSection, useFilter } from './filter';
-import { OscillatorsContainer, MasterHandle } from './synth/components';
+import { OscillatorsContainer, MasterHandle, LimiterStatus } from './synth/components';
 import { VoicingSection } from './voicing';
 import { MidiInput, SettingsButton } from './settings';
 import { EnvelopeSection } from './envelope';
@@ -207,6 +207,8 @@ const Internal = () => {
             <PresetsInternal>
               {/* nothing but in the perf build (scripts/bench-perf): above the layout switch, never remounted */}
               <PerfHook />
+              {/* a failed master limiter, on every screen: above the layout switch too */}
+              <LimiterStatus />
               {isMobile ? (
                 <MobileLayout screen={screen} onScreenChange={setScreen} />
               ) : (

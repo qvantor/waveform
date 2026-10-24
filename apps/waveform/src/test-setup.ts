@@ -11,7 +11,6 @@ import {
   setMockingImplementation,
   WaveShaperNode as WaveShaperNodeMock,
 } from 'standardized-audio-context-mock';
-import { VOICE_PARAMETERS, VOICE_PROCESSOR } from './app/synth/common/wavetable/wavetable-osc-params';
 import { stopModels } from './test-utils/model-registry';
 import { restoreStorage } from './test-utils/storage';
 import { WorkerStub } from './test-utils/worker-stub';
@@ -88,31 +87,12 @@ const audioWorklet: PropertyDescriptor = {
 };
 Object.defineProperty(AudioContextMock.prototype, 'audioWorklet', audioWorklet);
 
-// the AudioParams of the processors, as their parameterDescriptors give them
-const PARAMETER_DESCRIPTORS: Record<string, typeof VOICE_PARAMETERS> = {
-  [VOICE_PROCESSOR]: VOICE_PARAMETERS,
-};
-
-// the mock doesn't export AudioParamMock: its class and the class of its automation events come from a gain
-type ParamClass = new (options: object) => AudioParam;
-const probe = new AudioContextMock().createGain().gain as unknown as {
-  constructor: ParamClass;
-  _automationEventList: { constructor: new (value: number) => object };
-};
-const createParam = (context: AudioContextMock, value: number, minValue?: number, maxValue?: number) =>
-  new probe.constructor({
-    automationEventList: new probe._automationEventList.constructor(value),
-    deLorean: registrar.getDeLorean(context as never),
-    minValue: minValue ?? -3.4028234663852886e38,
-    maxValue: maxValue ?? 3.4028234663852886e38,
-  });
-
-// the mock's AudioWorkletNode takes the options of the other node mocks, not (context, name, options); its
-// params are mocks of the descriptors of its processor, at their parameterData
+// the mock's AudioWorkletNode takes the options of the other node mocks, not (context, name, options); no
+// processor of the app has AudioParams
 class AudioWorkletNodeStub extends AudioWorkletNodeMock<AudioContextMock> {
   port = { postMessage: jest.fn(), onmessage: null as ((event: MessageEvent) => void) | null };
   onprocessorerror: ((event: Event) => void) | null = null;
-  readonly parameters: Map<string, AudioParam>;
+  readonly parameters = new Map<string, AudioParam>();
 
   constructor(context: AudioContextMock, readonly name: string, readonly options: AudioWorkletNodeOptions) {
     super({
@@ -123,12 +103,6 @@ class AudioWorkletNodeStub extends AudioWorkletNodeMock<AudioContextMock> {
       numberOfInputs: options.numberOfInputs ?? 1,
       numberOfOutputs: options.numberOfOutputs ?? 1,
     } as never);
-    this.parameters = new Map(
-      (PARAMETER_DESCRIPTORS[name] ?? []).map(({ name: param, defaultValue, minValue, maxValue }) => [
-        param,
-        createParam(context, options.parameterData?.[param] ?? defaultValue, minValue, maxValue),
-      ])
-    );
     registrar.addAudioNode(context, 'AudioWorkletNode' as never, this as never);
   }
 }

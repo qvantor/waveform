@@ -38,8 +38,9 @@ export const synthCore = ({ wavetables: wavetableDependencies }: Dependencies = 
     // the fx chain is wired between these two by the fx model (the filter is in each voice)
     const fxIn = audioCtx.createGain();
     const fxOut = audioCtx.createGain();
-    // the oscillators of every voice (an audio worklet), loaded at the start like the limiter
-    const wavetables = createWavetableEngine(audioCtx, wavetableDependencies);
+    // the oscillators of every voice (an audio worklet, one node into preGain), loaded at the start like the
+    // limiter
+    const wavetables = createWavetableEngine(audioCtx, preGain, wavetableDependencies);
 
     preGain.gain.setValueAtTime(1, audioCtx.currentTime);
 
@@ -72,7 +73,7 @@ export const synthCore = ({ wavetables: wavetableDependencies }: Dependencies = 
       $masterGain,
     };
   })
-    .actions(({ $masterGain, $dropoutWarning, $muted, audioCtx, fxOut }) => {
+    .actions(({ $masterGain, $dropoutWarning, $muted, audioCtx, fxOut, wavetables, masterLimiter }) => {
       const open = (now: number) => {
         fxOut.gain.cancelScheduledValues(now);
         fxOut.gain.setValueAtTime(1, now);
@@ -93,6 +94,12 @@ export const synthCore = ({ wavetables: wavetableDependencies }: Dependencies = 
         },
         // the user answered the warning (it isn't shown again)
         dismissDropoutWarning: () => $dropoutWarning.next(false),
+        // loads again the oscillators and the limiter that failed (each only then): one Retry brings the sound
+        // back when both did (the network down at the start)
+        retryAudio: () => {
+          wavetables.retry();
+          masterLimiter.retry();
+        },
       };
     })
     .subscriptions(({ $masterGain, $dropouts, $dropoutWarning, $muted, audioCtx, masterGain }) => [

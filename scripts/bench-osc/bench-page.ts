@@ -18,9 +18,13 @@ import {
 } from '../../apps/waveform/src/app/synth/common/wavetable/wavetable-osc-wasm';
 import {
   STORE_PROCESSOR,
-  VOICE_PROCESSOR,
+  VOICES_PROCESSOR,
   VoiceParam,
 } from '../../apps/waveform/src/app/synth/common/wavetable/wavetable-osc-params';
+import type {
+  VoiceAutomation,
+  VoiceEvent,
+} from '../../apps/waveform/src/app/synth/common/wavetable/voice-options';
 import { parseWav } from '../../apps/waveform/src/app/synth/services/wav';
 
 const WORKLET_URL = 'wavetable-osc.js';
@@ -114,31 +118,71 @@ interface VoiceSetup {
 const FLAT = { attack: 0, hold: 0, decay: 0, sustain: 1, release: 0 };
 const ENVELOPES = [FLAT, FLAT, FLAT];
 
-const createVoice = (ctx: BaseAudioContext, setup: VoiceSetup, second?: VoiceSetup) => {
+// the voices node of the voices of `setups` (a setup and the second oscillator of its voice), voice k of them
+// has the id k: their note ons, the ends of their gates and `automation` as the events of its options (a message
+// would come in a block no one can tell)
+const createVoices = (
+  ctx: BaseAudioContext,
+  setups: [VoiceSetup, VoiceSetup?][],
+  automation: VoiceAutomation[] = []
+) => {
   const osc = (config: VoiceSetup) => ({
     table: config.table ?? 'a',
     unison: config.unison ?? 1,
     phase: 0,
     phaseRand: config.phaseRand ?? 0,
   });
-  const node = new AudioWorkletNode(ctx, VOICE_PROCESSOR, {
+  const events = setups.flatMap(([setup, second], voice): VoiceEvent[] => [
+    {
+      kind: 'on',
+      voice,
+      options: {
+        osc: [osc(setup), second ? osc(second) : null],
+        start: setup.start ?? 0,
+        envelopes: setup.envelopes ?? ENVELOPES,
+        envStart: setup.start ?? 0,
+        phrase: 0,
+        routes: setup.routes ?? [],
+        filter: null,
+      },
+      params: { gain1: 1, gain2: 1, ...setup.params, ...second?.params },
+    },
+    // the end of the note: its gate drops to 0 (ENV 1 has no release)
+    ...(setup.stop === undefined
+      ? []
+      : [{ kind: 'set', voice, param: 'gate', value: 0, time: setup.stop } as const]),
+  ]);
+  return new AudioWorkletNode(ctx, VOICES_PROCESSOR, {
     numberOfInputs: 0,
     numberOfOutputs: 1,
     outputChannelCount: [2],
-    processorOptions: {
-      osc: [osc(setup), second ? osc(second) : null],
-      start: setup.start ?? 0,
-      envelopes: setup.envelopes ?? ENVELOPES,
-      envStart: setup.start ?? 0,
-      phrase: 0,
-      routes: setup.routes ?? [],
-      filter: null,
-    },
-    parameterData: { gain1: 1, gain2: 1, ...setup.params, ...second?.params },
+    processorOptions: { events: [...events, ...automation] },
   });
-  // the end of the note: its gate drops to 0 (ENV 1 has no release)
-  if (setup.stop !== undefined) (node.parameters.get('gate') as AudioParam).setValueAtTime(0, setup.stop);
-  return node;
+};
+
+const createVoice = (ctx: BaseAudioContext, setup: VoiceSetup, automation: VoiceAutomation[] = []) =>
+  createVoices(ctx, [[setup]], automation);
+
+// a triangle LFO of `param` of voice `voice` around `center` by ±depth at `hz` for `seconds` (the linear ramps of
+// its timeline: a value every sample, as an LFO into an AudioParam was)
+const triangle = (
+  voice: number,
+  param: VoiceParam,
+  center: number,
+  depth: number,
+  hz: number,
+  seconds: number
+): VoiceAutomation[] => {
+  const events: VoiceAutomation[] = [{ kind: 'set', voice, param, value: center, time: 0 }];
+  for (let k = 0; (2 * k + 1) / (4 * hz) <= seconds + 1 / hz; k++)
+    events.push({
+      kind: 'linear',
+      voice,
+      param,
+      value: center + (k % 2 ? -depth : depth),
+      time: (2 * k + 1) / (4 * hz),
+    });
+  return events;
 };
 
 const oursRender = async (
@@ -146,12 +190,11 @@ const oursRender = async (
   length: number,
   levels: Record<string, WavetableLevels>,
   setup: VoiceSetup,
-  automate?: (voice: AudioWorkletNode, ctx: OfflineAudioContext, store: AudioWorkletNode) => void
+  automation: VoiceAutomation[] = []
 ) => {
   const ctx = new OfflineAudioContext(2, length, rate);
-  const store = await createStore(ctx, levels);
-  const voice = createVoice(ctx, setup);
-  automate?.(voice, ctx, store);
+  await createStore(ctx, levels);
+  const voice = createVoice(ctx, setup, automation);
   voice.connect(ctx.destination);
   const buffer = await ctx.startRendering();
   return [buffer.getChannelData(0), buffer.getChannelData(1)];
@@ -418,11 +461,10 @@ const continuity = async ({ rate, name }: { rate: number; name: string }) => {
   let positionError = 0;
   for (let i = 0; i < 8192; i++) positionError = Math.max(positionError, Math.abs(atPosition[i] - alone[i]));
 
-  const [morph] = await oursRender(rate, length, { a: levels }, { params: { frequency: 220 } }, (voice) => {
-    const position = voice.parameters.get('position1') as AudioParam;
-    position.setValueAtTime(0, 0);
-    position.linearRampToValueAtTime(1, 1);
-  });
+  const [morph] = await oursRender(rate, length, { a: levels }, { params: { frequency: 220 } }, [
+    { kind: 'set', voice: 0, param: 'position1', value: 0, time: 0 },
+    { kind: 'linear', voice: 0, param: 'position1', value: 1, time: 1 },
+  ]);
   let stationary = 0;
   for (let f = 0; f < frames.length; f++)
     stationary = Math.max(
@@ -436,11 +478,10 @@ const continuity = async ({ rate, name }: { rate: number; name: string }) => {
     );
 
   const saw = buildLevels(await table('saw'));
-  const [glide] = await oursRender(rate, 2 * rate, { a: saw }, { params: { frequency: 55 } }, (voice) => {
-    const frequency = voice.parameters.get('frequency') as AudioParam;
-    frequency.setValueAtTime(55, 0);
-    frequency.exponentialRampToValueAtTime(7000, 2);
-  });
+  const [glide] = await oursRender(rate, 2 * rate, { a: saw }, { params: { frequency: 55 } }, [
+    { kind: 'set', voice: 0, param: 'frequency', value: 55, time: 0 },
+    { kind: 'ramp', voice: 0, param: 'frequency', value: 7000, time: 2 },
+  ]);
   let glideStationary = 0;
   for (let i = 0; i < 64; i++)
     glideStationary = Math.max(
@@ -512,19 +553,20 @@ const unisonLevel = async ({ rate, notes }: { rate: number; notes: number }) => 
     const gap = 0.15;
     const ctx = new OfflineAudioContext(2, Math.ceil((notes * gap + 0.2) * rate), rate);
     await createStore(ctx, { a: levels });
-    // referenced until the end of the render: WebKit collects the nodes JS no longer holds
-    const voices = Array.from({ length: notes }, (_, i) =>
-      createVoice(ctx, {
-        unison,
-        phaseRand: 1,
-        params: { frequency: 220, spread1: 5 },
-        start: i * gap,
-        stop: i * gap + 0.1,
-      })
+    const voices = createVoices(
+      ctx,
+      Array.from({ length: notes }, (_, i): [VoiceSetup] => [
+        {
+          unison,
+          phaseRand: 1,
+          params: { frequency: 220, spread1: 5 },
+          start: i * gap,
+          stop: i * gap + 0.1,
+        },
+      ])
     );
-    voices.forEach((voice) => voice.connect(ctx.destination));
+    voices.connect(ctx.destination);
     const buffer = await ctx.startRendering();
-    voices.length = 0;
     const [left, right] = [buffer.getChannelData(0), buffer.getChannelData(1)];
     let power = 0;
     let peak = 0;
@@ -553,25 +595,17 @@ const unisonLevel = async ({ rate, notes }: { rate: number; notes: number }) => 
 
 // --- cpu ---
 
-// buses: no modulation, every param of the voices connected to a silent mod bus (as in the synth);
 // env-sustain: ENV 2 on Wave, Detune and Gain of both oscillators, on its sustain from the note on (the
 // voices play their mix tables); env-moving: the same envelope decaying for the whole render
-// lfo-wdg: an LFO into the same params as the envelopes (the direct path they are compared with);
-// still-sustain: no route, the knobs where ENV 2 holds them on its sustain (the same sound as env-sustain)
-type Modulation =
-  | 'none'
-  | 'buses'
-  | 'position'
-  | 'detune'
-  | 'env-sustain'
-  | 'env-moving'
-  | 'lfo-wdg'
-  | 'still-sustain';
+// lfo-wdg: an LFO on the same params as the envelopes (the direct path they are compared with);
+// still-sustain: no route, the knobs where ENV 2 holds them on its sustain (the same sound as env-sustain). An
+// LFO of ours is a triangle of linear ramps (the voices node has no AudioParams): a value every sample
+type Modulation = 'none' | 'position' | 'detune' | 'env-sustain' | 'env-moving' | 'lfo-wdg' | 'still-sustain';
 
 // 8 voices of a chord, both oscillators with unison 4: 64 oscillators. Native: the graph the synth had,
-// per oscillator 4 OscillatorNodes in pairs into a merger, its gain, the envelope of the voice; ours: one
-// worklet node per voice, its envelope inside. Modulation: an LFO into the position of every voice (ours
-// only, native has no morph) or into the detune of every oscillator, or ENV 2 of the voices (ours only)
+// per oscillator 4 OscillatorNodes in pairs into a merger, its gain, the envelope of the voice; ours: the
+// voices node with the 8 voices, their envelopes inside. Modulation: an LFO on the position of every voice (ours
+// only, native has no morph) or on the detune of every oscillator, or ENV 2 of the voices (ours only)
 const cpu = async ({
   rate,
   name,
@@ -630,24 +664,9 @@ const cpu = async ({
   const ours = async () => {
     const ctx = new OfflineAudioContext(2, seconds * rate, rate);
     await createStore(ctx, { a: levels });
-    const lfo = ctx.createOscillator();
-    const depth = ctx.createGain();
-    lfo.frequency.value = modulation === 'position' ? 0.25 : 5;
-    depth.gain.value = modulation === 'position' ? 0.5 : 30;
-    lfo.connect(depth);
-    lfo.start(0);
-    // the mod buses of both oscillators, nothing plays into them
-    const buses = [
-      'position1',
-      'detune1',
-      'spread1',
-      'gain1',
-      'position2',
-      'detune2',
-      'spread2',
-      'gain2',
-    ].map((name) => [name, ctx.createGain()] as const);
-    for (const note of notes) {
+    const setups: [VoiceSetup, VoiceSetup][] = [];
+    const automation: VoiceAutomation[] = [];
+    notes.forEach((note, voice) => {
       // on the sustain (0.5) ENV 2 adds a quarter of the table, 25 cents and -0.025
       const still = modulation === 'still-sustain';
       const position = modulation === 'position' ? 0.5 : positionOf(frames) + (still ? 0.25 : 0);
@@ -662,36 +681,30 @@ const cpu = async ({
         { env: 1, param: `spread${osc}`, amount: 50, min: 0, max: 100 },
         { env: 1, param: `gain${osc}`, amount: -0.05, min: 0, max: 1 },
       ]);
-      const voice = createVoice(
-        ctx,
+      setups.push([
         {
           unison,
           params: { frequency: note, spread1: voiceSpread, gain1: voiceGain, position1: position },
           ...(routed && { envelopes: [ENVELOPES[0], env2, ENVELOPES[2]], routes }),
         },
-        { unison, params: { detune2: 1200, spread2: voiceSpread, gain2: voiceGain, position2: position } }
-      );
+        { unison, params: { detune2: 1200, spread2: voiceSpread, gain2: voiceGain, position2: position } },
+      ]);
+      const lfo = (param: VoiceParam, center: number, depth: number, hz: number) =>
+        automation.push(...triangle(voice, param, center, depth, hz, seconds));
       if (modulation === 'position')
-        ['position1', 'position2'].forEach((p) => depth.connect(voice.parameters.get(p) as AudioParam));
-      if (modulation === 'detune')
-        ['detune1', 'detune2'].forEach((p) => depth.connect(voice.parameters.get(p) as AudioParam));
+        ['position1', 'position2'].forEach((p) => lfo(p as VoiceParam, 0.5, 0.5, 0.25));
+      if (modulation === 'detune') {
+        lfo('detune1', 0, 30, 5);
+        lfo('detune2', 1200, 30, 5);
+      }
       if (modulation === 'lfo-wdg')
-        (
-          [
-            ['position', 0.25],
-            ['spread', 25],
-            ['gain', 0.05],
-          ] as const
-        ).forEach(([param, amount]) => {
-          const scaled = ctx.createGain();
-          scaled.gain.value = amount;
-          lfo.connect(scaled);
-          [1, 2].forEach((osc) => scaled.connect(voice.parameters.get(`${param}${osc}`) as AudioParam));
+        [1, 2].forEach((osc) => {
+          lfo(`position${osc as 1 | 2}`, position, 0.25, 5);
+          lfo(`spread${osc as 1 | 2}`, voiceSpread, 25, 5);
+          lfo(`gain${osc as 1 | 2}`, voiceGain, 0.05, 5);
         });
-      if (modulation === 'buses')
-        buses.forEach(([name, bus]) => bus.connect(voice.parameters.get(name) as AudioParam));
-      voice.connect(ctx.destination);
-    }
+    });
+    createVoices(ctx, setups, automation).connect(ctx.destination);
     const start = performance.now();
     await ctx.startRendering();
     return performance.now() - start;

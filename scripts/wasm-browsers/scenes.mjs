@@ -45,8 +45,8 @@ const REVERB = {
 };
 
 // the voices of the wavetable oscillator: a store node with the tables (posted to its port, the page waits for
-// their acks), voice nodes with their options and initial params, the gate automated (setValueAtTime at frames
-// exact in binary: a rate of 2^15). phaseRand 0: Math.random draws nothing that sounds
+// their acks), the voices node with the events of every voice (its options and initial params, the steps of the
+// gate at frames exact in binary: a rate of 2^15). phaseRand 0: Math.random draws nothing that sounds
 const OSC_RATE = 32768;
 const saw = (size, harmonics, shift = 0) =>
   Array.from({ length: size }, (_, n) => {

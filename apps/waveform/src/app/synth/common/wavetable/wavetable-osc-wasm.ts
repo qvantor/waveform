@@ -15,13 +15,16 @@ import {
   UNISON_SHAPE,
   UNISON_DETUNES,
   UNISON_STACKS,
+  VoiceAutomation,
+  VoiceEvent,
   VoiceFilterOptions,
   VoiceOptions,
   VoiceRoute,
+  VoicesReportMessage,
   VoiceStats,
 } from './voice-options';
 import type { WavetableLevels } from './wavetable-levels';
-import type { VoiceParam } from './wavetable-osc-params';
+import { VOICE_PARAMETERS, VoiceParam } from './wavetable-osc-params';
 
 // the Rust core of the wavetable oscillator (dsp/wavetable-osc, wavetable-osc.wasm): the store of the tables in the
 // memory of the core, the voices and what they share, with the API of createTableStore, createVoiceShared and
@@ -67,6 +70,22 @@ export interface OscExports extends CoreExports {
   osc_voice_ended: (voice: number) => number;
   osc_voice_started_at: (voice: number) => number;
   osc_voice_start_frame: (voice: number) => number;
+  osc_scope_new: (sampleRate: number) => number;
+  osc_scope_free: (scope: number, store: number, shared: number) => void;
+  osc_scope_on: (scope: number, store: number, shared: number, id: number, report: number) => void;
+  osc_scope_events: (scope: number, store: number, shared: number, count: number) => void;
+  osc_scope_routes: (scope: number, id: number) => void;
+  osc_scope_filter: (scope: number, id: number) => void;
+  osc_scope_direct: (scope: number, id: number, frames: number) => number;
+  osc_scope_process: (scope: number, store: number, shared: number, frame: number, frames: number) => void;
+  osc_scope_resume: (scope: number, store: number, shared: number) => void;
+  osc_scope_fail: (scope: number, store: number, shared: number) => number;
+  osc_scope_output: (scope: number) => number;
+  osc_scope_reports: (scope: number) => number;
+  osc_scope_tap: (scope: number, on: number) => void;
+  osc_scope_taps: (scope: number) => number;
+  osc_scope_tap_data: (scope: number) => number;
+  osc_scope_stats: (scope: number) => void;
 }
 
 // the size of the command buffer of the core (dsp/wavetable-osc/src/lib.rs)
@@ -376,18 +395,15 @@ const writeEnvelopes = (command: Float64Array, at: number, envelopes: EnvelopePa
   return at;
 };
 
-// createVoiceDsp in the core: random() draws the start phases of the unison voices of each oscillator on, in
-// their order, as the TS voice drew them, then the shares of a random detune
-export const createVoiceWasm = (
+// the options of a voice into the command buffer of the core (its reader, read_voice_options): random() draws
+// the start phases of the unison voices of each oscillator on, in their order, as the TS voice drew them, then
+// the shares of a random detune; where they end
+const writeVoiceOptions = (
   scope: OscScope,
-  sampleRate: number,
+  command: Float64Array,
   options: VoiceOptions,
-  store: TableStoreWasm,
-  random: () => number = Math.random,
-  shared: VoiceSharedWasm
+  random: () => number
 ) => {
-  const { exports } = scope;
-  const command = scope.command();
   let at = 0;
   command[at++] = options.start;
   command[at++] = options.envStart;
@@ -412,7 +428,21 @@ export const createVoiceWasm = (
   }
   at = writeEnvelopes(command, at, options.envelopes);
   at = writeFilter(command, at, options.filter);
-  writeRoutes(command, at, options.routes);
+  return writeRoutes(command, at, options.routes);
+};
+
+// createVoiceDsp in the core: random() draws the start phases of the unison voices of each oscillator on, in
+// their order, as the TS voice drew them, then the shares of a random detune
+export const createVoiceWasm = (
+  scope: OscScope,
+  sampleRate: number,
+  options: VoiceOptions,
+  store: TableStoreWasm,
+  random: () => number = Math.random,
+  shared: VoiceSharedWasm
+) => {
+  const { exports } = scope;
+  writeVoiceOptions(scope, scope.command(), options, random);
   const handle = exports.osc_voice_new(sampleRate, store.handle, shared.handle);
   const paramsView = createView(exports);
   const lengthsView = createView(exports);
@@ -509,6 +539,238 @@ export const createVoiceWasm = (
     },
   };
 };
+
+// the kinds of the automation events in the core (scope.rs), and the most of them a call takes (6 values each)
+const AUTOMATION: Record<VoiceAutomation['kind'], number> = {
+  set: 0,
+  target: 1,
+  ramp: 2,
+  cancel: 3,
+  linear: 4,
+};
+const EVENTS_PER_CALL = Math.floor(COMMAND_SIZE / 6);
+// the range of a param its descriptor gives none: an AudioParam's (the most of a float)
+const F32_MAX = 3.4028234663852886e38;
+const PARAM_COUNT = VOICE_PARAM_ORDER.length;
+const DESCRIPTORS = VOICE_PARAM_ORDER.map((name) => VOICE_PARAMETERS.find((param) => param.name === name));
+
+// the output of a voice in a block, apart from the others (a tap)
+export interface TappedVoice {
+  voice: number;
+  left: Float32Array;
+  right: Float32Array;
+}
+
+// the voices of a node in the core (scope.rs, one per voices processor): on() makes the voice of a note (its
+// options as createVoiceWasm takes them, the values of its params at the note on), apply() takes the events of the
+// main thread in their order (a new voice, the automation of its params, its routes and its filter), process()
+// renders a block of every voice in the order they were made, by the same Voice::process, into the sum of their
+// outputs; reports() tells the voices that started (late, of mono, traced) and ended since. A voice that traps ends
+// (it is told ended, its output is not in the sum: `onError` hears why), the others play on; a note on that
+// traps is told ended too. params() gives the params of a voice directly from the next block on, past its
+// timelines (the specs: params that are functions of the frame); tap() keeps the output of every voice apart
+export const createVoiceScopeWasm = (
+  scope: OscScope,
+  sampleRate: number,
+  store: TableStoreWasm,
+  shared: VoiceSharedWasm,
+  random: () => number = Math.random,
+  onError: (error: unknown) => void = () => undefined
+) => {
+  const { exports } = scope;
+  const ranges = scope.command();
+  DESCRIPTORS.forEach((descriptor, k) => {
+    ranges[2 * k] = descriptor?.minValue ?? -F32_MAX;
+    ranges[2 * k + 1] = descriptor?.maxValue ?? F32_MAX;
+  });
+  const handle = exports.osc_scope_new(sampleRate);
+  const [leftView, rightView, directView, tapView] = [
+    createView(exports),
+    createView(exports),
+    createView(exports),
+    createView(exports),
+  ];
+  // the voices whose note on trapped: told ended with the next reports
+  const failed: number[] = [];
+
+  const on = (id: number, options: VoiceOptions, params: Partial<Record<VoiceParam, number>>) => {
+    try {
+      const command = scope.command();
+      const at = writeVoiceOptions(scope, command, options, random);
+      DESCRIPTORS.forEach((descriptor, k) => {
+        command[at + k] = params[VOICE_PARAM_ORDER[k]] ?? descriptor?.defaultValue ?? 0;
+      });
+      const report = (__PERF__ && !!options.trace) || !!options.mono;
+      exports.osc_scope_on(handle, store.handle, shared.handle, id, report ? 1 : 0);
+    } catch (error) {
+      onError(error);
+      failed.push(id);
+    }
+  };
+
+  // a call that throws (a trap of the core, options it can't read) loses what it carried, not the events after it
+  const guard = (call: () => void) => {
+    try {
+      call();
+    } catch (error) {
+      onError(error);
+    }
+  };
+
+  // (an event the core finds no memory for ends its voice: it is told ended)
+  const apply = (events: VoiceEvent[]) => {
+    let count = 0;
+    const flush = () => {
+      const n = count;
+      count = 0;
+      if (n > 0) guard(() => exports.osc_scope_events(handle, store.handle, shared.handle, n));
+    };
+    for (const event of events) {
+      if (event.kind === 'on') {
+        flush();
+        on(event.voice, event.options, event.params);
+      } else if (event.kind === 'routes') {
+        flush();
+        // (each voice apart: one that traps keeps its routes, the others take them)
+        guard(() => {
+          writeRoutes(scope.command(), 0, event.routes);
+          event.voices.forEach((id) => guard(() => exports.osc_scope_routes(handle, id)));
+        });
+      } else if (event.kind === 'filter') {
+        flush();
+        guard(() => {
+          writeFilter(scope.command(), 0, event.filter);
+          event.voices.forEach((id) => guard(() => exports.osc_scope_filter(handle, id)));
+        });
+      } else {
+        // (a param the core has not: nothing; as an index of -1 the core would take it as the frequency)
+        const param = VOICE_PARAM_ORDER.indexOf(event.param);
+        if (param < 0) continue;
+        const command = scope.command();
+        const at = 6 * count;
+        command[at] = AUTOMATION[event.kind];
+        command[at + 1] = event.voice;
+        command[at + 2] = param;
+        command[at + 3] = event.value ?? 0;
+        command[at + 4] = event.time;
+        command[at + 5] = event.constant ?? 0;
+        if (++count === EVENTS_PER_CALL) flush();
+      }
+    }
+    flush();
+    store.drain();
+  };
+
+  // the voices of the block after the one that trapped; false: the trap was not in a voice (the block is silence)
+  const recover = (stack: number, error: unknown) => {
+    for (;;) {
+      exports.__stack_pointer.value = stack;
+      onError(error);
+      let ended = true;
+      try {
+        ended = exports.osc_scope_fail(handle, store.handle, shared.handle) !== 0;
+      } catch {
+        // its end trapped too: it is out of the scope all the same
+      }
+      if (!ended) return false;
+      try {
+        exports.osc_scope_resume(handle, store.handle, shared.handle);
+        return true;
+      } catch (next) {
+        error = next;
+      }
+    }
+  };
+
+  return {
+    handle,
+    on,
+    apply,
+    // a block starting at `frame` of every voice, their sum into the outputs
+    process: (frame: number, outL: Float32Array, outR: Float32Array) => {
+      const n = outL.length;
+      // (guarded here, not by instantiateCore: no closure per block)
+      const stack = exports.__stack_pointer.value;
+      let rendered = true;
+      try {
+        exports.osc_scope_process(handle, store.handle, shared.handle, frame, n);
+      } catch (error) {
+        rendered = recover(stack, error);
+      }
+      store.drain();
+      if (!rendered) {
+        outL.fill(0);
+        outR.fill(0);
+        return;
+      }
+      const output = exports.osc_scope_output(handle);
+      outL.set(leftView(output, n));
+      outR.set(rightView(output + 4 * n, n));
+    },
+    // the starts and ends since the last call, null: none
+    reports: (): VoicesReportMessage | null => {
+      const count = exports.osc_scope_reports(handle);
+      if (count === 0 && failed.length === 0) return null;
+      const report: VoicesReportMessage = {};
+      const ended: number[] = [];
+      if (count > 0) {
+        const command = scope.command();
+        const starts = command[0];
+        let at = 1;
+        if (starts > 0) report.started = [];
+        for (let i = 0; i < starts; i++, at += 3)
+          report.started?.push([command[at], command[at + 1], command[at + 2]]);
+        const ends = command[at++];
+        for (let i = 0; i < ends; i++) ended.push(command[at + i]);
+      }
+      ended.push(...failed.splice(0));
+      if (ended.length > 0) report.ended = ended;
+      return report;
+    },
+    setRoutes: (id: number, routes: VoiceRoute[]) => apply([{ kind: 'routes', voices: [id], routes }]),
+    setFilter: (id: number, filter: VoiceFilterOptions | null) =>
+      apply([{ kind: 'filter', voices: [id], filter }]),
+    // the params of voice `id` for the next blocks of `n` frames as they are (one value or n each); false: no such
+    // voice (it has ended)
+    params: (id: number, params: Record<VoiceParam, Float32Array>, n: number) => {
+      const pointer = exports.osc_scope_direct(handle, id, n);
+      if (pointer === 0) return false;
+      const data = directView(pointer, PARAM_COUNT + PARAM_COUNT * n);
+      for (let k = 0; k < PARAM_COUNT; k++) {
+        const values = params[VOICE_PARAM_ORDER[k]];
+        data[k] = values.length > 1 ? n : 1;
+        if (values.length > 1) data.set(values, PARAM_COUNT + k * n);
+        else data[PARAM_COUNT + k * n] = values[0];
+      }
+      return true;
+    },
+    // the output of every voice apart from the next block on (or no more)
+    tap: (on: boolean) => exports.osc_scope_tap(handle, on ? 1 : 0),
+    // the voices of the last block of `n` frames apart, in the order they rendered (copies)
+    taps: (n: number): TappedVoice[] => {
+      const count = exports.osc_scope_taps(handle);
+      const ids = Array.from(scope.command().subarray(0, count));
+      const data = tapView(exports.osc_scope_tap_data(handle), 2 * n * count);
+      return ids.map((voice, i) => ({
+        voice,
+        left: data.slice(2 * n * i, 2 * n * i + n),
+        right: data.slice(2 * n * i + n, 2 * n * (i + 1)),
+      }));
+    },
+    // the voices playing and the events their timelines hold
+    stats: () => {
+      exports.osc_scope_stats(handle);
+      const [voices, events] = scope.command();
+      return { voices, events };
+    },
+    // every voice ends (their versions and mixes are given back), the scope is freed
+    free: () => {
+      exports.osc_scope_free(handle, store.handle, shared.handle);
+      store.drain();
+    },
+  };
+};
+export type VoiceScopeWasm = ReturnType<typeof createVoiceScopeWasm>;
 
 // samples of a chunk of a version the worker sends (1 MB): its copy into the memory of the core takes a fraction of
 // a render quantum, the chunks of 64 MB go between the blocks

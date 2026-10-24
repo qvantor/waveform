@@ -1,9 +1,10 @@
 import type { EnvelopeParams } from '../envelope/envelope-curve';
 import type { WavetableLevels } from './wavetable-levels';
+import type { VoiceParam } from './wavetable-osc-params';
 
-// the options of a voice of the wavetable oscillator (its node, processorOptions), the messages between the main
-// thread, the store, the worker and the voices, the routes and the filter of a voice: the API of its Rust core
-// (dsp/wavetable-osc, wavetable-osc-wasm.ts), no signal processing here
+// the options of a voice of the wavetable oscillator (its note on, an event to the voices node), the messages
+// between the main thread, the store, the worker and the voices node, the routes and the filter of a voice: the
+// API of its Rust core (dsp/wavetable-osc, wavetable-osc-wasm.ts), no signal processing here
 
 // an oscillator of a voice, null in VoiceOptions.osc: off for the note
 export interface VoiceOscOptions {
@@ -81,21 +82,62 @@ export interface VoiceOptions {
   routes: VoiceRoute[];
   // the filter after the oscillators, null: off; its knobs change by a message
   filter: VoiceFilterOptions | null;
-  // posts a VoiceStartedMessage once (the perf test hook times the notes)
+  // the voices node tells its start (VoiceStartedMessage) once (the perf test hook times the notes)
   trace?: boolean;
-  // a voice of mono (Poly 1): the notes it takes over may start its envelopes again, it posts a
-  // VoiceStartedMessage once, on time too
+  // a voice of mono (Poly 1): the notes it takes over may start its envelopes again, the voices node tells its
+  // start once, on time too
   mono?: boolean;
 }
 
-// voice → main thread: the voice has ended, its node can be disconnected
-export interface VoiceEndedMessage {
-  ended: true;
+// main thread → voices processor, the events of a task in the order they were made: a voice of a note (`on`), the
+// automation of its params (the AudioParam call of the same name: setValueAtTime, setTargetAtTime,
+// exponentialRampToValueAtTime, cancelScheduledValues, linearRampToValueAtTime (the synth makes none); values in
+// f32, times in seconds of the context), and the routes and the filter of playing voices. An event of a voice
+// that has ended changes nothing
+export interface VoiceOn {
+  kind: 'on';
+  voice: number;
+  options: VoiceOptions;
+  // the values of its params at the note on (a param left out: the default of its descriptor)
+  params: Partial<Record<VoiceParam, number>>;
 }
-// voice → main thread, once: the frame it was scheduled at and the one it started at (its first block: later
-// when the node was created after its start). A traced voice and a voice of mono tell it always (the main thread
-// keeps the starts again of mono until then), another one only when late (the fx and Poly follow it from its
-// first sample)
+export interface VoiceAutomation {
+  kind: 'set' | 'target' | 'ramp' | 'cancel' | 'linear';
+  voice: number;
+  param: VoiceParam;
+  time: number;
+  // (none for cancel)
+  value?: number;
+  // the time constant of a target
+  constant?: number;
+}
+export interface VoicesRoutes {
+  kind: 'routes';
+  voices: number[];
+  routes: VoiceRoute[];
+}
+export interface VoicesFilter {
+  kind: 'filter';
+  voices: number[];
+  filter: VoiceFilterOptions | null;
+}
+export type VoiceEvent = VoiceOn | VoiceAutomation | VoicesRoutes | VoicesFilter;
+export interface VoiceEventsMessage {
+  events: VoiceEvent[];
+}
+
+// voices processor → main thread, after a block that has any: the voices that started (late, of mono, traced: its
+// id, the frame it started at and the one it was scheduled at, once) and those that ended (released to 0, stolen,
+// or failed)
+export interface VoicesReportMessage {
+  started?: [number, number, number][];
+  ended?: number[];
+}
+
+// the start of a voice the voices node tells, once: the frame it was scheduled at and the one it started at (its
+// first block: later when its note on came after its start). A traced voice and a voice of mono tell it always
+// (the main thread keeps the starts again of mono until then), another one only when late (the fx and Poly follow
+// it from its first sample)
 export interface VoiceStartedMessage {
   started: number;
   scheduled: number;
@@ -129,9 +171,14 @@ export interface VoiceStats {
   mixes: number;
   mixBytes: number;
 }
+// the voices of the node of the voices and the automation events their timelines hold
+export interface VoiceScopeStats {
+  scopeVoices: number;
+  events: number;
+}
 // store → main thread: the answer to a StatsRequest, at the frame it was read
 export interface StoreStatsMessage {
-  stats: TableStoreStats & VoiceStats & { frame: number };
+  stats: TableStoreStats & VoiceStats & VoiceScopeStats & { frame: number };
 }
 
 // worker → store (its MessagePort): a new version of a table (its data buffer transferred), or a table that
@@ -159,11 +206,6 @@ export interface VoiceRoute {
   log?: boolean;
 }
 
-// main thread → voice: the routes of a playing note changed (added, an amount, removed)
-export interface VoiceRoutesMessage {
-  routes: VoiceRoute[];
-}
-
 // store → main thread: a version is in the store, new voices play it
 export interface StoreStoredMessage {
   stored: string;
@@ -177,11 +219,6 @@ export interface VoiceFilterOptions {
   cutoff: number;
   resonance: number;
   gain: number;
-}
-
-// main thread → voice: the knobs of the filter changed (null: turned off)
-export interface VoiceFilterMessage {
-  filter: VoiceFilterOptions | null;
 }
 
 // seconds: the fade-out of a stolen voice, the crossfade into a new version of the table (a note of a legato phrase
