@@ -3,7 +3,7 @@ import { z } from 'zod';
 export const DEFAULT_WAVETABLE_PATH = [
   'ESW Core Tables',
   'Basics',
-  'ESW Core Tables/Basics/ESW Basics - Saw Collection.wav',
+  'ESW Core Tables/Basics/Basic Shapes.wav',
 ];
 
 export const FILTER_TYPES = [
