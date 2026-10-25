@@ -53,8 +53,8 @@ interface Props {
 }
 
 // the pitch bend wheel left of the keys, as high as its place, and beside it its range up and down in semitones
-// (the preset's)
-export const PitchBend = ({ compact = false }: Props) => {
+// (the preset's). A render of the keys around it (every note) renders none of it
+export const PitchBend = React.memo(({ compact = false }: Props) => {
   const [{ $bendDown, $bendUp }, { setBendDown, setBendUp }] = useSynth();
   const down = useBehaviorSubject($bendDown);
   const up = useBehaviorSubject($bendUp);
@@ -68,4 +68,4 @@ export const PitchBend = ({ compact = false }: Props) => {
       <Wheel />
     </Root>
   );
-};
+});

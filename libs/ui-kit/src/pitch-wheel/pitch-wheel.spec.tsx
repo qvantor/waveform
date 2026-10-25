@@ -60,6 +60,24 @@ describe('PitchWheel', () => {
     expect(onChange).toHaveBeenCalledTimes(3);
   });
 
+  it('gives what it was dragged to, not the value it shows a frame later: a render between drops nothing', () => {
+    const { wheel, onChange, rerender } = setup();
+    pointer('pointerdown', wheel, 100);
+    pointer('pointermove', document, 75, { buttons: 1 });
+    // a render of the keys around it before the value it gave is shown
+    rerender(<PitchWheel value={0} onChange={onChange} />);
+    pointer('pointermove', document, 100, { buttons: 1 });
+    pointer('pointermove', document, 75, { buttons: 1 });
+    rerender(<PitchWheel value={0} onChange={onChange} />);
+    pointer('pointerup', document, 75);
+    expect(onChange.mock.calls.map(([value]) => value)).toEqual([0.469, 0, 0.469, 0]);
+
+    // pressed and let go where it is: nothing
+    pointer('pointerdown', wheel, 100);
+    pointer('pointerup', document, 100);
+    expect(onChange).toHaveBeenCalledTimes(4);
+  });
+
   it('drags from where it is (a bend of a MIDI input)', () => {
     const { wheel, onChange } = setup(0.5);
     pointer('pointerdown', wheel, 100);

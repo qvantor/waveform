@@ -133,25 +133,28 @@ const DrumFace = React.memo(({ radius: r, angle }: { radius: number; angle: numb
 // of a MIDI input too)
 export const PitchWheel = ({ value, onChange, name = 'Pitch bend', formatValue, className }: Props) => {
   const [active, setActive] = React.useState(false);
-  // the pointer that holds it, where it pressed and the value then
-  const drag = React.useRef<{ pointerId: number; y: number; from: number } | null>(null);
-  const callbacks = React.useRef({ onChange, value });
-  callbacks.current = { onChange, value };
+  // the pointer that holds it, where it pressed, the value then and the last one it gave (not the value shown: it
+  // may come a frame later, a render of the keys between would give the one before)
+  const drag = React.useRef<{ pointerId: number; y: number; from: number; last: number } | null>(null);
+  const changed = React.useRef(onChange);
+  changed.current = onChange;
   const [drumRef, [, drumHeight]] = useElementSize<HTMLDivElement>();
   const radius = drumHeight / 2;
 
   const emit = React.useCallback((next: number) => {
-    if (next === callbacks.current.value) return;
-    callbacks.current.value = next;
-    callbacks.current.onChange?.(next);
+    const held = drag.current;
+    if (!held || next === held.last) return;
+    held.last = next;
+    changed.current?.(next);
   }, []);
 
   const release = React.useCallback(() => {
-    if (!drag.current) return;
+    const held = drag.current;
+    if (!held) return;
     drag.current = null;
     setActive(false);
-    emit(0);
-  }, [emit]);
+    if (held.last !== 0) changed.current?.(0);
+  }, []);
 
   React.useEffect(() => {
     const onMove = (e: PointerEvent) => {
@@ -191,7 +194,7 @@ export const PitchWheel = ({ value, onChange, name = 'Pitch bend', formatValue, 
     // a finger is captured by the element it pressed: its moves are followed on the document
     if (e.target instanceof Element && e.target.hasPointerCapture(e.pointerId))
       e.target.releasePointerCapture(e.pointerId);
-    drag.current = { pointerId: e.pointerId, y: e.clientY, from: value };
+    drag.current = { pointerId: e.pointerId, y: e.clientY, from: value, last: value };
     setActive(true);
   };
 
