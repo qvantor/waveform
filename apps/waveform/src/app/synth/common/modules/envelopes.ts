@@ -65,12 +65,13 @@ export const envelopes = () =>
   rxModel(() => {
     const $envelopes = new ObjectBS<Envelopes>(envelopesFrom({}));
     const $velocity = new ObjectBS<VelocityKnobs>(velocityFrom());
-    // the tab the section shows and its knobs edit (an envelope or the velocity): the state of the UI, not in
-    // the preset
+    // the selected tab (an envelope or the velocity), the knobs show its routes, and the envelope the ENV
+    // section shows: the last one selected. The state of the UI, not in the preset
     const $selected = new BehaviorSubject<ModSource>(ENVELOPES[0]);
-    return { $envelopes, $velocity, $selected };
+    const $envelope = new BehaviorSubject<EnvelopeId>(ENVELOPES[0]);
+    return { $envelopes, $velocity, $selected, $envelope };
   })
-    .actions(({ $envelopes, $velocity, $selected }) => ({
+    .actions(({ $envelopes, $velocity, $selected, $envelope }) => ({
       setEnvelopeValue: (id: EnvelopeId, key: EnvelopeStage, value: number) =>
         $envelopes.next({ ...$envelopes.value, [id]: { ...$envelopes.value[id], [key]: value } }),
       setEnvelopeCurve: (id: EnvelopeId, stage: EnvelopeCurveStage, k: number) => {
@@ -82,7 +83,10 @@ export const envelopes = () =>
       },
       setVelocity: (knob: VelocityKnob, value: number) =>
         $velocity.next({ ...$velocity.value, [knob]: value }),
-      select: (id: ModSource) => $selected.next(id),
+      select: (id: ModSource) => {
+        $selected.next(id);
+        if (id !== 'velo') $envelope.next(id);
+      },
     }))
     .plugins(
       urlSnapshotPlugin({

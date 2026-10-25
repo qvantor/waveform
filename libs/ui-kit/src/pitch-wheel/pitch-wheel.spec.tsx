@@ -1,5 +1,6 @@
 import React from 'react';
 import { act, render, screen } from '@testing-library/react';
+import { withElementSize } from '../common/test-utils/element-size';
 import { PitchWheel } from './index';
 
 // jsdom has no PointerEvent: a mouse event with a pointer id, React and the document listeners read both alike
@@ -11,26 +12,36 @@ const pointer = (type: string, target: EventTarget, clientY: number, init: Mouse
   });
 };
 
-// a wheel of 112 px: the cap (12 px) travels 50 px from the middle to each end
+// jsdom has no layout: a wheel of 112 px, a drum of 106 px in its slot
+let restoreSize: () => void;
+beforeAll(() => {
+  restoreSize = withElementSize(20, 106);
+});
+afterAll(() => restoreSize());
+
+// the mark follows the pointer: 53 · sin 60° = 45.9 px from the middle to each end
 const setup = (value = 0) => {
   const onChange = jest.fn();
-  const result = render(
-    <PitchWheel value={value} onChange={onChange} height={112} formatValue={(v) => `${v * 2} st`} />
-  );
+  const result = render(<PitchWheel value={value} onChange={onChange} formatValue={(v) => `${v * 2} st`} />);
   const wheel = screen.getByRole('slider', { name: 'Pitch bend' });
-  const capTop = () => parseFloat(screen.getByTestId('pitch-wheel-cap').style.top);
+  // px of the middle of the mark from the top of the drum
+  const markAt = () => {
+    const mark = screen.getByTestId('pitch-wheel-mark');
+    return Number(mark.getAttribute('y')) + Number(mark.getAttribute('height')) / 2;
+  };
   Object.assign(Element.prototype, { hasPointerCapture: () => false });
-  return { ...result, onChange, wheel, capTop };
+  return { ...result, onChange, wheel, markAt };
 };
 
 afterEach(() => Reflect.deleteProperty(Element.prototype, 'hasPointerCapture'));
 
 describe('PitchWheel', () => {
-  it('shows the value it is given: the cap in the middle at rest, half its travel up at 0.5', () => {
-    const { capTop, rerender, onChange } = setup();
-    expect(capTop()).toBe(56);
-    rerender(<PitchWheel value={0.5} onChange={onChange} height={112} />);
-    expect(capTop()).toBe(31);
+  it('shows the value it is given: the mark in the middle at rest, the drum turned 30° up at 0.5', () => {
+    const { markAt, rerender, onChange } = setup();
+    expect(markAt()).toBe(53);
+    rerender(<PitchWheel value={0.5} onChange={onChange} />);
+    // sin 30° of the radius above the middle
+    expect(markAt()).toBeCloseTo(26.5, 9);
     expect(screen.getByRole('slider').getAttribute('aria-valuenow')).toBe('0.5');
   });
 
@@ -38,7 +49,8 @@ describe('PitchWheel', () => {
     const { wheel, onChange } = setup();
     pointer('pointerdown', wheel, 100);
     pointer('pointermove', document, 75, { buttons: 1 });
-    expect(onChange).toHaveBeenLastCalledWith(0.5);
+    // sin⁻¹(25 / 53) of 60°
+    expect(onChange).toHaveBeenLastCalledWith(0.469);
     pointer('pointermove', document, 300, { buttons: 1 });
     expect(onChange).toHaveBeenLastCalledWith(-1);
     pointer('pointerup', document, 300);
@@ -52,7 +64,7 @@ describe('PitchWheel', () => {
     const { wheel, onChange } = setup(0.5);
     pointer('pointerdown', wheel, 100);
     pointer('pointermove', document, 110, { buttons: 1 });
-    expect(onChange).toHaveBeenLastCalledWith(0.3);
+    expect(onChange).toHaveBeenLastCalledWith(0.302);
   });
 
   it('springs back when the window loses focus or its pointerup was lost', () => {
@@ -67,7 +79,7 @@ describe('PitchWheel', () => {
     pointer('pointerdown', wheel, 100);
     pointer('pointermove', document, 90, { buttons: 1 });
     pointer('pointermove', document, 80, { buttons: 0 });
-    expect(onChange.mock.calls.map(([value]) => value)).toEqual([0.2, 0, 0.2, 0]);
+    expect(onChange.mock.calls.map(([value]) => value)).toEqual([0.181, 0, 0.181, 0]);
   });
 
   it('while held shows its name and the value in the tooltip', () => {

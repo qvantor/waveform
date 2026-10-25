@@ -10,7 +10,7 @@ import { AdsrCurves, envelopeLine, LineProps } from './envelope-line';
 import { CurveHandles, CurveStage } from './curve-handles';
 
 export { NoteDot } from './note-dot';
-export { VelocityCurve } from './velocity-curve';
+export { VelocityCurve, VelocityDot } from './velocity-curve';
 export type { NotePath } from './note-dot';
 
 const Root = styled.div`

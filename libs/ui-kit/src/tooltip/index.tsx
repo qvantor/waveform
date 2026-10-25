@@ -10,7 +10,8 @@ type Trigger = 'hold' | 'mousedown';
 interface Props {
   content: React.ReactNode;
   trigger?: Trigger;
-  bottom?: number;
+  // px of its bottom over the bottom of the element, or a CSS length (above it: `calc(100% + 6px)`)
+  bottom?: number | string;
 }
 
 const TooltipElementId = 'tooltip';

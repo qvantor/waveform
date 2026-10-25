@@ -2,8 +2,10 @@ import React from 'react';
 import styled from 'styled-components';
 import cls from 'classnames';
 import { MdDragIndicator } from 'react-icons/md';
-import { MOD_SOURCES, ModSource } from '@waveform/preset-schema';
+import { ModSource } from '@waveform/preset-schema';
 import { startModDrag, theme } from '@waveform/ui-kit';
+import { useBehaviorSubject } from '@waveform/rxjs-react';
+import { useEnvelopes, useModulation } from '../../common/modules';
 import { ENVELOPE_COLORS, ENVELOPE_LABELS } from '../envelope-colors';
 
 // the whole header (a plain one): a segmented control on its grey, as high as the other headers
@@ -15,8 +17,9 @@ const Root = styled.div`
   padding: 2px;
 `;
 
-// a quarter of the header each, its label white as the titles of the other headers, after a dot of the color of
-// its source (the color of its routes on the knobs). The selected one is a white key with a dark label
+// an equal share of the header each, its label white as the titles of the other headers, after a dot of the color
+// of its source (the color of its routes on the knobs). The selected one is a white key with a dark label, the one
+// a section shows while another section's is selected a translucent one
 const Tab = styled.button`
   flex: 1 1 0;
   min-width: 0;
@@ -48,6 +51,11 @@ const Tab = styled.button`
     cursor: grab;
   }
 
+  &.shown {
+    color: ${theme.colors.primaryDarkMediumContrast};
+    background: rgba(255, 255, 255, 0.55);
+  }
+
   /* never an outline: the selected one is a white key */
   &:focus,
   &:focus-visible {
@@ -75,38 +83,49 @@ const Grip = styled(MdDragIndicator)`
 `;
 
 interface Props {
-  selected: ModSource;
-  onSelect: (id: ModSource) => void;
-  // a tab dragged onto a knob: its source modulates it
-  onDrop?: (id: ModSource, target: string) => void;
+  // the accessible name of the tabs
+  label: string;
+  sources: readonly ModSource[];
+  // the tab of the envelope the section shows (the ENV section: the last one selected), a translucent key while
+  // another source is selected; without it the section shows each of its sources (VELO)
+  shown?: ModSource;
 }
 
-// ENV 1 | ENV 2 | ENV 3 | VELO in the header of the section: the envelope (or the velocity) its chart shows and
-// its knobs edit, the knobs show its routes. A tab dragged onto a knob assigns its source to it (a click selects
-// it), the grip of the selected one tells it
-export const EnvelopeTabs = ({ selected, onSelect, onDrop }: Props) => (
-  <Root role='tablist' aria-label='Modulation sources'>
-    {MOD_SOURCES.map((id) => (
-      <Tab
-        key={id}
-        type='button'
-        role='tab'
-        aria-selected={id === selected}
-        className={cls({ selected: id === selected })}
-        onClick={() => onSelect(id)}
-        onPointerDown={(e) =>
-          onDrop &&
-          startModDrag(e, {
-            label: ENVELOPE_LABELS[id],
-            color: ENVELOPE_COLORS[id],
-            onDrop: (target) => onDrop(id, target),
-          })
-        }
-      >
-        <Dot aria-hidden style={{ background: ENVELOPE_COLORS[id] }} />
-        {ENVELOPE_LABELS[id]}
-        {id === selected && <Grip aria-hidden data-testid='env-grip' />}
-      </Tab>
-    ))}
-  </Root>
-);
+// the tabs of sources in the header of a section, ENV 1 | ENV 2 | ENV 3 or VELO: the selected one (of every
+// source, the tabs of the other section too) is the source the knobs show the routes of. A tab dragged onto a knob
+// assigns its source to it at +50% and selects it, the knobs show the new route at once (a click selects it), the
+// grip of the selected one tells it
+export const EnvelopeTabs = ({ label, sources, shown }: Props) => {
+  const [{ $selected }, { select }] = useEnvelopes();
+  const [, { addRoute }] = useModulation();
+  const selected = useBehaviorSubject($selected);
+  return (
+    <Root role='tablist' aria-label={label}>
+      {sources.map((id) => (
+        <Tab
+          key={id}
+          type='button'
+          role='tab'
+          // the tab of what the section shows: one of each tablist
+          aria-selected={shown === undefined || id === shown}
+          className={cls({ selected: id === selected, shown: id === shown && id !== selected })}
+          onClick={() => select(id)}
+          onPointerDown={(e) =>
+            startModDrag(e, {
+              label: ENVELOPE_LABELS[id],
+              color: ENVELOPE_COLORS[id],
+              onDrop: (target) => {
+                addRoute(id, target);
+                select(id);
+              },
+            })
+          }
+        >
+          <Dot aria-hidden style={{ background: ENVELOPE_COLORS[id] }} />
+          {ENVELOPE_LABELS[id]}
+          {id === selected && <Grip aria-hidden data-testid='env-grip' />}
+        </Tab>
+      ))}
+    </Root>
+  );
+};

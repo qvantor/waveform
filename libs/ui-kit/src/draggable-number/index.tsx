@@ -39,9 +39,11 @@ const ValueContainer = styled.div`
   align-items: center;
 `;
 
+// as wide as the widest value of its range (style), digits of one width: it doesn't widen while dragged
 const Value = styled.div`
-  width: 12px;
+  min-width: 12px;
   text-align: right;
+  font-variant-numeric: tabular-nums;
 `;
 
 export const DraggableNumber = ({ value, onChange, label, range = [0, 10] }: Props) => {
@@ -63,7 +65,7 @@ export const DraggableNumber = ({ value, onChange, label, range = [0, 10] }: Pro
     <Root onPointerDown={onPointerDown}>
       <Label>{label}</Label>
       <ValueContainer>
-        <Value>{value}</Value>
+        <Value style={{ width: `${Math.max(...range.map((end) => String(end).length))}ch` }}>{value}</Value>
         <StepArrows active={active} />
       </ValueContainer>
     </Root>

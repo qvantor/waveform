@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { FX_PARAMS } from '@waveform/preset-schema';
 import { mapValues } from 'lodash';
-import { withElementSize } from '../../../../../test-utils/element-size';
+import { withElementSize } from '@waveform/ui-kit/test-utils';
 import { createLiveRoutes } from '../../../../../test-utils/live-routes';
 import { reverb } from '../../effects/reverb';
 import { ReverbControls } from './reverb-controls';

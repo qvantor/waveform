@@ -1,7 +1,7 @@
 import React from 'react';
 import { act, render, screen } from '@testing-library/react';
+import { withElementSize } from '@waveform/ui-kit/test-utils';
 import { createOscillator } from '../../../../../test-utils/models';
-import { withElementSize } from '../../../../../test-utils/element-size';
 import { OscillatorContext } from '../../hooks';
 import { Chart } from './chart';
 import { PHASE_FADE } from './phase-overlay';

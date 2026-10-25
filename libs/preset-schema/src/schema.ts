@@ -280,7 +280,7 @@ const modSchema = z
   .default({});
 
 // semitones the pitch bend moves the notes by at most, down and up (each 0..PITCH_BEND_MAX)
-export const PITCH_BEND_MAX = 48;
+export const PITCH_BEND_MAX = 24;
 export const PITCH_BEND_DEFAULT = 2;
 
 const voicingSchema = z

@@ -22,7 +22,7 @@ export { FileDrop } from './file-drop';
 export { Tabs } from './tabs';
 export { PianoKeyboard } from './piano-keyboard';
 export { PitchWheel } from './pitch-wheel';
-export { AdsrEnvelope, formatTime, NoteDot, VelocityCurve } from './adsr-envelope';
+export { AdsrEnvelope, formatTime, NoteDot, VelocityCurve, VelocityDot } from './adsr-envelope';
 export { Modal } from './modal';
 export { Section } from './section';
 export { VolumeAnalyser } from './volume-analyser';

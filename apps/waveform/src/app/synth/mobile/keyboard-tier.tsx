@@ -5,19 +5,24 @@ import { IconButton, PianoKeyboard, theme, useElementSize } from '@waveform/ui-k
 import { useBehaviorSubject } from '@waveform/rxjs-react';
 import { number } from '@waveform/math';
 import { useInputController } from '../common/modules';
-import { PitchBend } from '../pitch-bend';
 
 const OCTAVE_RANGE: [number, number] = [0, 8];
 
-const Root = styled.div`
-  display: flex;
-  gap: 4px;
-  min-height: 0;
-  min-width: 0;
-`;
+// px of the octave buttons
+export const OCTAVE_WIDTH = 36;
 
-const OctaveControl = styled.div`
-  flex: 0 0 36px;
+// the last octave a tier of octavesCount octaves may start at
+const maxOctave = (octavesCount: number) => OCTAVE_RANGE[1] - octavesCount + 1;
+
+// the octave a tier starts at: the stored one may be out of range for the current octaves count (switch to
+// landscape)
+export const tierOctave = (stored: number, octavesCount: number) =>
+  number.thresholds(stored, OCTAVE_RANGE[0], maxOctave(octavesCount));
+
+// as wide as its buttons
+const Control = styled.div`
+  flex: none;
+  width: ${OCTAVE_WIDTH}px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -25,8 +30,8 @@ const OctaveControl = styled.div`
   gap: 6px;
 
   button {
-    width: 36px;
-    height: 36px;
+    width: ${OCTAVE_WIDTH}px;
+    height: ${OCTAVE_WIDTH}px;
     justify-content: center;
   }
 `;
@@ -38,7 +43,6 @@ const OctaveLabel = styled.div`
 `;
 
 const Keys = styled.div`
-  flex: 1 1;
   min-width: 0;
   position: relative;
   overflow: hidden;
@@ -50,56 +54,52 @@ const KeysInner = styled.div`
   inset: 0;
 `;
 
-interface Props {
+interface TierProps {
+  // the octave it starts at, within the range (`tierOctave`)
   octave: number;
   octavesCount: number;
-  onOctaveChange: (octave: number) => void;
-  // the pitch bend wheel between the octaves and the keys (one tier has it)
-  wheel?: boolean;
 }
 
-export const KeyboardTier = ({
-  octave: storedOctave,
-  octavesCount,
-  onOctaveChange,
-  wheel = false,
-}: Props) => {
+interface ControlProps extends TierProps {
+  onOctaveChange: (octave: number) => void;
+}
+
+// the octave of a tier, ▲ and ▼ shift it
+export const OctaveControl = ({ octave, octavesCount, onOctaveChange }: ControlProps) => {
+  const shift = (diff: number) => onOctaveChange(tierOctave(octave + diff, octavesCount));
+  return (
+    <Control>
+      <IconButton onClick={() => shift(1)} disabled={octave >= maxOctave(octavesCount)}>
+        <AiOutlineUp />
+      </IconButton>
+      <OctaveLabel>C{octave}</OctaveLabel>
+      <IconButton onClick={() => shift(-1)} disabled={octave <= OCTAVE_RANGE[0]}>
+        <AiOutlineDown />
+      </IconButton>
+    </Control>
+  );
+};
+
+// the keys of a tier: as wide and as high as its place
+export const TierKeys = ({ octave, octavesCount }: TierProps) => {
   const [{ $pressed }, { onPress, onRelease }] = useInputController();
   const pressed = useBehaviorSubject($pressed);
   const [keysRef, [width, height]] = useElementSize<HTMLDivElement>();
-  const maxOctave = OCTAVE_RANGE[1] - octavesCount + 1;
-  // the stored octave may be out of range for the current octaves count (switch to landscape)
-  const octave = number.thresholds(storedOctave, OCTAVE_RANGE[0], maxOctave);
-  const shift = (diff: number) =>
-    onOctaveChange(number.thresholds(octave + diff, OCTAVE_RANGE[0], maxOctave));
-
   return (
-    <Root>
-      <OctaveControl>
-        <IconButton onClick={() => shift(1)} disabled={octave >= maxOctave}>
-          <AiOutlineUp />
-        </IconButton>
-        <OctaveLabel>C{octave}</OctaveLabel>
-        <IconButton onClick={() => shift(-1)} disabled={octave <= OCTAVE_RANGE[0]}>
-          <AiOutlineDown />
-        </IconButton>
-      </OctaveControl>
-      {wheel && height > 0 && <PitchBend height={height} compact />}
-      <Keys ref={keysRef}>
-        <KeysInner>
-          {width > 0 && (
-            <PianoKeyboard
-              octaves={[octave, octave + octavesCount - 1]}
-              fitScreen={false}
-              keyWidth={width / (7 * octavesCount)}
-              keyHeight={height}
-              pressed={pressed}
-              onPress={onPress}
-              onRelease={onRelease}
-            />
-          )}
-        </KeysInner>
-      </Keys>
-    </Root>
+    <Keys ref={keysRef}>
+      <KeysInner>
+        {width > 0 && (
+          <PianoKeyboard
+            octaves={[octave, octave + octavesCount - 1]}
+            fitScreen={false}
+            keyWidth={width / (7 * octavesCount)}
+            keyHeight={height}
+            pressed={pressed}
+            onPress={onPress}
+            onRelease={onRelease}
+          />
+        )}
+      </KeysInner>
+    </Keys>
   );
 };

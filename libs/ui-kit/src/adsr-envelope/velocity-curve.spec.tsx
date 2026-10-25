@@ -1,29 +1,19 @@
 import React from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
+import { withElementSize } from '../common/test-utils/element-size';
 import { curveShape } from './envelope-line';
-import { VelocityCurve } from './velocity-curve';
+import { VelocityCurve, VelocityDot } from './velocity-curve';
 
 // a chart of 210 × 110 px: the curve 200 × 100 px inside its padding (10, 5)
 const WIDTH = 220;
 const HEIGHT = 110;
 
 // jsdom has no layout: every observed element reports a fixed size
-class ResizeObserverStub {
-  constructor(private callback: ResizeObserverCallback) {}
-  observe() {
-    this.callback(
-      [{ contentRect: { width: WIDTH, height: HEIGHT } } as ResizeObserverEntry],
-      this as unknown as ResizeObserver
-    );
-  }
-  disconnect() {
-    // nothing to release
-  }
-}
-
+let restoreSize: () => void;
 beforeAll(() => {
-  Object.assign(globalThis, { ResizeObserver: ResizeObserverStub });
+  restoreSize = withElementSize(WIDTH, HEIGHT);
 });
+afterAll(() => restoreSize());
 
 const setup = (props: Partial<React.ComponentProps<typeof VelocityCurve>> = {}) => {
   const onCurveChange = jest.fn();
@@ -35,7 +25,6 @@ const setup = (props: Partial<React.ComponentProps<typeof VelocityCurve>> = {}) 
       onCurveChange={onCurveChange}
       amp={1}
       onAmpChange={onAmpChange}
-      velocity={null}
       {...props}
     />
   );
@@ -55,19 +44,8 @@ describe('VelocityCurve', () => {
     expect(onCurveChange).toHaveBeenLastCalledWith(3.1);
   });
 
-  it('puts the dot of the last note on the curve, none before a note', () => {
-    const { rerender, onCurveChange, onAmpChange } = setup({ k: 2 });
-    expect(screen.queryByTestId('velocity-dot')).toBeNull();
-    rerender(
-      <VelocityCurve
-        k={2}
-        curveMax={10}
-        onCurveChange={onCurveChange}
-        amp={1}
-        onAmpChange={onAmpChange}
-        velocity={0.5}
-      />
-    );
+  it('puts the dot of a note on the curve: a child in the chart', () => {
+    setup({ k: 2, children: <VelocityDot k={2} velocity={0.5} /> });
     const dot = screen.getByTestId('velocity-dot');
     expect(Number(dot.getAttribute('cx'))).toBeCloseTo(100, 6);
     expect(Number(dot.getAttribute('cy'))).toBeCloseTo(100 * (1 - curveShape(2, 0.5)), 6);

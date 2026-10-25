@@ -1,6 +1,7 @@
 import React from 'react';
 import styled from 'styled-components';
-import { useBehaviorSubject } from '@waveform/rxjs-react';
+import { animationFrameScheduler, auditTime } from 'rxjs';
+import { useBehaviorSubject, useObservable } from '@waveform/rxjs-react';
 import { DraggableNumber, PitchWheel } from '@waveform/ui-kit';
 import { number } from '@waveform/math';
 import { PITCH_BEND_MAX } from '@waveform/preset-schema';
@@ -27,37 +28,44 @@ const formatSemitones = (semitones: number) => {
   return `${rounded > 0 ? '+' : ''}${rounded} st`;
 };
 
+// the wheel: the bend of the input controller (a MIDI input moves it too), its tooltip in semitones. It renders
+// alone with the bend, not the ranges beside it
+const Wheel = () => {
+  const [{ $bend }, { setBend }] = useInputController();
+  const [{ $bendDown, $bendUp }] = useSynth();
+  // once a frame: a MIDI input may send hundreds of bends a second
+  const $shown = React.useMemo(() => $bend.pipe(auditTime(0, animationFrameScheduler)), [$bend]);
+  const bend = useObservable($shown, $bend.value);
+  const down = useBehaviorSubject($bendDown);
+  const up = useBehaviorSubject($bendUp);
+  return (
+    <PitchWheel
+      value={bend}
+      onChange={setBend}
+      formatValue={(value) => formatSemitones(bendCents(value, down, up) / 100)}
+    />
+  );
+};
+
 interface Props {
-  // px of the wheel
-  height: number;
   // the wheel alone (the phone): the range is the preset's
   compact?: boolean;
 }
 
-// the pitch bend wheel left of the keys: the bend of the input controller (a MIDI input moves it too) and, beside
-// it, its range up and down in semitones (the preset's)
-export const PitchBend = ({ height, compact = false }: Props) => {
-  const [{ $bend }, { setBend }] = useInputController();
+// the pitch bend wheel left of the keys, as high as its place, and beside it its range up and down in semitones
+// (the preset's)
+export const PitchBend = ({ compact = false }: Props) => {
   const [{ $bendDown, $bendUp }, { setBendDown, setBendUp }] = useSynth();
-  const bend = useBehaviorSubject($bend);
   const down = useBehaviorSubject($bendDown);
   const up = useBehaviorSubject($bendUp);
-  const wheel = (
-    <PitchWheel
-      value={bend}
-      onChange={setBend}
-      height={height}
-      formatValue={(value) => formatSemitones(bendCents(value, down, up) / 100)}
-    />
-  );
-  if (compact) return wheel;
+  if (compact) return <Wheel />;
   return (
     <Root>
       <Ranges>
         <DraggableNumber value={up} range={[0, PITCH_BEND_MAX]} label='Up' onChange={setBendUp} />
         <DraggableNumber value={down} range={[0, PITCH_BEND_MAX]} label='Down' onChange={setBendDown} />
       </Ranges>
-      {wheel}
+      <Wheel />
     </Root>
   );
 };

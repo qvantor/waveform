@@ -38,10 +38,19 @@ describe('envelopes', () => {
   });
 
   it('selects the envelope the section shows, it is not in the snapshot', () => {
-    const [{ $selected }, { select }] = createEnvelopes();
+    const [{ $selected, $envelope }, { select }] = createEnvelopes();
     select('env3');
-    expect($selected.value).toBe('env3');
+    expect([$selected.value, $envelope.value]).toEqual(['env3', 'env3']);
     expect(JSON.stringify(getSnapshot()['env'])).not.toContain('env3');
+  });
+
+  it('the velocity selected, the section keeps showing the last envelope selected', () => {
+    const [{ $selected, $envelope }, { select }] = createEnvelopes();
+    select('env2');
+    select('velo');
+    expect([$selected.value, $envelope.value]).toEqual(['velo', 'env2']);
+    select('env1');
+    expect([$selected.value, $envelope.value]).toEqual(['env1', 'env1']);
   });
 
   it('exposes the envelopes in the snapshot as env: { e1, e2, e3 }', () => {

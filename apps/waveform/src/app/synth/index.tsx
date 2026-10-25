@@ -40,14 +40,21 @@ import { OscillatorsContainer, MasterHandle, LimiterStatus } from './synth/compo
 import { VoicingSection } from './voicing';
 import { MidiInput, SettingsButton } from './settings';
 import { PitchBend } from './pitch-bend';
-import { EnvelopeSection } from './envelope';
+import { EnvelopeSection, VelocitySection } from './envelope';
 import { MobileLayout } from './mobile';
 import { FxScreen, FxProvider, useFx } from './fx';
 import { SYNTH_SCREENS, SynthScreen } from './screens';
 
+// px of the keys: the row of the keys and the pitch bend
+const KEY_HEIGHT = 100;
+// px of a white key at most, and at least while octaves are taken off (up to 5 from C1)
+const KEY_WIDTH = 40;
+const MIN_KEY_WIDTH = 36;
+const MAX_OCTAVES = 5;
+
 const Root = styled.div`
   display: grid;
-  grid-template-rows: 1fr 1fr 110px;
+  grid-template-rows: 1fr 1fr ${KEY_HEIGHT}px;
   height: calc(100vh - 80px);
   gap: 1px;
   background: ${theme.colors.primaryLowContrast};
@@ -55,18 +62,24 @@ const Root = styled.div`
 
 const AdsrContainer = styled.div`
   display: grid;
-  grid-template-columns: 3fr 3fr 1fr;
+  grid-template-columns: 3fr 1.5fr 3fr 1fr;
   background: ${theme.colors.primaryLowContrast};
   gap: 1px;
 `;
 
-// the pitch bend left of the keys, as on a hardware keyboard
+// the pitch bend left of the keys, as on a hardware keyboard: both as high as the row, a line between them as
+// between the sections
 const PianoContainer = styled.div`
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding-left: 8px;
+  gap: 1px;
   min-width: 0;
+`;
+
+// a section of its own, as the sections of the synth
+const PitchSection = styled.div`
+  display: flex;
+  padding: 8px 12px 8px 8px;
+  background: ${theme.colors.primary};
 `;
 
 // the keys in the rest of the row, centered
@@ -76,13 +89,6 @@ const Keys = styled.div`
   display: flex;
   justify-content: center;
 `;
-
-// px of the wheel: as high as the keys
-const WHEEL_HEIGHT = 100;
-// px of a white key at most, and at least while octaves are taken off (up to 5 from C1)
-const KEY_WIDTH = 40;
-const MIN_KEY_WIDTH = 36;
-const MAX_OCTAVES = 5;
 
 // exactly the right half of the screen: 50% of the header content box + its 10px right padding;
 // split into full-height sections: tabs | preset | master
@@ -119,7 +125,9 @@ const PianoInternal = () => {
   const octaves = Math.min(MAX_OCTAVES, Math.max(1, Math.floor(width / (7 * MIN_KEY_WIDTH))));
   return (
     <PianoContainer>
-      <PitchBend height={WHEEL_HEIGHT} />
+      <PitchSection>
+        <PitchBend />
+      </PitchSection>
       <Keys ref={keysRef}>
         {width > 0 && (
           <PianoKeyboard
@@ -129,6 +137,7 @@ const PianoInternal = () => {
             octaves={[1, octaves]}
             fitScreen={false}
             keyWidth={Math.min(KEY_WIDTH, width / (7 * octaves))}
+            keyHeight={KEY_HEIGHT}
           />
         )}
       </Keys>
@@ -140,6 +149,7 @@ const AdsrEnvelopeInternal = () => {
   return (
     <AdsrContainer>
       <EnvelopeSection />
+      <VelocitySection />
       <FilterSection />
       <VoicingSection />
     </AdsrContainer>

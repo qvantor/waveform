@@ -1,18 +1,23 @@
 import React from 'react';
+import { BehaviorSubject } from 'rxjs';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import { AdsrEnvelope, formatTime, VelocityCurve } from '@waveform/ui-kit';
+import { AdsrEnvelope, formatTime, VelocityCurve, VelocityDot } from '@waveform/ui-kit';
 import { MOD_SOURCES } from '@waveform/preset-schema';
 import { EnvelopesProvider, ModulationProvider, useEnvelopes, useModulation } from '../../common/modules';
 import { EnvelopesModule } from '../../common/modules/envelopes';
 import { ModulationModule } from '../../common/modules/modulation';
+import { SynthContext, SynthModule } from '../../common/modules/synth';
+import type { FxNote } from '../../fx/effects/fx-modulation';
 import { MOD_TARGETS } from '../../common/modulation/modulation-targets';
 import { EnvelopeSection } from './envelope-section';
+import { VelocitySection } from './velocity-section';
 import { EnvelopeDot } from './envelope-dot';
 
 jest.mock('@waveform/ui-kit', () => ({
   ...jest.requireActual('@waveform/ui-kit'),
   AdsrEnvelope: jest.fn(() => null),
   VelocityCurve: jest.fn(() => null),
+  VelocityDot: jest.fn(() => null),
 }));
 
 const Capture = ({ onModel }: { onModel: (modules: [EnvelopesModule, ModulationModule]) => void }) => {
@@ -28,6 +33,7 @@ const setup = () => {
       <ModulationProvider initial={undefined}>
         <Capture onModel={(modules) => ([envelopes, modulation] = modules)} />
         <EnvelopeSection />
+        <VelocitySection />
         <div data-mod-target='osc1.wave' data-testid='knob' />
       </ModulationProvider>
     </EnvelopesProvider>
@@ -60,21 +66,26 @@ const dragTab = (name: string, onto: Element | null) => {
   Reflect.deleteProperty(document, 'elementFromPoint');
 };
 
-describe('EnvelopeSection', () => {
+describe('EnvelopeSection and VelocitySection', () => {
   afterEach(() => {
     (AdsrEnvelope as jest.Mock).mockClear();
     (VelocityCurve as jest.Mock).mockClear();
+    (VelocityDot as jest.Mock).mockClear();
   });
 
-  it('has the tabs ENV 1 | ENV 2 | ENV 3 | VELO in its header, ENV 1 selected', () => {
+  it('has the tabs ENV 1 | ENV 2 | ENV 3 in its header, VELO has a section of its own, ENV 1 selected', () => {
     setup();
-    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
-      'ENV 1',
-      'ENV 2',
-      'ENV 3',
-      'VELO',
-    ]);
+    const tabs = (name: string) =>
+      within(screen.getByRole('tablist', { name }))
+        .getAllByRole('tab')
+        .map((tab) => tab.textContent);
+    expect(tabs('Envelopes')).toEqual(['ENV 1', 'ENV 2', 'ENV 3']);
+    expect(tabs('Velocity')).toEqual(['VELO']);
     expect(screen.getByRole('tab', { name: 'ENV 1' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'ENV 1' })).toHaveClass('selected');
+    // the tab of its section, which always shows it
+    expect(screen.getByRole('tab', { name: 'VELO' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'VELO' })).not.toHaveClass('selected');
   });
 
   it('a tab selects the envelope the knobs show and edit', () => {
@@ -125,21 +136,56 @@ describe('EnvelopeSection', () => {
     expect(grips()).toEqual([false, true, false, false]);
   });
 
-  it('the VELO tab shows the curve of the velocity and Amp, they edit its knobs; no note yet: no dot', () => {
+  it('VELO selected, the ENV section shows the last envelope: its tab a translucent key, the grip on VELO', () => {
+    const { envelopes, props } = setup();
+    const tab = (name: string) => screen.getByRole('tab', { name });
+    fireEvent.click(tab('ENV 2'));
+    fireEvent.click(tab('VELO'));
+    expect(envelopes[0].$selected.value).toBe('velo');
+    expect(props()).toMatchObject(envelopes[0].$envelopes.value.env2);
+    expect(tab('ENV 2')).toHaveAttribute('aria-selected', 'true');
+    expect(tab('ENV 2')).toHaveClass('shown');
+    expect(tab('ENV 2')).not.toHaveClass('selected');
+    expect(tab('VELO')).toHaveClass('selected');
+    expect(within(tab('VELO')).queryByTestId('env-grip')).not.toBeNull();
+    expect(within(tab('ENV 2')).queryByTestId('env-grip')).toBeNull();
+
+    fireEvent.click(tab('ENV 3'));
+    expect(envelopes[0].$selected.value).toBe('env3');
+    expect(tab('ENV 3')).toHaveClass('selected');
+    expect(tab('ENV 3')).not.toHaveClass('shown');
+    expect(tab('VELO')).not.toHaveClass('selected');
+  });
+
+  it('the VELO section shows the curve of the velocity and Amp, they edit its knobs, the dot of a note on it', () => {
     const { envelopes, velocityProps } = setup();
-    fireEvent.click(screen.getByRole('tab', { name: 'VELO' }));
-    expect(velocityProps()).toMatchObject({ k: 0, amp: 1, curveMax: 10, velocity: null });
+    expect(velocityProps()).toMatchObject({ k: 0, amp: 1, curveMax: 10 });
+    // a child of the chart on its curve: a note renders it alone
+    expect(velocityProps().children).toMatchObject({ props: { k: 0 } });
     act(() => velocityProps().onCurveChange(-2.5));
     act(() => velocityProps().onAmpChange(0.4));
     expect(envelopes[0].$velocity.value).toEqual({ amp: 0.4, k: -2.5 });
     expect(velocityProps()).toMatchObject({ k: -2.5, amp: 0.4 });
   });
 
+  it('the dot of the last note on the curve: none before a note, then at its velocity on the curve of k', () => {
+    const { velocityProps } = setup();
+    const $fxNote = new BehaviorSubject<FxNote | null>(null);
+    const synth = [{ $fxNote }, {}] as unknown as SynthModule;
+    // the child of the chart alone: a note renders it, not the chart
+    render(<SynthContext.Provider value={synth}>{velocityProps().children}</SynthContext.Provider>);
+    expect(VelocityDot).not.toHaveBeenCalled();
+    const renders = (VelocityCurve as jest.Mock).mock.calls.length;
+    act(() => $fxNote.next({ envelopes: [], start: 1, release: null, velo: 0.6, velocity: 0.6 }));
+    expect((VelocityDot as jest.Mock).mock.lastCall?.[0]).toEqual({ k: 0, velocity: 0.6 });
+    expect((VelocityCurve as jest.Mock).mock.calls).toHaveLength(renders);
+  });
+
   it('the VELO tab dragged onto a knob assigns the velocity to it', () => {
     const { modulation } = setup();
     dragTab('VELO', screen.getByTestId('knob'));
     expect(modulation[0].$routes.value).toEqual([{ source: 'velo', target: 'osc1.wave', amount: 0.5 }]);
-    expect(screen.getByRole('tab', { name: 'VELO' }).getAttribute('aria-selected')).toBe('true');
+    expect(screen.getByRole('tab', { name: 'VELO' })).toHaveClass('selected');
   });
 
   it('a tab dragged onto a knob assigns its envelope to it at +50%, once, and selects it', () => {
