@@ -6,6 +6,7 @@ import type {
   VoiceOptions,
   VoiceRoute,
   VoicesReportMessage,
+  VoiceVelocity,
 } from '../app/synth/common/wavetable/voice-options';
 import {
   VOICE_PARAMETERS,
@@ -16,7 +17,8 @@ import {
 // the voices of the voices node of a context as the main thread made them: each rebuilt from the events
 // the engine posted to the node (a voice from its `on`), its params AudioParam mocks the events of each are
 // played into (the calls and their order, the value at the current time), the routes and the filters sent to
-// it; bends() the pitch bends of the nodes; end() and started() answer for the node as its processor tells them
+// it (and its velocities); bends() the pitch bends of the nodes; end() and started() answer for the node as its
+// processor tells them
 
 export interface VoicesNodeStub extends AudioWorkletNode {
   name: string;
@@ -34,8 +36,12 @@ export interface VoiceView {
   values: Partial<Record<VoiceParam, number>>;
   // its params, the events of each played into a mock
   params: Record<VoiceParam, AudioParam>;
-  // the routes and the filters sent to it, in order
-  messages: ({ routes: VoiceRoute[] } | { filter: VoiceFilterOptions | null })[];
+  // the routes, the filters and the velocities sent to it, in order
+  messages: (
+    | { routes: VoiceRoute[] }
+    | { filter: VoiceFilterOptions | null }
+    | { velocity: VoiceVelocity }
+  )[];
   // the node it plays in
   node: VoicesNodeStub;
 }
@@ -98,8 +104,13 @@ export const voiceEvents = (context: BaseAudioContext, engine: { flush: () => vo
       bends.push(event.cents);
       return;
     }
-    if (event.kind === 'routes' || event.kind === 'filter') {
-      const message = event.kind === 'routes' ? { routes: event.routes } : { filter: event.filter };
+    if (event.kind === 'routes' || event.kind === 'filter' || event.kind === 'velocity') {
+      const message =
+        event.kind === 'routes'
+          ? { routes: event.routes }
+          : event.kind === 'filter'
+          ? { filter: event.filter }
+          : { velocity: event.velocity };
       event.voices.forEach((id) => byId.get(id)?.messages.push(message));
       return;
     }
@@ -141,8 +152,8 @@ export const voiceEvents = (context: BaseAudioContext, engine: { flush: () => vo
 };
 
 // what the main thread sends the voices nodes of a context: its messages (one a task), the voices made, the
-// automation events of their params (set, target, ramp, cancel), the routes and filters of playing voices and the
-// pitch bends
+// automation events of their params (set, target, ramp, cancel), the routes, filters and velocities of playing
+// voices and the pitch bends
 export interface VoiceWork {
   messages: number;
   voices: number;
@@ -156,8 +167,9 @@ const countEvents = (context: BaseAudioContext): VoiceWork => {
   return {
     messages: events.length,
     voices: all.filter(({ kind }) => kind === 'on').length,
-    automation: all.filter(({ kind }) => !['on', 'routes', 'filter', 'bend'].includes(kind)).length,
-    changes: all.filter(({ kind }) => ['routes', 'filter', 'bend'].includes(kind)).length,
+    automation: all.filter(({ kind }) => !['on', 'routes', 'filter', 'velocity', 'bend'].includes(kind))
+      .length,
+    changes: all.filter(({ kind }) => ['routes', 'filter', 'velocity', 'bend'].includes(kind)).length,
   };
 };
 

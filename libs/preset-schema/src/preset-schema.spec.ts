@@ -131,6 +131,7 @@ describe('normalizePreset', () => {
       e1: { attack: 0.005, hold: 0.1, decay: 0, sustain: 1, release: 0.005, curves },
       e2: { attack: 0.005, hold: 0, decay: 32, sustain: 0, release: 0, curves },
       e3: { attack: 0.005, hold: 0, decay: 0.5, sustain: 0, release: 0.3, curves },
+      vel: { amp: 1, k: 0 },
     });
     expect(normalizePreset({ adsr: { attack: 0.5 } })).not.toHaveProperty('adsr');
   });
@@ -158,6 +159,20 @@ describe('normalizePreset', () => {
     expect(
       Object.keys(normalizePreset({ mod: { 'env3:osc2.gain': 1, 'env1:osc1.detune': -1 } }).mod)
     ).toEqual(['env1:osc1.detune', 'env3:osc2.gain']);
+  });
+
+  it('gives the velocity a line and Amp 1 by default, keeps Amp 0 and a curve on the grid within ±10', () => {
+    expect(normalizePreset({}).env.vel).toEqual({ amp: 1, k: 0 });
+    expect(normalizePreset({ env: { vel: { amp: 0 } } }).env.vel).toEqual({ amp: 0, k: 0 });
+    expect(normalizePreset({ env: { vel: { amp: 0.5, k: -3.456 } } }).env.vel).toEqual({
+      amp: 0.5,
+      k: -3.46,
+    });
+  });
+
+  it('takes routes of the velocity (VELO) as those of an envelope', () => {
+    const mod = { 'velo:filter.cutoff': 0.5, 'env2:filter.cutoff': -0.25, 'velo:delay.mix': 1 };
+    expect(normalizePreset({ mod }).mod).toEqual(mod);
   });
 
   it('fills the range of the pitch bend with 2 semitones down and up, keeps 0..48', () => {
@@ -313,6 +328,8 @@ describe('normalizePreset', () => {
     ['pitch bend range not integer', { ...preset, v: { ...preset.v, bd: 1.5 } }],
     ['mod amount over 1', { ...preset, mod: { 'env2:osc1.wave': 1.5 } }],
     ['mod source unknown', { ...preset, mod: { 'lfo1:osc1.wave': 0.5 } }],
+    ['velocity amp over 1', { ...preset, env: { ...preset.env, vel: { amp: 1.5 } } }],
+    ['velocity curve over 10', { ...preset, env: { ...preset.env, vel: { k: -11 } } }],
     ['mod key without a target', { ...preset, mod: { env2: 0.5 } }],
     ['mod amount not a number', { ...preset, mod: { 'env2:osc1.wave': '0.5' } }],
     [

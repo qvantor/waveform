@@ -183,7 +183,7 @@ export const midiController = ({
                     // held by QWERTY or the piano: theirs to release, not on a channel or input switch
                     if (!channels && $pressed.value[note[0]].includes(note[1])) return;
                     held.set(midi, (channels ?? new Set<number>()).add(channel));
-                    onPress(note);
+                    onPress(note, velocity);
                   } else if (noteOn || (control >= 128 && control <= 143)) {
                     const channels = held.get(midi);
                     // not pressed on this channel: filtered out then, or another source's note

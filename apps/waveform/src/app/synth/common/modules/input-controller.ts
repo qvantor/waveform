@@ -2,9 +2,18 @@ import { Subject } from 'rxjs';
 import { rxModel, rxModelReact, ObjectBS, PrimitiveBS } from '@waveform/rxjs-react';
 import { Note, Notes } from '@waveform/ui-kit';
 
+// the velocity of a note of the computer keyboard and of the piano on the screen (MIDI: 1..127)
+export const DEFAULT_VELOCITY = 100;
+
+// a note pressed and its velocity
+export interface NoteOn {
+  note: Note;
+  velocity: number;
+}
+
 export const inputController = () =>
   rxModel(() => {
-    const $onPress = new Subject<Note>();
+    const $onPress = new Subject<NoteOn>();
     const $onRelease = new Subject<Note>();
 
     const $pressed = new ObjectBS<Record<number, Notes[]>>({
@@ -25,9 +34,9 @@ export const inputController = () =>
     const $bend = new PrimitiveBS<number>(0);
     return { $pressed, $onPress, $onRelease, $bend };
   }).actions(({ $pressed, $onPress, $onRelease, $bend }) => ({
-    onPress: (note: Note) => {
+    onPress: (note: Note, velocity = DEFAULT_VELOCITY) => {
       if ($pressed.value[note[0]].includes(note[1])) return;
-      $onPress.next(note);
+      $onPress.next({ note, velocity });
       const octave = $pressed.value[note[0]];
       $pressed.next({ ...$pressed.value, [note[0]]: [...octave, note[1]] });
     },

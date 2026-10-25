@@ -37,6 +37,21 @@ describe('routedValue', () => {
   });
 });
 
+describe('routedValue of the velocity', () => {
+  // VELO: the source after the envelopes
+  const velo: FxRoute = { ...drive, env: 3 };
+
+  it('moves the knob by amount × VELO of the note, the same all along it, released too', () => {
+    const played: FxNote = { ...note(2), velo: 0.5, velocity: 0.5 };
+    [0.5, 1, 1.05, 3, 10].forEach((t) => expect(routedValue(2, [velo], played, t)).toBe(5));
+    expect(routedValue(2, [velo, drive], played, 1.1)).toBeCloseTo(11);
+  });
+
+  it('a note without one: no VELO', () => {
+    expect(routedValue(2, [velo], note(), 1)).toBe(2);
+  });
+});
+
 describe('createFxModulator', () => {
   const frame = (seconds: number) => Math.round(seconds * RATE);
 

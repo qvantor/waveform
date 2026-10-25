@@ -221,7 +221,7 @@ export const createPerfApi = (models: PerfModels) => {
     tracing.add(models.synth[0].$voiceStarts.subscribe((start) => starts.push(start)));
     // after the synth's own subscriptions: `at` is after its note on
     tracing.add(
-      $onPress.subscribe((note) => {
+      $onPress.subscribe(({ note }) => {
         const output = audioCtx.getOutputTimestamp?.();
         presses.push({
           note: noteToString(note),

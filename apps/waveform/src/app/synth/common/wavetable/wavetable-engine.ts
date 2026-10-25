@@ -19,6 +19,7 @@ import type {
   VoiceOptions,
   VoiceRoute,
   VoicesReportMessage,
+  VoiceVelocity,
 } from './voice-options';
 import { STORE_PROCESSOR, VOICE_PARAMETERS, VOICES_PROCESSOR, VoiceParam } from './wavetable-osc-params';
 import type { StoreFreedBytesMessage, StoreRefusedMessage } from './wavetable-osc-wasm';
@@ -359,12 +360,15 @@ export const createWavetableEngine = (
       enqueue({ kind: 'on', voice: id, options, params: initial });
       return handle;
     },
-    // the routes, the filter of playing voices changed (one event for them all)
+    // the routes, the filter, the velocity of playing voices changed (one event for them all)
     setRoutes: (ids: number[], routes: VoiceRoute[]) => {
       if (ids.length > 0) enqueue({ kind: 'routes', voices: ids, routes });
     },
     setFilter: (ids: number[], filter: VoiceFilterOptions | null) => {
       if (ids.length > 0) enqueue({ kind: 'filter', voices: ids, filter });
+    },
+    setVelocity: (ids: number[], velocity: VoiceVelocity) => {
+      if (ids.length > 0) enqueue({ kind: 'velocity', voices: ids, velocity });
     },
     // the pitch bend of every voice (cents on top of their detunes), new ones start with it: the node glides there
     setBend: (cents: number) => {

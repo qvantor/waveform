@@ -1,5 +1,5 @@
 import { curvedAt } from '../../common/envelope/envelope-curve';
-import { FxNote, FxRoute, routedUnclamped } from './fx-modulation';
+import { FxNote, FxRoute, isEnvelope, routedUnclamped } from './fx-modulation';
 
 // the knobs of the fx made of native nodes (the delay, the mix of every slot) follow the envelopes of the last
 // note by automation: a stage of an envelope is linear between its corners or curved (its curves), the knobs
@@ -115,11 +115,13 @@ export const glideParam = (param: AudioParam, value: number, time: number, timeC
 
 // the times (seconds after the start of the note) after `from` the envelopes the routes read have a corner at
 // (within two of them each one is linear): the sums the envelopes work out their stages with, so a corner is
-// exactly where a stage ends (from the time of the context it would be off by a rounding, on either side)
+// exactly where a stage ends (from the time of the context it would be off by a rounding, on either side). The
+// velocity has none
 const corners = (note: FxNote, routes: FxRoute[], from: number) => {
   const times = new Set<number>();
   const released = note.release === null ? Infinity : note.release - note.start;
   routes.forEach(({ env }) => {
+    if (!isEnvelope(note, env)) return;
     const { attack, hold, decay, release } = note.envelopes[env];
     [0, attack, attack + hold, attack + hold + decay].forEach((time) => {
       if (time < released) times.add(time);
@@ -169,7 +171,7 @@ export const scheduleRouted = (
   // a curved stage of an envelope a route reads (between two corners each one is in one stage)
   const released = note.release === null ? Infinity : note.release - note.start;
   const curved = (a: number, b: number) =>
-    routes.some(({ env }) => curvedAt(note.envelopes[env], (a + b) / 2, released));
+    routes.some(({ env }) => isEnvelope(note, env) && curvedAt(note.envelopes[env], (a + b) / 2, released));
   const [first = Infinity] = corners(note, routes, begin - note.start);
   let from = Math.min(glide, first);
   const glided = knob(from, true);

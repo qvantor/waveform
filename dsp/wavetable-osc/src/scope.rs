@@ -203,6 +203,12 @@ impl Scope {
         }
     }
 
+    pub fn set_velocity(&mut self, id: f64, velocity: crate::velocity::VoiceVelocity) {
+        if let Some(voice) = self.voice(id) {
+            voice.voice.set_velocity(velocity);
+        }
+    }
+
     /// the params of voice `id` for the blocks of `frames` from now on, given directly (lengths, then PARAMS ×
     /// frames values); None: no such voice
     pub fn direct(&mut self, id: f64, frames: usize) -> Option<&mut [f32]> {

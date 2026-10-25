@@ -2,7 +2,7 @@ import React from 'react';
 import styled from 'styled-components';
 import cls from 'classnames';
 import { MdDragIndicator } from 'react-icons/md';
-import { ENVELOPES, EnvelopeId } from '@waveform/preset-schema';
+import { MOD_SOURCES, ModSource } from '@waveform/preset-schema';
 import { startModDrag, theme } from '@waveform/ui-kit';
 import { ENVELOPE_COLORS, ENVELOPE_LABELS } from '../envelope-colors';
 
@@ -15,8 +15,8 @@ const Root = styled.div`
   padding: 2px;
 `;
 
-// a third of the header each, its label white as the titles of the other headers, after a dot of the color of
-// its envelope (the color of its routes on the knobs). The selected one is a white key with a dark label
+// a quarter of the header each, its label white as the titles of the other headers, after a dot of the color of
+// its source (the color of its routes on the knobs). The selected one is a white key with a dark label
 const Tab = styled.button`
   flex: 1 1 0;
   min-width: 0;
@@ -75,18 +75,18 @@ const Grip = styled(MdDragIndicator)`
 `;
 
 interface Props {
-  selected: EnvelopeId;
-  onSelect: (id: EnvelopeId) => void;
-  // a tab dragged onto a knob: its envelope modulates it
-  onDrop?: (id: EnvelopeId, target: string) => void;
+  selected: ModSource;
+  onSelect: (id: ModSource) => void;
+  // a tab dragged onto a knob: its source modulates it
+  onDrop?: (id: ModSource, target: string) => void;
 }
 
-// ENV 1 | ENV 2 | ENV 3 in the header of the section: the envelope its chart shows and its knobs edit, the knobs
-// show its routes. A tab dragged onto a knob assigns its envelope to it (a click selects it), the grip of the
-// selected one tells it
+// ENV 1 | ENV 2 | ENV 3 | VELO in the header of the section: the envelope (or the velocity) its chart shows and
+// its knobs edit, the knobs show its routes. A tab dragged onto a knob assigns its source to it (a click selects
+// it), the grip of the selected one tells it
 export const EnvelopeTabs = ({ selected, onSelect, onDrop }: Props) => (
-  <Root role='tablist' aria-label='Envelopes'>
-    {ENVELOPES.map((id) => (
+  <Root role='tablist' aria-label='Modulation sources'>
+    {MOD_SOURCES.map((id) => (
       <Tab
         key={id}
         type='button'

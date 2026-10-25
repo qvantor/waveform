@@ -6,6 +6,7 @@ use crate::scope::{bend_into, Scope, SET};
 use crate::shared::{Shared, PARAMS};
 use crate::store::{EntryRef, Store};
 use crate::timeline::{Kind, Timeline};
+use crate::velocity::VoiceVelocity;
 use crate::voice::VoiceOptions;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -424,6 +425,7 @@ fn note() -> VoiceOptions {
         phrase: 0.0,
         routes: Vec::new(),
         filter: None,
+        velocity: VoiceVelocity::default(),
     }
 }
 

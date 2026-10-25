@@ -9,6 +9,7 @@ use crate::modulation::{
 };
 use crate::shared::{Scratch, Shared, DIRECT_SAMPLES, MIX_SAMPLES, PARAMS, UNISON, VOICES};
 use crate::store::{EntryRef, Levels, Store, FRAME_GUARD};
+use crate::velocity::{Velocity, VoiceVelocity};
 use alloc::{vec, vec::Vec};
 use jsmath::{ceil, cos, floor, log2, max, min, pow, round, sin, sqrt, PI};
 
@@ -141,6 +142,7 @@ pub struct VoiceOptions {
     pub phrase: f64,
     pub routes: Vec<VoiceRoute>,
     pub filter: Option<FilterOptions>,
+    pub velocity: VoiceVelocity,
 }
 
 fn release_start(seen: f64, held: f64, lead: f64) -> f64 {
@@ -572,6 +574,7 @@ pub struct Voice {
     pub start_frame: f64,
     env_start_frame: f64,
     envelopes: Vec<EnvelopeBlock>,
+    velocity: Velocity,
     filter: VoiceFilter,
     stop_frame: f64,
     kill_from: f64,
@@ -664,6 +667,7 @@ impl Voice {
             start_frame,
             env_start_frame,
             envelopes,
+            velocity: Velocity::new(sample_rate, options.velocity),
             filter: VoiceFilter::new(sample_rate, options.filter),
             stop_frame: f64::INFINITY,
             kill_from: f64::INFINITY,
@@ -812,6 +816,12 @@ impl Voice {
         self.filter.set(filter);
     }
 
+    /// a note took the voice over (mono): its VELO and its amp glide to the velocity of that note
+    pub fn set_velocity(&mut self, velocity: VoiceVelocity) {
+        self.velocity.set(velocity);
+        self.modulation.wake();
+    }
+
     /// a block starting at `frame` into the outputs; false once the voice has ended
     pub fn process(
         &mut self,
@@ -881,6 +891,7 @@ impl Voice {
                 }
             }
         }
+        self.velocity.render(a as usize, b as usize);
         if self.filter.on {
             self.filter.glide(n);
         }
@@ -897,7 +908,8 @@ impl Voice {
                 filter.base(1),
                 filter.base(2),
             ];
-            self.modulation.apply(&bases, &self.envelopes, frame, a, b, n);
+            self.modulation
+                .apply(&bases, &self.envelopes, &self.velocity.level, frame, a, b, n);
         }
         let (a, b) = (a as usize, b as usize);
         {
@@ -958,6 +970,23 @@ impl Voice {
             for i in a..b {
                 out_l[i] = ((s.left[i] as f64 + s.center[i] as f64) * values[i] as f64) as f32;
                 out_r[i] = ((s.right[i] as f64 + s.center[i] as f64) * values[i] as f64) as f32;
+            }
+        }
+        // the amp of the velocity, after ENV 1 (none at 1: the output of ENV 1 to the bit)
+        if !self.velocity.unity() {
+            let amp = &self.velocity.amp;
+            if amp.constant {
+                let g = amp.value();
+                for i in a..b {
+                    out_l[i] = (out_l[i] as f64 * g) as f32;
+                    out_r[i] = (out_r[i] as f64 * g) as f32;
+                }
+            } else {
+                for i in a..b {
+                    let g = amp.values[i] as f64;
+                    out_l[i] = (out_l[i] as f64 * g) as f32;
+                    out_r[i] = (out_r[i] as f64 * g) as f32;
+                }
             }
         }
         // the fade of a stolen voice: a raised cosine from 1 at killFrom to 0 at the stop

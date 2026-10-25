@@ -178,7 +178,7 @@ describe('perf test hook api', () => {
       const { api, modules } = await setup();
       const events: string[] = [];
       const [{ $onPress, $onRelease }] = modules.inputController;
-      $onPress.subscribe((note) => events.push(`on ${noteToString(note)}`));
+      $onPress.subscribe(({ note }) => events.push(`on ${noteToString(note)}`));
       $onRelease.subscribe((note) => events.push(`off ${noteToString(note)}`));
       await api.run([
         { at: 40, note: 'C4', on: false },

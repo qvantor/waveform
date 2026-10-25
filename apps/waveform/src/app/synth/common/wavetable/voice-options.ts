@@ -67,6 +67,13 @@ export const UNISON_SHAPE: UnisonShape = {
   positionSpread: 0,
 };
 
+// the velocity of a note: the level of VELO (the curve of its velocity: a source of the routes, after the
+// envelopes) and its amp (its volume after ENV 1: 1 - Amp + Amp · level)
+export interface VoiceVelocity {
+  level: number;
+  amp: number;
+}
+
 export interface VoiceOptions {
   osc: (VoiceOscOptions | null)[];
   // seconds of the context time the note starts at
@@ -82,6 +89,8 @@ export interface VoiceOptions {
   routes: VoiceRoute[];
   // the filter after the oscillators, null: off; its knobs change by a message
   filter: VoiceFilterOptions | null;
+  // its velocity (none: no VELO, the amp 1); a note that takes the voice over (mono) changes it by a message
+  velocity?: VoiceVelocity;
   // the voices node tells its start (VoiceStartedMessage) once (the perf test hook times the notes)
   trace?: boolean;
   // a voice of mono (Poly 1): the notes it takes over may start its envelopes again, the voices node tells its
@@ -92,8 +101,8 @@ export interface VoiceOptions {
 // main thread → voices processor, the events of a task in the order they were made: a voice of a note (`on`), the
 // automation of its params (the AudioParam call of the same name: setValueAtTime, setTargetAtTime,
 // exponentialRampToValueAtTime, cancelScheduledValues, linearRampToValueAtTime (the synth makes none); values in
-// f32, times in seconds of the context), the routes and the filter of playing voices, and the pitch bend of the
-// node. An event of a voice that has ended changes nothing
+// f32, times in seconds of the context), the routes, the filter and the velocity of playing voices, and the pitch
+// bend of the node. An event of a voice that has ended changes nothing
 export interface VoiceOn {
   kind: 'on';
   voice: number;
@@ -121,13 +130,25 @@ export interface VoicesFilter {
   voices: number[];
   filter: VoiceFilterOptions | null;
 }
+// a note took the voice over (mono): its VELO and its amp glide to its velocity in 10 ms
+export interface VoicesVelocity {
+  kind: 'velocity';
+  voices: number[];
+  velocity: VoiceVelocity;
+}
 // the pitch bend of every voice of the node (cents on top of the detune of each oscillator): it glides there in
 // 10 ms, new voices start with it
 export interface VoicesBend {
   kind: 'bend';
   cents: number;
 }
-export type VoiceEvent = VoiceOn | VoiceAutomation | VoicesRoutes | VoicesFilter | VoicesBend;
+export type VoiceEvent =
+  | VoiceOn
+  | VoiceAutomation
+  | VoicesRoutes
+  | VoicesFilter
+  | VoicesVelocity
+  | VoicesBend;
 export interface VoiceEventsMessage {
   events: VoiceEvent[];
 }
@@ -200,8 +221,8 @@ export interface StoreFreedMessage {
   freed: ArrayBuffer;
 }
 
-// a route of a note: envelope `env` (0: ENV 1, 1: ENV 2, 2: ENV 3) moves `param` by amount × its level
-// (0..1), in the units of the param (octaves for a log one: the base × 2^(amount × level)); the base plus
+// a route of a note: source `env` (0: ENV 1, 1: ENV 2, 2: ENV 3, 3: VELO, the velocity after the envelopes)
+// moves `param` by amount × its level (0..1), in the units of the param (octaves for a log one: the base × 2^(amount × level)); the base plus
 // every route is clamped to min..max, the range of the knob
 export interface VoiceRoute {
   env: number;

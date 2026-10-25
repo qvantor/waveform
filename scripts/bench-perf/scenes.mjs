@@ -41,14 +41,18 @@ const fx = (added = []) => ({
   reverb: { a: added.includes('reverb'), on: true, mix: 0.3, decay: 3 },
 });
 
+// the velocity takes nothing of the volume (Amp 0): no amp on the voices, the work of a tree before the velocity
+// (an A/B run against one compares the same work; a tree before it leaves `vel` out)
+const NO_VELOCITY = { amp: 0 };
+
 const patch = (values = {}) => ({
   osc1: osc(TABLES.saw303),
   osc2: OFF,
   filter: NO_FILTER,
-  env: { e1: ADSR },
   v: VOICING,
   fx: fx(),
   ...values,
+  env: { e1: ADSR, ...values.env, vel: NO_VELOCITY },
 });
 
 const BOTH_U8 = {
@@ -101,7 +105,7 @@ export const LATENCY_CASES = [
     id: 'L3',
     group: 'latency',
     title: '8 notes held (2 × u8), single notes on top',
-    snapshot: { ...patch(BOTH_U8), env: { e1: SHARP } },
+    snapshot: patch({ ...BOTH_U8, env: { e1: SHARP } }),
     count: 50,
     interval: 300,
     held: ['C2', 'E2', 'G2', 'B2', 'C3', 'E3', 'G3', 'B3'],

@@ -22,6 +22,7 @@ import {
   VoiceRoute,
   VoicesReportMessage,
   VoiceStats,
+  VoiceVelocity,
 } from './voice-options';
 import type { WavetableLevels } from './wavetable-levels';
 import { VOICE_PARAMETERS, VoiceParam } from './wavetable-osc-params';
@@ -66,6 +67,7 @@ export interface OscExports extends CoreExports {
   osc_voice_process: (voice: number, store: number, shared: number, frame: number, frames: number) => number;
   osc_voice_set_routes: (voice: number) => void;
   osc_voice_set_filter: (voice: number) => void;
+  osc_voice_set_velocity: (voice: number) => void;
   osc_voice_end: (voice: number, store: number, shared: number) => void;
   osc_voice_ended: (voice: number) => number;
   osc_voice_started_at: (voice: number) => number;
@@ -76,6 +78,7 @@ export interface OscExports extends CoreExports {
   osc_scope_events: (scope: number, store: number, shared: number, count: number) => void;
   osc_scope_routes: (scope: number, id: number) => void;
   osc_scope_filter: (scope: number, id: number) => void;
+  osc_scope_velocity: (scope: number, id: number) => void;
   osc_scope_bend: (scope: number, cents: number) => void;
   osc_scope_direct: (scope: number, id: number, frames: number) => number;
   osc_scope_process: (scope: number, store: number, shared: number, frame: number, frames: number) => void;
@@ -381,6 +384,13 @@ const writeFilter = (command: Float64Array, at: number, filter: VoiceFilterOptio
   return at;
 };
 
+// a voice without a velocity: no VELO, its volume ENV 1 alone
+const writeVelocity = (command: Float64Array, at: number, velocity: VoiceVelocity | undefined) => {
+  command[at++] = velocity?.level ?? 0;
+  command[at++] = velocity?.amp ?? 1;
+  return at;
+};
+
 const writeEnvelopes = (command: Float64Array, at: number, envelopes: EnvelopeParams[]) => {
   command[at++] = envelopes.length;
   envelopes.forEach(({ attack, hold, decay, sustain, release, curves }) => {
@@ -428,6 +438,7 @@ const writeVoiceOptions = (
     for (let v = 0; v < MAX_UNISON; v++) command[at++] = randomDetune ? random() : 0;
   }
   at = writeEnvelopes(command, at, options.envelopes);
+  at = writeVelocity(command, at, options.velocity);
   at = writeFilter(command, at, options.filter);
   return writeRoutes(command, at, options.routes);
 };
@@ -526,6 +537,11 @@ export const createVoiceWasm = (
       if (ended) return;
       writeFilter(scope.command(), 0, filter);
       exports.osc_voice_set_filter(handle);
+    },
+    setVelocity: (velocity: VoiceVelocity) => {
+      if (ended) return;
+      writeVelocity(scope.command(), 0, velocity);
+      exports.osc_voice_set_velocity(handle);
     },
     // ends the voice at once (its process threw): the versions and the mixes it holds are given back
     end: () => {
@@ -643,6 +659,12 @@ export const createVoiceScopeWasm = (
           writeFilter(scope.command(), 0, event.filter);
           event.voices.forEach((id) => guard(() => exports.osc_scope_filter(handle, id)));
         });
+      } else if (event.kind === 'velocity') {
+        flush();
+        guard(() => {
+          writeVelocity(scope.command(), 0, event.velocity);
+          event.voices.forEach((id) => guard(() => exports.osc_scope_velocity(handle, id)));
+        });
       } else if (event.kind === 'bend') {
         flush();
         guard(() => exports.osc_scope_bend(handle, event.cents));
@@ -734,6 +756,8 @@ export const createVoiceScopeWasm = (
     setRoutes: (id: number, routes: VoiceRoute[]) => apply([{ kind: 'routes', voices: [id], routes }]),
     setFilter: (id: number, filter: VoiceFilterOptions | null) =>
       apply([{ kind: 'filter', voices: [id], filter }]),
+    setVelocity: (id: number, velocity: VoiceVelocity) =>
+      apply([{ kind: 'velocity', voices: [id], velocity }]),
     // the pitch bend of every voice (cents): it glides there in 10 ms
     setBend: (cents: number) => apply([{ kind: 'bend', cents }]),
     // the params of voice `id` for the next blocks of `n` frames as they are (one value or n each); false: no such

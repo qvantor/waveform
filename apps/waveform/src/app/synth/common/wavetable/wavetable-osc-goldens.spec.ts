@@ -23,6 +23,7 @@ import {
   VoiceOptions,
   VoiceOscOptions,
   VoiceRoute,
+  VoiceVelocity,
 } from './voice-options';
 import { HELD_AGAIN_GATE, RELEASE_GATE, VoiceParam } from './wavetable-osc-params';
 import {
@@ -54,9 +55,10 @@ interface ScenarioVoice {
   at: number;
   options: VoiceOptions;
   params: Params;
-  // the messages before a block: routes, filter (undefined: none)
+  // the messages before a block: routes, filter, velocity (undefined: none)
   routes?: Record<number, VoiceRoute[]>;
   filters?: Record<number, VoiceFilterOptions | null>;
+  velocities?: Record<number, VoiceVelocity>;
 }
 
 interface Scenario {
@@ -206,6 +208,8 @@ const run = (name: string, scenario: Scenario) => {
       if (routes) wasm.setRoutes(routes);
       const filter = voice.filters?.[block];
       if (filter !== undefined) wasm.setFilter(filter);
+      const velocity = voice.velocities?.[block];
+      if (velocity) wasm.setVelocity(velocity);
       const [outL, outR] = [new Float32Array(n), new Float32Array(n)];
       wasm.process(frame, bend.bent(blockParams(voice, frame, n), bendOfBlock, n), outL, outR);
       expectFinite(name, block, outL);
@@ -251,6 +255,8 @@ const runScope = (name: string, scenario: Scenario, trap?: { block: number; voic
       if (routes) node.setRoutes(id, routes);
       const filter = voice.filters?.[block];
       if (filter !== undefined) node.setFilter(id, filter);
+      const velocity = voice.velocities?.[block];
+      if (velocity) node.setVelocity(id, velocity);
       const params = blockParams(voice, frame, n);
       if (trap?.block !== block || trap.voice !== id) node.params(id, params, n);
       else {
@@ -641,6 +647,81 @@ const GOLDEN: [string, Scenario][] = [
     },
   ],
   [
+    'the amp of a velocity under ENV 1, two notes of their own',
+    {
+      rate: RATE,
+      blocks: quanta(0.15),
+      tables: { a: [SAW, SQUARE] },
+      voices: [0, 6].map((at, k) => ({
+        at,
+        options: note({
+          osc: [osc({ unison: 3, phaseRand: 1 }), null],
+          envelopes: [ENV, FLAT, FLAT],
+          velocity: { level: [0.3, 0.8][k], amp: [0.35, 0.9][k] },
+        }),
+        params: {
+          frequency: constant([220, 330][k]),
+          spread1: constant(12),
+          position1: constant(0.4),
+          gate: gateAt(4096 + 1024 * k),
+        },
+      })),
+      seed: 10,
+    },
+  ],
+  [
+    'VELO on the cutoff, the wave and the gain: one value for the note',
+    {
+      rate: RATE,
+      blocks: quanta(0.1),
+      tables: { a: [SAW, SQUARE, SINE] },
+      voices: [
+        {
+          at: 0,
+          options: note({
+            osc: [osc({ unison: 2 }), null],
+            envelopes: [ENV, ENV, FLAT],
+            filter: { type: 'lowpass', cutoff: 400, resonance: 6, gain: 0 },
+            routes: [
+              { env: 3, param: 'cutoff', amount: 4, min: 20, max: 20000, log: true },
+              { env: 3, param: 'position1', amount: 0.5, min: 0, max: 1 },
+              { env: 1, param: 'gain1', amount: -0.3, min: 0, max: 1 },
+              { env: 3, param: 'gain1', amount: 0.2, min: 0, max: 1 },
+            ],
+            velocity: { level: 0.7, amp: 0.85 },
+          }),
+          params: { frequency: constant(110), spread1: constant(8), position1: constant(0.2) },
+        },
+      ],
+      seed: 11,
+    },
+  ],
+  [
+    'a note takes the voice over (mono): its VELO and its amp glide to its velocity',
+    {
+      rate: RATE,
+      blocks: quanta(0.2),
+      tables: { a: [SAW, SINE, SQUARE] },
+      voices: [
+        {
+          at: 0,
+          options: note({
+            osc: [osc({ unison: 4, phaseRand: 1 }), null],
+            envelopes: [ENV, FLAT, FLAT],
+            routes: [{ env: 3, param: 'position1', amount: 0.8, min: 0, max: 1 }],
+            velocity: { level: 0.2, amp: 0.4 },
+          }),
+          params: {
+            frequency: (frame) => (frame < 3000 ? 220 : frame < 6000 ? 330 : 247),
+            spread1: constant(20),
+          },
+          velocities: { 23: { level: 0.9, amp: 1 }, 47: { level: 0.5, amp: 0.6 } },
+        },
+      ],
+      seed: 12,
+    },
+  ],
+  [
     'the pitch bend of the node: every voice, gliding to each value, a voice made later bent too',
     {
       rate: RATE,
@@ -705,7 +786,8 @@ const randomRoutes = (random: Random): VoiceRoute[] =>
   Array.from({ length: Math.floor(random() * 4) }, () => {
     const [param, min, max, log] = pick(random, KNOBS);
     return {
-      env: Math.floor(random() * 3),
+      // ENV 1–3 or VELO
+      env: Math.floor(random() * 4),
       param,
       amount: (random() * 2 - 1) * (log ? 4 : max - min),
       min,
@@ -814,6 +896,10 @@ const randomScenario = (random: Random, seed: number): Scenario => {
     if (random() < 0.3) message[at + Math.floor(random() * 10)] = randomRoutes(random);
     const filters: Record<number, VoiceFilterOptions | null> = {};
     if (random() < 0.3) filters[at + Math.floor(random() * 10)] = randomFilter(random);
+    const randomVelocity = (): VoiceVelocity => ({ level: random(), amp: random() < 0.3 ? 1 : random() });
+    const velocity = random() < 0.6 ? randomVelocity() : undefined;
+    const velocities: Record<number, VoiceVelocity> = {};
+    if (random() < 0.3) velocities[at + Math.floor(random() * 10)] = randomVelocity();
     return {
       at,
       options: {
@@ -824,6 +910,7 @@ const randomScenario = (random: Random, seed: number): Scenario => {
         phrase: legato ? 0 : index,
         routes,
         filter: randomFilter(random),
+        ...(velocity && { velocity }),
       },
       params: {
         frequency: randomParam(random, 20, random() < 0.1 ? 40000 : 8000, true),
@@ -839,6 +926,7 @@ const randomScenario = (random: Random, seed: number): Scenario => {
       },
       routes: message,
       filters,
+      velocities,
     };
   });
   return { rate, blocks, tables, versions, voices, bends, seed };

@@ -284,6 +284,34 @@ const createCases = (dsp) => {
     };
   };
   const held = constant(BASE);
+  // a voice whose routes move all the time: ENV 2 and 3 (a decay of 0.2 s, started again every 64 blocks by the
+  // gate held at its other value) on the gain, the cutoff and the resonance of the filter, worked out at the points
+  // of every 32 samples (the hot loop of the routes; u1: the oscillator costs little next to them). No velocity: a
+  // tree before it has none
+  const AGAIN = 64;
+  const heldAgain = constant({ ...BASE, gate: 1.5 });
+  const routedOf = (core) => () => {
+    const flat = { attack: 0, hold: 0, decay: 0, sustain: 1, release: 0 };
+    const decay = { attack: 0, hold: 0, decay: 0.2, sustain: 0, release: 0 };
+    const voiceDsp = createVoice[core]({
+      osc: [{ table: 'a', unison: 1, phase: 0, phaseRand: 0 }, null],
+      start: 0,
+      envelopes: [flat, decay, decay],
+      envStart: 0,
+      phrase: 0,
+      routes: [
+        { env: 1, param: 'gain1', amount: -0.5, min: 0, max: 1 },
+        { env: 1, param: 'cutoff', amount: 4, min: 20, max: 20000, log: true },
+        { env: 2, param: 'resonance', amount: 12, min: -12, max: 24 },
+      ],
+      filter: { type: 'lowpass', cutoff: 400, resonance: 3, gain: 0 },
+    });
+    let block = 0;
+    return () => {
+      voiceDsp.process(block * BLOCK, Math.floor(block / AGAIN) % 2 ? heldAgain : held, outL, outR);
+      block++;
+    };
+  };
   // a position that moves in every block: the direct path. Its blocks over a period of the LFO (2 s) are worked
   // out once, not in the call: making them there (Float32Array.from, 128 sines) cost 34 ns/sample, more than the
   // core itself
@@ -333,6 +361,11 @@ const createCases = (dsp) => {
       oscScope &&
         voiceOf('wasm', { blend: 0.75, width: 0.5, stack: '12+7x2', detune: 'linear', positionSpread: 0.3 }),
       null
+    ),
+    ...withTs(
+      { 'voice u1 routed': [] },
+      oscScope && (() => routedOf('wasm')),
+      store && (() => routedOf('ts'))
     ),
     ...withTs(
       { 'voice chord attack': [] },

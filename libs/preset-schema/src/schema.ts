@@ -233,25 +233,40 @@ const envelopeSchema = ({ attack, hold, decay, sustain, release }: Record<Envelo
     })
     .default({});
 
+// the velocity of a note (MIDI 1..127; the computer keyboard and the piano play 100): VELO, a source of the
+// routes, is curveShape of its share of 127 by k (0 a line), Amp the share of the volume of the note it takes
+// (1 - Amp + Amp · VELO: at 0 none, at 1 a velocity of 64 on a line is 6 dB below 127). A fresh preset: a line,
+// Amp 1 (the presets saved before it have Amp 0: the database got it)
+export type VelocityKnob = 'amp' | 'k';
+export const VELOCITY_DEFAULTS: Record<VelocityKnob, number> = { amp: 1, k: 0 };
+
+const velocitySchema = z
+  .object({
+    amp: range(0, 1).default(VELOCITY_DEFAULTS.amp),
+    k: curveRange(VELOCITY_DEFAULTS.k),
+  })
+  .default({});
+
 const envSchema = z
   .object({
     e1: envelopeSchema(ENVELOPE_DEFAULTS.env1),
     e2: envelopeSchema(ENVELOPE_DEFAULTS.env2),
     e3: envelopeSchema(ENVELOPE_DEFAULTS.env3),
+    vel: velocitySchema,
   })
   .default({});
 
 // the modulation: a route moves a knob (a target of the app: osc1.wave, filter.cutoff, delay.time…) by its
 // source × amount, a share of the range of the knob in its scale (-1..1, a log knob in octaves: +0.5 on
-// Cutoff is about +5.5 octaves). Saved as { 'env2:osc1.wave': 0.5 }: one route per source and knob
-// the envelopes for now, LFOs later
-export type ModSource = EnvelopeId;
-export const MOD_SOURCES: readonly ModSource[] = [...ENVELOPES];
+// Cutoff is about +5.5 octaves). Saved as { 'env2:osc1.wave': 0.5 }: one route per source and knob. The sources:
+// the envelopes, then the velocity (VELO); an index into MOD_SOURCES is the index of the source in the voice
+export type ModSource = EnvelopeId | 'velo';
+export const MOD_SOURCES: readonly ModSource[] = [...ENVELOPES, 'velo'];
 // the most routes of a preset (once there are as many, a dragged ENV tab adds none) and of the sources on one
 // knob (a full one takes none)
 export const MOD_ROUTES_MAX = 64;
 export const MOD_KNOB_SOURCES_MAX = 4;
-const modKeySchema = z.string().regex(/^env[1-3]:[a-z][a-z0-9]*\.[a-z][a-z0-9]*$/);
+const modKeySchema = z.string().regex(/^(env[1-3]|velo):[a-z][a-z0-9]*\.[a-z][a-z0-9]*$/);
 const knobSources = (routes: Record<string, number>) =>
   Object.keys(routes).reduce<Record<string, number>>((counts, key) => {
     const target = key.slice(key.indexOf(':') + 1);

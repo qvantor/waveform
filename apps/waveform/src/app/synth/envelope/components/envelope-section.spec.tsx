@@ -1,6 +1,6 @@
 import React from 'react';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
-import { AdsrEnvelope, formatTime } from '@waveform/ui-kit';
+import { AdsrEnvelope, formatTime, VelocityCurve } from '@waveform/ui-kit';
 import { MOD_SOURCES } from '@waveform/preset-schema';
 import { EnvelopesProvider, ModulationProvider, useEnvelopes, useModulation } from '../../common/modules';
 import { EnvelopesModule } from '../../common/modules/envelopes';
@@ -12,6 +12,7 @@ import { EnvelopeDot } from './envelope-dot';
 jest.mock('@waveform/ui-kit', () => ({
   ...jest.requireActual('@waveform/ui-kit'),
   AdsrEnvelope: jest.fn(() => null),
+  VelocityCurve: jest.fn(() => null),
 }));
 
 const Capture = ({ onModel }: { onModel: (modules: [EnvelopesModule, ModulationModule]) => void }) => {
@@ -35,7 +36,9 @@ const setup = () => {
   // the props of the chart and the knobs in the last render
   const props = () =>
     (AdsrEnvelope as jest.Mock).mock.lastCall?.[0] as React.ComponentProps<typeof AdsrEnvelope>;
-  return { envelopes, modulation, props };
+  const velocityProps = () =>
+    (VelocityCurve as jest.Mock).mock.lastCall?.[0] as React.ComponentProps<typeof VelocityCurve>;
+  return { envelopes, modulation, props, velocityProps };
 };
 
 // jsdom has no PointerEvent: a mouse event with the pointer type name and a pointerId works for React and the
@@ -58,11 +61,19 @@ const dragTab = (name: string, onto: Element | null) => {
 };
 
 describe('EnvelopeSection', () => {
-  afterEach(() => (AdsrEnvelope as jest.Mock).mockClear());
+  afterEach(() => {
+    (AdsrEnvelope as jest.Mock).mockClear();
+    (VelocityCurve as jest.Mock).mockClear();
+  });
 
-  it('has the tabs ENV 1 | ENV 2 | ENV 3 in its header, ENV 1 selected', () => {
+  it('has the tabs ENV 1 | ENV 2 | ENV 3 | VELO in its header, ENV 1 selected', () => {
     setup();
-    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual(['ENV 1', 'ENV 2', 'ENV 3']);
+    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
+      'ENV 1',
+      'ENV 2',
+      'ENV 3',
+      'VELO',
+    ]);
     expect(screen.getByRole('tab', { name: 'ENV 1' })).toHaveAttribute('aria-selected', 'true');
   });
 
@@ -109,9 +120,26 @@ describe('EnvelopeSection', () => {
     setup();
     const grips = () =>
       screen.getAllByRole('tab').map((tab) => within(tab).queryByTestId('env-grip') !== null);
-    expect(grips()).toEqual([true, false, false]);
+    expect(grips()).toEqual([true, false, false, false]);
     fireEvent.click(screen.getByRole('tab', { name: 'ENV 2' }));
-    expect(grips()).toEqual([false, true, false]);
+    expect(grips()).toEqual([false, true, false, false]);
+  });
+
+  it('the VELO tab shows the curve of the velocity and Amp, they edit its knobs; no note yet: no dot', () => {
+    const { envelopes, velocityProps } = setup();
+    fireEvent.click(screen.getByRole('tab', { name: 'VELO' }));
+    expect(velocityProps()).toMatchObject({ k: 0, amp: 1, curveMax: 10, velocity: null });
+    act(() => velocityProps().onCurveChange(-2.5));
+    act(() => velocityProps().onAmpChange(0.4));
+    expect(envelopes[0].$velocity.value).toEqual({ amp: 0.4, k: -2.5 });
+    expect(velocityProps()).toMatchObject({ k: -2.5, amp: 0.4 });
+  });
+
+  it('the VELO tab dragged onto a knob assigns the velocity to it', () => {
+    const { modulation } = setup();
+    dragTab('VELO', screen.getByTestId('knob'));
+    expect(modulation[0].$routes.value).toEqual([{ source: 'velo', target: 'osc1.wave', amount: 0.5 }]);
+    expect(screen.getByRole('tab', { name: 'VELO' }).getAttribute('aria-selected')).toBe('true');
   });
 
   it('a tab dragged onto a knob assigns its envelope to it at +50%, once, and selects it', () => {

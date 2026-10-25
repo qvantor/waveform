@@ -20,6 +20,7 @@ pub mod scope;
 pub mod shared;
 pub mod store;
 pub mod timeline;
+pub mod velocity;
 pub mod voice;
 
 use alloc::{boxed::Box, vec::Vec};
@@ -30,6 +31,7 @@ use modulation::VoiceRoute;
 use scope::Scope;
 use shared::{Shared, PARAMS};
 use store::Store;
+use velocity::VoiceVelocity;
 use voice::{OscOptions, Params, UnisonShape, Voice, VoiceOptions, MAX_UNISON};
 
 const COMMAND_SIZE: usize = 4096;
@@ -89,11 +91,20 @@ fn read_filter(reader: &mut Reader) -> Option<FilterOptions> {
     })
 }
 
+// the velocity: the level of VELO, the amp
+fn read_velocity(reader: &mut Reader) -> VoiceVelocity {
+    VoiceVelocity {
+        level: reader.next(),
+        amp: reader.next(),
+    }
+}
+
 // (one copy for osc_voice_new and osc_scope_on)
 #[inline(never)]
 // VoiceOptions: start, envStart, phrase; per oscillator present, table, unison, phase, phaseRand and its 8 random
 // shares, its UnisonShape (blend, width, stack, detune, position spread and the 8 random shares of a random
-// detune); the envelopes (count, then 5 each), the filter, the routes
+// detune); the envelopes (count, then 8 each: the stages and the curves), the velocity (VELO, amp), the filter,
+// the routes
 fn read_voice_options(reader: &mut Reader) -> VoiceOptions {
     let start = reader.next();
     let env_start = reader.next();
@@ -133,6 +144,7 @@ fn read_voice_options(reader: &mut Reader) -> VoiceOptions {
             curves: [reader.next(), reader.next(), reader.next()],
         })
         .collect();
+    let velocity = read_velocity(reader);
     let filter = read_filter(reader);
     let routes = read_routes(reader);
     VoiceOptions {
@@ -143,6 +155,7 @@ fn read_voice_options(reader: &mut Reader) -> VoiceOptions {
         phrase,
         routes,
         filter,
+        velocity,
     }
 }
 
@@ -247,6 +260,19 @@ pub unsafe extern "C" fn osc_scope_filter(scope: *mut Scope, id: f64) {
 #[no_mangle]
 pub unsafe extern "C" fn osc_scope_bend(scope: *mut Scope, cents: f64) {
     (*scope).set_bend(cents);
+}
+
+/// a note took voice `id` over (mono): its velocity glides to the one in the command buffer (VELO, amp)
+///
+/// # Safety
+/// `scope` comes from osc_scope_new and was not freed
+#[no_mangle]
+pub unsafe extern "C" fn osc_scope_velocity(scope: *mut Scope, id: f64) {
+    let velocity = read_velocity(&mut Reader {
+        values: command(),
+        at: 0,
+    });
+    (*scope).set_velocity(id, velocity);
 }
 
 /// the params of voice `id` given directly from now on, for blocks of `frames`: their lengths (1: one value), then
@@ -659,6 +685,19 @@ pub unsafe extern "C" fn osc_voice_set_filter(voice: *mut Voice) {
         at: 0,
     });
     (*voice).set_filter(filter);
+}
+
+/// a note took the voice over (mono): its velocity glides to the one in the command buffer (VELO, amp)
+///
+/// # Safety
+/// `voice` comes from osc_voice_new and was not freed
+#[no_mangle]
+pub unsafe extern "C" fn osc_voice_set_velocity(voice: *mut Voice) {
+    let velocity = read_velocity(&mut Reader {
+        values: command(),
+        at: 0,
+    });
+    (*voice).set_velocity(velocity);
 }
 
 /// ends the voice at once (its process threw): its versions and mixes are given back

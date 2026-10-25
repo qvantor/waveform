@@ -3,7 +3,7 @@ import { BehaviorSubject, distinctUntilChanged, map } from 'rxjs';
 import { HandleModulation, HandleProps } from '@waveform/ui-kit';
 import { useBehaviorSubject, useObservable } from '@waveform/rxjs-react';
 import { number } from '@waveform/math';
-import { EnvelopeId, ENVELOPES, MOD_SOURCES, ModSource } from '@waveform/preset-schema';
+import { ENVELOPES, MOD_SOURCES, ModSource } from '@waveform/preset-schema';
 import { knobFull, ModRoute, ModulationContext, routesFull } from '../common/modules/modulation';
 import { EnvelopesContext } from '../common/modules/envelopes';
 import { SynthContext } from '../common/modules/synth';
@@ -15,7 +15,7 @@ import { ENVELOPE_COLORS, ENVELOPE_LABELS } from '../envelope/envelope-colors';
 const NO_ROUTES = new BehaviorSubject<ModRoute[]>([]);
 const NOT_LIVE = new BehaviorSubject(false);
 // without the envelopes model (a spec of a section) the tab the model starts with
-const FIRST_TAB = new BehaviorSubject<EnvelopeId>(ENVELOPES[0]);
+const FIRST_TAB = new BehaviorSubject<ModSource>(ENVELOPES[0]);
 
 const sign = (value: number) => (value > 0 ? '+' : value < 0 ? '-' : '');
 

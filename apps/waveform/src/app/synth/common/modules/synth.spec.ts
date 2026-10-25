@@ -8,7 +8,7 @@ import { withCurves } from '../../../../test-utils/envelopes';
 import { eventsOf, voiceEvents, VoiceView, voicesNodes } from '../../../../test-utils/voice-events';
 import { getFq } from '../../services';
 import { RELEASE_GATE, VoiceParam } from '../wavetable/wavetable-osc-params';
-import { envelopeValue } from '../envelope/envelope-curve';
+import { curveShape, envelopeValue } from '../envelope/envelope-curve';
 import { UNISON_SHAPE } from '../wavetable/voice-options';
 import { glideValue } from './glide';
 
@@ -16,6 +16,8 @@ import { glideValue } from './glide';
 const flush = () => new Promise((resolve) => setTimeout(resolve));
 // the values of the events in f32, as an AudioParam keeps them
 const f32 = Math.fround;
+// the velocity of the computer keyboard and the piano (100) as a share of 127: VELO on a line, the amp at Amp 1
+const KEY = 100 / 127;
 
 const setup = async ({ ready = true } = {}) => {
   const modules = createSynth();
@@ -92,6 +94,7 @@ describe('synth', () => {
       phrase: expect.any(Number),
       routes: [],
       filter: null,
+      velocity: { level: KEY, amp: KEY },
     });
     expect(param(voice, 'frequency').value).toBeCloseTo(440);
     expect(param(voice, 'gain1').value).toBe(0.5);
@@ -798,6 +801,8 @@ describe('synth', () => {
         start: expect.closeTo(1.2, 9),
         release: null,
         from: [expect.closeTo(envelopeValue(curved, 1.2, 1), 9), 0, 0],
+        velo: KEY,
+        velocity: KEY,
       });
       expect(envelopeValue(curved, 1.2, 1)).toBeCloseTo(0.4818, 4);
     });
@@ -1428,15 +1433,16 @@ describe('synth', () => {
       expect(synthModel.$fxNote.value).toBeNull();
       await travel(1);
       onPress([4, 'C']);
-      expect(synthModel.$fxNote.value).toEqual({ envelopes, start: 1, release: null });
+      const velocity = { velo: KEY, velocity: KEY };
+      expect(synthModel.$fxNote.value).toEqual({ envelopes, start: 1, release: null, ...velocity });
       await travel(1);
       onPress([4, 'E']);
       // a key released that is not the last one: nothing
       onRelease([4, 'C']);
-      expect(synthModel.$fxNote.value).toEqual({ envelopes, start: 2, release: null });
+      expect(synthModel.$fxNote.value).toEqual({ envelopes, start: 2, release: null, ...velocity });
       await travel(0.5);
       onRelease([4, 'E']);
-      expect(synthModel.$fxNote.value).toEqual({ envelopes, start: 2, release: 2.5 });
+      expect(synthModel.$fxNote.value).toEqual({ envelopes, start: 2, release: 2.5, ...velocity });
     });
 
     it('in legato those of the phrase: not started again by its notes, released with its last key', async () => {
@@ -1512,7 +1518,107 @@ describe('synth', () => {
       await travel(1);
       onPress([4, 'E']);
       started(voices()[0], Math.round(0.03 * audioCtx.sampleRate), 0);
-      expect(synthModel.$fxNote.value).toEqual({ envelopes, start: 1, release: null });
+      expect(synthModel.$fxNote.value).toEqual({
+        envelopes,
+        start: 1,
+        release: null,
+        velo: KEY,
+        velocity: KEY,
+      });
+    });
+  });
+
+  describe('velocity', () => {
+    // the options of the velocity of a voice
+    const velocityOf = (voice: VoiceView) => voice.options.velocity;
+    // the velocities a voice was sent (mono)
+    const sent = (voice: VoiceView) =>
+      voice.messages.flatMap((message) => ('velocity' in message ? [message.velocity] : []));
+
+    it('plays a note at its velocity: VELO by the curve, the amp by Amp (1: VELO itself)', async () => {
+      const { onPress, voices, envelopeModel } = await setup();
+      onPress([4, 'C'], 64);
+      expect(velocityOf(voices()[0])).toEqual({ level: 64 / 127, amp: 64 / 127 });
+
+      envelopeModel[1].setVelocity('amp', 0.5);
+      envelopeModel[1].setVelocity('k', 2);
+      onPress([4, 'E'], 127);
+      onPress([4, 'G'], 32);
+      const level = curveShape(2, 32 / 127);
+      expect(velocityOf(voices()[1])).toEqual({ level: 1, amp: 1 });
+      expect(velocityOf(voices()[2])).toEqual({ level, amp: 0.5 + 0.5 * level });
+    });
+
+    it('at Amp 0 every note is at its full volume, VELO still moves the knobs', async () => {
+      const { onPress, voices, envelopeModel, modulation } = await setup();
+      envelopeModel[1].setVelocity('amp', 0);
+      modulation[1].addRoute('velo', 'osc1.wave');
+      onPress([4, 'C'], 10);
+      const [voice] = voices();
+      expect(velocityOf(voice)).toEqual({ level: 10 / 127, amp: 1 });
+      // the source after the envelopes
+      expect(voice.options.routes).toEqual([expect.objectContaining({ env: 3, param: 'position1' })]);
+    });
+
+    it('the notes of a legato phrase each have their own, the fx follow the last one', async () => {
+      const { onPress, voices, synthModel, synthActions } = await setup();
+      synthActions.setLegato(true);
+      onPress([4, 'C'], 30);
+      onPress([4, 'E'], 120);
+      expect(voices().map((voice) => velocityOf(voice)?.level)).toEqual([30 / 127, 120 / 127]);
+      expect(synthModel.$fxNote.value).toMatchObject({ velo: 120 / 127, velocity: 120 / 127 });
+    });
+
+    it('mono: a note that takes the voice over sends its velocity, the key below gets its own back', async () => {
+      const { onPress, onRelease, voices, synthModel, synthActions } = await setup();
+      synthActions.setMaxVoices(1);
+      synthActions.setLegato(true);
+      onPress([4, 'C'], 30);
+      onPress([4, 'E'], 90);
+      expect(voices()).toHaveLength(1);
+      const [voice] = voices();
+      expect(velocityOf(voice)).toEqual({ level: 30 / 127, amp: 30 / 127 });
+      expect(sent(voice)).toEqual([{ level: 90 / 127, amp: 90 / 127 }]);
+      // the fx too, though in legato no new note starts them
+      expect(synthModel.$fxNote.value).toMatchObject({ velo: 90 / 127, velocity: 90 / 127 });
+
+      onRelease([4, 'E']);
+      expect(sent(voices()[0])).toEqual([
+        { level: 90 / 127, amp: 90 / 127 },
+        { level: 30 / 127, amp: 30 / 127 },
+      ]);
+      // the same velocity again: nothing sent
+      onPress([4, 'D'], 30);
+      expect(sent(voices()[0])).toHaveLength(2);
+    });
+
+    it('a preset switch: the keys wait with their velocities and start at them', async () => {
+      const { onPress, voices, synthActions, end } = await setup();
+      onPress([4, 'C'], 20);
+      synthActions.pause();
+      voices().forEach(end);
+      onPress([4, 'E'], 110);
+      synthActions.resume();
+      expect(
+        voices()
+          .slice(1)
+          .map((voice) => velocityOf(voice)?.level)
+      ).toEqual([20 / 127, 110 / 127]);
+    });
+
+    it('steals the quietest released voice by ENV 1 × its amp: a soft note before a loud one', async () => {
+      const { onPress, onRelease, voices, param, synthActions, envelopeModel, travel } = await setup();
+      synthActions.setMaxVoices(2);
+      envelopeModel[1].setEnvelopeValue('env1', 'release', 2);
+      onPress([4, 'C'], 127);
+      onPress([4, 'E'], 10);
+      await travel(0.5);
+      onRelease([4, 'E']);
+      onRelease([4, 'C']);
+      onPress([4, 'G']);
+      const [loud, soft] = voices();
+      expect(calls(param(soft, 'gate'), 'setValueAtTime').at(-1)?.[0]).toBe(-1);
+      expect(calls(param(loud, 'gate'), 'setValueAtTime').at(-1)?.[0]).toBeGreaterThanOrEqual(RELEASE_GATE);
     });
   });
 

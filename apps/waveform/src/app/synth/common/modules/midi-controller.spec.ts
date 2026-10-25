@@ -60,16 +60,29 @@ describe('midiController', () => {
     const { onPress, onRelease } = await setup(createAccess([input]));
 
     message(input, 144, 60, 100);
-    expect(onPress).toHaveBeenCalledWith([4, 'C']);
+    expect(onPress).toHaveBeenCalledWith([4, 'C'], 100);
 
     message(input, 128, 60, 0);
     expect(onRelease).toHaveBeenCalledWith([4, 'C']);
 
     // other channels
     message(input, 159, 69, 100);
-    expect(onPress).toHaveBeenLastCalledWith([4, 'A']);
+    expect(onPress).toHaveBeenLastCalledWith([4, 'A'], 100);
     message(input, 143, 69, 0);
     expect(onRelease).toHaveBeenLastCalledWith([4, 'A']);
+  });
+
+  it('plays a note at the velocity of its note on', async () => {
+    const input = createInput('a');
+    const { onPress } = await setup(createAccess([input]));
+
+    message(input, 144, 60, 1);
+    message(input, 144, 62, 127);
+
+    expect(onPress.mock.calls).toEqual([
+      [[4, 'C'], 1],
+      [[4, 'D'], 127],
+    ]);
   });
 
   it('treats note on with velocity 0 as note off', async () => {
@@ -104,7 +117,7 @@ describe('midiController', () => {
     expect(onPress).not.toHaveBeenCalled();
 
     message(b, 144, 60, 100);
-    expect(onPress).toHaveBeenCalledWith([4, 'C']);
+    expect(onPress).toHaveBeenCalledWith([4, 'C'], 100);
   });
 
   it('updates inputs on statechange and reselects when the selected input is gone', async () => {
@@ -232,7 +245,7 @@ describe('midiController channel', () => {
     expect(onRelease).not.toHaveBeenCalled();
 
     message(input, 145, 62, 100);
-    expect(onPress).toHaveBeenCalledWith([4, 'D']);
+    expect(onPress).toHaveBeenCalledWith([4, 'D'], 100);
     message(input, 129, 62, 0);
     expect(onRelease).toHaveBeenCalledWith([4, 'D']);
   });
@@ -245,11 +258,11 @@ describe('midiController channel', () => {
     message(input, 145, 62, 100);
     expect(onPress).not.toHaveBeenCalled();
     message(input, 144, 60, 100);
-    expect(onPress).toHaveBeenCalledWith([4, 'C']);
+    expect(onPress).toHaveBeenCalledWith([4, 'C'], 100);
 
     midi[1].selectMidiChannel(null);
     message(input, 159, 69, 100);
-    expect(onPress).toHaveBeenLastCalledWith([4, 'A']);
+    expect(onPress).toHaveBeenLastCalledWith([4, 'A'], 100);
   });
 
   it('releases on a channel switch only the notes of the channels it drops', async () => {
@@ -388,7 +401,7 @@ describe('midiController channel', () => {
       message(b, 144, 60, 100);
       expect(onPress).not.toHaveBeenCalled();
       message(b, 147, 60, 100);
-      expect(onPress).toHaveBeenCalledWith([4, 'C']);
+      expect(onPress).toHaveBeenCalledWith([4, 'C'], 100);
     });
 
     it('keeps what the user chooses, not the input selected for them', async () => {

@@ -6,16 +6,20 @@ import { EnvelopeParams, envelopeValue, envelopeValueBefore } from '../../common
 
 // the envelopes of the last note (read when it was pressed), the seconds of the context they started at and
 // were released at (null: the key is held); a note that started them again on a voice that sounds (mono):
-// the levels they start their attacks from (0 without)
+// the levels they start their attacks from (0 without). Its velocity: VELO, the source after the envelopes
+// (constant for the note), and its share of 127 (the dot of the chart of the velocity)
 export interface FxNote {
   envelopes: EnvelopeParams[];
   start: number;
   release: number | null;
   from?: number[];
+  velo?: number;
+  velocity?: number;
 }
 
-// a route to a knob of an effect: envelope `env` moves `param` by amount × its level, in the units of the
-// param (octaves for a log one: the knob × 2^(amount × level)); clamped to the range of the knob
+// a route to a knob of an effect: source `env` (an envelope, the velocity after them) moves `param` by amount ×
+// its level, in the units of the param (octaves for a log one: the knob × 2^(amount × level)); clamped to the
+// range of the knob
 export interface FxRoute {
   param: string;
   env: number;
@@ -37,9 +41,13 @@ export interface FxModMessage {
   mod?: FxModulation | null;
 }
 
-// the level of envelope `env` of the note t seconds after its start (before: just before t): each route sums
+// source `env` reads an envelope (else the velocity: VELO, the same all along the note)
+export const isEnvelope = (note: FxNote, env: number) => env < note.envelopes.length;
+
+// the level of source `env` of the note t seconds after its start (before: just before t): each route sums
 // amount × level, the marks of the knobs show it
 export const noteLevel = (note: FxNote, env: number, t: number, before = false) => {
+  if (!isEnvelope(note, env)) return note.velo ?? 0;
   const released = note.release === null ? Infinity : note.release - note.start;
   const from = note.from?.[env];
   return before
