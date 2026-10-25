@@ -1,6 +1,14 @@
 import React from 'react';
 import styled from 'styled-components';
-import { PianoKeyboard, VolumeAnalyser, FqAnalyser, TapeSwitch, theme, useIsMobile } from '@waveform/ui-kit';
+import {
+  PianoKeyboard,
+  VolumeAnalyser,
+  FqAnalyser,
+  TapeSwitch,
+  theme,
+  useElementSize,
+  useIsMobile,
+} from '@waveform/ui-kit';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
 import { DEFAULT_WAVETABLE_PATH } from '@waveform/preset-schema';
 import { useApp } from '../app';
@@ -31,6 +39,7 @@ import { FilterProvider, FilterSection, useFilter } from './filter';
 import { OscillatorsContainer, MasterHandle, LimiterStatus } from './synth/components';
 import { VoicingSection } from './voicing';
 import { MidiInput, SettingsButton } from './settings';
+import { PitchBend } from './pitch-bend';
 import { EnvelopeSection } from './envelope';
 import { MobileLayout } from './mobile';
 import { FxScreen, FxProvider, useFx } from './fx';
@@ -51,10 +60,29 @@ const AdsrContainer = styled.div`
   gap: 1px;
 `;
 
+// the pitch bend left of the keys, as on a hardware keyboard
 const PianoContainer = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-left: 8px;
+  min-width: 0;
+`;
+
+// the keys in the rest of the row, centered
+const Keys = styled.div`
+  flex: 1 1;
+  min-width: 0;
   display: flex;
   justify-content: center;
 `;
+
+// px of the wheel: as high as the keys
+const WHEEL_HEIGHT = 100;
+// px of a white key at most, and at least while octaves are taken off (up to 5 from C1)
+const KEY_WIDTH = 40;
+const MIN_KEY_WIDTH = 36;
+const MAX_OCTAVES = 5;
 
 // exactly the right half of the screen: 50% of the header content box + its 10px right padding;
 // split into full-height sections: tabs | preset | master
@@ -83,12 +111,27 @@ const HeaderEq = styled(FqAnalyser)`
   margin-left: -20px; // stick to the logo, cancels Header gap
 `;
 
+// the octaves that fit beside the wheel, their keys narrower rather than one octave fewer
 const PianoInternal = () => {
   const [{ $pressed }, { onPress, onRelease }] = useInputController();
   const pressed = useBehaviorSubject($pressed);
+  const [keysRef, [width]] = useElementSize<HTMLDivElement>();
+  const octaves = Math.min(MAX_OCTAVES, Math.max(1, Math.floor(width / (7 * MIN_KEY_WIDTH))));
   return (
     <PianoContainer>
-      <PianoKeyboard onPress={onPress} onRelease={onRelease} pressed={pressed} />
+      <PitchBend height={WHEEL_HEIGHT} />
+      <Keys ref={keysRef}>
+        {width > 0 && (
+          <PianoKeyboard
+            onPress={onPress}
+            onRelease={onRelease}
+            pressed={pressed}
+            octaves={[1, octaves]}
+            fitScreen={false}
+            keyWidth={Math.min(KEY_WIDTH, width / (7 * octaves))}
+          />
+        )}
+      </Keys>
     </PianoContainer>
   );
 };

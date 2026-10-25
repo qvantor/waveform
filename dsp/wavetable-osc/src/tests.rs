@@ -1,7 +1,8 @@
 // the parts of the core the TS has no reference of: the slots of the store, the refcounts of the versions, the
 // pool of the mix tables
 use crate::envelope::EnvelopeParams;
-use crate::scope::{Scope, SET};
+use crate::glided::Glided;
+use crate::scope::{bend_into, Scope, SET};
 use crate::shared::{Shared, PARAMS};
 use crate::store::{EntryRef, Store};
 use crate::timeline::{Kind, Timeline};
@@ -443,4 +444,23 @@ fn an_event_without_memory_ends_its_voice_the_others_take_theirs() {
     scope.event(SET, 2.0, 1, 0.0, 0.1, 0.0, &mut store, &mut shared);
     assert_eq!(scope.events(), 1);
     scope.end(&mut store, &mut shared);
+}
+
+#[test]
+fn the_bend_of_the_node_is_on_top_of_a_detune_one_value_while_both_are() {
+    let mut bend = Glided::new(0.0);
+    bend.glide(100.0, 4.0);
+    bend.render(0, 4);
+    // gliding: one a sample, from one value of the detune or its own
+    let mut one = [1200.0, 0.0, 0.0, 0.0];
+    assert_eq!(bend_into(&bend, &mut one, 1), 4);
+    assert_eq!(one, [1200.0, 1225.0, 1250.0, 1275.0]);
+    let mut each = [0.0, 10.0, 20.0, 30.0];
+    assert_eq!(bend_into(&bend, &mut each, 4), 4);
+    assert_eq!(each, [0.0, 35.0, 70.0, 105.0]);
+    // there: one value stays one
+    bend.render(0, 4);
+    let mut steady = [-1200.0, 0.0, 0.0, 0.0];
+    assert_eq!(bend_into(&bend, &mut steady, 1), 1);
+    assert_eq!(steady[0], -1100.0);
 }

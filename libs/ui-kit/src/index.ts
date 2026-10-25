@@ -21,6 +21,7 @@ export { Analyser } from './analyser';
 export { FileDrop } from './file-drop';
 export { Tabs } from './tabs';
 export { PianoKeyboard } from './piano-keyboard';
+export { PitchWheel } from './pitch-wheel';
 export { AdsrEnvelope, formatTime, NoteDot } from './adsr-envelope';
 export { Modal } from './modal';
 export { Section } from './section';

@@ -92,8 +92,8 @@ export interface VoiceOptions {
 // main thread → voices processor, the events of a task in the order they were made: a voice of a note (`on`), the
 // automation of its params (the AudioParam call of the same name: setValueAtTime, setTargetAtTime,
 // exponentialRampToValueAtTime, cancelScheduledValues, linearRampToValueAtTime (the synth makes none); values in
-// f32, times in seconds of the context), and the routes and the filter of playing voices. An event of a voice
-// that has ended changes nothing
+// f32, times in seconds of the context), the routes and the filter of playing voices, and the pitch bend of the
+// node. An event of a voice that has ended changes nothing
 export interface VoiceOn {
   kind: 'on';
   voice: number;
@@ -121,7 +121,13 @@ export interface VoicesFilter {
   voices: number[];
   filter: VoiceFilterOptions | null;
 }
-export type VoiceEvent = VoiceOn | VoiceAutomation | VoicesRoutes | VoicesFilter;
+// the pitch bend of every voice of the node (cents on top of the detune of each oscillator): it glides there in
+// 10 ms, new voices start with it
+export interface VoicesBend {
+  kind: 'bend';
+  cents: number;
+}
+export type VoiceEvent = VoiceOn | VoiceAutomation | VoicesRoutes | VoicesFilter | VoicesBend;
 export interface VoiceEventsMessage {
   events: VoiceEvent[];
 }

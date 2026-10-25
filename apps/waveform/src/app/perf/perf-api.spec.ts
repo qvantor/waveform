@@ -165,7 +165,7 @@ describe('perf test hook api', () => {
       .then(() => (applied = true));
     expect(getSnapshot()['env']).toMatchObject({ e1: { attack: 0.5 } });
     expect(getSnapshot()['osc1']).toMatchObject({ u: 4, p: ['bench', 'new.wav'] });
-    expect(getSnapshot()['v']).toEqual({ leg: false, port: 0, max: 8 });
+    expect(getSnapshot()['v']).toEqual({ leg: false, port: 0, max: 8, bd: 2, bu: 2 });
     await sleep(50);
     expect(applied).toBe(false);
     resolveTables();

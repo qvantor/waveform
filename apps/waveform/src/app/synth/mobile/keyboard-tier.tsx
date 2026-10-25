@@ -5,6 +5,7 @@ import { IconButton, PianoKeyboard, theme, useElementSize } from '@waveform/ui-k
 import { useBehaviorSubject } from '@waveform/rxjs-react';
 import { number } from '@waveform/math';
 import { useInputController } from '../common/modules';
+import { PitchBend } from '../pitch-bend';
 
 const OCTAVE_RANGE: [number, number] = [0, 8];
 
@@ -53,9 +54,16 @@ interface Props {
   octave: number;
   octavesCount: number;
   onOctaveChange: (octave: number) => void;
+  // the pitch bend wheel between the octaves and the keys (one tier has it)
+  wheel?: boolean;
 }
 
-export const KeyboardTier = ({ octave: storedOctave, octavesCount, onOctaveChange }: Props) => {
+export const KeyboardTier = ({
+  octave: storedOctave,
+  octavesCount,
+  onOctaveChange,
+  wheel = false,
+}: Props) => {
   const [{ $pressed }, { onPress, onRelease }] = useInputController();
   const pressed = useBehaviorSubject($pressed);
   const [keysRef, [width, height]] = useElementSize<HTMLDivElement>();
@@ -76,6 +84,7 @@ export const KeyboardTier = ({ octave: storedOctave, octavesCount, onOctaveChang
           <AiOutlineDown />
         </IconButton>
       </OctaveControl>
+      {wheel && height > 0 && <PitchBend height={height} compact />}
       <Keys ref={keysRef}>
         <KeysInner>
           {width > 0 && (

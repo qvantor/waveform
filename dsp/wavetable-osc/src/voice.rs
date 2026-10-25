@@ -31,6 +31,8 @@ const OSC_PARAM_POSITION: usize = 0;
 const OSC_PARAM_DETUNE: usize = 1;
 const OSC_PARAM_SPREAD: usize = 2;
 const OSC_PARAM_GAIN: usize = 3;
+/// the detune of each oscillator among the params of a block (detune1, detune2)
+pub const DETUNES: [usize; 2] = [2 + OSC_PARAM_DETUNE, 6 + OSC_PARAM_DETUNE];
 
 pub type Params<'a> = [&'a [f32]; PARAMS];
 

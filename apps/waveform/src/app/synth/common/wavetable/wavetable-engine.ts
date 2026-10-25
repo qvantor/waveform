@@ -117,6 +117,8 @@ export const createWavetableEngine = (
   const handles = new Map<number, VoiceHandle>();
   let lastVoice = 0;
   let events: VoiceEvent[] = [];
+  // the pitch bend of the voices (cents): a node made again (Retry) takes it at once
+  let bend = 0;
   let sending = false;
   // the version of each table the store has acknowledged (when it is the latest, new voices play it)
   const stored = new Map<string, number>();
@@ -294,6 +296,7 @@ export const createWavetableEngine = (
         store = node;
         voices = voicesNode;
         worker = created;
+        if (bend !== 0) enqueue({ kind: 'bend', cents: bend });
         $status.next('ready');
         tables.forEach((_, table) => send(table));
       })
@@ -362,6 +365,11 @@ export const createWavetableEngine = (
     },
     setFilter: (ids: number[], filter: VoiceFilterOptions | null) => {
       if (ids.length > 0) enqueue({ kind: 'filter', voices: ids, filter });
+    },
+    // the pitch bend of every voice (cents on top of their detunes), new ones start with it: the node glides there
+    setBend: (cents: number) => {
+      bend = cents;
+      enqueue({ kind: 'bend', cents });
     },
     // the events of this task to the node now (the specs)
     flush,

@@ -14,6 +14,7 @@ use wasm_rt as _;
 
 pub mod envelope;
 pub mod filter;
+pub mod glided;
 pub mod modulation;
 pub mod scope;
 pub mod shared;
@@ -236,6 +237,16 @@ pub unsafe extern "C" fn osc_scope_filter(scope: *mut Scope, id: f64) {
         at: 0,
     });
     (*scope).set_filter(id, filter);
+}
+
+/// the pitch bend of every voice of the node, cents on top of the detune of each oscillator: it glides there in
+/// 10 ms
+///
+/// # Safety
+/// `scope` comes from osc_scope_new and was not freed
+#[no_mangle]
+pub unsafe extern "C" fn osc_scope_bend(scope: *mut Scope, cents: f64) {
+    (*scope).set_bend(cents);
 }
 
 /// the params of voice `id` given directly from now on, for blocks of `frames`: their lengths (1: one value), then

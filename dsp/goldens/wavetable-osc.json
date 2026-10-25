@@ -559,6 +559,34 @@
       0.8342833518981934
     ]
   },
+  "the pitch bend of the node: every voice, gliding to each value, a voice made later bent too": {
+    "sha256": "d34ba807edb1572b7e231286cb9a679919612343ede1332e5531d841229d651a",
+    "at": 0,
+    "head": [
+      -1.582170089319229e-15,
+      2.114133834838867,
+      1.861663818359375,
+      1.7849414348602295,
+      1.908918023109436,
+      1.8010101318359375,
+      1.7927472591400146,
+      1.8451884984970093
+    ]
+  },
+  "the pitch bend of the node: every voice, gliding to each value, a voice made later bent too: the sum of one node": {
+    "sha256": "67583bb758032863678f65d2643ebee11610d212fe96db6dcbfa0e5c8cd6832f",
+    "at": 0,
+    "head": [
+      -1.582170089319229e-15,
+      2.114133834838867,
+      1.861663818359375,
+      1.7849414348602295,
+      1.908918023109436,
+      1.8010101318359375,
+      1.7927472591400146,
+      1.8451884984970093
+    ]
+  },
   "unison 1, phase rand 0": {
     "sha256": "0b46040161162298ca725554028117a437da80bfeac77b2f579ed62bf3237d5e",
     "at": 0,

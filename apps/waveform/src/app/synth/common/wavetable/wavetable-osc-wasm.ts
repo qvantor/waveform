@@ -76,6 +76,7 @@ export interface OscExports extends CoreExports {
   osc_scope_events: (scope: number, store: number, shared: number, count: number) => void;
   osc_scope_routes: (scope: number, id: number) => void;
   osc_scope_filter: (scope: number, id: number) => void;
+  osc_scope_bend: (scope: number, cents: number) => void;
   osc_scope_direct: (scope: number, id: number, frames: number) => number;
   osc_scope_process: (scope: number, store: number, shared: number, frame: number, frames: number) => void;
   osc_scope_resume: (scope: number, store: number, shared: number) => void;
@@ -642,6 +643,9 @@ export const createVoiceScopeWasm = (
           writeFilter(scope.command(), 0, event.filter);
           event.voices.forEach((id) => guard(() => exports.osc_scope_filter(handle, id)));
         });
+      } else if (event.kind === 'bend') {
+        flush();
+        guard(() => exports.osc_scope_bend(handle, event.cents));
       } else {
         // (a param the core has not: nothing; as an index of -1 the core would take it as the frequency)
         const param = VOICE_PARAM_ORDER.indexOf(event.param);
@@ -730,6 +734,8 @@ export const createVoiceScopeWasm = (
     setRoutes: (id: number, routes: VoiceRoute[]) => apply([{ kind: 'routes', voices: [id], routes }]),
     setFilter: (id: number, filter: VoiceFilterOptions | null) =>
       apply([{ kind: 'filter', voices: [id], filter }]),
+    // the pitch bend of every voice (cents): it glides there in 10 ms
+    setBend: (cents: number) => apply([{ kind: 'bend', cents }]),
     // the params of voice `id` for the next blocks of `n` frames as they are (one value or n each); false: no such
     // voice (it has ended)
     params: (id: number, params: Record<VoiceParam, Float32Array>, n: number) => {

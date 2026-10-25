@@ -39,7 +39,7 @@ const scope = createOscScope(instantiateCore<OscExports>(new WebAssembly.Module(
 // path, the filter, a route), then a steady one (the mix builds, the pairs), and is freed with them (the first
 // block of the first note 0.014 ms instead of 0.93 in Node, the module 2 ms longer: before the first note); then
 // the same voice in a scope of voices, its params from events (a step, a target and ramps: the curves of the
-// timelines), stolen at its end
+// timelines), bent (the pitch bend of the node, gliding), stolen at its end
 const WARM_ENVELOPE = { attack: 0.001, hold: 0, decay: 0.01, sustain: 0.5, release: 0.01 };
 const WARM_VOICE: VoiceOptions = {
   osc: [
@@ -78,6 +78,7 @@ const prewarm = () => {
     { kind: 'cancel', voice: 0, param: 'position1', time: at(1) },
     { kind: 'target', voice: 0, param: 'position1', value: 0.5, time: at(1), constant: 0.0033 },
     { kind: 'set', voice: 0, param: 'position1', value: 0.5, time: at(3) },
+    { kind: 'bend', cents: 200 },
     { kind: 'set', voice: 0, param: 'gate', value: -1, time: at(4) },
   ];
   voices.apply(events);

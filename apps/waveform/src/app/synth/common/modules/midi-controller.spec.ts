@@ -8,7 +8,7 @@ import {
   removeMidiAccess,
 } from '../../../../test-utils/midi';
 import { createSpiedInputController, initModel, stopModels } from '../../../../test-utils/models';
-import { midiController, midiToNote } from './midi-controller';
+import { midiBend, midiController, midiToNote } from './midi-controller';
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -18,7 +18,7 @@ const setup = async (access?: WebMidi.MIDIAccess | Promise<never>) => {
   const { module, onPress, onRelease } = createSpiedInputController();
   const midi = initModel(midiController({ inputController: module }), 'midiController', undefined);
   await flush();
-  return { midi, onPress, onRelease, inputActions: module[1] };
+  return { midi, onPress, onRelease, input: module[0], inputActions: module[1] };
 };
 
 afterEach(removeMidiAccess);
@@ -140,6 +140,83 @@ describe('midiController', () => {
     stopModels();
     message(input, 144, 60, 100);
     expect(onPress).not.toHaveBeenCalled();
+  });
+});
+
+describe('midiBend', () => {
+  it.each([
+    [0, 0, -1],
+    [0, 64, 0],
+    [127, 127, 1],
+    [0, 32, -0.5],
+    [0, 96, 4096 / 8191],
+  ])('reads lsb %i, msb %i as the share %d of the range', (lsb, msb, share) => {
+    expect(midiBend(lsb, msb)).toBe(share);
+  });
+});
+
+describe('midiController pitch bend', () => {
+  it('sets the bend of the selected channel', async () => {
+    const input = createInput('a');
+    const { midi, input: bus } = await setup(createAccess([input]));
+
+    message(input, 224, 0, 0);
+    expect(bus.$bend.value).toBe(-1);
+    message(input, 239, 127, 127);
+    expect(bus.$bend.value).toBe(1);
+
+    midi[1].selectMidiChannel(1);
+    message(input, 224, 0, 64);
+    expect(bus.$bend.value).toBe(0);
+    message(input, 225, 0, 32);
+    message(input, 224, 0, 96);
+    expect(bus.$bend.value).toBe(-0.5);
+  });
+
+  it('puts the bend back at rest on a switch to another channel or input, the input gone too', async () => {
+    const a = createInput('a');
+    const access = createAccess([a, createInput('b')]);
+    const { midi, input: bus } = await setup(access);
+    const bend = (value = 0) => message(a, 225, 0, value);
+
+    bend(127);
+    midi[1].selectMidiChannel(0);
+    expect(bus.$bend.value).toBe(0);
+
+    midi[1].selectMidiChannel(null);
+    bend(127);
+    midi[1].selectMidiInput('b');
+    expect(bus.$bend.value).toBe(0);
+
+    midi[1].selectMidiInput('a');
+    bend(127);
+    access.inputs.delete('a');
+    stateChange(access);
+    expect(bus.$bend.value).toBe(0);
+  });
+
+  it('keeps the bend of a channel still listened to, as its held notes', async () => {
+    const input = createInput('a');
+    const { midi, input: bus } = await setup(createAccess([input]));
+    message(input, 225, 127, 127);
+
+    midi[1].selectMidiChannel(1);
+    midi[1].selectMidiChannel(1);
+    midi[1].selectMidiChannel(null);
+    expect(bus.$bend.value).toBe(1);
+    midi[1].selectMidiChannel(0);
+    expect(bus.$bend.value).toBe(0);
+  });
+
+  it('leaves the bend of the wheel on a switch once its own is at rest', async () => {
+    const input = createInput('a');
+    const { midi, input: bus, inputActions } = await setup(createAccess([input]));
+    message(input, 224, 0, 127);
+    message(input, 224, 0, 64);
+    inputActions.setBend(0.5);
+
+    midi[1].selectMidiChannel(0);
+    expect(bus.$bend.value).toBe(0.5);
   });
 });
 

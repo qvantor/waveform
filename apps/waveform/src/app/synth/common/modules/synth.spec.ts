@@ -27,7 +27,7 @@ const setup = async ({ ready = true } = {}) => {
 
   // the voices the synth made in the voices node, from its events
   const events = voiceEvents(audioCtx, wavetables);
-  const { voices, end, started } = events;
+  const { voices, end, started, bends } = events;
   // a param of a voice: its events so far played into an AudioParam mock
   const param = (voice: VoiceView, name: VoiceParam) => {
     voices();
@@ -56,6 +56,7 @@ const setup = async ({ ready = true } = {}) => {
     options,
     end,
     started,
+    bends,
     travel,
     wall,
   };
@@ -1212,6 +1213,79 @@ describe('synth', () => {
     });
   });
 
+  describe('pitch bend', () => {
+    afterEach(() => jest.useRealTimers());
+
+    it('bends every note in the voices node, one event for them all: no automation of their detunes', async () => {
+      const { onPress, onRelease, voices, param, inputController, bends } = await setup();
+      const [, { setBend }] = inputController;
+      onPress([4, 'C']);
+      onPress([4, 'E']);
+      onRelease([4, 'E']);
+
+      setBend(1);
+
+      expect(bends()).toEqual([200]);
+      voices().forEach((voice) => {
+        expect(calls(param(voice, 'detune1'), 'setTargetAtTime')).toEqual([]);
+        expect(calls(param(voice, 'detune1'), 'setValueAtTime')).toEqual([]);
+      });
+      // a new note: its detune is its octave, the node bends it
+      onPress([4, 'G']);
+      expect(voices()[2].values.detune1).toBe(0);
+    });
+
+    it('an octave changed while bent steps the detune to the octave alone', async () => {
+      const { onPress, voices, param, inputController, osc1, audioCtx } = await setup();
+      inputController[1].setBend(-0.5);
+      onPress([4, 'C']);
+      const [voice] = voices();
+      expect(voice.values.detune1).toBe(0);
+
+      osc1[1].setOscValue('octave', 1);
+      expect(calls(param(voice, 'detune1'), 'setValueAtTime').at(-1)).toEqual([1200, audioCtx.currentTime]);
+      expect(calls(param(voice, 'detune1'), 'setTargetAtTime')).toEqual([]);
+    });
+
+    it('moves the notes by its range down and up, each its own', async () => {
+      const { inputController, synthActions, bends } = await setup();
+      synthActions.setBendDown(12);
+      synthActions.setBendUp(7);
+      jest.useFakeTimers();
+      inputController[1].setBend(-1);
+      jest.advanceTimersByTime(5);
+      inputController[1].setBend(1);
+      jest.advanceTimersByTime(5);
+      inputController[1].setBend(0.5);
+      expect(bends()).toEqual([-1200, 700, 350]);
+    });
+
+    it('goes to the node at most every 5 ms: the first value at once, the last one after the pause', async () => {
+      const { inputController, bends } = await setup();
+      jest.useFakeTimers();
+      const [, { setBend }] = inputController;
+
+      setBend(0.25);
+      setBend(0.5);
+      setBend(0.75);
+      expect(bends()).toEqual([50]);
+
+      jest.advanceTimersByTime(5);
+      expect(bends()).toEqual([50, 150]);
+      jest.advanceTimersByTime(20);
+      expect(bends()).toEqual([50, 150]);
+    });
+
+    it('a range changed while bent moves the notes too', async () => {
+      const { inputController, synthActions, bends } = await setup();
+      jest.useFakeTimers();
+      inputController[1].setBend(1);
+      jest.advanceTimersByTime(5);
+      synthActions.setBendUp(12);
+      expect(bends()).toEqual([200, 1200]);
+    });
+  });
+
   describe('modulation', () => {
     it('gives a note the routes to the params of its oscillators, in their units', async () => {
       const { onPress, voices, options, modulation, osc2 } = await setup();
@@ -1623,7 +1697,8 @@ describe('synth', () => {
       synthActions.setLegato(true);
       synthActions.setPortamento(120);
       synthActions.setMaxVoices(4);
-      expect(getSnapshot()['v']).toEqual({ leg: true, port: 120, max: 4 });
+      synthActions.setBendDown(12);
+      expect(getSnapshot()['v']).toEqual({ leg: true, port: 120, max: 4, bd: 12, bu: 2 });
     });
 
     it('applies falsy values and keeps settings missing in the snapshot', async () => {
@@ -1632,11 +1707,15 @@ describe('synth', () => {
       synthActions.setPortamento(120);
       synthActions.setMaxVoices(4);
 
-      applySnapshot({ v: { leg: false, port: 0 } });
+      synthActions.setBendUp(7);
+
+      applySnapshot({ v: { leg: false, port: 0, bd: 0 } });
 
       expect(synthModel.$legato.value).toBe(false);
       expect(synthModel.$portamento.value).toBe(0);
       expect(synthModel.$maxVoices.value).toBe(4);
+      expect(synthModel.$bendDown.value).toBe(0);
+      expect(synthModel.$bendUp.value).toBe(7);
     });
   });
 });

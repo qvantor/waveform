@@ -1,8 +1,18 @@
-import { BehaviorSubject, distinctUntilChanged, map, pairwise, skip, Subject } from 'rxjs';
+import {
+  asyncScheduler,
+  BehaviorSubject,
+  combineLatest,
+  distinctUntilChanged,
+  map,
+  pairwise,
+  skip,
+  Subject,
+  throttleTime,
+} from 'rxjs';
 import { isEqual } from 'lodash';
 import { Note } from '@waveform/ui-kit';
 import { PrimitiveBS, rxModel, rxModelReact } from '@waveform/rxjs-react';
-import { ENVELOPES, MOD_SOURCES } from '@waveform/preset-schema';
+import { ENVELOPES, MOD_SOURCES, PITCH_BEND_DEFAULT } from '@waveform/preset-schema';
 import { getFq, stringToNote, noteToString } from '../../services';
 import { urlSnapshotPlugin } from '../../../app';
 import type {
@@ -55,6 +65,13 @@ export interface VoiceStart {
 // exactly after SETTLE of them (the param is constant again, the voice reads its mix table)
 const SMOOTHING = 0.0033;
 const SETTLE = 6;
+
+// milliseconds: the voices node takes the pitch bend at most this often (MIDI sends hundreds of messages a
+// second), the first value at once, the last one after the pause
+const BEND_INTERVAL = 5;
+
+// the cents of the pitch bend: its share (-1..1) of the range down or up (semitones)
+export const bendCents = (bend: number, down: number, up: number) => 100 * (bend > 0 ? up : down) * bend;
 
 // a knob on a playing note: no steps (crackles) from the steps of the UI
 const glideParam = (param: ParamAutomation, value: number, now: number) => {
@@ -749,7 +766,7 @@ class Voicing {
 
 export const synth = ({
   synthCore: [{ audioCtx, wavetables }],
-  inputController: [{ $onPress, $onRelease }],
+  inputController: [{ $onPress, $onRelease, $bend }],
   envelopes: [{ $envelopes }],
   modulation: [{ $routes }],
   oscillator: oscillators,
@@ -759,6 +776,9 @@ export const synth = ({
     const $maxVoices = new PrimitiveBS<number>(8);
     const $portamento = new PrimitiveBS<number>(0);
     const $legato = new PrimitiveBS<boolean>(false);
+    // the range of the pitch bend: semitones down and up
+    const $bendDown = new PrimitiveBS<number>(PITCH_BEND_DEFAULT);
+    const $bendUp = new PrimitiveBS<number>(PITCH_BEND_DEFAULT);
     const $voicesCount = new PrimitiveBS<number>(0);
     const $fxNote = new BehaviorSubject<FxNote | null>(null);
     const $voiceStarts = new Subject<VoiceStart>();
@@ -783,18 +803,30 @@ export const synth = ({
     };
     const voicing = new Voicing(voicingContext);
 
-    return { $maxVoices, $portamento, $legato, $voicesCount, $fxNote, $voiceStarts, voicing };
+    return {
+      $maxVoices,
+      $portamento,
+      $legato,
+      $bendDown,
+      $bendUp,
+      $voicesCount,
+      $fxNote,
+      $voiceStarts,
+      voicing,
+    };
   })
-    .actions(({ $maxVoices, $portamento, $legato, $voicesCount, voicing }) => ({
+    .actions(({ $maxVoices, $portamento, $legato, $bendDown, $bendUp, $voicesCount, voicing }) => ({
       setMaxVoices: (value: number) => $maxVoices.next(value),
       setPortamento: (value: number) => $portamento.next(value),
       setLegato: (value: boolean) => $legato.next(value),
+      setBendDown: (value: number) => $bendDown.next(value),
+      setBendUp: (value: number) => $bendUp.next(value),
       setVoicesCount: (value: number) => $voicesCount.next(value),
       // a preset switch (soundSwitch): silence, the keys wait for the next preset; it is ready: they start on it
       pause: () => voicing.pause(),
       resume: () => voicing.resume(),
     }))
-    .subscriptions(({ voicing, $maxVoices }, { setVoicesCount }) => [
+    .subscriptions(({ voicing, $maxVoices, $bendDown, $bendUp }, { setVoicesCount }) => [
       $onRelease.subscribe((note) => {
         voicing.onRelease(note);
 
@@ -819,6 +851,16 @@ export const synth = ({
         voicing.setFilter(filter);
         voicing.setRoutes($routes.value, filter);
       }),
+      // the pitch bend of every note, in the voices node (on top of the detune of each oscillator, it glides
+      // there; new notes start with it), at most every BEND_INTERVAL
+      combineLatest([$bend, $bendDown, $bendUp])
+        .pipe(
+          map(([bend, down, up]) => bendCents(bend, down, up)),
+          distinctUntilChanged(),
+          skip(1),
+          throttleTime(BEND_INTERVAL, asyncScheduler, { leading: true, trailing: true })
+        )
+        .subscribe((cents) => wavetables.setBend(cents)),
       // the playing notes follow the knobs (the base of the params of each oscillator)
       ...oscillators.map(([{ $params }], osc) =>
         $params.pipe(pairwise()).subscribe(([previous, params]) =>
@@ -831,17 +873,21 @@ export const synth = ({
     .plugins(
       urlSnapshotPlugin({
         prefix: 'v',
-        modelToSnap: ({ $legato, $portamento, $maxVoices }) => {
+        modelToSnap: ({ $legato, $portamento, $maxVoices, $bendDown, $bendUp }) => {
           return {
             leg: $legato.value,
             port: $portamento.value,
             max: $maxVoices.value,
+            bd: $bendDown.value,
+            bu: $bendUp.value,
           };
         },
-        applySnap: (snap, { $legato, $portamento, $maxVoices }) => {
+        applySnap: (snap, { $legato, $portamento, $maxVoices, $bendDown, $bendUp }) => {
           snap.leg !== undefined && $legato.next(snap.leg);
           snap.port !== undefined && $portamento.next(snap.port);
           snap.max !== undefined && $maxVoices.next(snap.max);
+          snap.bd !== undefined && $bendDown.next(snap.bd);
+          snap.bu !== undefined && $bendUp.next(snap.bu);
         },
       })
     );

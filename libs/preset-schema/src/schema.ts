@@ -264,11 +264,18 @@ const modSchema = z
   .refine((routes) => Object.values(knobSources(routes)).every((count) => count <= MOD_KNOB_SOURCES_MAX))
   .default({});
 
+// semitones the pitch bend moves the notes by at most, down and up (each 0..PITCH_BEND_MAX)
+export const PITCH_BEND_MAX = 48;
+export const PITCH_BEND_DEFAULT = 2;
+
 const voicingSchema = z
   .object({
     leg: z.boolean().default(false),
     port: range(0, 400).default(0),
     max: intRange(1, 12).default(8),
+    // the range of the pitch bend: semitones down and up
+    bd: intRange(0, PITCH_BEND_MAX).default(PITCH_BEND_DEFAULT),
+    bu: intRange(0, PITCH_BEND_MAX).default(PITCH_BEND_DEFAULT),
   })
   .default({});
 

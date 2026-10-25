@@ -78,6 +78,8 @@ export const KeysView = ({ portrait, screen }: { portrait: boolean; screen: Synt
             octave={octave}
             octavesCount={octavesCount}
             onOctaveChange={setTierOctave(tier)}
+            // the lower tier, nearest the thumb
+            wheel={tier === octaves.length - 1}
           />
         ))}
       </Tiers>

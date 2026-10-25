@@ -57,4 +57,11 @@ describe('inputController', () => {
 
     expect(listener).toHaveBeenCalledTimes(2);
   });
+
+  it('holds the pitch bend at rest until it is set', () => {
+    const [{ $bend }, { setBend }] = createInputController();
+    expect($bend.value).toBe(0);
+    setBend(-0.25);
+    expect($bend.value).toBe(-0.25);
+  });
 });

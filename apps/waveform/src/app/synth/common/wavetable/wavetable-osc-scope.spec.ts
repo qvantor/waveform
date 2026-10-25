@@ -288,6 +288,54 @@ describe('the voices of one node', () => {
     voices.free();
   });
 
+  it('the pitch bend of the node at rest: the same bits as none', () => {
+    const play = (events: VoiceEvent[]) => {
+      const { voices } = node();
+      voices.apply([
+        { kind: 'on', voice: 1, options: note(), params: { frequency: 220, spread1: 15 } },
+        ...events,
+      ]);
+      const blocks = Array.from({ length: 6 }, (_, block) => render(voices, block * BLOCK));
+      voices.free();
+      return blocks;
+    };
+    const none = play([]);
+    play([{ kind: 'bend', cents: 0 }]).forEach(({ left, right }, block) => {
+      expectSameBits('bend 0', block, 'left', none[block].left, left);
+      expectSameBits('bend 0', block, 'right', none[block].right, right);
+    });
+  });
+
+  it('bends a voice made after its glide as its detune bent, to the bit: one value, on its mix tables', () => {
+    // the bend glides in 10 ms (480 samples): over at block 4
+    const play = (bend: number, detune: number) => {
+      const { voices, shared } = node();
+      voices.apply([{ kind: 'bend', cents: bend }]);
+      for (let block = 0; block < 4; block++) render(voices, block * BLOCK);
+      const options = note({ osc: [osc(), osc({ unison: 2 })], start: (4 * BLOCK) / RATE });
+      voices.apply([
+        {
+          kind: 'on',
+          voice: 1,
+          options,
+          params: { frequency: 220, spread1: 15, spread2: 10, detune1: detune, detune2: detune - 1200 },
+        },
+      ]);
+      const blocks = Array.from({ length: 8 }, (_, block) => render(voices, (block + 4) * BLOCK));
+      const { mixSamples } = shared.stats();
+      voices.free();
+      return { blocks, mixSamples };
+    };
+    const bent = play(700, 0);
+    const detuned = play(0, 700);
+    bent.blocks.forEach(({ left, right }, block) => {
+      expectSameBits('bent', block, 'left', detuned.blocks[block].left, left);
+      expectSameBits('bent', block, 'right', detuned.blocks[block].right, right);
+    });
+    expect(bent.mixSamples).toBe(detuned.mixSamples);
+    expect(bent.mixSamples).toBeGreaterThan(0);
+  });
+
   it('takes an event of a param it has not as nothing', () => {
     const { voices } = node();
     voices.apply([

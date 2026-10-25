@@ -3,9 +3,10 @@
 //! is in a flat stage
 
 use crate::envelope::EnvelopeBlock;
+use crate::glided::glide_length;
 use crate::voice::is_constant;
 use alloc::{vec, vec::Vec};
-use jsmath::{max, min, pow, round};
+use jsmath::{max, min, pow};
 
 // the params a route moves, by id (the facade sends their names as these): the knobs of the oscillators, then the
 // knobs of the filter
@@ -28,7 +29,6 @@ pub struct VoiceRoute {
     pub log: bool,
 }
 
-const ROUTE_GLIDE: f64 = 0.01;
 const BLOCK: usize = 128;
 const SEGMENT: f64 = 32.0;
 
@@ -79,7 +79,7 @@ impl Modulation {
         accesses: [bool; TARGET_PARAMS],
     ) -> Modulation {
         let mut modulation = Modulation {
-            glide: max(1.0, round(ROUTE_GLIDE * sample_rate)),
+            glide: glide_length(sample_rate),
             targets: Vec::new(),
             used: vec![false; envelopes],
             dropped: false,

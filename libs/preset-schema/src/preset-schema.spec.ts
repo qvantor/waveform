@@ -160,6 +160,11 @@ describe('normalizePreset', () => {
     ).toEqual(['env1:osc1.detune', 'env3:osc2.gain']);
   });
 
+  it('fills the range of the pitch bend with 2 semitones down and up, keeps 0..48', () => {
+    expect(normalizePreset({}).v).toMatchObject({ bd: 2, bu: 2 });
+    expect(normalizePreset({ v: { bd: 0, bu: 48 } }).v).toMatchObject({ bd: 0, bu: 48 });
+  });
+
   it('keeps small values', () => {
     expect(normalizePreset({ ...preset, osc1: { ...preset.osc1, pr: 0.00012346 } }).osc1.pr).toBe(0.0001235);
   });
@@ -304,6 +309,8 @@ describe('normalizePreset', () => {
       'curve over 10',
       { ...preset, env: { ...preset.env, e3: { ...preset.env.e3, curves: { decay: 10.5 } } } },
     ],
+    ['pitch bend range over 48', { ...preset, v: { ...preset.v, bu: 49 } }],
+    ['pitch bend range not integer', { ...preset, v: { ...preset.v, bd: 1.5 } }],
     ['mod amount over 1', { ...preset, mod: { 'env2:osc1.wave': 1.5 } }],
     ['mod source unknown', { ...preset, mod: { 'lfo1:osc1.wave': 0.5 } }],
     ['mod key without a target', { ...preset, mod: { env2: 0.5 } }],

@@ -67,6 +67,8 @@ interface Scenario {
   // new versions (or a removal: null) before a block
   versions?: Record<number, [string, number[][] | null][]>;
   voices: ScenarioVoice[];
+  // the pitch bend of the node (cents) from a block on
+  bends?: Record<number, number>;
   seed: number;
 }
 
@@ -96,6 +98,46 @@ const blockParams = (voice: ScenarioVoice, frame: number, n: number) =>
       ];
     })
   ) as Record<VoiceParam, Float32Array>;
+
+// the pitch bend of the node as the core glides it (glided.rs: linearly to each new value in 10 ms) and puts it on
+// the detunes of a voice (bend_into of scope.rs): the voices played alone take it in their params
+const nodeBend = (rate: number) => {
+  const length = Math.max(1, Math.round(0.01 * rate));
+  let [current, target, step] = [0, 0, 0];
+  // the bend of a block of n: one value, or one a sample while it glides
+  const block = (n: number): number | Float32Array => {
+    if (step === 0) return current;
+    const past = (value: number) => (step > 0 ? value >= target : value <= target);
+    const values = Float32Array.from({ length: n }, (_, i) => {
+      const value = current + step * i;
+      return past(value) ? target : value;
+    });
+    const next = current + step * n;
+    [current, step] = past(next) ? [target, 0] : [next, step];
+    return values;
+  };
+  return {
+    set: (cents: number) => {
+      target = cents;
+      step = (target - current) / length;
+    },
+    block,
+    // the params of a voice with the bend of the block on their detunes (none at rest)
+    bent: (params: Record<VoiceParam, Float32Array>, bend: number | Float32Array, n: number) => {
+      if (bend === 0) return params;
+      const detunes = (['detune1', 'detune2'] as const).map((name) => {
+        const detune = params[name];
+        if (typeof bend === 'number' && detune.length === 1) return [name, Float32Array.of(detune[0] + bend)];
+        const at = (i: number) => (detune.length === 1 ? detune[0] : detune[i]);
+        return [
+          name,
+          Float32Array.from({ length: n }, (_, i) => at(i) + (typeof bend === 'number' ? bend : bend[i])),
+        ];
+      });
+      return { ...params, ...Object.fromEntries(detunes) };
+    },
+  };
+};
 
 // the options of a voice of the app: its envelopes with the default shape (synth.ts)
 const production = (options: VoiceOptions): VoiceOptions => ({
@@ -145,9 +187,13 @@ const run = (name: string, scenario: Scenario) => {
   const random = seeded(scenario.seed);
   const alive: { voice: ScenarioVoice; wasm: ReturnType<typeof createVoiceWasm> }[] = [];
   const hash = createBitsHash();
+  const bend = nodeBend(rate);
   let frame = 0;
   blocks.forEach((n, block) => {
     before(block);
+    const cents = scenario.bends?.[block];
+    if (cents !== undefined) bend.set(cents);
+    const bendOfBlock = bend.block(n);
     voices.forEach((voice) => {
       if (voice.at === block)
         alive.push({
@@ -161,7 +207,7 @@ const run = (name: string, scenario: Scenario) => {
       const filter = voice.filters?.[block];
       if (filter !== undefined) wasm.setFilter(filter);
       const [outL, outR] = [new Float32Array(n), new Float32Array(n)];
-      wasm.process(frame, blockParams(voice, frame, n), outL, outR);
+      wasm.process(frame, bend.bent(blockParams(voice, frame, n), bendOfBlock, n), outL, outR);
       expectFinite(name, block, outL);
       expectFinite(name, block, outR);
       hash.add(outL);
@@ -193,6 +239,8 @@ const runScope = (name: string, scenario: Scenario, trap?: { block: number; voic
   let frame = 0;
   blocks.forEach((n, block) => {
     before(block);
+    const cents = scenario.bends?.[block];
+    if (cents !== undefined) node.setBend(cents);
     voices.forEach((voice, id) => {
       if (voice.at !== block) return;
       node.on(id, production(voice.options), {});
@@ -592,6 +640,28 @@ const GOLDEN: [string, Scenario][] = [
       seed: 8,
     },
   ],
+  [
+    'the pitch bend of the node: every voice, gliding to each value, a voice made later bent too',
+    {
+      rate: RATE,
+      blocks: quanta(0.15),
+      tables: { a: [SAW, SQUARE] },
+      voices: [
+        {
+          at: 0,
+          options: note({ osc: [osc({ unison: 3 }), osc({ unison: 2 })] }),
+          params: { frequency: constant(220), spread1: constant(12), detune2: constant(-1200) },
+        },
+        {
+          at: 20,
+          options: note({ start: (20 * 128) / RATE }),
+          params: { frequency: constant(330), position1: constant(0.6) },
+        },
+      ],
+      bends: { 4: 200, 12: -1200, 16: -700, 30: 0 },
+      seed: 10,
+    },
+  ],
 ];
 
 // --- random scenarios ---
@@ -713,6 +783,8 @@ const randomScenario = (random: Random, seed: number): Scenario => {
     versions[Math.floor(random() * blocks.length)] = [
       [pick(random, ['a', 'b', 'c']), random() < 0.8 ? randomFrames(random) : null],
     ];
+  const bends: Record<number, number> = {};
+  if (random() < 0.3) bends[Math.floor(random() * blocks.length)] = between(random, -2400, 2400);
   const voices = Array.from({ length: 1 + Math.floor(random() * 4) }, (_, index): ScenarioVoice => {
     const at = Math.floor(random() * blocks.length * 0.6);
     const atFrame = blocks.slice(0, at).reduce((a, b) => a + b, 0);
@@ -769,7 +841,7 @@ const randomScenario = (random: Random, seed: number): Scenario => {
       filters,
     };
   });
-  return { rate, blocks, tables, versions, voices, seed };
+  return { rate, blocks, tables, versions, voices, bends, seed };
 };
 
 describe('wavetable oscillator wasm core', () => {
