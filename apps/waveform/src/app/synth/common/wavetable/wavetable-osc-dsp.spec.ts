@@ -1646,6 +1646,20 @@ describe('the wavetable voice', () => {
         expect(routed.stats.mixSamples).toBeGreaterThan(0);
       });
 
+      it('VELO is source 3 whatever the envelopes of the voice, a route of one it has not moves nothing', () => {
+        const { store } = core.storeWith({ a: [saw, square, sine] });
+        // ENV 1 alone
+        const play = (params: Params, routes: VoiceRoute[] = []) =>
+          render({ store, params, routes, envelopes: [], velocity: { level: 0.5, amp: 1 }, frames: 1024 })
+            .left;
+        expect(play({ position1: 0.25 }, [route('position1', 0.5, 0, 1, VELO)])).toEqual(
+          play({ position1: 0.5 })
+        );
+        expect(play({ position1: 0.25 }, [route('position1', 0.5, 0, 1, 1)])).toEqual(
+          play({ position1: 0.25 })
+        );
+      });
+
       it('glides VELO and the amp to a new velocity in 10 ms, no step', () => {
         const { left } = peak(4096, {
           envelopes: [FLAT, FLAT],

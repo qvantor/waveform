@@ -253,13 +253,13 @@ pub unsafe extern "C" fn osc_scope_filter(scope: *mut Scope, id: f64) {
 }
 
 /// the pitch bend of every voice of the node, cents on top of the detune of each oscillator: it glides there in
-/// 10 ms
+/// 10 ms, `instantly` (not 0) it is there
 ///
 /// # Safety
 /// `scope` comes from osc_scope_new and was not freed
 #[no_mangle]
-pub unsafe extern "C" fn osc_scope_bend(scope: *mut Scope, cents: f64) {
-    (*scope).set_bend(cents);
+pub unsafe extern "C" fn osc_scope_bend(scope: *mut Scope, cents: f64, instantly: u32) {
+    (*scope).set_bend(cents, instantly != 0);
 }
 
 /// a note took voice `id` over (mono): its velocity glides to the one in the command buffer (VELO, amp)

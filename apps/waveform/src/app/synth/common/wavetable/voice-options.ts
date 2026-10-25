@@ -137,10 +137,11 @@ export interface VoicesVelocity {
   velocity: VoiceVelocity;
 }
 // the pitch bend of every voice of the node (cents on top of the detune of each oscillator): it glides there in
-// 10 ms, new voices start with it
+// 10 ms, new voices start with it; `instantly` it is there (a node made again)
 export interface VoicesBend {
   kind: 'bend';
   cents: number;
+  instantly?: boolean;
 }
 export type VoiceEvent =
   | VoiceOn

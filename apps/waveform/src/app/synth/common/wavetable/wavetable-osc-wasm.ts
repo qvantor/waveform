@@ -79,7 +79,7 @@ export interface OscExports extends CoreExports {
   osc_scope_routes: (scope: number, id: number) => void;
   osc_scope_filter: (scope: number, id: number) => void;
   osc_scope_velocity: (scope: number, id: number) => void;
-  osc_scope_bend: (scope: number, cents: number) => void;
+  osc_scope_bend: (scope: number, cents: number, instantly: number) => void;
   osc_scope_direct: (scope: number, id: number, frames: number) => number;
   osc_scope_process: (scope: number, store: number, shared: number, frame: number, frames: number) => void;
   osc_scope_resume: (scope: number, store: number, shared: number) => void;
@@ -667,7 +667,7 @@ export const createVoiceScopeWasm = (
         });
       } else if (event.kind === 'bend') {
         flush();
-        guard(() => exports.osc_scope_bend(handle, event.cents));
+        guard(() => exports.osc_scope_bend(handle, event.cents, event.instantly ? 1 : 0));
       } else {
         // (a param the core has not: nothing; as an index of -1 the core would take it as the frequency)
         const param = VOICE_PARAM_ORDER.indexOf(event.param);

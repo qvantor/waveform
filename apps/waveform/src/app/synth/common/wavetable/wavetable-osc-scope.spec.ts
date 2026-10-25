@@ -345,6 +345,29 @@ describe('the voices of one node', () => {
     expect(bent.mixSamples).toBeGreaterThan(0);
   });
 
+  it('takes a bend instantly (a node made again): a voice of its first block plays as its detune bent', () => {
+    const play = (bend: VoiceEvent[], detune: number) => {
+      const { voices } = node();
+      voices.apply([
+        ...bend,
+        {
+          kind: 'on',
+          voice: 1,
+          options: note({ osc: [osc(), osc({ unison: 2 })] }),
+          params: { frequency: 220, spread1: 15, spread2: 10, detune1: detune, detune2: detune - 1200 },
+        },
+      ]);
+      const blocks = Array.from({ length: 6 }, (_, block) => render(voices, block * BLOCK));
+      voices.free();
+      return blocks;
+    };
+    const detuned = play([], 700);
+    play([{ kind: 'bend', cents: 700, instantly: true }], 0).forEach(({ left, right }, block) => {
+      expectSameBits('instantly', block, 'left', detuned[block].left, left);
+      expectSameBits('instantly', block, 'right', detuned[block].right, right);
+    });
+  });
+
   it('takes an event of a param it has not as nothing', () => {
     const { voices } = node();
     voices.apply([

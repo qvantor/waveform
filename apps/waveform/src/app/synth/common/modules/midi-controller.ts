@@ -20,10 +20,20 @@ export const midiToNote = (midiNote: number): Note => {
   return [octave, notes[midiNote % 12]];
 };
 
+// the 14 bits of a pitch bend message at rest and all the way up
+const BEND_REST = 8192;
+const BEND_MAX = 16383;
+// the steps of the noise of a wheel (at rest between two values, or under a finger): a bend within as many of the
+// last one set moves nothing while that one plays, every new bend takes the voices off their mix tables (rest
+// and the ends come exactly)
+const BEND_NOISE = 2;
+const isNoise = (raw: number, last: number) =>
+  raw !== 0 && raw !== BEND_REST && raw !== BEND_MAX && Math.abs(raw - last) <= BEND_NOISE;
+
 // a pitch bend message: 14 bits (its second byte the low 7, its third the high 7), 8192 at rest, as a share of
 // the range: -1 at 0, 1 at 16383 (the range up has one step less)
 export const midiBend = (lsb: number, msb: number) => {
-  const bend = ((msb << 7) | lsb) - 8192;
+  const bend = ((msb << 7) | lsb) - BEND_REST;
   return bend / (bend > 0 ? 8191 : 8192);
 };
 
@@ -53,7 +63,7 @@ interface Dependencies {
 }
 
 export const midiController = ({
-  inputController: [{ $pressed }, { onPress, onRelease, setBend }],
+  inputController: [{ $pressed, $bend }, { onPress, onRelease, setBend }],
 }: Dependencies) =>
   rxModel(() => {
     const $midiAccess = new BehaviorSubject<WebMidi.MIDIAccess | null>(null);
@@ -71,8 +81,8 @@ export const midiController = ({
     const $selectedChannel = new BehaviorSubject<number | null>(saved.channel);
     // the notes this controller pressed: midi note → the channels holding it
     const held = new Map<number, Set<number>>();
-    // the last pitch bend this controller set and its channel (the wheel on the screen sets it too)
-    const bend = { value: 0, channel: 0 };
+    // the last pitch bend this controller set, its 14 bits and its channel (the wheel on the screen sets it too)
+    const bend = { value: 0, raw: BEND_REST, channel: 0 };
 
     const $midiSubscription = new BehaviorSubject<
       [target: WebMidi.MIDIInput, subscription: Subscription] | null
@@ -170,7 +180,12 @@ export const midiController = ({
                   if (!acceptsChannel($selectedChannel.value, channel)) return;
                   // pitch bend: the bytes of a note are its low and high 7 bits
                   if (control >= 224 && control <= 239) {
+                    const raw = (velocity << 7) | midi;
+                    // (the wheel on the screen set another one since: this one plays)
+                    const playing = channel === bend.channel && $bend.value === bend.value;
+                    if (playing && isNoise(raw, bend.raw)) return;
                     bend.value = midiBend(midi, velocity);
+                    bend.raw = raw;
                     bend.channel = channel;
                     setBend(bend.value);
                     return;
@@ -199,13 +214,14 @@ export const midiController = ({
       ]
     )
     // the note off of a held note never comes once its channel or its input is no longer listened to, nor the
-    // pitch bend back at rest: it goes back to 0 (a wheel left bent would hold the pitch); those of a channel
-    // still listened to stay
+    // pitch bend back at rest: it goes back to 0 (a wheel left bent would hold the pitch; one the wheel on the
+    // screen set since stays); those of a channel still listened to stay
     .subscriptions(({ $selectedInputId, $selectedChannel, held, bend }) => {
       const releaseHeld = (passes: (channel: number) => boolean) => {
         if (bend.value !== 0 && !passes(bend.channel)) {
+          if ($bend.value === bend.value) setBend(0);
           bend.value = 0;
-          setBend(0);
+          bend.raw = BEND_REST;
         }
         held.forEach((channels, midi) => {
           channels.forEach((channel) => {

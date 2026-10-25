@@ -259,26 +259,51 @@ const createCases = (dsp) => {
   };
   // the same chord as the voices of one node (scope.rs): their note ons as events, their params from their
   // timelines, their sum; struck again, a node of its own (the voices before end at once, as above)
+  const scopeOptions = {
+    osc: [0, 1].map(() => ({ table: 'a', unison: 8, phase: 0, phaseRand: 1 })),
+    start: 0,
+    envelopes: [0, 1, 2].map(() => ({ attack: 0.01, hold: 0.1, decay: 0.3, sustain: 0.8, release: 0.3 })),
+    envStart: 0,
+    phrase: 0,
+    routes: [],
+    filter: null,
+  };
+  const scopeNotes = (voices) =>
+    voices.apply(
+      chord.map((params, voice) => ({
+        kind: 'on',
+        voice,
+        options: scopeOptions,
+        params: Object.fromEntries(Object.entries(params).map(([k, [v]]) => [k, v])),
+      }))
+    );
   const scopeChord = () => {
     const shared = createShared.wasm();
-    const options = {
-      osc: [0, 1].map(() => ({ table: 'a', unison: 8, phase: 0, phaseRand: 1 })),
-      start: 0,
-      envelopes: [0, 1, 2].map(() => ({ attack: 0.01, hold: 0.1, decay: 0.3, sustain: 0.8, release: 0.3 })),
-      envStart: 0,
-      phrase: 0,
-      routes: [],
-      filter: null,
-    };
-    const notes = chord.map((params) => Object.fromEntries(Object.entries(params).map(([k, [v]]) => [k, v])));
     let voices = null;
     let block = 0;
     return () => {
       if (block % ATTACK === 0) {
         voices?.free();
         voices = dsp.createVoiceScopeWasm(oscScope, RATE, wasmStore, shared);
-        voices.apply(notes.map((params, voice) => ({ kind: 'on', voice, options, params })));
+        scopeNotes(voices);
       }
+      voices.process(block * BLOCK, outL, outR);
+      voices.reports();
+      block++;
+    };
+  };
+  // the chord struck once and the pitch bend of the node: up a semitone and back over BENDING blocks (an event
+  // every 2: what the throttle of the app lets through from a wheel, 5 ms), then at rest until the next BEND. Every
+  // voice plays directly while it moves, then builds its mixes again under the budget
+  const BEND = 60;
+  const BENDING = 20;
+  const scopeChordBend = () => {
+    const voices = dsp.createVoiceScopeWasm(oscScope, RATE, wasmStore, createShared.wasm());
+    scopeNotes(voices);
+    let block = 0;
+    return () => {
+      const at = block % BEND;
+      if (at < BENDING && at % 2 === 0) voices.setBend(50 * (1 - Math.cos((2 * Math.PI * at) / BENDING)));
       voices.process(block * BLOCK, outL, outR);
       voices.reports();
       block++;
@@ -381,6 +406,8 @@ const createCases = (dsp) => {
       store && (() => chordOf('ts'))
     ),
     ...(dsp.createVoiceScopeWasm && { 'scope chord attack': scopeChord }),
+    // (a tree before the pitch bend: none)
+    ...(oscScope?.exports.osc_scope_bend && { 'scope chord bend': scopeChordBend }),
     'build 256 frames': {
       build: () => {
         const start = process.hrtime.bigint();

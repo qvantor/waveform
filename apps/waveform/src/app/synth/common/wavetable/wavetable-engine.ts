@@ -297,7 +297,7 @@ export const createWavetableEngine = (
         store = node;
         voices = voicesNode;
         worker = created;
-        if (bend !== 0) enqueue({ kind: 'bend', cents: bend });
+        if (bend !== 0) enqueue({ kind: 'bend', cents: bend, instantly: true });
         $status.next('ready');
         tables.forEach((_, table) => send(table));
       })

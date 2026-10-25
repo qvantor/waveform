@@ -349,7 +349,7 @@ describe('wavetable engine', () => {
     engine.retry();
     await flush();
     expect(voices()).not.toBe(node);
-    expect(events()).toEqual([{ kind: 'bend', cents: -350 }]);
+    expect(events()).toEqual([{ kind: 'bend', cents: -350, instantly: true }]);
   });
 
   it('a node made at rest takes no bend', async () => {

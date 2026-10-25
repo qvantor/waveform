@@ -42,6 +42,14 @@ impl Glided {
         self.current
     }
 
+    /// it is `value` from the next block on, no glide
+    pub fn set(&mut self, value: f64) {
+        self.current = value;
+        self.target = value;
+        self.step = 0.0;
+        self.left = 0.0;
+    }
+
     /// it glides to `target` in `length` samples from where it is
     pub fn glide(&mut self, target: f64, length: f64) {
         self.target = target;
@@ -134,6 +142,17 @@ mod tests {
             value.render(0, 128);
             assert!(value.constant);
         }
+    }
+
+    #[test]
+    fn a_value_set_is_there_at_once_even_in_a_glide() {
+        let mut value = Glided::new(0.0);
+        value.glide(1.0, glide_length(48000.0));
+        value.render(0, 128);
+        value.set(-0.5);
+        value.render(0, 128);
+        assert!(value.constant && !value.gliding());
+        assert_eq!(value.value(), -0.5);
     }
 
     #[test]

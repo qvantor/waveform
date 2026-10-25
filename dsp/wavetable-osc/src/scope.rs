@@ -108,10 +108,14 @@ impl Scope {
         }
     }
 
-    /// the pitch bend of every voice (cents): it glides there from where it is. One that is not finite is the rest
-    /// (a NaN would stay in the glide for good: every voice silent)
-    pub fn set_bend(&mut self, cents: f64) {
-        self.bend.glide(finite(cents), self.glide);
+    /// the pitch bend of every voice (cents): it glides there from where it is, `instantly` it is there (a node
+    /// made again). One that is not finite is the rest (a NaN would stay in the glide for good: every voice silent)
+    pub fn set_bend(&mut self, cents: f64, instantly: bool) {
+        if instantly {
+            self.bend.set(finite(cents));
+        } else {
+            self.bend.glide(finite(cents), self.glide);
+        }
     }
 
     pub fn voices(&self) -> usize {

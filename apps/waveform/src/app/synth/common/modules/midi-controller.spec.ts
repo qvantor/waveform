@@ -231,6 +231,50 @@ describe('midiController pitch bend', () => {
     midi[1].selectMidiChannel(0);
     expect(bus.$bend.value).toBe(0.5);
   });
+
+  it('leaves the bend the wheel set after its own on a switch', async () => {
+    const input = createInput('a');
+    const { midi, input: bus, inputActions } = await setup(createAccess([input]));
+    message(input, 224, 0, 127);
+    inputActions.setBend(0.5);
+
+    midi[1].selectMidiChannel(1);
+    expect(bus.$bend.value).toBe(0.5);
+  });
+
+  it('takes no step of the noise of a wheel: within 2 of the last one set, rest exactly', async () => {
+    const input = createInput('a');
+    const { input: bus } = await setup(createAccess([input]));
+    // 8192 + 1, + 2: a wheel at rest between two values
+    message(input, 224, 1, 64);
+    message(input, 224, 2, 64);
+    expect(bus.$bend.value).toBe(0);
+    message(input, 224, 3, 64);
+    expect(bus.$bend.value).toBe(3 / 8191);
+    message(input, 224, 1, 64);
+    expect(bus.$bend.value).toBe(3 / 8191);
+    message(input, 224, 0, 64);
+    expect(bus.$bend.value).toBe(0);
+    // another channel: its own bend
+    message(input, 225, 1, 64);
+    expect(bus.$bend.value).toBe(1 / 8191);
+  });
+
+  it('comes to the ends exactly, and takes a step once the wheel on the screen set another bend', async () => {
+    const input = createInput('a');
+    const { input: bus, inputActions } = await setup(createAccess([input]));
+    message(input, 224, 125, 127);
+    message(input, 224, 127, 127);
+    expect(bus.$bend.value).toBe(1);
+    message(input, 224, 2, 0);
+    message(input, 224, 0, 0);
+    expect(bus.$bend.value).toBe(-1);
+
+    message(input, 224, 0, 96);
+    inputActions.setBend(0);
+    message(input, 224, 1, 96);
+    expect(bus.$bend.value).toBe(4097 / 8191);
+  });
 });
 
 describe('midiController channel', () => {
