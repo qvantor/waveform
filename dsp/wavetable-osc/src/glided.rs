@@ -15,10 +15,12 @@ pub fn glide_length(sample_rate: f64) -> f64 {
 }
 
 pub struct Glided {
-    // the value at the start of the next block, the one it glides to and its step a sample
+    // the value at the start of the next block, the one it glides to, its step a sample and the samples of the
+    // glide left (it ends by them: steps of under half an ulp a block, added up, would never get there)
     current: f64,
     target: f64,
     step: f64,
+    left: f64,
     pub values: Vec<f32>,
     pub constant: bool,
 }
@@ -29,6 +31,7 @@ impl Glided {
             current: value,
             target: value,
             step: 0.0,
+            left: 0.0,
             values: vec![value as f32; BLOCK],
             constant: true,
         }
@@ -43,6 +46,7 @@ impl Glided {
     pub fn glide(&mut self, target: f64, length: f64) {
         self.target = target;
         self.step = (target - self.current) / length;
+        self.left = length;
     }
 
     /// it moves: it glides now (another value next block)
@@ -62,22 +66,20 @@ impl Glided {
             return;
         }
         self.constant = false;
-        let up = self.step > 0.0;
-        let past = |value: f64, target: f64| if up { value >= target } else { value <= target };
         for i in a..b {
-            let value = self.current + self.step * (i - a) as f64;
-            self.values[i] = if past(value, self.target) {
+            let k = (i - a) as f64;
+            self.values[i] = if k >= self.left {
                 self.target
             } else {
-                value
+                self.current + self.step * k
             } as f32;
         }
-        let next = self.current + self.step * (b - a) as f64;
-        if past(next, self.target) {
+        self.left -= (b - a) as f64;
+        if self.left <= 0.0 {
             self.current = self.target;
             self.step = 0.0;
         } else {
-            self.current = next;
+            self.current += self.step * (b - a) as f64;
         }
     }
 }
@@ -108,6 +110,30 @@ mod tests {
         value.render(0, 128);
         assert!(value.constant && !value.gliding());
         assert_eq!(value.value(), 1.0);
+    }
+
+    #[test]
+    fn a_glide_of_a_few_ulps_ends_in_its_time() {
+        // its step a block is under half an ulp: added up it would never get there. 1 ulp, and 3 across 2 (the
+        // ulp doubles there: it gets to 2, 1 ulp short)
+        for (from, to) in [
+            (1.0, 1.0 + f64::EPSILON),
+            (2.0 - f64::EPSILON, 2.0 + 2.0 * f64::EPSILON),
+        ] {
+            let mut value = Glided::new(from);
+            value.glide(to, 480.0);
+            for _ in 0..3 {
+                value.render(0, 128);
+            }
+            assert!(value.gliding());
+            // samples 384..512: there from 480 on
+            value.render(0, 128);
+            assert_eq!(value.values[96], to as f32);
+            assert!(!value.gliding());
+            assert_eq!(value.value(), to);
+            value.render(0, 128);
+            assert!(value.constant);
+        }
     }
 
     #[test]

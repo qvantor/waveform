@@ -105,23 +105,21 @@ const blockParams = (voice: ScenarioVoice, frame: number, n: number) =>
 // the detunes of a voice (bend_into of scope.rs): the voices played alone take it in their params
 const nodeBend = (rate: number) => {
   const length = Math.max(1, Math.round(0.01 * rate));
-  let [current, target, step] = [0, 0, 0];
+  // the samples of the glide left: it ends by them
+  let [current, target, step, left] = [0, 0, 0, 0];
   // the bend of a block of n: one value, or one a sample while it glides
   const block = (n: number): number | Float32Array => {
     if (step === 0) return current;
-    const past = (value: number) => (step > 0 ? value >= target : value <= target);
-    const values = Float32Array.from({ length: n }, (_, i) => {
-      const value = current + step * i;
-      return past(value) ? target : value;
-    });
-    const next = current + step * n;
-    [current, step] = past(next) ? [target, 0] : [next, step];
+    const values = Float32Array.from({ length: n }, (_, i) => (i >= left ? target : current + step * i));
+    left -= n;
+    [current, step] = left <= 0 ? [target, 0] : [current + step * n, step];
     return values;
   };
   return {
     set: (cents: number) => {
       target = cents;
       step = (target - current) / length;
+      left = length;
     },
     block,
     // the params of a voice with the bend of the block on their detunes (none at rest)

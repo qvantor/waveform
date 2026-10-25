@@ -2,6 +2,7 @@
 //! after ENV 1, 1 − Amp + Amp · level), both read at the note on and constant for it, but for a glide of
 //! ROUTE_GLIDE to the velocity of a note that takes the voice over (mono)
 
+use crate::envelope::EnvelopeBlock;
 use crate::glided::{glide_length, Glided};
 
 /// VoiceVelocity: the level of VELO (the curve of the velocity of the note) and the amp of the voice
@@ -43,10 +44,46 @@ impl Velocity {
         self.level.render(a, b);
         self.amp.render(a, b);
     }
+}
 
-    /// the amp changes nothing: 1, not gliding (the output of ENV 1 is the output, bit for bit)
-    pub fn unity(&self) -> bool {
-        self.amp.constant && self.amp.value() == 1.0
+/// the volume of a voice in a block: ENV 1 × the amp of its velocity, one pass over the output. Each of them one
+/// value (their product in `gain`) or per sample; at an amp of 1 every product is ENV 1, to the bit
+#[derive(Clone, Copy)]
+pub struct Volume<'a> {
+    pub gain: f64,
+    env: Option<&'a [f32]>,
+    amp: Option<&'a [f32]>,
+}
+
+impl<'a> Volume<'a> {
+    /// of a block from `a` (ENV 1 and the amp rendered)
+    pub fn new(env: &'a EnvelopeBlock, amp: &'a Glided, a: usize) -> Volume<'a> {
+        let (gain, env) = if env.constant {
+            (env.values[a] as f64, None)
+        } else {
+            (1.0, Some(env.values.as_slice()))
+        };
+        let (gain, amp) = if amp.constant {
+            (gain * amp.value(), None)
+        } else {
+            (gain, Some(amp.values.as_slice()))
+        };
+        Volume { gain, env, amp }
+    }
+
+    /// one value in the block: `gain`
+    pub fn constant(&self) -> bool {
+        self.env.is_none() && self.amp.is_none()
+    }
+
+    #[inline(always)]
+    pub fn at(&self, i: usize) -> f64 {
+        match (self.env, self.amp) {
+            (None, None) => self.gain,
+            (Some(env), None) => env[i] as f64 * self.gain,
+            (None, Some(amp)) => amp[i] as f64 * self.gain,
+            (Some(env), Some(amp)) => env[i] as f64 * amp[i] as f64 * self.gain,
+        }
     }
 }
 
@@ -58,7 +95,7 @@ mod tests {
     fn a_velocity_is_flat_and_glides_to_another_one_in_10_ms() {
         let mut velocity = Velocity::new(48000.0, VoiceVelocity { level: 0.5, amp: 1.0 });
         velocity.render(0, 128);
-        assert!(velocity.unity());
+        assert_eq!((velocity.amp.constant, velocity.amp.value()), (true, 1.0));
         assert!(velocity.level.constant);
         assert_eq!((velocity.level.value(), velocity.level.gliding()), (0.5, false));
 
@@ -67,7 +104,7 @@ mod tests {
             amp: 0.25,
         });
         velocity.render(0, 128);
-        assert!(!velocity.unity() && !velocity.level.constant);
+        assert!(!velocity.amp.constant && !velocity.level.constant);
         assert!(velocity.level.gliding());
         // 480 samples from 0.5 to 1: 1/960 a sample
         assert_eq!(velocity.level.values[0] as f64, 0.5);
@@ -88,7 +125,6 @@ mod tests {
         velocity.render(0, 128);
         assert!(velocity.level.constant && velocity.amp.constant);
         assert_eq!((velocity.level.value(), velocity.amp.value()), (1.0, 0.25));
-        assert!(!velocity.unity());
     }
 
     #[test]
@@ -96,6 +132,7 @@ mod tests {
         let mut velocity = Velocity::new(48000.0, VoiceVelocity::default());
         velocity.set(VoiceVelocity::default());
         velocity.render(0, 128);
-        assert!(velocity.unity() && velocity.level.constant);
+        assert!(velocity.amp.constant && velocity.level.constant);
+        assert_eq!(velocity.amp.value(), 1.0);
     }
 }

@@ -1,5 +1,5 @@
 import { registrar } from 'standardized-audio-context-mock';
-import { ENVELOPE_DEFAULTS } from '@waveform/preset-schema';
+import { ENVELOPE_DEFAULTS, PITCH_BEND_DEFAULT, PITCH_BEND_MAX } from '@waveform/preset-schema';
 import { applySnapshot, getSnapshot } from '../../../app';
 import { createSynth, stopModels } from '../../../../test-utils/models';
 import { withoutAudioWorklet } from '../../../../test-utils/no-audio-worklet';
@@ -1822,6 +1822,19 @@ describe('synth', () => {
       expect(synthModel.$maxVoices.value).toBe(4);
       expect(synthModel.$bendDown.value).toBe(0);
       expect(synthModel.$bendUp.value).toBe(7);
+    });
+
+    it('puts the bend range of a url snapshot in whole semitones within its range, else its default', async () => {
+      const { synthModel } = await setup();
+      // a url snapshot skips presetDataSchema (?v-bd=1e400 is Infinity): a bend of NaN cents would silence the synth
+      applySnapshot({ v: { bd: Infinity, bu: 'x' as never } });
+      expect(synthModel.$bendDown.value).toBe(PITCH_BEND_MAX);
+      expect(synthModel.$bendUp.value).toBe(PITCH_BEND_DEFAULT);
+      applySnapshot({ v: { bd: 7.4, bu: -3 } });
+      expect(synthModel.$bendDown.value).toBe(7);
+      expect(synthModel.$bendUp.value).toBe(0);
+      applySnapshot({ v: { bd: null as never } });
+      expect(synthModel.$bendDown.value).toBe(PITCH_BEND_DEFAULT);
     });
   });
 });

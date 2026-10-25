@@ -9,7 +9,7 @@ use crate::modulation::{
 };
 use crate::shared::{Scratch, Shared, DIRECT_SAMPLES, MIX_SAMPLES, PARAMS, UNISON, VOICES};
 use crate::store::{EntryRef, Levels, Store, FRAME_GUARD};
-use crate::velocity::{Velocity, VoiceVelocity};
+use crate::velocity::{Velocity, VoiceVelocity, Volume};
 use alloc::{vec, vec::Vec};
 use jsmath::{ceil, cos, floor, log2, max, min, pow, round, sin, sqrt, PI};
 
@@ -934,59 +934,29 @@ impl Voice {
         }
         out_l.fill(0.0);
         out_r.fill(0.0);
-        let amp = &self.envelopes[0];
+        // ENV 1 × the amp of the velocity, in the same pass (at an amp of 1: the output of ENV 1, to the bit)
+        let volume = Volume::new(&self.envelopes[0], &self.velocity.amp, a);
         let s = &shared.scratch;
         if self.filter.on {
             let moved = [CUTOFF, RESONANCE, FILTER_GAIN].map(|param| self.modulation.moved(param));
-            let gains = if amp.constant {
-                None
-            } else {
-                Some(amp.values.as_slice())
-            };
-            let volume = amp.values[a] as f64;
-            self.filter.process(
-                (&s.left, &s.right, &s.center),
-                out_l,
-                out_r,
-                a,
-                b,
-                gains,
-                volume,
-                moved,
-            );
-        } else if amp.constant && amp.values[a] == 1.0 {
+            self.filter
+                .process((&s.left, &s.right, &s.center), out_l, out_r, a, b, volume, moved);
+        } else if volume.constant() && volume.gain == 1.0 {
             for i in a..b {
                 out_l[i] = (s.left[i] as f64 + s.center[i] as f64) as f32;
                 out_r[i] = (s.right[i] as f64 + s.center[i] as f64) as f32;
             }
-        } else if amp.constant {
-            let g = amp.values[a] as f64;
+        } else if volume.constant() {
+            let g = volume.gain;
             for i in a..b {
                 out_l[i] = ((s.left[i] as f64 + s.center[i] as f64) * g) as f32;
                 out_r[i] = ((s.right[i] as f64 + s.center[i] as f64) * g) as f32;
             }
         } else {
-            let values = &amp.values;
             for i in a..b {
-                out_l[i] = ((s.left[i] as f64 + s.center[i] as f64) * values[i] as f64) as f32;
-                out_r[i] = ((s.right[i] as f64 + s.center[i] as f64) * values[i] as f64) as f32;
-            }
-        }
-        // the amp of the velocity, after ENV 1 (none at 1: the output of ENV 1 to the bit)
-        if !self.velocity.unity() {
-            let amp = &self.velocity.amp;
-            if amp.constant {
-                let g = amp.value();
-                for i in a..b {
-                    out_l[i] = (out_l[i] as f64 * g) as f32;
-                    out_r[i] = (out_r[i] as f64 * g) as f32;
-                }
-            } else {
-                for i in a..b {
-                    let g = amp.values[i] as f64;
-                    out_l[i] = (out_l[i] as f64 * g) as f32;
-                    out_r[i] = (out_r[i] as f64 * g) as f32;
-                }
+                let g = volume.at(i);
+                out_l[i] = ((s.left[i] as f64 + s.center[i] as f64) * g) as f32;
+                out_r[i] = ((s.right[i] as f64 + s.center[i] as f64) * g) as f32;
             }
         }
         // the fade of a stolen voice: a raised cosine from 1 at killFrom to 0 at the stop

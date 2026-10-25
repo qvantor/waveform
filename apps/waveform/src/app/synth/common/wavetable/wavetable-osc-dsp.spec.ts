@@ -1613,12 +1613,14 @@ describe('the wavetable voice', () => {
         expect(unity.right).toEqual(none.right);
       });
 
-      it('scales the output by its amp after ENV 1, the filter too', () => {
+      it.each<[string, VoiceFilterOptions | undefined]>([
+        ['no filter', undefined],
+        ['the filter', { type: 'lowpass', cutoff: 2000, resonance: 3, gain: 0 }],
+      ])('scales the output by its amp with ENV 1, its stages and its sustain: %s', (_, filter) => {
         const { store } = core.storeWith({ a: [saw] });
-        const lowpass: VoiceFilterOptions = { type: 'lowpass', cutoff: 2000, resonance: 3, gain: 0 };
         const envelope = { attack: 0.01, hold: 0, decay: 0.02, sustain: 0.5, release: 0 };
         const play = (velocity?: VoiceVelocity) =>
-          render({ store, envelope, filter: lowpass, velocity, params: { frequency: 220 }, frames: 2048 });
+          render({ store, envelope, filter, velocity, params: { frequency: 220 }, frames: 2048 });
         const full = play();
         // a quarter: a power of 2, exact in f32
         const quarter = play({ level: 0.5, amp: 0.25 });

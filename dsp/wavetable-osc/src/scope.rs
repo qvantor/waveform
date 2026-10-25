@@ -13,6 +13,7 @@ use crate::timeline::{Kind, Timeline};
 use crate::voice::{Params, Voice, VoiceOptions, DETUNES};
 use alloc::{vec, vec::Vec};
 use core::sync::atomic::{compiler_fence, Ordering};
+use dsp_core::finite;
 
 /// an automation event: setValueAtTime, setTargetAtTime, exponentialRampToValueAtTime, cancelScheduledValues,
 /// linearRampToValueAtTime
@@ -107,9 +108,10 @@ impl Scope {
         }
     }
 
-    /// the pitch bend of every voice (cents): it glides there from where it is
+    /// the pitch bend of every voice (cents): it glides there from where it is. One that is not finite is the rest
+    /// (a NaN would stay in the glide for good: every voice silent)
     pub fn set_bend(&mut self, cents: f64) {
-        self.bend.glide(cents, self.glide);
+        self.bend.glide(finite(cents), self.glide);
     }
 
     pub fn voices(&self) -> usize {

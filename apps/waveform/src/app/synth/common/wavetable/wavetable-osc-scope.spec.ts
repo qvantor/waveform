@@ -288,7 +288,7 @@ describe('the voices of one node', () => {
     voices.free();
   });
 
-  it('the pitch bend of the node at rest: the same bits as none', () => {
+  it('the pitch bend of the node at rest, or one that is not finite: the same bits as none', () => {
     const play = (events: VoiceEvent[]) => {
       const { voices } = node();
       voices.apply([
@@ -300,10 +300,19 @@ describe('the voices of one node', () => {
       return blocks;
     };
     const none = play([]);
-    play([{ kind: 'bend', cents: 0 }]).forEach(({ left, right }, block) => {
-      expectSameBits('bend 0', block, 'left', none[block].left, left);
-      expectSameBits('bend 0', block, 'right', none[block].right, right);
-    });
+    // a bend that is not finite is the rest (a NaN would stay in its glide for good: every voice silent)
+    const bends: Array<[string, number[]]> = [
+      ['bend 0', [0]],
+      ['bend Infinity', [Infinity]],
+      ['bend NaN', [NaN]],
+      ['bend 200 then -Infinity', [200, -Infinity]],
+    ];
+    bends.forEach(([label, cents]) =>
+      play(cents.map((value) => ({ kind: 'bend', cents: value }))).forEach(({ left, right }, block) => {
+        expectSameBits(label, block, 'left', none[block].left, left);
+        expectSameBits(label, block, 'right', none[block].right, right);
+      })
+    );
   });
 
   it('bends a voice made after its glide as its detune bent, to the bit: one value, on its mix tables', () => {

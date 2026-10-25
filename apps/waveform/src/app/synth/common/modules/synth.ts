@@ -12,7 +12,7 @@ import {
 import { isEqual } from 'lodash';
 import { Note } from '@waveform/ui-kit';
 import { PrimitiveBS, rxModel, rxModelReact } from '@waveform/rxjs-react';
-import { ENVELOPES, MOD_SOURCES, PITCH_BEND_DEFAULT } from '@waveform/preset-schema';
+import { ENVELOPES, MOD_SOURCES, PITCH_BEND_DEFAULT, PITCH_BEND_MAX } from '@waveform/preset-schema';
 import { getFq, stringToNote, noteToString } from '../../services';
 import { urlSnapshotPlugin } from '../../../app';
 import type {
@@ -74,6 +74,13 @@ const BEND_INTERVAL = 5;
 
 // the cents of the pitch bend: its share (-1..1) of the range down or up (semitones)
 export const bendCents = (bend: number, down: number, up: number) => 100 * (bend > 0 ? up : down) * bend;
+
+// the range of the bend of a snapshot: whole semitones within 0..PITCH_BEND_MAX, one that isn't a number its
+// default (a url snapshot skips presetDataSchema: `bd` may be anything, Infinity too, whose cents are NaN)
+const bendRangeFrom = (value: unknown) =>
+  typeof value === 'number' && !Number.isNaN(value)
+    ? Math.round(Math.min(PITCH_BEND_MAX, Math.max(0, value)))
+    : PITCH_BEND_DEFAULT;
 
 // a knob on a playing note: no steps (crackles) from the steps of the UI
 const glideParam = (param: ParamAutomation, value: number, now: number) => {
@@ -941,8 +948,8 @@ export const synth = ({
           snap.leg !== undefined && $legato.next(snap.leg);
           snap.port !== undefined && $portamento.next(snap.port);
           snap.max !== undefined && $maxVoices.next(snap.max);
-          snap.bd !== undefined && $bendDown.next(snap.bd);
-          snap.bu !== undefined && $bendUp.next(snap.bu);
+          snap.bd !== undefined && $bendDown.next(bendRangeFrom(snap.bd));
+          snap.bu !== undefined && $bendUp.next(bendRangeFrom(snap.bu));
         },
       })
     );

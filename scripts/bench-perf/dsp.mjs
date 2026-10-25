@@ -206,8 +206,8 @@ const createCases = (dsp) => {
     wasm: (options, shared = createShared.wasm()) =>
       dsp.createVoiceWasm(oscScope, RATE, options, wasmStore, Math.random, shared),
   };
-  // (a unison shape: a tree before it plays the unison plain)
-  const voiceOf = (core, unisonShape) => (oscs, params) => () => {
+  // (a unison shape: a tree before it plays the unison plain; a velocity: a tree before it plays at the amp 1)
+  const voiceOf = (core, unisonShape, velocity) => (oscs, params) => () => {
     const options = {
       osc: oscs.map((unison) =>
         unison ? { table: 'a', unison, phase: 0, phaseRand: 1, ...(unisonShape && { unisonShape }) } : null
@@ -219,6 +219,7 @@ const createCases = (dsp) => {
       phrase: 0,
       routes: [],
       filter: null,
+      ...(velocity && { velocity }),
     };
     const voiceDsp = createVoice[core](options);
     let frameAt = 0;
@@ -360,6 +361,13 @@ const createCases = (dsp) => {
       { 'voice u8 shaped unison': [[8, null], held] },
       oscScope &&
         voiceOf('wasm', { blend: 0.75, width: 0.5, stack: '12+7x2', detune: 'linear', positionSpread: 0.3 }),
+      null
+    ),
+    // a note of QWERTY or the piano (velocity 100) at Amp 1: the amp of its velocity 0.787; its cost over `voice u1
+    // held`
+    ...withTs(
+      { 'voice u1 velocity': [[1, null], held] },
+      oscScope && voiceOf('wasm', undefined, { level: 0.787, amp: 0.787 }),
       null
     ),
     ...withTs(

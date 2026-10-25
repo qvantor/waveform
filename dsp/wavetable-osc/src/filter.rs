@@ -1,6 +1,7 @@
 //! apps/waveform/src/app/synth/common/wavetable/voice-filter.ts: the filter of a voice after the oscillators, its
 //! knobs glide, the routes move them; the coefficients of a BiquadFilterNode
 
+use crate::velocity::Volume;
 use alloc::{vec, vec::Vec};
 use dsp_core::biquad::{coefficients_into, FilterType};
 use jsmath::{exp, log2, max, min, pow};
@@ -128,7 +129,7 @@ impl VoiceFilter {
         }
     }
 
-    /// the channels of the voice over a..b into the outputs × the volume (`gains` per sample, or `volume`): the
+    /// the channels of the voice over a..b into the outputs × the volume (ENV 1 × the amp of the velocity): the
     /// knobs, those the routes move replaced (`moved`)
     pub fn process(
         &mut self,
@@ -137,8 +138,7 @@ impl VoiceFilter {
         out_r: &mut [f32],
         a: usize,
         b: usize,
-        gains: Option<&[f32]>,
-        volume: f64,
+        volume: Volume,
         moved: [Option<&[f32]>; 3],
     ) {
         if !self.on {
@@ -187,7 +187,6 @@ impl VoiceFilter {
                 e,
                 coefficients,
                 state,
-                gains,
                 volume,
             );
             s = e;
@@ -195,7 +194,8 @@ impl VoiceFilter {
     }
 }
 
-// a span s..e of both channels (the middle voices added into each) through the biquad, × the volume
+// a span s..e of both channels (the middle voices added into each) through the biquad, × the volume (ENV 1 × the
+// amp of the velocity)
 fn filter_span(
     left: &[f32],
     right: &[f32],
@@ -206,8 +206,7 @@ fn filter_span(
     e: usize,
     c: &[f64; 5],
     z: &mut [f64; 4],
-    gains: Option<&[f32]>,
-    gain: f64,
+    volume: Volume,
 ) {
     let [b0, b1, b2, a1, a2] = *c;
     let [mut z1l, mut z2l, mut z1r, mut z2r] = *z;
@@ -221,10 +220,7 @@ fn filter_span(
         let yr = b0 * xr + z1r;
         z1r = b1 * xr - a1 * yr + z2r;
         z2r = b2 * xr - a2 * yr;
-        let g = match gains {
-            None => gain,
-            Some(gains) => gains[i] as f64,
-        };
+        let g = volume.at(i);
         out_l[i] = (yl * g) as f32;
         out_r[i] = (yr * g) as f32;
     }
