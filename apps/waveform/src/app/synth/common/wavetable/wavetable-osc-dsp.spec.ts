@@ -468,9 +468,11 @@ describe('the wavetable voice', () => {
     // to 1 and the most a sample of it is off the line
     const fadeOf = (a: [number, number][]) => {
       const first = a.findIndex(([, v]) => v < 0.98);
+      if (first < 0) throw new Error('fadeOf: no change of frame');
       const mid: [number, number][] = [];
       for (let i = first; i < a.length && a[i][1] > -0.98; i++)
         if (Math.abs(a[i][1]) < 0.7) mid.push([a[i][0], (1 - a[i][1]) / 2]);
+      if (mid.length < 2) throw new Error(`fadeOf: a step, not a fade (${mid.length} samples within ±0.7)`);
       const mx = mid.reduce((t, [n]) => t + n, 0) / mid.length;
       const my = mid.reduce((t, [, m]) => t + m, 0) / mid.length;
       const slope =

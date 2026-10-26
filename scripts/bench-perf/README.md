@@ -97,7 +97,7 @@ reference may have no setting. A baseline of before it was taken at normal (256 
   voice was scheduled at and the one it started at (posted by its processor, matched to its press), the onsets
   an extra worklet (`probe.worklet.ts`, served by the runner) hears before the filter and after the limiter
   (L1).
-- **The DSP** (Node): voices (held, a moving position, a chord of 12 notes × 2 × u8 struck every 40 blocks:
+- **The DSP** (Node): voices (held, a moving position on 16 frames and on 256, a chord of 12 notes × 2 × u8 struck every 40 blocks:
   its attack, the direct path and the mix builds under the budget), table building, reverb, distortion,
   limiter, ns per sample divided by the ns of a
   fixed multiply-add of the same run (the speed of the machine out), 7 samples each. V8, not JSC: it catches

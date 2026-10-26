@@ -751,7 +751,7 @@ impl FrameFade {
         ceil(self.length - (t - self.start)) as usize
     }
 
-    // the fade from the frame t (render_span): the frame it comes from, the share of the new one and its step
+    // the fade from the frame t (render_fade): the frame it comes from, the share of the new one and its step
     fn span(&self, t: f64) -> Option<(usize, f64, f64)> {
         self.fading(t).then(|| {
             (
@@ -791,6 +791,9 @@ struct Osc {
     saved_fades: [i32; MAX_UNISON],
     // the frames of the voices in each version (Channels::version): the one they play, the one a crossfade goes to
     frame_fades: [[FrameFade; MAX_UNISON]; 2],
+    // the last block had a still position, every voice on its frame there, none fading past its end and none held
+    // back: the frames stay while the position and the version do (render_osc)
+    frames_settled: bool,
     random: [f64; MAX_UNISON],
     entry: EntryRef,
     next: Option<EntryRef>,
@@ -931,6 +934,7 @@ impl Voice {
                 saved_phases: [0.0; MAX_UNISON],
                 saved_fades: [0; MAX_UNISON],
                 frame_fades: [[FrameFade::NONE; MAX_UNISON]; 2],
+                frames_settled: false,
                 random: config.random,
                 entry: EntryRef::Sine,
                 next: None,
@@ -1403,18 +1407,26 @@ fn build_mix(
     osc.mix_ids[v] = osc.stable_id;
 }
 
-// a span s..e of a voice from one version: frame k of the level (w = 0) or the next (w = 1) or both, and while the
-// voice fades into it (`fade`: the frame it comes from, the share m of frame k and its step) both frames; × g
-// added to out, returns the phase (not inlined: inlined into render_voices its loops cost a voice that plays its
-// mix 5%, the registers of that path)
-#[inline(never)]
+// the level of a span: the one of w alone (w = 0), the next alone (w = 1, a constant w) or both (None)
+#[inline(always)]
+fn span_level(level: usize, w: f64, dw: f64) -> Option<usize> {
+    if w == 0.0 && dw == 0.0 {
+        Some(level)
+    } else if w == 1.0 && dw == 0.0 {
+        Some(level + 1)
+    } else {
+        None
+    }
+}
+
+// a span s..e of a voice from one version: frame k of the level (w = 0) or the next (w = 1) or both; × g added to
+// out, returns the phase
 fn render_span(
     levels: &Levels,
     level: usize,
     w: f64,
     dw: f64,
     k: usize,
-    fade: Option<(usize, f64, f64)>,
     ph: f64,
     inc: f64,
     d_inc: f64,
@@ -1424,50 +1436,12 @@ fn render_span(
     e: usize,
 ) -> f64 {
     let data = &levels.data;
-    let mut level1 = level;
-    let mut two_levels = true;
-    if w == 0.0 && dw == 0.0 {
-        two_levels = false;
-    } else if w == 1.0 && dw == 0.0 {
-        level1 = level + 1;
-        two_levels = false;
-    }
-    let len1 = levels.lengths[level1] as usize;
-    let at1 = |frame: usize| frame_start(levels, level1, frame);
-    let o1 = at1(k);
-    if !two_levels {
-        return match fade {
-            Some((from, m, dm)) => render21_same(
-                data,
-                at1(from),
-                len1 as f64,
-                o1,
-                m,
-                dm,
-                ph,
-                inc,
-                d_inc,
-                g,
-                out,
-                s,
-                e,
-            ),
-            None => render11(data, o1, len1 as f64, ph, inc, d_inc, g, out, s, e),
-        };
-    }
-    let len2 = levels.lengths[level + 1] as usize;
-    let at2 = |frame: usize| frame_start(levels, level + 1, frame);
-    let o2 = at2(k);
-    match fade {
-        None if len1 == len2 => render21_same(data, o1, len1 as f64, o2, w, dw, ph, inc, d_inc, g, out, s, e),
-        None => render21(
+    if let Some(level1) = span_level(level, w, dw) {
+        let len1 = levels.lengths[level1] as f64;
+        return render11(
             data,
-            o1,
-            len1 as f64,
-            o2,
-            len2 as f64,
-            w,
-            dw,
+            frame_start(levels, level1, k),
+            len1,
             ph,
             inc,
             d_inc,
@@ -1475,8 +1449,61 @@ fn render_span(
             out,
             s,
             e,
-        ),
-        Some((from, m, dm)) if len1 == len2 => render22_same(
+        );
+    }
+    let (len1, len2) = (levels.lengths[level] as usize, levels.lengths[level + 1] as usize);
+    let (o1, o2) = (frame_start(levels, level, k), frame_start(levels, level + 1, k));
+    if len1 == len2 {
+        return render21_same(data, o1, len1 as f64, o2, w, dw, ph, inc, d_inc, g, out, s, e);
+    }
+    render21(
+        data,
+        o1,
+        len1 as f64,
+        o2,
+        len2 as f64,
+        w,
+        dw,
+        ph,
+        inc,
+        d_inc,
+        g,
+        out,
+        s,
+        e,
+    )
+}
+
+// render_span of a voice that fades into frame k (`fade`: the frame it comes from, the share m of frame k and its
+// step): both frames (not inlined: a call of the voices that fade only)
+#[inline(never)]
+fn render_fade(
+    levels: &Levels,
+    level: usize,
+    w: f64,
+    dw: f64,
+    k: usize,
+    (from, m, dm): (usize, f64, f64),
+    ph: f64,
+    inc: f64,
+    d_inc: f64,
+    g: f64,
+    out: &mut [f32],
+    s: usize,
+    e: usize,
+) -> f64 {
+    let data = &levels.data;
+    if let Some(level1) = span_level(level, w, dw) {
+        let len1 = levels.lengths[level1] as f64;
+        let at1 = |frame: usize| frame_start(levels, level1, frame);
+        return render21_same(data, at1(from), len1, at1(k), m, dm, ph, inc, d_inc, g, out, s, e);
+    }
+    let (len1, len2) = (levels.lengths[level] as usize, levels.lengths[level + 1] as usize);
+    let at1 = |frame: usize| frame_start(levels, level, frame);
+    let at2 = |frame: usize| frame_start(levels, level + 1, frame);
+    let (o1, o2) = (at1(k), at2(k));
+    if len1 == len2 {
+        return render22_same(
             data,
             [at1(from), o1, at2(from), o2],
             len1 as f64,
@@ -1491,28 +1518,28 @@ fn render_span(
             out,
             s,
             e,
-        ),
-        Some((from, m, dm)) => render22(
-            data,
-            at1(from),
-            o1,
-            len1 as f64,
-            at2(from),
-            o2,
-            len2 as f64,
-            m,
-            dm,
-            w,
-            dw,
-            ph,
-            inc,
-            d_inc,
-            g,
-            out,
-            s,
-            e,
-        ),
+        );
     }
+    render22(
+        data,
+        at1(from),
+        o1,
+        len1 as f64,
+        at2(from),
+        o2,
+        len2 as f64,
+        m,
+        dm,
+        w,
+        dw,
+        ph,
+        inc,
+        d_inc,
+        g,
+        out,
+        s,
+        e,
+    )
 }
 
 // the channels a render of an oscillator adds into: those of the voice, or those of the oscillator (a: its
@@ -1598,12 +1625,15 @@ fn two_channels(
 }
 
 // the voices of an oscillator over a..b of the block from one version of its table, × g added to the channels;
-// mixable: the pitch, the position and the version are those of the last block; counted: its samples count
+// settled: the voices stay on their frames, none fades (render_osc); mixable: the pitch, the position and the
+// version are those of the last block; counted: its samples count
 fn render_voices(
     ctx: &Ctx,
     osc: &mut Osc,
     entry: EntryRef,
     position: &[f32],
+    constant_position: bool,
+    settled: bool,
     count: usize,
     a: usize,
     b: usize,
@@ -1628,30 +1658,43 @@ fn render_voices(
     } else {
         0.0
     };
-    {
-        let Scratch {
-            points, positions, ..
-        } = &mut shared.scratch;
-        for p in 0..count {
-            // the last point is past the block: the position of its last sample
-            let value = if position.len() > 1 {
-                position[min(points[p] as f64, b as f64 - 1.0) as usize]
-            } else {
-                position[0]
-            };
-            positions[p] = min(1.0, max(0.0, value as f64)) * frames_q;
-        }
-    }
     // the frame of voice v at a point (q: the position there)
     let frame_at = |osc: &Osc, v: usize, q: f64| {
         let q = min(frames_q, max(0.0, q + spread_q * osc.shares[v]));
         min(frames_q - 1.0, max(0.0, ceil(q) - 1.0)) as usize
     };
-    // the frames at point 0 (of a silent table too: a version after it starts from them)
-    let (q, t) = (shared.scratch.positions[0], ctx.block_frame + a as f64);
-    for v in 0..voices {
-        let frame = frame_at(osc, v, q);
-        osc.frame_fades[slot][v].at_point(frame, t, osc.incs[v * points_length], ctx.frame_fade_limit);
+    let t = ctx.block_frame + a as f64;
+    // the frame of each voice at point 0 and whether a fade holds a change to it back (a still position: the frame
+    // at every point, the change comes at the first point after the fade)
+    let mut targets = [0; MAX_UNISON];
+    let mut held_back = [false; MAX_UNISON];
+    if !settled {
+        let Scratch {
+            points, positions, ..
+        } = &mut shared.scratch;
+        // the points the frames are decided at: those of the segments (a still position: point 0)
+        let decided_points = if constant_position { 1 } else { count - 1 };
+        for p in 0..decided_points {
+            let value = if position.len() > 1 {
+                position[points[p] as usize]
+            } else {
+                position[0]
+            };
+            positions[p] = min(1.0, max(0.0, value as f64)) * frames_q;
+        }
+        // the frames at point 0 (of a silent table too: a version after it starts from them)
+        let (q, end) = (positions[0], ctx.block_frame + b as f64);
+        // (the frames of the version the voices play: those of a crossfade to the next one never settle)
+        let mut still = constant_position && slot == 0;
+        for v in 0..voices {
+            let frame = frame_at(osc, v, q);
+            let fade = &mut osc.frame_fades[slot][v];
+            fade.at_point(frame, t, osc.incs[v * points_length], ctx.frame_fade_limit);
+            targets[v] = frame;
+            held_back[v] = fade.frame != frame as i32;
+            still &= !held_back[v] && !fade.fading(end);
+        }
+        osc.frames_settled = still;
     }
     if levels.harmonics[0] == 0 {
         // a silent table: only the phases and the fades go on
@@ -1707,18 +1750,18 @@ fn render_voices(
     if mixable && count == 2 {
         let length = (shared.scratch.points[1] - shared.scratch.points[0]) as f64;
         for v in 0..voices {
-            // (a voice that fades plays both frames directly)
-            if osc.frame_fades[slot][v].fading(t) {
+            // (a voice that fades plays both frames directly; none does in a settled block)
+            if !settled && osc.frame_fades[slot][v].fading(t) {
                 continue;
             }
             let Some((level, w0, _)) = segment(osc, v, 0, length) else {
                 continue;
             };
             decided[v] = true;
-            let k = osc.frame_fades[slot][v].frame as usize;
             if osc.mix_ids[v] != osc.stable_id
                 && shared.take_build(ctx.block_frame, build_cost(ctx, levels, level, w0))
             {
+                let k = osc.frame_fades[slot][v].frame as usize;
                 build_mix(ctx, osc, v, levels, level, w0, k, shared);
             }
         }
@@ -1787,8 +1830,12 @@ fn render_voices(
             let index = v * points_length + p;
             let inc0 = osc.incs[index];
             let t0 = ctx.block_frame + s0 as f64;
-            if p > 0 {
-                let frame = frame_at(osc, v, shared.scratch.positions[p]);
+            if p > 0 && (!constant_position || held_back[v]) {
+                let frame = if constant_position {
+                    targets[v]
+                } else {
+                    frame_at(osc, v, shared.scratch.positions[p])
+                };
                 osc.frame_fades[slot][v].at_point(frame, t0, inc0, ctx.frame_fade_limit);
             }
             let length = (s1 - s0) as f64;
@@ -1835,35 +1882,34 @@ fn render_voices(
             if cfg!(feature = "perf") && counted {
                 shared.counts[DIRECT_SAMPLES] += length;
             }
-            // the frame of the voice, both while it fades into it: split where the fade ends
+            let fade = osc.frame_fades[slot][v];
+            let (channel_out, fading) = channel_of(&mut shared.scratch, channels, channel);
+            let out = if fade_left > 0 { fading } else { channel_out };
+            // the frame of the voice, both while it fades into it (a fade starts only at a point): split where the
+            // fade ends
             let mut sample = s0;
-            while sample < s1 {
-                let (fade, t) = (osc.frame_fades[slot][v], ctx.block_frame + sample as f64);
-                let span = fade.span(t);
-                let end = if span.is_some() {
-                    (sample + fade.left(t)).min(s1)
-                } else {
-                    s1
-                };
+            if let Some(span) = fade.span(t0) {
+                sample = (s0 + fade.left(t0)).min(s1);
+                ph = render_fade(
+                    levels, level, w0, dw, k, span, ph, inc0, d_inc, g, out, s0, sample,
+                );
+            }
+            if sample < s1 {
                 let offset = (sample - s0) as f64;
-                let (channel_out, fading) = channel_of(&mut shared.scratch, channels, channel);
-                let out = if fade_left > 0 { fading } else { channel_out };
                 ph = render_span(
                     levels,
                     level,
                     w0 + dw * offset,
                     dw,
                     k,
-                    span,
                     ph,
                     inc0 + d_inc * offset,
                     d_inc,
                     g,
                     out,
                     sample,
-                    end,
+                    s1,
                 );
-                sample = end;
             }
         }
         osc.phases[v] = ph;
@@ -1961,15 +2007,19 @@ fn render_osc(
         }
     }
 
-    // the same pitch, position and version as the last block: the voices may play their mixes
-    let steady = constant_pitch
-        && constant_position
+    // the same still position and version as the last block: the frames of the voices stay once they settled
+    // (whatever the pitch: a fade starts only at a change of frame)
+    let still = constant_position
         && osc.next.is_none()
-        && osc.last[0] == frequency[0] as f64
-        && osc.last[1] == detune[0] as f64
-        && osc.last[2] == spread[0] as f64
         && (one_frame || osc.last[3] == position[0] as f64)
         && osc.last_entry == Some(osc.entry);
+    let settled = still && osc.frames_settled;
+    // the same pitch too: the voices may play their mixes
+    let steady = constant_pitch
+        && still
+        && osc.last[0] == frequency[0] as f64
+        && osc.last[1] == detune[0] as f64
+        && osc.last[2] == spread[0] as f64;
     if !steady || !osc.stable {
         osc.stable_id = osc.stable_id.wrapping_add(1);
     }
@@ -2003,6 +2053,8 @@ fn render_osc(
             osc,
             osc.entry,
             position,
+            constant_position,
+            settled,
             count,
             a,
             b,
@@ -2032,6 +2084,8 @@ fn render_osc(
         osc,
         osc.entry,
         position,
+        constant_position,
+        settled,
         count,
         a,
         b,
@@ -2057,6 +2111,8 @@ fn render_osc(
             osc,
             next,
             position,
+            constant_position,
+            settled,
             count,
             a,
             b,
@@ -2131,6 +2187,179 @@ fn mix_osc(s: &mut Scratch, a: usize, b: usize, width: Option<(f64, f64)>, gain:
                 right[i] = (right[i] as f64 + ar[i] as f64 * g) as f32;
                 center[i] = (center[i] as f64 + ac[i] as f64 * g) as f32;
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // sample k of frame j of `len` samples: a wave of its own (two partials, their phases by j)
+    fn sample(j: usize, len: usize, k: usize) -> f64 {
+        let x = 2.0 * PI * (k % len) as f64 / len as f64;
+        sin((j + 1) as f64 * x + 0.3 * j as f64) + 0.25 * cos(3.0 * x + j as f64)
+    }
+
+    // the frames (j, len) one after another as the store lays them out (its last sample before it, its first two
+    // after it), in f32; the offsets of their samples 0
+    fn frames(frames: &[(usize, usize)]) -> (Vec<f32>, Vec<usize>) {
+        let (mut data, mut offsets) = (Vec::new(), Vec::new());
+        for &(j, len) in frames {
+            offsets.push(data.len() + 1);
+            data.extend((0..len + FRAME_GUARD).map(|k| sample(j, len, k + len - 1) as f32));
+        }
+        (data, offsets)
+    }
+
+    // frame (j, len) at the phase ph: linear between its samples (in f32), the last one to the first
+    fn at(j: usize, len: usize, ph: f64) -> f64 {
+        let x = ph * len as f64;
+        let i = floor(x) as usize;
+        let (a, b) = (
+            sample(j, len, i) as f32 as f64,
+            sample(j, len, i + 1) as f32 as f64,
+        );
+        a + (b - a) * (x - i as f64)
+    }
+
+    #[derive(Clone, Copy)]
+    struct Fade {
+        m: f64,
+        dm: f64,
+        w: f64,
+        dw: f64,
+        ph: f64,
+        inc: f64,
+        d_inc: f64,
+        g: f64,
+    }
+
+    // 100 samples from sample 10 of a block: the share m of the new frame and the share w of the next level moving,
+    // the phase wrapping a few times under a pitch that moves
+    const FADE: Fade = Fade {
+        m: 0.1,
+        dm: 0.008,
+        w: 0.2,
+        dw: 0.005,
+        ph: 0.6,
+        inc: 0.07,
+        d_inc: 1e-4,
+        g: 0.7,
+    };
+    const S0: usize = 10;
+    const S1: usize = 110;
+
+    // `out` after a fade over S0..S1 from frame 0 to frame 1 of a level of `len1` and from frame 2 to frame 3 of
+    // one of `len2` (four waves: a window read for another one shows), sample by sample in f64 from the weights of
+    // the four; the phase after it
+    fn expected(fade: Fade, len1: usize, len2: usize, out: &[f32]) -> (Vec<f64>, f64) {
+        let mut expected: Vec<f64> = out.iter().map(|v| *v as f64).collect();
+        let (mut ph, mut inc) = (fade.ph, fade.inc);
+        for (s, value) in expected.iter_mut().enumerate().take(S1).skip(S0) {
+            let n = (s - S0) as f64;
+            let (m, w) = (fade.m + fade.dm * n, fade.w + fade.dw * n);
+            *value += fade.g
+                * ((1.0 - m) * (1.0 - w) * at(0, len1, ph)
+                    + m * (1.0 - w) * at(1, len1, ph)
+                    + (1.0 - m) * w * at(2, len2, ph)
+                    + m * w * at(3, len2, ph));
+            ph += inc;
+            if ph >= 1.0 {
+                ph -= 1.0;
+            }
+            inc += fade.d_inc;
+        }
+        (expected, ph)
+    }
+
+    fn expect_close(out: &[f32], expected: &[f64], tolerance: f64) {
+        for (s, (value, expected)) in out.iter().zip(expected).enumerate() {
+            assert!(
+                (*value as f64 - expected).abs() < tolerance,
+                "sample {s}: {value}, not {expected}"
+            );
+        }
+    }
+
+    #[test]
+    fn render22_fades_between_the_frames_of_two_levels_of_other_lengths() {
+        let (len1, len2) = (64, 32);
+        let (t, o) = frames(&[(0, len1), (1, len1), (2, len2), (3, len2)]);
+        let mut out = vec![0.5; 128];
+        let (expected, phase) = expected(FADE, len1, len2, &out);
+        let Fade {
+            m,
+            dm,
+            w,
+            dw,
+            ph,
+            inc,
+            d_inc,
+            g,
+        } = FADE;
+        let ph = render22(
+            &t,
+            o[0],
+            o[1],
+            len1 as f64,
+            o[2],
+            o[3],
+            len2 as f64,
+            m,
+            dm,
+            w,
+            dw,
+            ph,
+            inc,
+            d_inc,
+            g,
+            &mut out,
+            S0,
+            S1,
+        );
+        expect_close(&out, &expected, 1e-6);
+        assert_eq!(ph, phase);
+    }
+
+    #[test]
+    fn render22_same_fades_between_the_frames_of_two_levels_in_its_lanes() {
+        let len = 64;
+        let (t, o) = frames(&[(0, len), (1, len), (2, len), (3, len)]);
+        // the level moving (the morph and the level lanes step) and still (their product steps by its sums)
+        for dw in [FADE.dw, 0.0] {
+            let fade = Fade { dw, ..FADE };
+            let mut out = vec![0.5; 128];
+            let (expected, phase) = expected(fade, len, len, &out);
+            let Fade {
+                m,
+                dm,
+                w,
+                ph,
+                inc,
+                d_inc,
+                g,
+                ..
+            } = fade;
+            let ph = render22_same(
+                &t,
+                [o[0], o[1], o[2], o[3]],
+                len as f64,
+                m,
+                dm,
+                w,
+                dw,
+                ph,
+                inc,
+                d_inc,
+                g,
+                &mut out,
+                S0,
+                S1,
+            );
+            // (in f32: the weights stepped by sums)
+            expect_close(&out, &expected, 1e-5);
+            assert_eq!(ph, phase);
         }
     }
 }

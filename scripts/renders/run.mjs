@@ -510,9 +510,11 @@ if (runs('frame-fades')) {
   // its length the samples to 1; `fadeOf` of wavetable-osc-dsp.spec.ts measures the engine so: keep them alike)
   const fadeOf = (a) => {
     const first = a.findIndex(([, v]) => v < 0.98);
+    if (first < 0) throw new Error('fadeOf: no change of frame');
     const mid = [];
     for (let i = first; i < a.length && a[i][1] > -0.98; i++)
       if (a[i][1] < 0.7 && a[i][1] > -0.7) mid.push([a[i][0], (1 - a[i][1]) / 2]);
+    if (mid.length < 2) throw new Error(`fadeOf: a step, not a fade (${mid.length} samples within ±0.7)`);
     const mx = mid.reduce((t, [n]) => t + n, 0) / mid.length;
     const my = mid.reduce((t, [, m]) => t + m, 0) / mid.length;
     const slope =

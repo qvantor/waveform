@@ -20,8 +20,8 @@ const CORES = [
   { crate: 'limiter', name: 'limiter', budget: 15500 },
   { crate: 'reverb', name: 'reverb', budget: 25500 },
   { crate: 'distortion', name: 'distortion', budget: 25500 },
-  // (the voices of one node: their timelines and their scope, +5.8 KB)
-  { crate: 'wavetable-osc', name: 'wavetable-osc', budget: 53500 },
+  // (the voices of one node: their timelines and their scope, +5.8 KB; the fades of a frame, +1.3 KB)
+  { crate: 'wavetable-osc', name: 'wavetable-osc', budget: 59000 },
   // jsmath exported to the specs (not bundled)
   { crate: 'jsmath-check', name: 'jsmath-check', budget: null },
 ];

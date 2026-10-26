@@ -190,13 +190,19 @@ const constant = (values) =>
 const createCases = (dsp) => {
   const outL = new Float32Array(BLOCK);
   const outR = new Float32Array(BLOCK);
-  // the voices: a table of 16 frames (the cost of a voice doesn't depend on their count), in the store of each core
+  // the voices: a table of 16 frames `a` in the store of each core (a held voice costs the same on any count) and
+  // one of 256 `b` (as a table with a morph mark plays: a moving position changes frame more often than a fade
+  // lasts, the voices fade almost all the time)
   const store = dsp.createTableStore?.();
-  const levels = dsp.buildLevels(Array.from({ length: 16 }, (_, k) => frame(k)));
+  const frames = Array.from({ length: 256 }, (_, k) => frame(k));
+  const levels = dsp.buildLevels(frames.slice(0, 16));
+  const levels256 = dsp.buildLevels(frames);
   store?.set('a', 1, levels);
+  store?.set('b', 1, levels256);
   const oscScope = dsp.wasm['wavetable-osc'] && dsp.createOscScope(dsp.wasm['wavetable-osc']);
   const wasmStore = oscScope && dsp.createTableStoreWasm(oscScope);
   wasmStore?.set('a', 1, levels);
+  wasmStore?.set('b', 1, levels256);
   // (as the worklet: its store processor listens for the memory the store frees, read after every block)
   wasmStore?.listen?.(() => undefined);
   const createShared = { ts: () => dsp.createVoiceShared(), wasm: () => dsp.createVoiceSharedWasm(oscScope) };
@@ -207,10 +213,12 @@ const createCases = (dsp) => {
       dsp.createVoiceWasm(oscScope, RATE, options, wasmStore, Math.random, shared),
   };
   // (a unison shape: a tree before it plays the unison plain; a velocity: a tree before it plays at the amp 1)
-  const voiceOf = (core, unisonShape, velocity) => (oscs, params) => () => {
+  const voiceOf = (core, unisonShape, velocity) => (oscs, params, table) => () => {
     const options = {
       osc: oscs.map((unison) =>
-        unison ? { table: 'a', unison, phase: 0, phaseRand: 1, ...(unisonShape && { unisonShape }) } : null
+        unison
+          ? { table: table ?? 'a', unison, phase: 0, phaseRand: 1, ...(unisonShape && { unisonShape }) }
+          : null
       ),
       start: 0,
       // ENV 1 at full level, no route, no filter: the oscillators as they play
@@ -367,7 +375,6 @@ const createCases = (dsp) => {
     };
   };
   const input = noise(RATE, 0.5);
-  const frames = Array.from({ length: 256 }, (_, k) => frame(k));
   const distortionParams = (mode) => ({ params: { mode, drive: 8, tone: 20000, level: 0 } });
   return {
     ...withTs(
@@ -376,6 +383,7 @@ const createCases = (dsp) => {
         'voice u8 held': [[8, null], held],
         'voice 2 × u8 held': [[8, 8], held],
         'voice u8 moving position': [[8, null], movingPosition],
+        'voice u8 moving position, 256 frames': [[8, null], movingPosition, 'b'],
       },
       oscScope && voiceOf('wasm'),
       store && voiceOf('ts')

@@ -10,6 +10,7 @@ use crate::velocity::VoiceVelocity;
 use crate::voice::{OscOptions, UnisonShape, Voice, VoiceOptions};
 use alloc::vec;
 use alloc::vec::Vec;
+use jsmath::{floor, log2, pow};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
@@ -498,6 +499,31 @@ fn silent_frames(store: &mut Store, version: f64, n: usize) {
     assert!(store.commit(slot));
 }
 
+// a version of table 1 of two levels of `lengths` (and the silent one) of constant frames: frame j of level l is
+// `values[l][j]` at every sample, so a voice between them at the share w of the second plays (1 - w) · its frame on
+// the first + w · on the second (255 harmonics on the first: x = 1 + 3·log2(256 · f / nyquist))
+fn two_level_frames(store: &mut Store, lengths: [usize; 2], values: [&[f32]; 2]) {
+    let n = values[0].len();
+    let sizes = lengths.map(|length| n * (length + FRAME_GUARD));
+    let offsets = vec![0, sizes[0] as i32, (sizes[0] + sizes[1]) as i32];
+    let layout = [
+        vec![255, 127, 0],
+        vec![lengths[0] as i32, lengths[1] as i32, 1],
+        offsets.clone(),
+    ];
+    let length = sizes[0] + sizes[1] + n * (1 + FRAME_GUARD);
+    let slot = store.begin(1, 1.0, n as i32, layout, length).expect("a slot");
+    let data = store.chunk(slot, 0, length).expect("its room");
+    for (l, level) in values.iter().enumerate() {
+        let size = lengths[l] + FRAME_GUARD;
+        for (j, value) in level.iter().enumerate() {
+            let start = offsets[l] as usize + j * size;
+            data[start..start + size].fill(*value);
+        }
+    }
+    assert!(store.commit(slot));
+}
+
 // a voice of osc 1 on table 1 (its unison and its shape), block by block for `frames`: its frequency and position
 // at each sample, `before` called before each block; its left and right channels
 fn play(
@@ -611,6 +637,27 @@ fn a_new_frame_fades_in_over_a_period_from_a_point_and_is_never_cut_short() {
 }
 
 #[test]
+fn a_change_a_fade_held_back_comes_at_the_first_point_after_it_while_the_pitch_moves() {
+    let mut store = Store::default();
+    constant_frames(&mut store, 1.0, &[0.0, 1.0, 2.0, 3.0]);
+    // 240 Hz at the points (moving: every 32 samples a point), a period of 200 samples; a still position in each
+    // block: frame 1 from 128 (to 328), frame 3 from 256, held back by the fade, from the point of 352 (not the
+    // start of the next block)
+    let out = one(
+        &mut store,
+        640,
+        |i| 240.0 + (i % 2) as f32 * 1e-3,
+        |i| match i {
+            0..128 => 0.1,
+            128..256 => 0.3,
+            _ => 0.9,
+        },
+    );
+    expect_fade(&out, 0, 352, 128, 200.0, 0.0, 1.0);
+    expect_fade(&out, 352, 640, 352, 200.0, 1.0, 3.0);
+}
+
+#[test]
 fn a_fade_takes_at_most_5_ms_its_length_fixed_at_its_start() {
     let mut store = Store::default();
     constant_frames(&mut store, 1.0, &[0.0, 1.0]);
@@ -665,6 +712,29 @@ fn each_voice_of_a_unison_fades_on_its_own() {
     );
     expect_fade(&left, 0, 768, 256, 100.0, 2.0, 3.0);
     expect_fade(&right, 0, 768, 512, 100.0, 0.0, 1.0);
+}
+
+#[test]
+fn a_fade_between_two_levels_reads_both_frames_on_each() {
+    // a pitch at w 0.3 between the levels (79.8 Hz, the fade 5 ms), frame 0 then 1 from 128: on levels of other
+    // lengths (render22) and of one (render22_same, in f32), each frame of each level a value of its own
+    let nyquist = log2(RATE / 2.0);
+    let f = pow(2.0, (0.3 - 1.0) / 3.0 + nyquist - 8.0) as f32;
+    let x = 1.0 + 3.0 * (8.0 - nyquist) + 3.0 * log2(f as f64);
+    let w = x - floor(x);
+    for lengths in [[512, 256], [512, 512]] {
+        let mut store = Store::default();
+        two_level_frames(&mut store, lengths, [&[1.0, 2.0], &[4.0, 8.0]]);
+        let out = one(&mut store, 640, |_| f, |i| if i < 128 { 0.25 } else { 0.75 });
+        for (i, value) in out.iter().enumerate() {
+            let m = ((i as f64 - 128.0) / 240.0).clamp(0.0, 1.0);
+            let expected = (1.0 - w) * (1.0 + m) + w * (4.0 + 4.0 * m);
+            assert!(
+                (*value as f64 - expected).abs() < 1e-5,
+                "{lengths:?}, sample {i}: {value}, not {expected}"
+            );
+        }
+    }
 }
 
 #[test]
