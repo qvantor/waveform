@@ -1,13 +1,6 @@
 import { wave } from '@waveform/math';
-import { frameStart, WavetableLevels } from './wavetable-levels';
-import {
-  buildLevels,
-  createLevels,
-  levelHarmonics,
-  levelLength,
-  MAX_FRAMES,
-  writeFrame,
-} from './wavetable-mipmap';
+import { createLevels, frameStart, levelHarmonics, levelLength, WavetableLevels } from './wavetable-levels';
+import { buildLevels, MAX_FRAMES, writeFrame } from './wavetable-mipmap';
 
 // one cycle of `size` samples from its harmonics: x(t) = Σ a·sin(2πkt + phase)
 const cycle = (size: number, harmonics: [number, number, number?][]) =>

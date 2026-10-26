@@ -77,6 +77,21 @@ const hostRender = (name, job) =>
 const init = join(work, 'init-state.bin');
 execFileSync(host, ['state', init]);
 
+// osc A of the init patch at the phase 0 of every voice, ENV 1 open
+const FLAT = { 'A Rand Phase': 0, 'A Phase': 0, 'Env 1 Attack': 0, 'Env 1 Sustain': 1 };
+// a table of ours (frames of 2048 samples, its mark) written into User of the tables of the Audio Unit, and the
+// init state on it; `removeTables` removes them
+const written = [];
+const tableState = (name, frames, flags = '00000000') => {
+  const file = join(tables(), 'User', `waveform-test-${name}.wav`);
+  writeTable(file, frames, flags);
+  written.push(file);
+  const state = join(work, `state-${name}.bin`);
+  writeFileSync(state, editedState(init, { path: `User/waveform-test-${name}.wav`, frames: frames.length }));
+  return state;
+};
+const removeTables = () => written.splice(0).forEach((file) => rmSync(file, { force: true }));
+
 // the magnitude spectrum of 2^18 samples from 0.2 s (Hann), the amplitude of a sine at its peak
 const N = 1 << 18;
 const hann = Float64Array.from({ length: N }, (_, i) => 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / N));
@@ -341,7 +356,7 @@ if (runs('frames')) {
       await hostRender(name, {
         seconds: 0.5,
         state,
-        params: { 'A Rand Phase': 0, 'A Phase': 0, 'Env 1 Attack': 0, 'Env 1 Sustain': 1, ...params },
+        params: { ...FLAT, ...params },
         notes: [{ note: FRAMES_NOTE, on: 0, off: 0.5 }],
       })
     )[0];
@@ -362,16 +377,8 @@ if (runs('frames')) {
     return { amplitude: (2 * Math.hypot(re, im)) / sum, phase: (Math.atan2(im, re) * 180) / Math.PI };
   };
   const sine = (h) => Array.from({ length: 2048 }, (_, i) => Math.sin((2 * Math.PI * h * i) / 2048));
-  const written = [];
-  // a table of `count` frames (frame j: harmonic j + 1, unless `frames`) with its mark, and its state
-  const tableState = (name, count, flags, frames = Array.from({ length: count }, (_, j) => sine(j + 1))) => {
-    const file = join(tables(), 'User', `waveform-test-${name}.wav`);
-    writeTable(file, frames, flags);
-    written.push(file);
-    const state = join(work, `state-${name}.bin`);
-    writeFileSync(state, editedState(init, { path: `User/waveform-test-${name}.wav`, frames: count }));
-    return state;
-  };
+  // `count` frames, frame j a sine of harmonic j + 1
+  const sines = (count) => Array.from({ length: count }, (_, j) => sine(j + 1));
   // the shares of the source frames (the amplitudes of their harmonics, summing to 1) at a position
   const shares = async (name, state, count, position) => {
     const x = await renderAsync(name, state, { 'A WT Pos': position });
@@ -384,7 +391,7 @@ if (runs('frames')) {
     // the frame a position plays: just below and above k / N (no mark)
     const played = {};
     for (const count of [3, 4]) {
-      const state = tableState(`plain-${count}`, count, '00000000');
+      const state = tableState(`plain-${count}`, sines(count));
       const edges = Array.from({ length: count - 1 }, (_, i) => i + 1);
       played[count] = await Promise.all(
         edges.map(async (k) => {
@@ -400,7 +407,7 @@ if (runs('frames')) {
     // the expanded frames of a table with a morph mark: the source frame below and the share of the next one
     const morphed = {};
     for (const count of [3, 4, 16]) {
-      const state = tableState(`morph-${count}`, count, '10000000');
+      const state = tableState(`morph-${count}`, sines(count), '10000000');
       morphed[count] = await Promise.all(
         Array.from({ length: 256 }, async (_, e) => {
           const row = await shares(`morph-${count}-${e}`, state, count, (e + 0.5) / 256);
@@ -430,7 +437,7 @@ if (runs('frames')) {
     ];
     const marks = {};
     for (const mark of ['00000000', '01000000', '10000000', '20000000', '30000000', '40000000']) {
-      const state = tableState(`mark-${mark.slice(0, 2)}`, 2, mark, pair);
+      const state = tableState(`mark-${mark.slice(0, 2)}`, pair, mark);
       const [first, middle] = await Promise.all(
         [0.5 / 256, 128.5 / 256].map((v, i) => renderAsync(`mark-${mark}-${i}`, state, { 'A WT Pos': v }))
       );
@@ -459,7 +466,7 @@ if (runs('frames')) {
     );
     console.log(`dsp/measurements: frames of ${Object.keys(morphed).length} morphed tables`);
   } finally {
-    written.forEach((file) => rmSync(file, { force: true }));
+    removeTables();
   }
 }
 
@@ -469,20 +476,10 @@ if (runs('frames')) {
 // the frame, and between two frames x = (1 - 2m) · the sine, m the share of the new one
 if (runs('frame-fades')) {
   const sine = (sign) => Array.from({ length: 2048 }, (_, i) => sign * Math.sin((2 * Math.PI * i) / 2048));
-  const flat = { 'A Rand Phase': 0, 'A Phase': 0, 'Env 1 Attack': 0, 'Env 1 Sustain': 1 };
-  const written = [];
-  const tableState = (name, frames) => {
-    const file = join(tables(), 'User', `waveform-test-${name}.wav`);
-    writeTable(file, frames, '00000000');
-    written.push(file);
-    const state = join(work, `state-${name}.bin`);
-    writeFileSync(
-      state,
-      editedState(init, { path: `User/waveform-test-${name}.wav`, frames: frames.length })
-    );
-    return state;
-  };
   const note = (name, job) => hostRender(name, { step: 16, ...job });
+  // A WT Pos through its points [seconds, value]; a step from frame 0 to 1 of 2 frames at 0.5 s
+  const wtPos = (...points) => ({ name: 'A WT Pos', points });
+  const STEP = wtPos([0, 0.25], [0.5, 0.25], [0.5, 0.75]);
   // the sine of frequency f in x over [n0, n1): its amplitude and phase (`cents`: f refined within ±cents, by
   // 0.01; a note of the init patch is its frequency, an error of 0.1 cent would turn its phase 20° in 4 s)
   const fit = (x, rate, f, n0, n1, cents = 0) => {
@@ -510,7 +507,7 @@ if (runs('frame-fades')) {
     return out;
   };
   // the fade of the first change of a: the line of m = (1 - a) / 2 through 0.15..0.85 (its start where it is 0,
-  // its length the samples to 1)
+  // its length the samples to 1; `fadeOf` of wavetable-osc-dsp.spec.ts measures the engine so: keep them alike)
   const fadeOf = (a) => {
     const first = a.findIndex(([, v]) => v < 0.98);
     const mid = [];
@@ -527,8 +524,7 @@ if (runs('frame-fades')) {
   };
   try {
     const flip = tableState('flip', [sine(1), sine(-1)]);
-    // the position steps from frame 0 to frame 1 at 0.5 s: by note and rate, the start of the fade (and its
-    // remainder by 32) and its length
+    // the step by note and rate: the start of the fade and its length
     const lengths = {};
     const jobs = [];
     for (const rate of [44100, 48000, 96000]) {
@@ -540,28 +536,13 @@ if (runs('frame-fades')) {
             rate,
             seconds: 1,
             state: flip,
-            params: flat,
-            automation: [
-              {
-                name: 'A WT Pos',
-                points: [
-                  [0, 0.25],
-                  [0.5, 0.25],
-                  [0.5, 0.75],
-                ],
-              },
-            ],
+            params: FLAT,
+            automation: [STEP],
             notes: [{ note: key, on: 0, off: 1 }],
           }).then(([left]) => {
             const s = fit(left, rate, f, Math.round(0.1 * rate), Math.round(0.4 * rate));
             const { start, length } = fadeOf(against(left, s, Math.round(0.45 * rate), left.length));
-            lengths[rate].push({
-              note: key,
-              period: Number((rate / f).toFixed(1)),
-              start,
-              point: start % 32,
-              length,
-            });
+            lengths[rate].push({ note: key, period: Number((rate / f).toFixed(1)), start, length });
           })
         );
       }
@@ -579,17 +560,8 @@ if (runs('frame-fades')) {
         note(`sweep-${seconds}`, {
           seconds: seconds + 0.6,
           state: alternate,
-          params: flat,
-          automation: [
-            {
-              name: 'A WT Pos',
-              points: [
-                [0, 0],
-                [0.3, 0],
-                [0.3 + seconds, 1],
-              ],
-            },
-          ],
+          params: FLAT,
+          automation: [wtPos([0, 0], [0.3, 0], [0.3 + seconds, 1])],
           notes: [{ note: 57, on: 0, off: seconds + 0.6 }],
         }).then(([left]) => {
           const s = fit(left, RATE, 220, Math.round(0.05 * RATE), Math.round(0.25 * RATE));
@@ -606,29 +578,20 @@ if (runs('frame-fades')) {
               changes.push([a[i][0], a[j][0] - a[i][0], Math.sign(a[i - 1][1]), Math.sign(a[j][1])]);
             i = j;
           }
-          sweeps[seconds] = { every: Math.round((seconds * RATE) / 255), changes };
+          sweeps[seconds] = { changes };
         })
       );
     // two voices (A Unison 2: one right, one left): at Detune 1 (±200 cents) both fade at one step, each over
     // its own period; Detune 0 and A Uni WT Pos 0.75 (the left voice lower in the table), the right one crosses
     // into frame 1 at 0.5 s, the left one at 0.7 s
     const unison = {};
-    const two = { ...flat, 'A Unison': 1 / 15 };
+    const two = { ...FLAT, 'A Unison': 1 / 15 };
     jobs.push(
       note('fade-detuned', {
         seconds: 1,
         state: flip,
         params: { ...two, 'A Uni Detune': 1 },
-        automation: [
-          {
-            name: 'A WT Pos',
-            points: [
-              [0, 0.25],
-              [0.5, 0.25],
-              [0.5, 0.75],
-            ],
-          },
-        ],
+        automation: [STEP],
         notes: [{ note: 69, on: 0, off: 1 }],
       }).then((channels) => {
         unison.detuned = channels.map((x, c) => {
@@ -642,18 +605,7 @@ if (runs('frame-fades')) {
         seconds: 1,
         state: flip,
         params: { ...two, 'A Uni Detune': 0, 'A Uni WT Pos': 0.75 },
-        automation: [
-          {
-            name: 'A WT Pos',
-            points: [
-              [0, 0.1],
-              [0.5, 0.1],
-              [0.5, 0.6],
-              [0.7, 0.6],
-              [0.7, 0.9],
-            ],
-          },
-        ],
+        automation: [wtPos([0, 0.1], [0.5, 0.1], [0.5, 0.6], [0.7, 0.6], [0.7, 0.9])],
         notes: [{ note: 57, on: 0, off: 1 }],
       }).then((channels) => {
         unison.spread = channels.map((x) => {
@@ -662,8 +614,9 @@ if (runs('frame-fades')) {
         });
       })
     );
-    // a pitch bend up (12 semitones, Pitch Bend 0.5 → 0.75 over 0.49..0.53 s) while the right voice fades (the
-    // left one, on frame 0, has its phase): m = (1 - right / left) / 2, and the period of the left one around it
+    // a pitch bend of 12 semitones up and down (Pitch Bend 0.5 → 0.75 or 0.25 over 0.49..0.53 s) while the right
+    // voice fades (the left one, on frame 0, has its phase): m = (1 - right / left) / 2, and the period of the left
+    // one around it
     const bends = {};
     for (const [name, to] of [
       ['up', 0.75],
@@ -675,14 +628,7 @@ if (runs('frame-fades')) {
           state: flip,
           params: { ...two, 'A Uni Detune': 0, 'A Uni WT Pos': 1, 'Bend Down': 0.25, 'Bend Up': 0.75 },
           automation: [
-            {
-              name: 'A WT Pos',
-              points: [
-                [0, 0.1],
-                [0.5, 0.1],
-                [0.5, 0.6],
-              ],
-            },
+            wtPos([0, 0.1], [0.5, 0.1], [0.5, 0.6]),
             {
               name: 'Pitch Bend',
               points: [
@@ -719,7 +665,7 @@ if (runs('frame-fades')) {
       `${JSON.stringify(
         {
           about:
-            'Osc A of the init patch of the Audio Unit playing tables of ours (frame j (-1)^j · a sine: the sign of the output tells the frame, between two frames it is (1 - 2m) · the sine, m the share of the new one) while A WT Pos is automated (set every 16 samples; the AU glides it, its fades start some ms after a step): `lengths` a step from frame 0 to 1 by rate and note: the sample the fade starts at (its remainder by 32) and its length in samples (the line of m through 0.15..0.85); `sweeps` 256 frames swept from 0.3 s over 4, 1 and 0.25 s at 220 Hz (`every` the samples between two frames): each change of sign [start, samples, sign before, sign after]; `unison` A Unison 2 (one voice right, one left): `detuned` at Detune 1 (±200 cents) each channel its period and its fade, `spread` Detune 0 and A Uni WT Pos 0.75: the right voice crosses at 0.5 s, the left one at 0.7 s; `bends` a pitch bend of 12 semitones up and down over 0.49..0.53 s while the right voice fades (m against the left one, on frame 0): the fade, the most a sample of it is off its line (`off`) and the periods of the left voice at its start and its end; scripts/renders/run.mjs --only=frame-fades',
+            'Osc A of the init patch of the Audio Unit playing tables of ours (frame j (-1)^j · a sine: the sign of the output tells the frame, between two frames it is (1 - 2m) · the sine, m the share of the new one) while A WT Pos is automated (set every 16 samples; the AU glides it, its fades start some ms after a step): `lengths` a step from frame 0 to 1 by rate and note: the sample the fade starts at and its length in samples (the line of m through 0.15..0.85); `sweeps` 256 frames swept from 0.3 s over 4, 1 and 0.25 s at 220 Hz: each change of sign [start, samples, sign before, sign after]; `unison` A Unison 2 (one voice right, one left): `detuned` at Detune 1 (±200 cents) each channel its period and its fade, `spread` Detune 0 and A Uni WT Pos 0.75: the right voice crosses at 0.5 s, the left one at 0.7 s; `bends` a pitch bend of 12 semitones up and down over 0.49..0.53 s while the right voice fades (m against the left one, on frame 0): the fade, the most a sample of it is off its line (`off`) and the periods of the left voice at its start and its end; scripts/renders/run.mjs --only=frame-fades',
           lengths,
           sweeps,
           unison,
@@ -735,6 +681,6 @@ if (runs('frame-fades')) {
       } sweeps`
     );
   } finally {
-    written.forEach((file) => rmSync(file, { force: true }));
+    removeTables();
   }
 }

@@ -4,7 +4,7 @@ use crate::envelope::EnvelopeParams;
 use crate::glided::Glided;
 use crate::scope::{bend_into, Scope, SET};
 use crate::shared::{Shared, PARAMS};
-use crate::store::{EntryRef, Store};
+use crate::store::{EntryRef, Store, FRAME_GUARD};
 use crate::timeline::{Kind, Timeline};
 use crate::velocity::VoiceVelocity;
 use crate::voice::{OscOptions, UnisonShape, Voice, VoiceOptions};
@@ -472,20 +472,29 @@ fn the_bend_of_the_node_is_on_top_of_a_detune_one_value_while_both_are() {
 // samples of a frame of the tables of constant frames
 const LEN: usize = 512;
 
-// a version of a table of constant frames: frame j is `values[j]` at every sample, so a voice on it plays
-// (1 - m) · the frame it comes from + m · the one it goes to (one level below 9.5 kHz, the silent one above)
-fn constant_frames(store: &mut Store, table: u32, version: f64, values: &[f32]) {
+// a version of table 1 of constant frames: frame j is `values[j]` at every sample (and its guards), so a voice on
+// it plays (1 - m) · the frame it comes from + m · the one it goes to (one level below 9.5 kHz, the silent one
+// above)
+fn constant_frames(store: &mut Store, version: f64, values: &[f32]) {
     let n = values.len();
-    let level = n * (LEN + 3);
+    let level = n * (LEN + FRAME_GUARD);
     let layout = [vec![1, 0], vec![LEN as i32, 1], vec![0, level as i32]];
-    let length = level + n * 4;
-    let slot = store
-        .begin(table, version, n as i32, layout, length)
-        .expect("a slot");
+    let length = level + n * (1 + FRAME_GUARD);
+    let slot = store.begin(1, version, n as i32, layout, length).expect("a slot");
     let data = store.chunk(slot, 0, length).expect("its room");
     for (j, value) in values.iter().enumerate() {
-        data[j * (LEN + 3)..(j + 1) * (LEN + 3)].fill(*value);
+        data[j * (LEN + FRAME_GUARD)..(j + 1) * (LEN + FRAME_GUARD)].fill(*value);
     }
+    assert!(store.commit(slot));
+}
+
+// a version of table 1 of `n` silent frames (no harmonics)
+fn silent_frames(store: &mut Store, version: f64, n: usize) {
+    let length = n * (1 + FRAME_GUARD);
+    let slot = store
+        .begin(1, version, n as i32, [vec![0], vec![1], vec![0]], length)
+        .expect("a slot");
+    store.chunk(slot, 0, length).expect("its room").fill(0.0);
     assert!(store.commit(slot));
 }
 
@@ -567,7 +576,8 @@ fn one(
     .0
 }
 
-// `out` from `from` to `to` as a fade from `a` to `b` over `length` samples from `start`, then `b`
+// `out` from `from` to `to` as a fade from `a` to `b` over `length` samples from `start`, then `b` (within the f32 of
+// the sum)
 fn expect_fade(out: &[f32], from: usize, to: usize, start: usize, length: f64, a: f64, b: f64) {
     for (i, value) in out.iter().enumerate().take(to).skip(from) {
         let m = ((i as f64 - start as f64) / length).clamp(0.0, 1.0);
@@ -582,7 +592,7 @@ fn expect_fade(out: &[f32], from: usize, to: usize, start: usize, length: f64, a
 #[test]
 fn a_new_frame_fades_in_over_a_period_from_a_point_and_is_never_cut_short() {
     let mut store = Store::default();
-    constant_frames(&mut store, 1, 1.0, &[0.0, 1.0, 2.0, 3.0]);
+    constant_frames(&mut store, 1.0, &[0.0, 1.0, 2.0, 3.0]);
     // 480 Hz: a period of 100 samples. Frame 1 from sample 140 (seen at the point of 160), frame 3 from 200 (the
     // fade goes on to its end at 260, the next point at 288 goes to frame 3, past frame 2)
     let out = one(
@@ -603,7 +613,7 @@ fn a_new_frame_fades_in_over_a_period_from_a_point_and_is_never_cut_short() {
 #[test]
 fn a_fade_takes_at_most_5_ms_its_length_fixed_at_its_start() {
     let mut store = Store::default();
-    constant_frames(&mut store, 1, 1.0, &[0.0, 1.0]);
+    constant_frames(&mut store, 1.0, &[0.0, 1.0]);
     let step = |i: usize| if i < 128 { 0.25 } else { 0.75 };
     // 55 Hz: a period of 873 samples, the fade 5 ms
     expect_fade(
@@ -623,7 +633,7 @@ fn a_fade_takes_at_most_5_ms_its_length_fixed_at_its_start() {
 #[test]
 fn a_still_position_moved_between_blocks_fades_from_the_block_its_mix_after() {
     let mut store = Store::default();
-    constant_frames(&mut store, 1, 1.0, &[0.0, 1.0, 2.0]);
+    constant_frames(&mut store, 1.0, &[0.0, 1.0, 2.0]);
     // still at frame 0 (its mix) for 4 blocks, then at frame 2: from the first sample of the block, over blocks
     // played directly (a mix of either frame would step), then the mix of frame 2
     let out = one(&mut store, 1280, |_| 480.0, |i| if i < 512 { 0.0 } else { 1.0 });
@@ -633,7 +643,7 @@ fn a_still_position_moved_between_blocks_fades_from_the_block_its_mix_after() {
 #[test]
 fn each_voice_of_a_unison_fades_on_its_own() {
     let mut store = Store::default();
-    constant_frames(&mut store, 1, 1.0, &[0.0, 1.0, 2.0, 3.0]);
+    constant_frames(&mut store, 1.0, &[0.0, 1.0, 2.0, 3.0]);
     // u2 spread over 0.6 of the table: the lower voice (right) 1.2 frames below the position, the higher one
     // (left) 1.2 above. q 1 (frames 0 and 2), q 2 at 256 (the higher one to 3), q 2.4 at 512 (the lower one to 1)
     let shape = UnisonShape {
@@ -660,7 +670,7 @@ fn each_voice_of_a_unison_fades_on_its_own() {
 #[test]
 fn a_fade_goes_on_above_the_nyquist_and_into_a_version_of_fewer_frames() {
     let mut store = Store::default();
-    constant_frames(&mut store, 1, 1.0, &[0.0, 1.0]);
+    constant_frames(&mut store, 1.0, &[0.0, 1.0]);
     // a fade from 128 (to 228), above the nyquist from the point of 192 to the next block (the segment before it
     // fades into the silent level): done there, frame 1 alone from 256
     let out = one(
@@ -671,10 +681,10 @@ fn a_fade_goes_on_above_the_nyquist_and_into_a_version_of_fewer_frames() {
     );
     expect_fade(&out, 0, 160, 128, 100.0, 0.0, 1.0);
     assert!(out[192..256].iter().all(|value| *value == 0.0));
-    expect_fade(&out, 256, 384, 0, 1.0, 1.0, 1.0);
-    // 4 frames, a fade from frame 0 to 3 (5 ms, 55 Hz) into a version of 2 frames (5 and 6) on the way: the
-    // frames of the fade clamped to it, crossfaded into it; then its last frame
-    constant_frames(&mut store, 1, 2.0, &[0.0, 1.0, 2.0, 3.0]);
+    assert!(out[256..].iter().all(|value| *value == 1.0));
+    // 4 frames, a fade from frame 0 to 3 (5 ms, 55 Hz) into a version of 2 frames (5 and 6) on the way: over the
+    // crossfade of the versions (10 ms from 256) the old one goes on with its fade, the new one plays its frame
+    constant_frames(&mut store, 2.0, &[0.0, 1.0, 2.0, 3.0]);
     let (out, _) = play(
         &mut store,
         1.0,
@@ -684,11 +694,48 @@ fn a_fade_goes_on_above_the_nyquist_and_into_a_version_of_fewer_frames() {
         |i| if i < 128 { 0.0 } else { 1.0 },
         |frame, store| {
             if frame == 256 {
-                constant_frames(store, 1, 3.0, &[5.0, 6.0]);
+                constant_frames(store, 3.0, &[5.0, 6.0]);
             }
         },
     );
-    assert!(out.iter().all(|value| value.is_finite()));
-    expect_fade(&out, 128, 256, 128, 240.0, 0.0, 3.0);
-    expect_fade(&out, 1024, 1280, 0, 1.0, 6.0, 6.0);
+    expect_fade(&out, 0, 256, 128, 240.0, 0.0, 3.0);
+    for (i, value) in out.iter().enumerate().skip(256) {
+        let old = 3.0 * ((i as f64 - 128.0) / 240.0).clamp(0.0, 1.0);
+        let share = ((i - 256) as f64 / 480.0).clamp(0.0, 1.0);
+        let expected = old + (6.0 - old) * share;
+        assert!(
+            (*value as f64 - expected).abs() < 1e-5,
+            "sample {i}: {value}, not {expected}"
+        );
+    }
+}
+
+#[test]
+fn a_silent_table_keeps_the_frame_of_the_position_for_the_version_after_it() {
+    let mut store = Store::default();
+    constant_frames(&mut store, 1.0, &[0.0, 1.0, 2.0, 3.0]);
+    // on frame 0, then a silent version of as many frames (crossfaded in from 256), the position to frame 3 on it
+    // (at 1024), then frames again (at 1536): the new version starts on frame 3, crossfaded in over 10 ms from
+    // silence, no fade from frame 0
+    let (out, _) = play(
+        &mut store,
+        1.0,
+        UnisonShape::default(),
+        2048,
+        |_| 480.0,
+        |i| if i < 1024 { 0.0 } else { 1.0 },
+        |frame, store| match frame {
+            256 => silent_frames(store, 2.0, 4),
+            1536 => constant_frames(store, 3.0, &[0.0, 10.0, 20.0, 30.0]),
+            _ => (),
+        },
+    );
+    expect_fade(&out, 736, 1536, 0, 1.0, 0.0, 0.0);
+    for (i, value) in out.iter().enumerate().skip(1536) {
+        let expected = 30.0 * ((i - 1536) as f64 / 480.0).clamp(0.0, 1.0);
+        assert!(
+            (*value as f64 - expected).abs() < 1e-5,
+            "sample {i}: {value}, not {expected}"
+        );
+    }
 }

@@ -1,47 +1,41 @@
 {
- "about": "Osc A of the init patch of the Audio Unit playing tables of ours (frame j (-1)^j · a sine: the sign of the output tells the frame, between two frames it is (1 - 2m) · the sine, m the share of the new one) while A WT Pos is automated (set every 16 samples; the AU glides it, its fades start some ms after a step): `lengths` a step from frame 0 to 1 by rate and note: the sample the fade starts at (its remainder by 32) and its length in samples (the line of m through 0.15..0.85); `sweeps` 256 frames swept from 0.3 s over 4, 1 and 0.25 s at 220 Hz (`every` the samples between two frames): each change of sign [start, samples, sign before, sign after]; `unison` A Unison 2 (one voice right, one left): `detuned` at Detune 1 (±200 cents) each channel its period and its fade, `spread` Detune 0 and A Uni WT Pos 0.75: the right voice crosses at 0.5 s, the left one at 0.7 s; `bends` a pitch bend of 12 semitones up and down over 0.49..0.53 s while the right voice fades (m against the left one, on frame 0): the fade, the most a sample of it is off its line (`off`) and the periods of the left voice at its start and its end; scripts/renders/run.mjs --only=frame-fades",
+ "about": "Osc A of the init patch of the Audio Unit playing tables of ours (frame j (-1)^j · a sine: the sign of the output tells the frame, between two frames it is (1 - 2m) · the sine, m the share of the new one) while A WT Pos is automated (set every 16 samples; the AU glides it, its fades start some ms after a step): `lengths` a step from frame 0 to 1 by rate and note: the sample the fade starts at and its length in samples (the line of m through 0.15..0.85); `sweeps` 256 frames swept from 0.3 s over 4, 1 and 0.25 s at 220 Hz: each change of sign [start, samples, sign before, sign after]; `unison` A Unison 2 (one voice right, one left): `detuned` at Detune 1 (±200 cents) each channel its period and its fade, `spread` Detune 0 and A Uni WT Pos 0.75: the right voice crosses at 0.5 s, the left one at 0.7 s; `bends` a pitch bend of 12 semitones up and down over 0.49..0.53 s while the right voice fades (m against the left one, on frame 0): the fade, the most a sample of it is off its line (`off`) and the periods of the left voice at its start and its end; scripts/renders/run.mjs --only=frame-fades",
  "lengths": {
   "44100": [
    {
     "note": 33,
     "period": 801.8,
     "start": 22600,
-    "point": 8,
     "length": 220.5
    },
    {
     "note": 45,
     "period": 400.9,
     "start": 22600,
-    "point": 8,
     "length": 220.5
    },
    {
     "note": 57,
     "period": 200.5,
     "start": 22600,
-    "point": 8,
     "length": 200.5
    },
    {
     "note": 69,
     "period": 100.2,
     "start": 22599,
-    "point": 7,
     "length": 100.2
    },
    {
     "note": 81,
     "period": 50.1,
     "start": 22600,
-    "point": 8,
     "length": 50.1
    },
    {
     "note": 93,
     "period": 25.1,
     "start": 22600,
-    "point": 8,
     "length": 25
    }
   ],
@@ -50,42 +44,36 @@
     "note": 33,
     "period": 872.7,
     "start": 24580,
-    "point": 4,
     "length": 240
    },
    {
     "note": 45,
     "period": 436.4,
     "start": 24580,
-    "point": 4,
     "length": 240
    },
    {
     "note": 57,
     "period": 218.2,
     "start": 24579,
-    "point": 3,
     "length": 218.2
    },
    {
     "note": 69,
     "period": 109.1,
     "start": 24580,
-    "point": 4,
     "length": 109.1
    },
    {
     "note": 81,
     "period": 54.5,
     "start": 24580,
-    "point": 4,
     "length": 54.5
    },
    {
     "note": 93,
     "period": 27.3,
     "start": 24580,
-    "point": 4,
     "length": 27.3
    }
   ],
@@ -94,49 +82,42 @@
     "note": 33,
     "period": 1745.5,
     "start": 49123,
-    "point": 3,
     "length": 480
    },
    {
     "note": 45,
     "period": 872.7,
     "start": 49123,
-    "point": 3,
     "length": 480
    },
    {
     "note": 57,
     "period": 436.4,
     "start": 49123,
-    "point": 3,
     "length": 436.4
    },
    {
     "note": 69,
     "period": 218.2,
     "start": 49122,
-    "point": 2,
     "length": 218.2
    },
    {
     "note": 81,
     "period": 109.1,
     "start": 49123,
-    "point": 3,
     "length": 109.1
    },
    {
     "note": 93,
     "period": 54.5,
     "start": 49123,
-    "point": 3,
     "length": 54.5
    }
   ]
  },
  "sweeps": {
   "1": {
-   "every": 188,
    "changes": [
     [
      14640,
@@ -915,7 +896,6 @@
    ]
   },
   "4": {
-   "every": 753,
    "changes": [
     [
      15188,
@@ -2450,7 +2430,6 @@
    ]
   },
   "0.25": {
-   "every": 47,
    "changes": [
     [
      14749,

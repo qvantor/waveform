@@ -30,3 +30,48 @@ export const frameStart = (
 // for 1023 harmonics, a frame of 2048 samples), the grid of Chrome and WebKit (their table size / 2 · 2^(-r/3)
 // lands on it), so a note gets as many harmonics as from a native oscillator
 export const levelBase = (harmonics: number) => 2 ** Math.ceil(Math.log2(harmonics + 1));
+
+export const LEVELS_PER_OCTAVE = 3;
+// samples of a level: 32 per cycle of its highest harmonic, a power of two in 512..4096 (the oscillator reads
+// them linearly while it glides or morphs; a held note reads a mix of them as long as a native table)
+const SAMPLES_PER_HARMONIC = 32;
+const MIN_LENGTH = 512;
+const MAX_LENGTH = 4096;
+
+const nextPowerOfTwo = (value: number) => 2 ** Math.ceil(Math.log2(Math.max(1, value)));
+
+// the harmonics of each level of a table whose frames have up to `harmonics`, the silent level last
+export const levelHarmonics = (harmonics: number) => {
+  const base = levelBase(harmonics);
+  const levels: number[] = [];
+  for (let r = 0; ; r++) {
+    // 1e-9: 2^(-3/3) of 1024 is 512, not 511.99…
+    const count = Math.floor(base * 2 ** (-r / LEVELS_PER_OCTAVE) + 1e-9);
+    if (count < 1) break;
+    levels.push(Math.min(harmonics, count));
+  }
+  return [...levels, 0];
+};
+
+// (the silent level is one sample of 0: it is read, never played)
+export const levelLength = (harmonics: number) =>
+  harmonics === 0
+    ? 1
+    : Math.min(MAX_LENGTH, Math.max(MIN_LENGTH, nextPowerOfTwo(SAMPLES_PER_HARMONIC * harmonics)));
+
+// the layout of a table of `frames` frames with up to `harmonics` harmonics, data not filled
+export const createLevels = (frames: number, harmonics: number, buffer?: ArrayBuffer): WavetableLevels => {
+  const counts = levelHarmonics(harmonics);
+  const lengths = Int32Array.from(counts, levelLength);
+  const offsets = new Int32Array(counts.length);
+  let size = 0;
+  lengths.forEach((length, r) => {
+    offsets[r] = size;
+    size += frames * (length + FRAME_GUARD);
+  });
+  const data =
+    buffer && buffer.byteLength === size * Float32Array.BYTES_PER_ELEMENT
+      ? new Float32Array(buffer)
+      : new Float32Array(size);
+  return { frames, harmonics: Int32Array.from(counts), lengths, offsets, data };
+};

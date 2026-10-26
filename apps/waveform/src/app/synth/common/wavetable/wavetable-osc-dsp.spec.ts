@@ -102,8 +102,9 @@ interface MeasuredFade {
 }
 const MEASURED_FADES: {
   lengths: Record<string, (MeasuredFade & { note: number; period: number })[]>;
-  sweeps: Record<string, { every: number; changes: [number, number, number, number][] }>;
-  unison: { detuned: (MeasuredFade & { period: number })[] };
+  sweeps: Record<string, { changes: [number, number, number, number][] }>;
+  unison: { detuned: (MeasuredFade & { period: number })[]; spread: MeasuredFade[] };
+  bends: Record<'up' | 'down', MeasuredFade & { off: number; periods: [number, number] }>;
 } = JSON.parse(
   readFileSync(join(__dirname, '../../../../../../../dsp/measurements/frame-fades.json'), 'utf8')
 );
@@ -115,6 +116,7 @@ const cycle = (size: number, harmonics: [number, number, number?][]) =>
 const SAW_HARMONICS = Array.from({ length: 1023 }, (_, i): [number, number] => [i + 1, 1 / (i + 1)]);
 const saw = cycle(2048, SAW_HARMONICS);
 const sine = cycle(2048, [[1, 1]]);
+const inverted = sine.map((v) => -v);
 const square = cycle(
   2048,
   Array.from({ length: 512 }, (_, i): [number, number] => [2 * i + 1, 1 / (2 * i + 1)])
@@ -401,7 +403,7 @@ describe('the wavetable voice', () => {
     // dsp/measurements/frames.json: the frame just below and above each edge k / N of the position
     it.each(['3', '4'])('plays one frame of %s, never a mix: q = share × N in (k, k + 1] is frame k', (n) => {
       const count = Number(n);
-      const frames = [sine, square, saw, sine.map((v) => -v)].slice(0, count);
+      const frames = [sine, square, saw, inverted].slice(0, count);
       const { store } = core.storeWith({ a: frames });
       const at = (position: number) => render({ store, params: { position1: position }, frames: 1024 }).left;
       const alone = (k: number) => at(k / (count - 1));
@@ -451,7 +453,6 @@ describe('the wavetable voice', () => {
   // dsp/measurements/frame-fades.json: tables of a sine and the sine inverted (frame j (-1)^j · the sine): between
   // two frames the voice plays (1 - 2m) · the sine, m the share of the new one
   describe('a change of frame, as the renders', () => {
-    const inverted = sine.map((v) => -v);
     // x over the sine of `frequency` from phase 0 where it is not near 0 (|sin| above `low`): [n, x / the sine]
     const against = (x: Float32Array, frequency: number, rate: number, from: number, low = 0.3) => {
       const out: [number, number][] = [];
@@ -462,7 +463,9 @@ describe('the wavetable voice', () => {
       }
       return out;
     };
-    // the fade of the first change, as the renders measure one: the line of m = (1 - a) / 2 through 0.15..0.85
+    // the fade of the first change, as the renders measure one (`fadeOf` of scripts/renders/run.mjs: the same
+    // thresholds, keep them alike): the line of m = (1 - a) / 2 through 0.15..0.85, where it starts (0), the samples
+    // to 1 and the most a sample of it is off the line
     const fadeOf = (a: [number, number][]) => {
       const first = a.findIndex(([, v]) => v < 0.98);
       const mid: [number, number][] = [];
@@ -472,7 +475,9 @@ describe('the wavetable voice', () => {
       const my = mid.reduce((t, [, m]) => t + m, 0) / mid.length;
       const slope =
         mid.reduce((t, [n, m]) => t + (n - mx) * (m - my), 0) / mid.reduce((t, [n]) => t + (n - mx) ** 2, 0);
-      return { start: mx - my / slope, length: 1 / slope };
+      const start = mx - my / slope;
+      const off = Math.max(...mid.map(([n, m]) => Math.abs(m - (n - start) * slope)));
+      return { start, length: 1 / slope, off };
     };
 
     const steps = Object.entries(MEASURED_FADES.lengths).flatMap(([rate, rows]) =>
@@ -517,7 +522,8 @@ describe('the wavetable voice', () => {
           },
           frames: T + 0.6 * RATE,
         });
-        // the fades that pass 0, as the renders find them: [start, samples, sign before, sign after]
+        // the fades that pass 0, as the renders find them (scripts/renders/run.mjs): [start, samples, sign before,
+        // sign after]
         const a = against(left, 220, RATE, 0.25 * RATE, 0.5);
         const changes: number[][] = [];
         for (let i = 1; i < a.length; i++) {
@@ -552,10 +558,11 @@ describe('the wavetable voice', () => {
       }
     );
 
+    const step = Math.round(0.5 * RATE) + 17;
+
     it('fades each voice of a unison over its own period', () => {
       const { store } = core.storeWith({ a: [sine, inverted] });
       // u2 at ±200 cents of 440 Hz: the higher one left, the lower one right
-      const step = Math.round(0.5 * RATE) + 17;
       const { left, right } = render({
         store,
         oscs: [osc({ unison: 2 })],
@@ -563,13 +570,57 @@ describe('the wavetable voice', () => {
         frames: Math.round(0.6 * RATE),
       });
       const [higher, lower] = MEASURED_FADES.unison.detuned;
-      [
-        [left, 440 * 2 ** (200 / 1200), higher],
-        [right, 440 * 2 ** (-200 / 1200), lower],
-      ].forEach(([channel, frequency, measured]) => {
-        const fade = fadeOf(against(channel as Float32Array, frequency as number, RATE, step - 64));
-        expect(Math.abs(fade.length - (measured as MeasuredFade).length)).toBeLessThan(1);
+      const expectFade = (channel: Float32Array, cents: number, measured: MeasuredFade) => {
+        const fade = fadeOf(against(channel, 440 * 2 ** (cents / 1200), RATE, step - 64));
+        expect(Math.abs(fade.length - measured.length)).toBeLessThan(1);
+      };
+      expectFade(left, 200, higher);
+      expectFade(right, -200, lower);
+    });
+
+    // u2 at one pitch and phase, the voices half a frame below and above the position (a position spread of
+    // 0.5): the lower one (right) and the higher one (left) cross into frame 1 when their own position does; a
+    // voice that holds frame 0 is the phase of the other: a = left / right
+    const spreadPlay = (position1: ParamValue, frequency: ParamValue = 220) =>
+      render({
+        store: core.storeWith({ a: [sine, inverted] }).store,
+        oscs: [osc({ unison: 2, unisonShape: { ...UNISON_SHAPE, positionSpread: 0.5 } })],
+        params: { frequency, position1 },
+        frames: Math.round(0.8 * RATE),
       });
+    const ratio = (x: Float32Array, reference: Float32Array, from: number) => {
+      const out: [number, number][] = [];
+      for (let n = from; n < x.length; n++)
+        if (Math.abs(reference[n]) > 0.3) out.push([n, x[n] / reference[n]]);
+      return out;
+    };
+
+    it('fades each voice of a unison when its own frame changes, as the renders', () => {
+      // the higher voice crosses at the first step, the lower one at the second
+      const second = Math.round(0.7 * RATE) + 17;
+      const { left, right } = spreadPlay((frame) => (frame < step ? 0.1 : frame < second ? 0.3 : 0.8));
+      const [lower, higher] = MEASURED_FADES.unison.spread;
+      expect(lower.start).toBeGreaterThan(higher.start);
+      const leftFade = fadeOf(against(left, 220, RATE, step - 64));
+      const rightFade = fadeOf(against(right, 220, RATE, step - 64));
+      expect(leftFade.start - step).toBeLessThan(32);
+      expect(rightFade.start - second).toBeGreaterThanOrEqual(0);
+      expect(rightFade.start - second).toBeLessThan(32);
+      expect(Math.abs(leftFade.length - higher.length)).toBeLessThan(1);
+      expect(Math.abs(rightFade.length - lower.length)).toBeLessThan(1);
+    });
+
+    it('keeps the length of a fade from its start under a bend, linear, as the renders', () => {
+      // an octave up over 40 ms from the step; the renders: as long as a period near its start, on its line
+      const { up } = MEASURED_FADES.bends;
+      expect(up.off).toBeLessThan(0.01);
+      expect(Math.abs(up.length - up.periods[0])).toBeLessThan(Math.abs(up.length - up.periods[1]));
+      const frequency = (frame: number) =>
+        220 * 2 ** Math.min(1, Math.max(0, (frame - step) / (0.04 * RATE)));
+      const { left, right } = spreadPlay((frame) => (frame < step ? 0.1 : 0.3), frequency);
+      const fade = fadeOf(ratio(left, right, step - 64));
+      expect(fade.off).toBeLessThan(0.01);
+      expect(Math.abs(fade.length - RATE / Math.fround(frequency(Math.round(fade.start))))).toBeLessThan(1);
     });
 
     it('sweeps a table of unrelated frames without a click at their edges', () => {

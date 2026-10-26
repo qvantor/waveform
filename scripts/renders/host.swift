@@ -101,10 +101,10 @@ let engine = AVAudioEngine()
 let format = AVAudioFormat(standardFormatWithSampleRate: job.rate, channels: 2)!
 engine.attach(unit)
 engine.connect(unit, to: engine.mainMixerNode, format: format)
-try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: AVAudioFrameCount(job.step ?? 64))
+let block = AVAudioFrameCount(job.step ?? 64)
+try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: block)
 try engine.start()
 let instrument = unit as! AVAudioUnitMIDIInstrument
-let block = AVAudioFrameCount(job.step ?? 64)
 let buffer = AVAudioPCMBuffer(pcmFormat: engine.manualRenderingFormat, frameCapacity: block)!
 let total = Int(job.seconds * job.rate)
 var out = [Float](repeating: 0, count: 2 * total)
