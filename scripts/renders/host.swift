@@ -1,7 +1,9 @@
 // An offline host of an Audio Unit: `host params` lists its parameters, `host state <out.bin>` writes its
 // processor state (a magic, a JSON header, then a zstd frame of the CBOR of its modules; state.mjs),
 // `host render <job.json> <out.f32>` renders a job: { rate, seconds, state?: "<a processor state>", params:
-// { "<name>": value }, notes: [{ note, on, off, velocity }] } into interleaved stereo float32
+// { "<name>": value }, automation?: [{ name, points: [[seconds, value]] }], step?, notes: [{ note, on, off,
+// velocity }] } into interleaved stereo float32: an automated parameter moves linearly between its points (before
+// the first and after the last it holds them), set before each call of `step` samples (64 by default)
 import AVFoundation
 import AudioToolbox
 
@@ -14,6 +16,17 @@ guard codes.count == 3 else { fatalError("RENDERS_AU is not <type>:<subtype>:<ma
 let description = AudioComponentDescription(
   componentType: codes[0], componentSubType: codes[1], componentManufacturer: codes[2], componentFlags: 0,
   componentFlagsMask: 0)
+
+// an automation at t seconds: linear between the points around it
+func automated(_ points: [[Double]], _ t: Double) -> Double {
+  guard let first = points.first, let last = points.last else { fatalError("an automation without points") }
+  if t < first[0] { return first[1] }
+  for i in 0..<(points.count - 1) where t >= points[i][0] && t < points[i + 1][0] {
+    let share = (t - points[i][0]) / (points[i + 1][0] - points[i][0])
+    return points[i][1] + (points[i + 1][1] - points[i][1]) * share
+  }
+  return last[1]
+}
 
 func instantiate() -> AVAudioUnit {
   var result: AVAudioUnit?
@@ -30,11 +43,14 @@ func instantiate() -> AVAudioUnit {
 }
 
 struct Note: Decodable { let note: UInt8; let on: Double; let off: Double; let velocity: UInt8? }
+struct Automation: Decodable { let name: String; let points: [[Double]] }
 struct Job: Decodable {
   let rate: Double
   let seconds: Double
   let state: String?
   let params: [String: Float]?
+  let automation: [Automation]?
+  let step: Int?
   let notes: [Note]
 }
 
@@ -75,18 +91,20 @@ if let path = job.state {
   state["Processor State"] = try Data(contentsOf: URL(fileURLWithPath: path))
   unit.auAudioUnit.fullState = state
 }
-for (name, value) in job.params ?? [:] {
+let parameter = { (name: String) -> AUParameter in
   guard let p = tree.first(where: { $0.displayName == name }) else { fatalError("no parameter \(name)") }
-  p.value = value
+  return p
 }
+for (name, value) in job.params ?? [:] { parameter(name).value = value }
+let automations = (job.automation ?? []).map { (parameter($0.name), $0.points) }
 let engine = AVAudioEngine()
 let format = AVAudioFormat(standardFormatWithSampleRate: job.rate, channels: 2)!
 engine.attach(unit)
 engine.connect(unit, to: engine.mainMixerNode, format: format)
-try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: 64)
+try engine.enableManualRenderingMode(.offline, format: format, maximumFrameCount: AVAudioFrameCount(job.step ?? 64))
 try engine.start()
 let instrument = unit as! AVAudioUnitMIDIInstrument
-let block: AVAudioFrameCount = 64
+let block = AVAudioFrameCount(job.step ?? 64)
 let buffer = AVAudioPCMBuffer(pcmFormat: engine.manualRenderingFormat, frameCapacity: block)!
 let total = Int(job.seconds * job.rate)
 var out = [Float](repeating: 0, count: 2 * total)
@@ -99,7 +117,8 @@ events.sort { $0.frame < $1.frame }
 var next = 0
 var frame = 0
 while frame < total {
-  // the events of this block go at its start (a block of 64 samples: their times rounded down to it)
+  for (p, points) in automations { p.value = AUValue(automated(points, Double(frame) / job.rate)) }
+  // the events of this block go at its start (a block of `step` samples: their times rounded down to it)
   while next < events.count && events[next].frame < frame + Int(block) {
     let e = events[next]
     if e.on { instrument.startNote(e.note, withVelocity: e.velocity, onChannel: 0) }

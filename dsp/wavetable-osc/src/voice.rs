@@ -19,6 +19,8 @@ const BLOCK: usize = 128;
 const FADE_IN: f64 = 0.0015;
 const KILL_FADE: f64 = 0.02;
 const CROSSFADE: f64 = 0.01;
+// a change of frame fades in over a period of the voice, at most this (dsp/measurements/frame-fades.json)
+const FRAME_FADE: f64 = 0.005;
 pub const UPSAMPLER_TAPS: usize = 6;
 const HELD_GATE: f64 = 1.0;
 const RELEASE_GATE: f64 = 2.0;
@@ -326,6 +328,45 @@ fn pair_loop(
 }
 
 // (not inlined: a loop of its own keeps its values in registers, inlined into render_voices they spilled)
+// two frames of one level: the frame at `from` fading into the one at `to`, m the share of the second
+#[inline(never)]
+fn render12(
+    t: &[f32],
+    from: usize,
+    to: usize,
+    len: f64,
+    mut m: f64,
+    dm: f64,
+    mut ph: f64,
+    mut inc: f64,
+    d_inc: f64,
+    g: f64,
+    out: &mut [f32],
+    s0: usize,
+    s1: usize,
+) -> f64 {
+    let (wa, wb) = (window(t, from, len as usize), window(t, to, len as usize));
+    let last = len as i32 - 1;
+    let out = &mut out[..s1];
+    phase_loop!(
+        ph,
+        inc,
+        d_inc,
+        s0,
+        s1,
+        |s| {
+            let (i, f) = split(ph * len, last);
+            let a = lerp(wa, i, f);
+            let b = lerp(wb, i, f);
+            let v = a + (b - a) * m;
+            out[s] = (out[s] as f64 + g * v) as f32;
+        },
+        m += dm
+    );
+    ph
+}
+
+// (not inlined: a loop of its own keeps its values in registers, inlined into render_voices they spilled)
 #[inline(never)]
 fn render21_same(
     t: &[f32],
@@ -360,6 +401,188 @@ fn render21_same(
         w += dw
     );
     ph
+}
+
+// two frames (from, to at m) of two levels of one length (at w): the four windows (`offsets`: from and to on the
+// level, from and to on the next) in the lanes of an f32x4, each read at i and i + 1 at once (a load of 64 bits),
+// one lerp for the four, their weights in lanes with the gain: g(1 - m)(1 - w), gm(1 - w), g(1 - m)w, gmw, stepped
+// by a sum each sample (at a constant w: their product is linear) or as the product of the morph and the level
+// lanes (w moves). In f32: 3.3× the loop of the four read one by one in f64
+#[inline(never)]
+fn render22_same(
+    t: &[f32],
+    offsets: [usize; 4],
+    len1: f64,
+    m: f64,
+    dm: f64,
+    w: f64,
+    dw: f64,
+    mut ph: f64,
+    mut inc: f64,
+    d_inc: f64,
+    g: f64,
+    out: &mut [f32],
+    s0: usize,
+    s1: usize,
+) -> f64 {
+    let len = len1 as usize;
+    let windows = offsets.map(|o| window(t, o, len));
+    let last = len1 as i32 - 1;
+    let out = &mut out[..s1];
+    let mut lanes = Lanes4::new(windows, m, dm, w, dw, g);
+    if dw == 0.0 {
+        phase_loop!(ph, inc, d_inc, s0, s1, |s| {
+            let (i, f) = split(ph * len1, last);
+            out[s] += lanes.sample_linear(i, f as f32);
+        });
+    } else {
+        phase_loop!(ph, inc, d_inc, s0, s1, |s| {
+            let (i, f) = split(ph * len1, last);
+            out[s] += lanes.sample(i, f as f32);
+        });
+    }
+    ph
+}
+
+// the four windows of render22_same and their weights (with the gain), in the lanes of wasm SIMD: `morph`
+// (1 - m, m, 1 - m, m) and `level` g(1 - w, 1 - w, w, w), their product `weights` and its step at a constant w
+#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+struct Lanes4<'a> {
+    windows: [&'a [f32]; 4],
+    morph: core::arch::wasm32::v128,
+    d_morph: core::arch::wasm32::v128,
+    level: core::arch::wasm32::v128,
+    d_level: core::arch::wasm32::v128,
+    weights: core::arch::wasm32::v128,
+    d_weights: core::arch::wasm32::v128,
+}
+
+#[cfg(all(target_arch = "wasm32", target_feature = "simd128"))]
+impl<'a> Lanes4<'a> {
+    #[inline(always)]
+    fn new(windows: [&'a [f32]; 4], m: f64, dm: f64, w: f64, dw: f64, g: f64) -> Lanes4<'a> {
+        use core::arch::wasm32::*;
+        let (m, dm, w, dw, g) = (m as f32, dm as f32, w as f32, dw as f32, g as f32);
+        let morph = f32x4(1.0 - m, m, 1.0 - m, m);
+        let d_morph = f32x4(-dm, dm, -dm, dm);
+        let level = f32x4(g * (1.0 - w), g * (1.0 - w), g * w, g * w);
+        Lanes4 {
+            windows,
+            morph,
+            d_morph,
+            level,
+            d_level: f32x4(-g * dw, -g * dw, g * dw, g * dw),
+            weights: f32x4_mul(morph, level),
+            d_weights: f32x4_mul(d_morph, level),
+        }
+    }
+
+    // the four windows at i and f of the way to i + 1
+    #[inline(always)]
+    fn values(&self, i: usize, f: f32) -> core::arch::wasm32::v128 {
+        use core::arch::wasm32::*;
+        // SAFETY: i = xi + 1 with xi in [-1, len - 1], a window of len + 3 samples: i + 1 < its length
+        let at = |k: usize| unsafe { self.windows[k].as_ptr().add(i) as *const u64 };
+        let zero = f32x4_splat(0.0);
+        // [x0[i], x0[i + 1], x1[i], x1[i + 1]] and of the windows 2 and 3
+        let (first, second) = unsafe {
+            (
+                v128_load64_lane::<1>(v128_load64_lane::<0>(zero, at(0)), at(1)),
+                v128_load64_lane::<1>(v128_load64_lane::<0>(zero, at(2)), at(3)),
+            )
+        };
+        let now = i32x4_shuffle::<0, 2, 4, 6>(first, second);
+        let next = i32x4_shuffle::<1, 3, 5, 7>(first, second);
+        f32x4_add(now, f32x4_mul(f32x4_sub(next, now), f32x4_splat(f)))
+    }
+
+    // (p0 + p2) + (p1 + p3)
+    #[inline(always)]
+    fn sum(p: core::arch::wasm32::v128) -> f32 {
+        use core::arch::wasm32::*;
+        let halves = f32x4_add(p, i32x4_shuffle::<2, 3, 0, 1>(p, p));
+        f32x4_extract_lane::<0>(halves) + f32x4_extract_lane::<1>(halves)
+    }
+
+    // the sample at a constant w (its weights linear), the weights step on
+    #[inline(always)]
+    fn sample_linear(&mut self, i: usize, f: f32) -> f32 {
+        use core::arch::wasm32::*;
+        let p = f32x4_mul(self.values(i, f), self.weights);
+        self.weights = f32x4_add(self.weights, self.d_weights);
+        Self::sum(p)
+    }
+
+    // the sample while w moves too, the morph and the level step on
+    #[inline(always)]
+    fn sample(&mut self, i: usize, f: f32) -> f32 {
+        use core::arch::wasm32::*;
+        let p = f32x4_mul(self.values(i, f), f32x4_mul(self.morph, self.level));
+        self.morph = f32x4_add(self.morph, self.d_morph);
+        self.level = f32x4_add(self.level, self.d_level);
+        Self::sum(p)
+    }
+}
+
+// the same lanes one by one, in the same order (the native build: cargo test)
+#[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
+struct Lanes4<'a> {
+    windows: [&'a [f32]; 4],
+    morph: [f32; 4],
+    d_morph: [f32; 4],
+    level: [f32; 4],
+    d_level: [f32; 4],
+    weights: [f32; 4],
+    d_weights: [f32; 4],
+}
+
+#[cfg(not(all(target_arch = "wasm32", target_feature = "simd128")))]
+impl<'a> Lanes4<'a> {
+    fn new(windows: [&'a [f32]; 4], m: f64, dm: f64, w: f64, dw: f64, g: f64) -> Lanes4<'a> {
+        let (m, dm, w, dw, g) = (m as f32, dm as f32, w as f32, dw as f32, g as f32);
+        let morph = [1.0 - m, m, 1.0 - m, m];
+        let d_morph = [-dm, dm, -dm, dm];
+        let level = [g * (1.0 - w), g * (1.0 - w), g * w, g * w];
+        Lanes4 {
+            windows,
+            morph,
+            d_morph,
+            level,
+            d_level: [-g * dw, -g * dw, g * dw, g * dw],
+            weights: core::array::from_fn(|k| morph[k] * level[k]),
+            d_weights: core::array::from_fn(|k| d_morph[k] * level[k]),
+        }
+    }
+
+    fn values(&self, i: usize, f: f32) -> [f32; 4] {
+        core::array::from_fn(|k| {
+            let (a, b) = (self.windows[k][i], self.windows[k][i + 1]);
+            a + (b - a) * f
+        })
+    }
+
+    fn sum(p: [f32; 4]) -> f32 {
+        (p[0] + p[2]) + (p[1] + p[3])
+    }
+
+    fn sample_linear(&mut self, i: usize, f: f32) -> f32 {
+        let values = self.values(i, f);
+        let p = core::array::from_fn(|k| values[k] * self.weights[k]);
+        for k in 0..4 {
+            self.weights[k] += self.d_weights[k];
+        }
+        Self::sum(p)
+    }
+
+    fn sample(&mut self, i: usize, f: f32) -> f32 {
+        let values = self.values(i, f);
+        let p = core::array::from_fn(|k| values[k] * (self.morph[k] * self.level[k]));
+        for k in 0..4 {
+            self.morph[k] += self.d_morph[k];
+            self.level[k] += self.d_level[k];
+        }
+        Self::sum(p)
+    }
 }
 
 // (not inlined: a loop of its own keeps its values in registers, inlined into render_voices they spilled)
@@ -397,6 +620,56 @@ fn render21(
             out[s] = (out[s] as f64 + g * (v1 + (v2 - v1) * w)) as f32;
         },
         w += dw
+    );
+    ph
+}
+
+// (not inlined: a loop of its own keeps its values in registers, inlined into render_voices they spilled)
+// two frames (from, to at m) of two levels of other lengths (at w)
+#[inline(never)]
+fn render22(
+    t: &[f32],
+    from1: usize,
+    to1: usize,
+    len1: f64,
+    from2: usize,
+    to2: usize,
+    len2: f64,
+    mut m: f64,
+    dm: f64,
+    mut w: f64,
+    dw: f64,
+    mut ph: f64,
+    mut inc: f64,
+    d_inc: f64,
+    g: f64,
+    out: &mut [f32],
+    s0: usize,
+    s1: usize,
+) -> f64 {
+    let (a1w, b1w) = (window(t, from1, len1 as usize), window(t, to1, len1 as usize));
+    let (a2w, b2w) = (window(t, from2, len2 as usize), window(t, to2, len2 as usize));
+    let (last1, last2) = (len1 as i32 - 1, len2 as i32 - 1);
+    let out = &mut out[..s1];
+    phase_loop!(
+        ph,
+        inc,
+        d_inc,
+        s0,
+        s1,
+        |s| {
+            let (i1, f1) = split(ph * len1, last1);
+            let (i2, f2) = split(ph * len2, last2);
+            let a1 = lerp(a1w, i1, f1);
+            let b1 = lerp(b1w, i1, f1);
+            let v1 = a1 + (b1 - a1) * m;
+            let a2 = lerp(a2w, i2, f2);
+            let b2 = lerp(b2w, i2, f2);
+            let v2 = a2 + (b2 - a2) * m;
+            out[s] = (out[s] as f64 + g * (v1 + (v2 - v1) * w)) as f32;
+        },
+        w += dw,
+        m += dm
     );
     ph
 }
@@ -479,6 +752,67 @@ fn add_to_mix(
     }
 }
 
+// the frame a unison voice plays, and the fade it goes there in from the frame before (dsp/measurements/
+// frame-fades.json): decided at the points of a block, linear over `length` samples (a period of the voice at its
+// start, at most FRAME_FADE), never cut short: a change meanwhile is seen at the first point after it
+#[derive(Clone, Copy)]
+struct FrameFade {
+    // -1 until the first point of the voice: it starts on its frame
+    frame: i32,
+    from: i32,
+    // the samples of the fade played: the share of the new frame is done / length
+    done: f64,
+    length: f64,
+}
+
+impl FrameFade {
+    const NONE: FrameFade = FrameFade {
+        frame: -1,
+        from: -1,
+        done: 0.0,
+        length: 0.0,
+    };
+
+    fn fading(&self) -> bool {
+        self.done < self.length
+    }
+
+    // the samples of the fade still to play
+    fn left(&self) -> usize {
+        ceil(self.length - self.done) as usize
+    }
+
+    // at a point: the frame the position plays there and the phase step of the voice
+    fn at_point(&mut self, frame: usize, inc: f64, limit: f64) {
+        let frame = frame as i32;
+        if self.frame < 0 {
+            self.frame = frame;
+        } else if frame != self.frame && !self.fading() {
+            let length = if inc > 0.0 { min(1.0 / inc, limit) } else { limit };
+            *self = FrameFade {
+                frame,
+                from: self.frame,
+                done: 0.0,
+                length,
+            };
+        }
+    }
+
+    // `samples` played (or passed silent)
+    fn skip(&mut self, samples: usize) {
+        if self.fading() {
+            self.done += samples as f64;
+        }
+    }
+
+    // the frames of a version of n (another version may have fewer)
+    fn clamp(&mut self, n: usize) {
+        let last = n as i32 - 1;
+        self.frame = self.frame.min(last);
+        self.from = self.from.min(last);
+    }
+}
+
 struct Osc {
     table: u32,
     phase: f64,
@@ -489,6 +823,8 @@ struct Osc {
     fades: [i32; MAX_UNISON],
     saved_phases: [f64; MAX_UNISON],
     saved_fades: [i32; MAX_UNISON],
+    frame_fades: [FrameFade; MAX_UNISON],
+    saved_frame_fades: [FrameFade; MAX_UNISON],
     random: [f64; MAX_UNISON],
     entry: EntryRef,
     next: Option<EntryRef>,
@@ -584,6 +920,7 @@ pub struct Voice {
     kill_length: f64,
     fade_length: i32,
     crossfade_length: f64,
+    frame_fade_limit: f64,
     lead_length: f64,
     in_phrase: bool,
     joined: bool,
@@ -627,6 +964,8 @@ impl Voice {
                 fades: [0; MAX_UNISON],
                 saved_phases: [0.0; MAX_UNISON],
                 saved_fades: [0; MAX_UNISON],
+                frame_fades: [FrameFade::NONE; MAX_UNISON],
+                saved_frame_fades: [FrameFade::NONE; MAX_UNISON],
                 random: config.random,
                 entry: EntryRef::Sine,
                 next: None,
@@ -677,6 +1016,7 @@ impl Voice {
             kill_length: max(1.0, round(KILL_FADE * sample_rate)),
             fade_length: max(1.0, round(FADE_IN * sample_rate)) as i32,
             crossfade_length: max(1.0, round(CROSSFADE * sample_rate)),
+            frame_fade_limit: FRAME_FADE * sample_rate,
             lead_length: round(RELEASE_LEAD * sample_rate),
             in_phrase,
             joined: false,
@@ -927,6 +1267,7 @@ impl Voice {
                 block_frame: self.block_frame,
                 fade_length: self.fade_length,
                 crossfade_length: self.crossfade_length,
+                frame_fade_limit: self.frame_fade_limit,
             };
             for osc in self.oscs.iter_mut() {
                 render_osc(&ctx, osc, &self.modulation, params, a, b, store, shared);
@@ -988,6 +1329,7 @@ struct Ctx {
     block_frame: f64,
     fade_length: i32,
     crossfade_length: f64,
+    frame_fade_limit: f64,
 }
 
 // the pitch at the points of the block for every voice: the phase step and log2 of the frequency
@@ -1096,14 +1438,18 @@ fn build_mix(
     osc.mix_ids[v] = osc.stable_id;
 }
 
-// a span s..e of a voice from one version: frame k of the level (w = 0) or the next (w = 1) or both; × g added
-// to out, returns the phase
+// a span s..e of a voice from one version: frame k of the level (w = 0) or the next (w = 1) or both, and while the
+// voice fades into it (`fade`: the frame it comes from, the share m of frame k and its step) both frames; × g
+// added to out, returns the phase (not inlined: inlined into render_voices its six loops cost a voice that plays its
+// mix 5%, the registers of that path)
+#[inline(never)]
 fn render_span(
     levels: &Levels,
     level: usize,
     w: f64,
     dw: f64,
     k: usize,
+    fade: Option<(usize, f64, f64)>,
     ph: f64,
     inc: f64,
     d_inc: f64,
@@ -1122,34 +1468,87 @@ fn render_span(
         two_levels = false;
     }
     let len1 = levels.lengths[level1] as usize;
-    let stride1 = len1 + FRAME_GUARD;
-    // sample 0 of the frame on the level, after the sample before the cycle
-    let o1 = levels.offsets[level1] as usize + k * stride1 + 1;
+    // sample 0 of a frame on the level, after the sample before the cycle
+    let at1 = |frame: usize| levels.offsets[level1] as usize + frame * (len1 + FRAME_GUARD) + 1;
+    let o1 = at1(k);
     if !two_levels {
-        return render11(data, o1, len1 as f64, ph, inc, d_inc, g, out, s, e);
+        return match fade {
+            Some((from, m, dm)) => render12(
+                data,
+                at1(from),
+                o1,
+                len1 as f64,
+                m,
+                dm,
+                ph,
+                inc,
+                d_inc,
+                g,
+                out,
+                s,
+                e,
+            ),
+            None => render11(data, o1, len1 as f64, ph, inc, d_inc, g, out, s, e),
+        };
     }
     let len2 = levels.lengths[level + 1] as usize;
-    let stride2 = len2 + FRAME_GUARD;
-    let o2 = levels.offsets[level + 1] as usize + k * stride2 + 1;
-    if len1 == len2 {
-        return render21_same(data, o1, len1 as f64, o2, w, dw, ph, inc, d_inc, g, out, s, e);
+    let at2 = |frame: usize| levels.offsets[level + 1] as usize + frame * (len2 + FRAME_GUARD) + 1;
+    let o2 = at2(k);
+    match fade {
+        None if len1 == len2 => render21_same(data, o1, len1 as f64, o2, w, dw, ph, inc, d_inc, g, out, s, e),
+        None => render21(
+            data,
+            o1,
+            len1 as f64,
+            o2,
+            len2 as f64,
+            w,
+            dw,
+            ph,
+            inc,
+            d_inc,
+            g,
+            out,
+            s,
+            e,
+        ),
+        Some((from, m, dm)) if len1 == len2 => render22_same(
+            data,
+            [at1(from), o1, at2(from), o2],
+            len1 as f64,
+            m,
+            dm,
+            w,
+            dw,
+            ph,
+            inc,
+            d_inc,
+            g,
+            out,
+            s,
+            e,
+        ),
+        Some((from, m, dm)) => render22(
+            data,
+            at1(from),
+            o1,
+            len1 as f64,
+            at2(from),
+            o2,
+            len2 as f64,
+            m,
+            dm,
+            w,
+            dw,
+            ph,
+            inc,
+            d_inc,
+            g,
+            out,
+            s,
+            e,
+        ),
     }
-    render21(
-        data,
-        o1,
-        len1 as f64,
-        o2,
-        len2 as f64,
-        w,
-        dw,
-        ph,
-        inc,
-        d_inc,
-        g,
-        out,
-        s,
-        e,
-    )
 }
 
 // the channels a render of an oscillator adds into: those of the voice, or those of the oscillator (a: its
@@ -1246,20 +1645,22 @@ fn render_voices(
     let n = levels.frames as usize;
     let points_length = ctx.points_length;
     if levels.harmonics[0] == 0 {
-        // a silent table: only the phases go on
+        // a silent table: only the phases and the fades go on
         for v in 0..osc.voices {
             let mut phase = osc.phases[v] + osc.incs[v * points_length] * (b - a) as f64;
             phase -= floor(phase);
             osc.phases[v] = phase;
             osc.fades[v] = 0.max(osc.fades[v] - (b - a) as i32);
+            osc.frame_fades[v].skip(b - a);
         }
         return;
     }
     // x = 1 + 3·log2(base · f / nyquist) = offset + 3·log2(f)
     let offset = 1.0 + 3.0 * (log2(level_base(levels.harmonics[0])) - ctx.log2_nyquist);
-    // the position as q = its share × the frames: frame ceil(q) - 1 plays, within the table (the frames
-    // never mix while it plays, q in (k, k + 1] is frame k), one q or one at each point;
-    // the position spread moves voice v by its share of the spread × the spread (a share of the table)
+    // the position as q = its share × the frames: frame ceil(q) - 1 plays, within the table (q in (k, k + 1] is
+    // frame k), one q or one at each point; the position spread moves voice v by its share of the spread × the
+    // spread (a share of the table). A voice plays one frame, two only while it fades from one into another
+    // (FrameFade)
     let moving = n > 1 && !is_constant(position);
     let frames_q = n as f64;
     let spread_q = if n > 1 {
@@ -1302,6 +1703,16 @@ fn render_voices(
     }
 
     let frame_of_voice = |v: usize| spread.as_ref().map_or(k, |frames| frames[v]);
+    // the frame of voice v at a point (q: the position there, if it moves)
+    let frame_at = |osc: &Osc, v: usize, q: f64| {
+        if !moving {
+            frame_of_voice(v)
+        } else if spread_q != 0.0 {
+            frame_of(spread_of(q, osc.shares[v]))
+        } else {
+            frame_of(q)
+        }
+    };
     // the middle voice of an odd count plays in both channels, the others take turns around it from the lowest on
     // the right (dsp/measurements/unison.json: the stacks of an even count move one side)
     let voices = osc.voices;
@@ -1337,6 +1748,10 @@ fn render_voices(
         }
         Some((level_f as usize, w0, (w1 - w0) / length))
     };
+    for v in 0..voices {
+        let frame = frame_at(osc, v, shared.scratch.positions[0]);
+        osc.frame_fades[v].at_point(frame, osc.incs[v * points_length], ctx.frame_fade_limit);
+    }
     // a steady block (one segment, the mixes may play): the builds of the voices are decided first, in their order
     // (the budget and the counters as the TS decides them voice by voice), so two neighbours that both play their
     // mixes render in one loop (render11_pair)
@@ -1348,8 +1763,12 @@ fn render_voices(
             let Some((level, w0, _)) = segment(osc, v, 0, length) else {
                 continue;
             };
+            // (a voice that fades plays both frames directly)
+            if osc.frame_fades[v].fading() {
+                continue;
+            }
             decided[v] = true;
-            let k = frame_of_voice(v);
+            let k = osc.frame_fades[v].frame as usize;
             if osc.mix_ids[v] != osc.stable_id
                 && shared.take_build(ctx.block_frame, build_cost(ctx, levels, level, w0))
             {
@@ -1411,7 +1830,6 @@ fn render_voices(
         let fade_left = osc.fades[v];
         let channel = channel_of_voice(v);
         let g = g * osc.gains[v];
-        let k = frame_of_voice(v);
         if fade_left > 0 {
             shared.scratch.fading[a..b].fill(0.0);
         }
@@ -1421,15 +1839,21 @@ fn render_voices(
             let s1 = shared.scratch.points[p + 1] as usize;
             let index = v * points_length + p;
             let inc0 = osc.incs[index];
+            if p > 0 {
+                let frame = frame_at(osc, v, shared.scratch.positions[p]);
+                osc.frame_fades[v].at_point(frame, inc0, ctx.frame_fade_limit);
+            }
             let length = (s1 - s0) as f64;
             let d_inc = (osc.incs[index + 1] - inc0) / length;
             let Some((level, w0, dw)) = segment(osc, v, p, length) else {
-                // above the fundamental's nyquist: silent, the phase goes on
+                // above the fundamental's nyquist: silent, the phase and the fade go on
                 ph += inc0 * length + (d_inc * length * (length - 1.0)) / 2.0;
                 ph -= floor(ph);
+                osc.frame_fades[v].skip(s1 - s0);
                 continue;
             };
-            if mixable {
+            let k = osc.frame_fades[v].frame as usize;
+            if mixable && !osc.frame_fades[v].fading() {
                 // one segment at a constant pitch and position: the mix of the voice, built now if the budget allows
                 // (decided already in a steady block)
                 if !decided[v]
@@ -1464,54 +1888,35 @@ fn render_voices(
             if cfg!(feature = "perf") && counted {
                 shared.counts[DIRECT_SAMPLES] += length;
             }
-            if !moving {
-                let (channel_out, fading) = channel_of(&mut shared.scratch, channels, channel);
-                let out = if fade_left > 0 { fading } else { channel_out };
-                ph = render_span(levels, level, w0, dw, k, ph, inc0, d_inc, g, out, s0, s1);
-                continue;
-            }
-            // the position from its point to the next, split where it crosses into another frame: up at the first
-            // sample past k + 1, down at the first one at k or below
-            let (from, to) = (shared.scratch.positions[p], shared.scratch.positions[p + 1]);
-            let (from, to) = if spread_q != 0.0 {
-                (spread_of(from, osc.shares[v]), spread_of(to, osc.shares[v]))
-            } else {
-                (from, to)
-            };
-            let dq = (to - from) / length;
+            // the frame of the voice, both while it fades into it: split where the fade ends
             let mut sample = s0;
             while sample < s1 {
-                let at = from + dq * (sample - s0) as f64;
-                let frame = frame_of(at);
-                let mut end = s1;
-                if dq > 0.0 && frame + 1 < n {
-                    let cross = sample as f64 + ((frame + 1) as f64 - at) / dq;
-                    if cross < s1 as f64 {
-                        end = max(sample as f64 + 1.0, floor(cross) + 1.0) as usize;
-                    }
-                } else if dq < 0.0 && frame > 0 {
-                    let cross = sample as f64 + (frame as f64 - at) / dq;
-                    if cross < s1 as f64 {
-                        end = max(sample as f64 + 1.0, ceil(cross)) as usize;
-                    }
-                }
-                let offset_in_segment = (sample - s0) as f64;
+                let fade = osc.frame_fades[v];
+                let end = if fade.fading() {
+                    (sample + fade.left()).min(s1)
+                } else {
+                    s1
+                };
+                let offset = (sample - s0) as f64;
                 let (channel_out, fading) = channel_of(&mut shared.scratch, channels, channel);
                 let out = if fade_left > 0 { fading } else { channel_out };
                 ph = render_span(
                     levels,
                     level,
-                    w0 + dw * offset_in_segment,
+                    w0 + dw * offset,
                     dw,
-                    frame,
+                    k,
+                    fade.fading()
+                        .then(|| (fade.from as usize, fade.done / fade.length, 1.0 / fade.length)),
                     ph,
-                    inc0 + d_inc * offset_in_segment,
+                    inc0 + d_inc * offset,
                     d_inc,
                     g,
                     out,
                     sample,
                     end,
                 );
+                osc.frame_fades[v].skip(end - sample);
                 sample = end;
             }
         }
@@ -1534,6 +1939,13 @@ fn render_voices(
             osc.fades[v] = remaining;
         }
         v += 1;
+    }
+}
+
+// the frames of the voices within the n frames of a version (in a crossfade of two, one may have fewer)
+fn clamp_frames(osc: &mut Osc, n: i32) {
+    for fade in osc.frame_fades[..osc.voices].iter_mut() {
+        fade.clamp(n as usize);
     }
 }
 
@@ -1667,6 +2079,8 @@ fn render_osc(
     if next.is_some() {
         osc.saved_phases = osc.phases;
         osc.saved_fades = osc.fades;
+        osc.saved_frame_fades = osc.frame_fades;
+        clamp_frames(osc, store.levels(osc.entry).frames);
     }
     let level = osc.level;
     render_voices(
@@ -1685,9 +2099,11 @@ fn render_osc(
         shared,
     );
     if let Some(next) = next {
-        // the new version from the same phases and fades
+        // the new version from the same phases, fades and frames
         osc.phases = osc.saved_phases;
         osc.fades = osc.saved_fades;
+        osc.frame_fades = osc.saved_frame_fades;
+        clamp_frames(osc, store.levels(next).frames);
         {
             let s = &mut shared.scratch;
             s.b_left[a..b].fill(0.0);

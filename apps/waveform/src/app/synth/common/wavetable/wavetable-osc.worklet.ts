@@ -1,6 +1,7 @@
 import bytes from '@waveform/wasm/wavetable-osc.wasm';
 import { instantiateCore } from '../wasm/wasm-core';
 import type { StoreStatsMessage, VoiceEvent, VoiceOptions } from './voice-options';
+import { FRAME_GUARD, WavetableLevels } from './wavetable-levels';
 import { STORE_PROCESSOR, VOICE_PARAMETERS, VOICES_PROCESSOR, VoiceParam } from './wavetable-osc-params';
 import {
   createOscScope,
@@ -35,16 +36,37 @@ declare function registerProcessor(
 const scope = createOscScope(instantiateCore<OscExports>(new WebAssembly.Module(bytes)));
 
 // the functions of a block compile lazily, on their first call: while the module loads, a voice of both
-// oscillators (the placeholder sine) on a store and a shared of its own renders a moving position (the direct
-// path, the filter, a route of an envelope and of the velocity, its amp), then a steady one (the mix builds, the
-// pairs), and is freed with them (the first block of the first note 0.014 ms instead of 0.93 in Node, the module
-// 2 ms longer: before the first note); then the same voice in a scope of voices, its params from events (a step, a
-// target and ramps: the curves of the timelines), its velocity gliding to another one, bent (the pitch bend of the
-// node, gliding), stolen at its end
+// oscillators (WARM_TABLE and the placeholder sine) on a store and a shared of its own renders a moving position
+// (the direct path, the fades from a frame into the other at three pitches, the filter, a route of an envelope and
+// of the velocity, its amp), then a steady one (the mix builds, the pairs), and is freed with them (the first block
+// of the first note 0.014 ms instead of 0.93 in Node, the module 2 ms longer: before the first note); then the
+// same voice in a scope of voices, its params from events (a step, a target and ramps: the curves of the
+// timelines), its velocity gliding to another one, bent (the pitch bend of the node, gliding), stolen at its end
+// (two frames of silence on levels of 1024, 1024 and 512 samples: by the pitch a fade between them reads one level,
+// two of one length or two of other lengths)
+const WARM_TABLE: WavetableLevels = (() => {
+  const lengths = Int32Array.of(1024, 1024, 512, 1);
+  const offsets = new Int32Array(lengths.length);
+  let size = 0;
+  lengths.forEach((length, r) => {
+    offsets[r] = size;
+    size += 2 * (length + FRAME_GUARD);
+  });
+  return {
+    frames: 2,
+    harmonics: Int32Array.of(32, 32, 16, 0),
+    lengths,
+    offsets,
+    data: new Float32Array(size),
+  };
+})();
+// the pitches of a fade on one level, two of one length and two of other lengths (x = 1 + 3·log2(64·f / nyquist)
+// at -1, 0.5 and 1.5)
+const WARM_PITCHES = [-1, 0.5, 1.5].map((x) => (sampleRate / 128) * 2 ** ((x - 1) / 3));
 const WARM_ENVELOPE = { attack: 0.001, hold: 0, decay: 0.01, sustain: 0.5, release: 0.01 };
 const WARM_VOICE: VoiceOptions = {
   osc: [
-    { table: '', unison: 4, phase: 0.5, phaseRand: 1 },
+    { table: 'warm', unison: 4, phase: 0.5, phaseRand: 1 },
     { table: '', unison: 3, phase: 0, phaseRand: 0 },
   ],
   start: 0,
@@ -60,6 +82,7 @@ const WARM_VOICE: VoiceOptions = {
 };
 const prewarm = () => {
   const warmStore = createTableStoreWasm(scope);
+  warmStore.set('warm', 1, WARM_TABLE);
   const warmShared = createVoiceSharedWasm(scope);
   const voice = createVoiceWasm(scope, sampleRate, WARM_VOICE, warmStore, Math.random, warmShared);
   const [outL, outR] = [new Float32Array(128), new Float32Array(128)];
@@ -68,9 +91,12 @@ const prewarm = () => {
   ) as Record<VoiceParam, Float32Array>;
   params.spread1 = Float32Array.of(20);
   params.spread2 = Float32Array.of(10);
-  const moving = Float32Array.from({ length: 128 }, (_, i) => i / 128);
-  for (let block = 0; block < 6; block++) {
-    params.position1 = block < 2 ? moving : Float32Array.of(0.5);
+  // up and down across the frames at each pitch, a block apart (a fade lasts up to 5 ms), then still
+  const up = Float32Array.from({ length: 128 }, (_, i) => i / 128);
+  const down = up.map((value) => 1 - value);
+  for (let block = 0; block < 10; block++) {
+    params.frequency = Float32Array.of(WARM_PITCHES[Math.min(2, block >> 1)]);
+    params.position1 = block < 6 ? (block % 4 < 2 ? up : down) : Float32Array.of(0.5);
     voice.process(block * 128, params, outL, outR);
   }
   voice.end();
