@@ -849,5 +849,23 @@ describe('fx', () => {
       $fxNote.next({ ...note(2), release: 3 });
       expect(setModulation.delay.mock.lastCall?.[0].note.release).toBe(3);
     });
+
+    it('a note at another velocity (of a legato phrase) sends nothing to an effect no route of which reads VELO', async () => {
+      const { actions, modulation, $fxNote, setModulation } = setupModulated();
+      await flush();
+      actions.setAdded('delay', true);
+      actions.setAdded('reverb', true);
+      modulation[1].addRoute('env2', 'delay.fb', 0.5);
+      modulation[1].addRoute('velo', 'reverb.mix', 0.5);
+      $fxNote.next({ ...note(1), velo: 0.3, velocity: 0.3 });
+      const [delay, reverb] = [setModulation.delay.mock.calls.length, setModulation.reverb.mock.calls.length];
+      // the delay follows no velocity: its note has none
+      expect(setModulation.delay.mock.lastCall?.[0].note).toEqual(note(1));
+
+      $fxNote.next({ ...note(1), velo: 0.9, velocity: 0.9 });
+      expect(setModulation.delay).toHaveBeenCalledTimes(delay);
+      expect(setModulation.reverb).toHaveBeenCalledTimes(reverb + 1);
+      expect(setModulation.reverb.mock.lastCall?.[0].note).toEqual({ ...note(1), velo: 0.9, velocity: 0.9 });
+    });
   });
 });

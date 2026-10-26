@@ -288,6 +288,86 @@ describe('the voices of one node', () => {
     voices.free();
   });
 
+  it('the pitch bend of the node at rest, or one that is not finite: the same bits as none', () => {
+    const play = (events: VoiceEvent[]) => {
+      const { voices } = node();
+      voices.apply([
+        { kind: 'on', voice: 1, options: note(), params: { frequency: 220, spread1: 15 } },
+        ...events,
+      ]);
+      const blocks = Array.from({ length: 6 }, (_, block) => render(voices, block * BLOCK));
+      voices.free();
+      return blocks;
+    };
+    const none = play([]);
+    // a bend that is not finite is the rest (a NaN would stay in its glide for good: every voice silent)
+    const bends: Array<[string, number[]]> = [
+      ['bend 0', [0]],
+      ['bend Infinity', [Infinity]],
+      ['bend NaN', [NaN]],
+      ['bend 200 then -Infinity', [200, -Infinity]],
+    ];
+    bends.forEach(([label, cents]) =>
+      play(cents.map((value) => ({ kind: 'bend', cents: value }))).forEach(({ left, right }, block) => {
+        expectSameBits(label, block, 'left', none[block].left, left);
+        expectSameBits(label, block, 'right', none[block].right, right);
+      })
+    );
+  });
+
+  it('bends a voice made after its glide as its detune bent, to the bit: one value, on its mix tables', () => {
+    // the bend glides in 10 ms (480 samples): over at block 4
+    const play = (bend: number, detune: number) => {
+      const { voices, shared } = node();
+      voices.apply([{ kind: 'bend', cents: bend }]);
+      for (let block = 0; block < 4; block++) render(voices, block * BLOCK);
+      const options = note({ osc: [osc(), osc({ unison: 2 })], start: (4 * BLOCK) / RATE });
+      voices.apply([
+        {
+          kind: 'on',
+          voice: 1,
+          options,
+          params: { frequency: 220, spread1: 15, spread2: 10, detune1: detune, detune2: detune - 1200 },
+        },
+      ]);
+      const blocks = Array.from({ length: 8 }, (_, block) => render(voices, (block + 4) * BLOCK));
+      const { mixSamples } = shared.stats();
+      voices.free();
+      return { blocks, mixSamples };
+    };
+    const bent = play(700, 0);
+    const detuned = play(0, 700);
+    bent.blocks.forEach(({ left, right }, block) => {
+      expectSameBits('bent', block, 'left', detuned.blocks[block].left, left);
+      expectSameBits('bent', block, 'right', detuned.blocks[block].right, right);
+    });
+    expect(bent.mixSamples).toBe(detuned.mixSamples);
+    expect(bent.mixSamples).toBeGreaterThan(0);
+  });
+
+  it('takes a bend instantly (a node made again): a voice of its first block plays as its detune bent', () => {
+    const play = (bend: VoiceEvent[], detune: number) => {
+      const { voices } = node();
+      voices.apply([
+        ...bend,
+        {
+          kind: 'on',
+          voice: 1,
+          options: note({ osc: [osc(), osc({ unison: 2 })] }),
+          params: { frequency: 220, spread1: 15, spread2: 10, detune1: detune, detune2: detune - 1200 },
+        },
+      ]);
+      const blocks = Array.from({ length: 6 }, (_, block) => render(voices, block * BLOCK));
+      voices.free();
+      return blocks;
+    };
+    const detuned = play([], 700);
+    play([{ kind: 'bend', cents: 700, instantly: true }], 0).forEach(({ left, right }, block) => {
+      expectSameBits('instantly', block, 'left', detuned[block].left, left);
+      expectSameBits('instantly', block, 'right', detuned[block].right, right);
+    });
+  });
+
   it('takes an event of a param it has not as nothing', () => {
     const { voices } = node();
     voices.apply([

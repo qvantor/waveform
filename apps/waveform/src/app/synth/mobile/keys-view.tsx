@@ -3,8 +3,9 @@ import styled, { css } from 'styled-components';
 import cls from 'classnames';
 import { theme } from '@waveform/ui-kit';
 import { FxScreen } from '../fx';
+import { PitchBend } from '../pitch-bend';
 import { SynthScreen } from '../screens';
-import { KeyboardTier } from './keyboard-tier';
+import { OCTAVE_WIDTH, OctaveControl, TierKeys, tierOctave } from './keyboard-tier';
 import { Scaled } from './scaled';
 import { SynthSections } from './synth-sections';
 import { useLocalStorageState } from './use-local-storage-state';
@@ -36,14 +37,37 @@ const MiniFx = styled(Scaled)`
   ${miniPanel}
 `;
 
+// a column as wide as the octave buttons left of the keys of both tiers: in portrait the octaves of both tiers
+// and the wheel under them, in landscape the wheel, the octave of each tier between it and its keys
 const Tiers = styled.div`
   flex: 1 1;
   min-height: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: ${OCTAVE_WIDTH}px minmax(0, 1fr);
   grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 8px;
+  gap: 8px 4px;
   padding: 6px 4px 4px;
+
+  &.landscape {
+    grid-template-columns: ${OCTAVE_WIDTH}px ${OCTAVE_WIDTH}px minmax(0, 1fr);
+  }
+`;
+
+// the left column, as high as both tiers
+const Side = styled.div`
+  grid-row: 1 / -1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+`;
+
+// the rest of the column: the wheel as high as it
+const Wheel = styled.div`
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  justify-content: center;
 `;
 
 const isOctaves = (value: unknown): value is [number, number] =>
@@ -58,6 +82,11 @@ export const KeysView = ({ portrait, screen }: { portrait: boolean; screen: Synt
   const octavesCount = portrait ? 1 : 2;
   const setTierOctave = (tier: number) => (octave: number) =>
     setOctaves((prev) => prev.map((o, i) => (i === tier ? octave : o)) as [number, number]);
+  const tiers = octaves.map((stored, tier) => ({
+    octave: tierOctave(stored, octavesCount),
+    octavesCount,
+    onOctaveChange: setTierOctave(tier),
+  }));
   const panelClassName = cls({ landscape: !portrait });
 
   return (
@@ -71,14 +100,19 @@ export const KeysView = ({ portrait, screen }: { portrait: boolean; screen: Synt
           <SynthSections layout={portrait ? 'grid' : 'row'} />
         </MiniSynth>
       )}
-      <Tiers>
-        {octaves.map((octave, tier) => (
-          <KeyboardTier
-            key={tier}
-            octave={octave}
-            octavesCount={octavesCount}
-            onOctaveChange={setTierOctave(tier)}
-          />
+      <Tiers className={panelClassName}>
+        <Side>
+          {portrait && tiers.map((tier, i) => <OctaveControl key={i} {...tier} />)}
+          <Wheel>
+            {/* alone: its range is the preset's */}
+            <PitchBend compact />
+          </Wheel>
+        </Side>
+        {tiers.map((tier, i) => (
+          <React.Fragment key={i}>
+            {!portrait && <OctaveControl {...tier} />}
+            <TierKeys {...tier} />
+          </React.Fragment>
         ))}
       </Tiers>
     </Root>

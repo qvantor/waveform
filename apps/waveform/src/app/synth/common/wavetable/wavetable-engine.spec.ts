@@ -336,6 +336,29 @@ describe('wavetable engine', () => {
     expect(engine.createVoice(NOTE, {})?.id).toBe(2);
   });
 
+  it('sends the pitch bend to the voices node, one event for every voice; a node made again takes it', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { engine, voices, events } = setup();
+    await flush();
+    const node = voices();
+    engine.setBend(-350);
+    await Promise.resolve();
+    expect(events(node)).toEqual([{ kind: 'bend', cents: -350 }]);
+
+    node?.onprocessorerror?.(new Event('processorerror'));
+    engine.retry();
+    await flush();
+    expect(voices()).not.toBe(node);
+    expect(events()).toEqual([{ kind: 'bend', cents: -350, instantly: true }]);
+  });
+
+  it('a node made at rest takes no bend', async () => {
+    const { voices, events } = setup();
+    await flush();
+    await Promise.resolve();
+    expect(events(voices())).toEqual([]);
+  });
+
   it('retry does nothing unless it failed', async () => {
     const { engine, addModule } = setup();
     engine.retry();

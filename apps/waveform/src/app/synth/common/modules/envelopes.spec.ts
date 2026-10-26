@@ -38,10 +38,19 @@ describe('envelopes', () => {
   });
 
   it('selects the envelope the section shows, it is not in the snapshot', () => {
-    const [{ $selected }, { select }] = createEnvelopes();
+    const [{ $selected, $envelope }, { select }] = createEnvelopes();
     select('env3');
-    expect($selected.value).toBe('env3');
+    expect([$selected.value, $envelope.value]).toEqual(['env3', 'env3']);
     expect(JSON.stringify(getSnapshot()['env'])).not.toContain('env3');
+  });
+
+  it('the velocity selected, the section keeps showing the last envelope selected', () => {
+    const [{ $selected, $envelope }, { select }] = createEnvelopes();
+    select('env2');
+    select('velo');
+    expect([$selected.value, $envelope.value]).toEqual(['velo', 'env2']);
+    select('env1');
+    expect([$selected.value, $envelope.value]).toEqual(['env1', 'env1']);
   });
 
   it('exposes the envelopes in the snapshot as env: { e1, e2, e3 }', () => {
@@ -52,7 +61,31 @@ describe('envelopes', () => {
       e1: { ...defaults.env1, release: 2 },
       e2: defaults.env2,
       e3: { ...defaults.env3, decay: 32 },
+      vel: { amp: 1, k: 0 },
     });
+  });
+
+  it('holds the knobs of the velocity: Amp 1 and a line by default, in the snapshot as vel: { amp, k }', () => {
+    const [{ $velocity }, { setVelocity }] = createEnvelopes();
+    expect($velocity.value).toEqual({ amp: 1, k: 0 });
+    setVelocity('amp', 0.25);
+    setVelocity('k', -3);
+    expect(getSnapshot()['env']).toMatchObject({ vel: { amp: 0.25, k: -3 } });
+  });
+
+  it('applies the velocity of a snapshot: 0 kept, a missing knob its default, a url one within its range', () => {
+    const [{ $velocity }, { setVelocity }] = createEnvelopes();
+    setVelocity('k', 4);
+    applySnapshot({ env: { vel: { amp: 0 } } });
+    expect($velocity.value).toEqual({ amp: 0, k: 0 });
+    applySnapshot({ env: { vel: { amp: 3, k: 1e-17 } } });
+    expect($velocity.value).toEqual({ amp: 1, k: 0 });
+    applySnapshot({ env: {} });
+    expect($velocity.value).toEqual({ amp: 1, k: 0 });
+    // a url of a legacy param (env-vel=null): its defaults
+    setVelocity('amp', 0.5);
+    applySnapshot({ env: { vel: null as never } });
+    expect($velocity.value).toEqual({ amp: 1, k: 0 });
   });
 
   it('exposes the curves in the snapshot as curves: { attack, decay, release } of each envelope', () => {

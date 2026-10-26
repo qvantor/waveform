@@ -6,11 +6,22 @@ import { EnvelopeId, ENVELOPES } from '@waveform/preset-schema';
 import { ModRoute } from '../../common/modules/modulation';
 import { useModulation, useSynth, useSynthCore } from '../../common/modules';
 import type { EnvelopeParams } from '../../common/envelope/envelope-curve';
+import type { FxNote } from '../../fx/effects/fx-modulation';
 import { noteCorners, outputTime } from '../note-path';
 
 // an envelope is heard: ENV 1 always (the volume of the voices), ENV 2 and 3 while a route reads them
 const heard = (id: EnvelopeId, routes: ModRoute[]) =>
   id === 'env1' || routes.some(({ source }) => source === id);
+
+// the same envelopes of a note for its dot: another velocity (a note of a legato phrase) draws nothing again
+const samePath = (a: FxNote | null, b: FxNote | null) =>
+  a === b ||
+  (!!a &&
+    !!b &&
+    a.envelopes === b.envelopes &&
+    a.start === b.start &&
+    a.release === b.release &&
+    a.from === b.from);
 
 // the dot of the last note pressed (the fx and the marks of the knobs follow it, in legato its phrase) on the
 // chart of envelope `id` while it is heard: on the line of `env` (the knobs the chart draws, not those of the
@@ -25,7 +36,7 @@ export const EnvelopeDot = ({ id, env }: { id: EnvelopeId; env: EnvelopeParams }
     () =>
       combineLatest([$routes, $fxNote]).pipe(
         map(([routes, note]) => (heard(id, routes) ? note : null)),
-        distinctUntilChanged()
+        distinctUntilChanged(samePath)
       ),
     [$routes, $fxNote, id]
   );

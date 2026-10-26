@@ -1,28 +1,18 @@
 import React from 'react';
 import { render } from '@testing-library/react';
 import { FilterRange } from '../types';
+import { withElementSize } from '../../common/test-utils/element-size';
 import { FilterResponse } from './filter-response';
 
 const WIDTH = 160;
 const HEIGHT = 80;
 
 // jsdom has no layout: every observed element reports a fixed size
-class ResizeObserverStub {
-  constructor(private callback: ResizeObserverCallback) {}
-  observe() {
-    this.callback(
-      [{ contentRect: { width: WIDTH, height: HEIGHT } } as ResizeObserverEntry],
-      this as unknown as ResizeObserver
-    );
-  }
-  disconnect() {
-    // nothing to release
-  }
-}
-
+let restoreSize: () => void;
 beforeAll(() => {
-  Object.assign(globalThis, { ResizeObserver: ResizeObserverStub });
+  restoreSize = withElementSize(WIDTH, HEIGHT);
 });
+afterAll(() => restoreSize());
 
 const points = (sampleRate: number) => {
   const { container } = render(

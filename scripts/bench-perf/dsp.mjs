@@ -206,8 +206,8 @@ const createCases = (dsp) => {
     wasm: (options, shared = createShared.wasm()) =>
       dsp.createVoiceWasm(oscScope, RATE, options, wasmStore, Math.random, shared),
   };
-  // (a unison shape: a tree before it plays the unison plain)
-  const voiceOf = (core, unisonShape) => (oscs, params) => () => {
+  // (a unison shape: a tree before it plays the unison plain; a velocity: a tree before it plays at the amp 1)
+  const voiceOf = (core, unisonShape, velocity) => (oscs, params) => () => {
     const options = {
       osc: oscs.map((unison) =>
         unison ? { table: 'a', unison, phase: 0, phaseRand: 1, ...(unisonShape && { unisonShape }) } : null
@@ -219,6 +219,7 @@ const createCases = (dsp) => {
       phrase: 0,
       routes: [],
       filter: null,
+      ...(velocity && { velocity }),
     };
     const voiceDsp = createVoice[core](options);
     let frameAt = 0;
@@ -258,32 +259,85 @@ const createCases = (dsp) => {
   };
   // the same chord as the voices of one node (scope.rs): their note ons as events, their params from their
   // timelines, their sum; struck again, a node of its own (the voices before end at once, as above)
+  const scopeOptions = {
+    osc: [0, 1].map(() => ({ table: 'a', unison: 8, phase: 0, phaseRand: 1 })),
+    start: 0,
+    envelopes: [0, 1, 2].map(() => ({ attack: 0.01, hold: 0.1, decay: 0.3, sustain: 0.8, release: 0.3 })),
+    envStart: 0,
+    phrase: 0,
+    routes: [],
+    filter: null,
+  };
+  const scopeNotes = (voices) =>
+    voices.apply(
+      chord.map((params, voice) => ({
+        kind: 'on',
+        voice,
+        options: scopeOptions,
+        params: Object.fromEntries(Object.entries(params).map(([k, [v]]) => [k, v])),
+      }))
+    );
   const scopeChord = () => {
     const shared = createShared.wasm();
-    const options = {
-      osc: [0, 1].map(() => ({ table: 'a', unison: 8, phase: 0, phaseRand: 1 })),
-      start: 0,
-      envelopes: [0, 1, 2].map(() => ({ attack: 0.01, hold: 0.1, decay: 0.3, sustain: 0.8, release: 0.3 })),
-      envStart: 0,
-      phrase: 0,
-      routes: [],
-      filter: null,
-    };
-    const notes = chord.map((params) => Object.fromEntries(Object.entries(params).map(([k, [v]]) => [k, v])));
     let voices = null;
     let block = 0;
     return () => {
       if (block % ATTACK === 0) {
         voices?.free();
         voices = dsp.createVoiceScopeWasm(oscScope, RATE, wasmStore, shared);
-        voices.apply(notes.map((params, voice) => ({ kind: 'on', voice, options, params })));
+        scopeNotes(voices);
       }
       voices.process(block * BLOCK, outL, outR);
       voices.reports();
       block++;
     };
   };
+  // the chord struck once and the pitch bend of the node: up a semitone and back over BENDING blocks (an event
+  // every 2: what the throttle of the app lets through from a wheel, 5 ms), then at rest until the next BEND. Every
+  // voice plays directly while it moves, then builds its mixes again under the budget
+  const BEND = 60;
+  const BENDING = 20;
+  const scopeChordBend = () => {
+    const voices = dsp.createVoiceScopeWasm(oscScope, RATE, wasmStore, createShared.wasm());
+    scopeNotes(voices);
+    let block = 0;
+    return () => {
+      const at = block % BEND;
+      if (at < BENDING && at % 2 === 0) voices.setBend(50 * (1 - Math.cos((2 * Math.PI * at) / BENDING)));
+      voices.process(block * BLOCK, outL, outR);
+      voices.reports();
+      block++;
+    };
+  };
   const held = constant(BASE);
+  // a voice whose routes move all the time: ENV 2 and 3 (a decay of 0.2 s, started again every 64 blocks by the
+  // gate held at its other value) on the gain, the cutoff and the resonance of the filter, worked out at the points
+  // of every 32 samples (the hot loop of the routes; u1: the oscillator costs little next to them). No velocity: a
+  // tree before it has none
+  const AGAIN = 64;
+  const heldAgain = constant({ ...BASE, gate: 1.5 });
+  const routedOf = (core) => () => {
+    const flat = { attack: 0, hold: 0, decay: 0, sustain: 1, release: 0 };
+    const decay = { attack: 0, hold: 0, decay: 0.2, sustain: 0, release: 0 };
+    const voiceDsp = createVoice[core]({
+      osc: [{ table: 'a', unison: 1, phase: 0, phaseRand: 0 }, null],
+      start: 0,
+      envelopes: [flat, decay, decay],
+      envStart: 0,
+      phrase: 0,
+      routes: [
+        { env: 1, param: 'gain1', amount: -0.5, min: 0, max: 1 },
+        { env: 1, param: 'cutoff', amount: 4, min: 20, max: 20000, log: true },
+        { env: 2, param: 'resonance', amount: 12, min: -12, max: 24 },
+      ],
+      filter: { type: 'lowpass', cutoff: 400, resonance: 3, gain: 0 },
+    });
+    let block = 0;
+    return () => {
+      voiceDsp.process(block * BLOCK, Math.floor(block / AGAIN) % 2 ? heldAgain : held, outL, outR);
+      block++;
+    };
+  };
   // a position that moves in every block: the direct path. Its blocks over a period of the LFO (2 s) are worked
   // out once, not in the call: making them there (Float32Array.from, 128 sines) cost 34 ns/sample, more than the
   // core itself
@@ -334,12 +388,26 @@ const createCases = (dsp) => {
         voiceOf('wasm', { blend: 0.75, width: 0.5, stack: '12+7x2', detune: 'linear', positionSpread: 0.3 }),
       null
     ),
+    // a note of QWERTY or the piano (velocity 100) at Amp 1: the amp of its velocity 0.787; its cost over `voice u1
+    // held`
+    ...withTs(
+      { 'voice u1 velocity': [[1, null], held] },
+      oscScope && voiceOf('wasm', undefined, { level: 0.787, amp: 0.787 }),
+      null
+    ),
+    ...withTs(
+      { 'voice u1 routed': [] },
+      oscScope && (() => routedOf('wasm')),
+      store && (() => routedOf('ts'))
+    ),
     ...withTs(
       { 'voice chord attack': [] },
       oscScope && (() => chordOf('wasm')),
       store && (() => chordOf('ts'))
     ),
     ...(dsp.createVoiceScopeWasm && { 'scope chord attack': scopeChord }),
+    // (a tree before the pitch bend: none)
+    ...(oscScope?.exports.osc_scope_bend && { 'scope chord bend': scopeChordBend }),
     'build 256 frames': {
       build: () => {
         const start = process.hrtime.bigint();

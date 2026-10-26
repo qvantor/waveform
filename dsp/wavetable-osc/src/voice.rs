@@ -9,6 +9,7 @@ use crate::modulation::{
 };
 use crate::shared::{Scratch, Shared, DIRECT_SAMPLES, MIX_SAMPLES, PARAMS, UNISON, VOICES};
 use crate::store::{EntryRef, Levels, Store, FRAME_GUARD};
+use crate::velocity::{Velocity, VoiceVelocity, Volume};
 use alloc::{vec, vec::Vec};
 use jsmath::{ceil, cos, floor, log2, max, min, pow, round, sin, sqrt, PI};
 
@@ -31,6 +32,8 @@ const OSC_PARAM_POSITION: usize = 0;
 const OSC_PARAM_DETUNE: usize = 1;
 const OSC_PARAM_SPREAD: usize = 2;
 const OSC_PARAM_GAIN: usize = 3;
+/// the detune of each oscillator among the params of a block (detune1, detune2)
+pub const DETUNES: [usize; 2] = [2 + OSC_PARAM_DETUNE, 6 + OSC_PARAM_DETUNE];
 
 pub type Params<'a> = [&'a [f32]; PARAMS];
 
@@ -139,6 +142,7 @@ pub struct VoiceOptions {
     pub phrase: f64,
     pub routes: Vec<VoiceRoute>,
     pub filter: Option<FilterOptions>,
+    pub velocity: VoiceVelocity,
 }
 
 fn release_start(seen: f64, held: f64, lead: f64) -> f64 {
@@ -570,6 +574,7 @@ pub struct Voice {
     pub start_frame: f64,
     env_start_frame: f64,
     envelopes: Vec<EnvelopeBlock>,
+    velocity: Velocity,
     filter: VoiceFilter,
     stop_frame: f64,
     kill_from: f64,
@@ -662,6 +667,7 @@ impl Voice {
             start_frame,
             env_start_frame,
             envelopes,
+            velocity: Velocity::new(sample_rate, options.velocity),
             filter: VoiceFilter::new(sample_rate, options.filter),
             stop_frame: f64::INFINITY,
             kill_from: f64::INFINITY,
@@ -810,6 +816,12 @@ impl Voice {
         self.filter.set(filter);
     }
 
+    /// a note took the voice over (mono): its VELO and its amp glide to the velocity of that note
+    pub fn set_velocity(&mut self, velocity: VoiceVelocity) {
+        self.velocity.set(velocity);
+        self.modulation.wake();
+    }
+
     /// a block starting at `frame` into the outputs; false once the voice has ended
     pub fn process(
         &mut self,
@@ -879,6 +891,7 @@ impl Voice {
                 }
             }
         }
+        self.velocity.render(a as usize, b as usize);
         if self.filter.on {
             self.filter.glide(n);
         }
@@ -895,7 +908,8 @@ impl Voice {
                 filter.base(1),
                 filter.base(2),
             ];
-            self.modulation.apply(&bases, &self.envelopes, frame, a, b, n);
+            self.modulation
+                .apply(&bases, &self.envelopes, &self.velocity.level, frame, a, b, n);
         }
         let (a, b) = (a as usize, b as usize);
         {
@@ -920,42 +934,29 @@ impl Voice {
         }
         out_l.fill(0.0);
         out_r.fill(0.0);
-        let amp = &self.envelopes[0];
+        // ENV 1 × the amp of the velocity, in the same pass (at an amp of 1: the output of ENV 1, to the bit)
+        let volume = Volume::new(&self.envelopes[0], &self.velocity.amp, a);
         let s = &shared.scratch;
         if self.filter.on {
             let moved = [CUTOFF, RESONANCE, FILTER_GAIN].map(|param| self.modulation.moved(param));
-            let gains = if amp.constant {
-                None
-            } else {
-                Some(amp.values.as_slice())
-            };
-            let volume = amp.values[a] as f64;
-            self.filter.process(
-                (&s.left, &s.right, &s.center),
-                out_l,
-                out_r,
-                a,
-                b,
-                gains,
-                volume,
-                moved,
-            );
-        } else if amp.constant && amp.values[a] == 1.0 {
+            self.filter
+                .process((&s.left, &s.right, &s.center), out_l, out_r, a, b, volume, moved);
+        } else if volume.constant() && volume.gain == 1.0 {
             for i in a..b {
                 out_l[i] = (s.left[i] as f64 + s.center[i] as f64) as f32;
                 out_r[i] = (s.right[i] as f64 + s.center[i] as f64) as f32;
             }
-        } else if amp.constant {
-            let g = amp.values[a] as f64;
+        } else if volume.constant() {
+            let g = volume.gain;
             for i in a..b {
                 out_l[i] = ((s.left[i] as f64 + s.center[i] as f64) * g) as f32;
                 out_r[i] = ((s.right[i] as f64 + s.center[i] as f64) * g) as f32;
             }
         } else {
-            let values = &amp.values;
             for i in a..b {
-                out_l[i] = ((s.left[i] as f64 + s.center[i] as f64) * values[i] as f64) as f32;
-                out_r[i] = ((s.right[i] as f64 + s.center[i] as f64) * values[i] as f64) as f32;
+                let g = volume.at(i);
+                out_l[i] = ((s.left[i] as f64 + s.center[i] as f64) * g) as f32;
+                out_r[i] = ((s.right[i] as f64 + s.center[i] as f64) * g) as f32;
             }
         }
         // the fade of a stolen voice: a raised cosine from 1 at killFrom to 0 at the stop

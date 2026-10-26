@@ -3,14 +3,17 @@
 //! they were created by the same Voice::process, their outputs summed in f32 in that order. A block also tells the
 //! voices that started late (or of mono, or traced) and those that ended. A voice that traps is ended by the
 //! wrapper (fail), the others render on; the params of a voice may also come as the arrays of a block (direct:
-//! the specs), and a tap keeps the output of every voice apart (the specs, the parity of the browsers)
+//! the specs), and a tap keeps the output of every voice apart (the specs, the parity of the browsers). The pitch
+//! bend is the node's: on top of the detune of every voice, gliding to each new value
 
+use crate::glided::{glide_length, Glided};
 use crate::shared::{Shared, PARAMS};
 use crate::store::Store;
 use crate::timeline::{Kind, Timeline};
-use crate::voice::{Params, Voice, VoiceOptions};
+use crate::voice::{Params, Voice, VoiceOptions, DETUNES};
 use alloc::{vec, vec::Vec};
 use core::sync::atomic::{compiler_fence, Ordering};
+use dsp_core::finite;
 
 /// an automation event: setValueAtTime, setTargetAtTime, exponentialRampToValueAtTime, cancelScheduledValues,
 /// linearRampToValueAtTime
@@ -55,6 +58,29 @@ pub struct Scope {
     tap: bool,
     pub tapped: Vec<f64>,
     pub taps: Vec<f32>,
+    // the pitch bend of every voice (cents), the samples of its glide
+    bend: Glided,
+    glide: f64,
+}
+
+// the detune of a voice in a block (its first `length` values: one, or n) with the pitch bend on top: one value
+// while both are (the voice stays on its mix tables), else n; the length of the values
+pub fn bend_into(bend: &Glided, values: &mut [f32], length: usize) -> usize {
+    if bend.constant && length == 1 {
+        values[0] = (values[0] as f64 + bend.value()) as f32;
+        return 1;
+    }
+    let first = values[0];
+    for (i, value) in values.iter_mut().enumerate() {
+        let detune = if length == 1 { first } else { *value };
+        let cents = if bend.constant {
+            bend.value()
+        } else {
+            bend.values[i] as f64
+        };
+        *value = (detune as f64 + cents) as f32;
+    }
+    values.len()
 }
 
 impl Scope {
@@ -77,6 +103,18 @@ impl Scope {
             tap: false,
             tapped: Vec::new(),
             taps: Vec::new(),
+            bend: Glided::new(0.0),
+            glide: glide_length(rate),
+        }
+    }
+
+    /// the pitch bend of every voice (cents): it glides there from where it is, `instantly` it is there (a node
+    /// made again). One that is not finite is the rest (a NaN would stay in the glide for good: every voice silent)
+    pub fn set_bend(&mut self, cents: f64, instantly: bool) {
+        if instantly {
+            self.bend.set(finite(cents));
+        } else {
+            self.bend.glide(finite(cents), self.glide);
         }
     }
 
@@ -171,6 +209,12 @@ impl Scope {
         }
     }
 
+    pub fn set_velocity(&mut self, id: f64, velocity: crate::velocity::VoiceVelocity) {
+        if let Some(voice) = self.voice(id) {
+            voice.voice.set_velocity(velocity);
+        }
+    }
+
     /// the params of voice `id` for the blocks of `frames` from now on, given directly (lengths, then PARAMS ×
     /// frames values); None: no such voice
     pub fn direct(&mut self, id: f64, frames: usize) -> Option<&mut [f32]> {
@@ -215,12 +259,15 @@ impl Scope {
         self.length = n;
         self.cursor = 0;
         self.sum[..2 * n].fill(0.0);
+        self.bend.render(0, n);
         self.resume(store, shared);
     }
 
     /// the voices of the block from the next one on (after a voice trapped and failed)
     pub fn resume(&mut self, store: &mut Store, shared: &mut Shared) {
         let (frame, n) = (self.frame, self.length);
+        // (none at rest: the detunes as they are, to the bit)
+        let bent = !self.bend.constant || self.bend.value() != 0.0;
         while self.cursor < self.voices.len() {
             self.in_voice = true;
             // a trap leaves the memory as it is then (it is not a return): the voice rendering, the sum and the
@@ -235,14 +282,35 @@ impl Scope {
                     for (k, timeline) in voice.timelines.iter_mut().enumerate() {
                         lengths[k] = timeline.render(frame, &mut self.params[k * n..(k + 1) * n]);
                     }
+                    if bent {
+                        for k in DETUNES {
+                            lengths[k] =
+                                bend_into(&self.bend, &mut self.params[k * n..(k + 1) * n], lengths[k]);
+                        }
+                    }
                     let params = &self.params;
                     core::array::from_fn(|k| &params[k * n..k * n + lengths[k]])
                 } else {
                     let (lengths, values) = voice.direct.split_at(PARAMS);
                     let stride = values.len() / PARAMS;
+                    let length = |k: usize| if lengths[k] > 1.0 { n } else { 1 };
+                    // (the detunes bent in the buffer of the block: the arrays given stay as they are)
+                    let mut bent_lengths = [0usize; PARAMS];
+                    if bent {
+                        for k in DETUNES {
+                            let values = &values[k * stride..k * stride + length(k)];
+                            let block = &mut self.params[k * n..(k + 1) * n];
+                            block[..values.len()].copy_from_slice(values);
+                            bent_lengths[k] = bend_into(&self.bend, block, values.len());
+                        }
+                    }
+                    let params = &self.params;
                     core::array::from_fn(|k| {
-                        let length = if lengths[k] > 1.0 { n } else { 1 };
-                        &values[k * stride..k * stride + length]
+                        if bent_lengths[k] > 0 {
+                            &params[k * n..k * n + bent_lengths[k]]
+                        } else {
+                            &values[k * stride..k * stride + length(k)]
+                        }
                     })
                 };
                 voice.voice.process(frame, &params, out_l, out_r, store, shared)

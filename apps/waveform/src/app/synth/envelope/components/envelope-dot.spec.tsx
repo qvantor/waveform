@@ -37,14 +37,35 @@ const setup = (id: EnvelopeId, envelope = env(0.8)) => {
   );
   const { rerender } = render(chart(envelope));
   const props = () => (NoteDot as jest.Mock).mock.lastCall?.[0] as { path: NotePath | null };
-  const play = (release: number | null = null) =>
-    act(() => $fxNote.next({ envelopes: [env(0.1), env(0.2), env(0.3)], start: 1.5, release }));
+  const envelopes = [env(0.1), env(0.2), env(0.3)];
+  const play = (release: number | null = null, velocity?: number) =>
+    act(() =>
+      $fxNote.next({
+        envelopes,
+        start: 1.5,
+        release,
+        ...(velocity !== undefined && { velo: velocity, velocity }),
+      })
+    );
   const turn = (chartEnv: EnvelopeParams) => rerender(chart(chartEnv));
   return { modulation, props, play, turn, getOutputTimestamp };
 };
 
 describe('EnvelopeDot', () => {
   afterEach(() => (NoteDot as jest.Mock).mockClear());
+
+  it('draws nothing again for a note at another velocity on the same envelopes (a note of a legato phrase)', () => {
+    const { props, play } = setup('env1');
+    play(null, 0.4);
+    const path = props().path;
+    const renders = (NoteDot as jest.Mock).mock.calls.length;
+    play(null, 0.9);
+    expect((NoteDot as jest.Mock).mock.calls.length).toBe(renders);
+    expect(props().path).toBe(path);
+    // released: a new path
+    play(2, 0.9);
+    expect(props().path).not.toBe(path);
+  });
 
   it('ENV 1: the last note on the line of the chart from the time its start is played, without routes too', () => {
     const { props, play } = setup('env1');

@@ -1,1 +1,1 @@
-export { EnvelopeSection } from './components';
+export { EnvelopeSection, VelocitySection } from './components';

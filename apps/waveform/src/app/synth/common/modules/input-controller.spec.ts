@@ -1,20 +1,21 @@
-import { Note } from '@waveform/ui-kit';
 import { createInputController } from '../../../../test-utils/models';
+import { NoteOn } from './input-controller';
 
 describe('inputController', () => {
   it('emits pressed notes and tracks them per octave', () => {
     const [{ $onPress, $pressed }, { onPress }] = createInputController();
-    const pressed: Note[] = [];
+    const pressed: NoteOn[] = [];
     $onPress.subscribe((note) => pressed.push(note));
 
     onPress([4, 'C']);
-    onPress([4, 'E']);
-    onPress([-1, 'A']);
+    onPress([4, 'E'], 30);
+    onPress([-1, 'A'], 127);
 
+    // the computer keyboard and the piano play 100
     expect(pressed).toEqual([
-      [4, 'C'],
-      [4, 'E'],
-      [-1, 'A'],
+      { note: [4, 'C'], velocity: 100 },
+      { note: [4, 'E'], velocity: 30 },
+      { note: [-1, 'A'], velocity: 127 },
     ]);
     expect($pressed.value[4]).toEqual(['C', 'E']);
     expect($pressed.value[-1]).toEqual(['A']);
@@ -56,5 +57,12 @@ describe('inputController', () => {
     onPress([4, 'C']);
 
     expect(listener).toHaveBeenCalledTimes(2);
+  });
+
+  it('holds the pitch bend at rest until it is set', () => {
+    const [{ $bend }, { setBend }] = createInputController();
+    expect($bend.value).toBe(0);
+    setBend(-0.25);
+    expect($bend.value).toBe(-0.25);
   });
 });

@@ -13,17 +13,18 @@ export interface NotePath {
   held: boolean;
 }
 
-// a white dot of 3 px radius, slightly translucent
-const RADIUS = 3;
+// the dot of a note on a chart (the velocity one too): white, 3 px radius, slightly translucent
+export const NOTE_DOT_RADIUS = 3;
+export const NOTE_DOT_COLOR = 'rgba(255, 255, 255, 0.8)';
 
 const Dot = styled.div`
   position: absolute;
-  left: ${-RADIUS}px;
-  top: ${-RADIUS}px;
-  width: ${RADIUS * 2}px;
-  height: ${RADIUS * 2}px;
+  left: ${-NOTE_DOT_RADIUS}px;
+  top: ${-NOTE_DOT_RADIUS}px;
+  width: ${NOTE_DOT_RADIUS * 2}px;
+  height: ${NOTE_DOT_RADIUS * 2}px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.8);
+  background: ${NOTE_DOT_COLOR};
   opacity: 0;
   pointer-events: none;
 `;

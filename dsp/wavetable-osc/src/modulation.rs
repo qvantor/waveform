@@ -1,11 +1,13 @@
 //! apps/waveform/src/app/synth/common/wavetable/voice-modulation.ts: the envelopes of a voice move its params,
 //! base + Σ amount × level (base × 2^Σ for a log one), clamped; one value while every envelope a param follows
-//! is in a flat stage
+//! is in a flat stage. Source 3, after ENV 1–3, is the velocity of the voice (VELO: velocity.rs), flat but
+//! for a glide to the velocity of a note that takes the voice over
 
 use crate::envelope::EnvelopeBlock;
+use crate::glided::{glide_length, Glided};
 use crate::voice::is_constant;
 use alloc::{vec, vec::Vec};
-use jsmath::{max, min, pow, round};
+use jsmath::{max, min, pow};
 
 // the params a route moves, by id (the facade sends their names as these): the knobs of the oscillators, then the
 // knobs of the filter
@@ -16,6 +18,10 @@ pub const CUTOFF: usize = 6;
 pub const RESONANCE: usize = 7;
 pub const FILTER_GAIN: usize = 8;
 pub const TARGET_PARAMS: usize = 9;
+
+// the sources of the routes, by index (MOD_SOURCES of the schema): ENV 1–3, then the velocity of the voice
+const VELO: usize = 3;
+const SOURCES: usize = VELO + 1;
 
 /// a route of a note (VoiceRoute)
 #[derive(Clone, Copy, Debug)]
@@ -28,9 +34,47 @@ pub struct VoiceRoute {
     pub log: bool,
 }
 
-const ROUTE_GLIDE: f64 = 0.01;
 const BLOCK: usize = 128;
 const SEGMENT: f64 = 32.0;
+
+// the levels of a source of the routes in a block: one value while it is flat (`constant`), else one a sample
+#[derive(Clone, Copy)]
+struct Level<'a> {
+    constant: bool,
+    value: f64,
+    values: &'a [f32],
+}
+
+// source `k` of the routes: an envelope, the velocity (its fields, no call through a vtable in the loops of the
+// routes)
+#[inline(always)]
+fn source<'a>(envelopes: &'a [EnvelopeBlock], velocity: &'a Glided, k: usize) -> Level<'a> {
+    if k == VELO {
+        Level {
+            constant: velocity.constant,
+            value: velocity.value(),
+            values: &velocity.values,
+        }
+    } else {
+        let envelope = &envelopes[k];
+        Level {
+            constant: envelope.constant,
+            value: envelope.value,
+            values: &envelope.values,
+        }
+    }
+}
+
+// the frame the flat stage of source `k` lasts until (-Infinity: it moved); the velocity is flat but for a glide
+fn flat_until(envelopes: &[EnvelopeBlock], velocity: &Glided, k: usize) -> f64 {
+    if k != VELO {
+        envelopes[k].flat_until()
+    } else if velocity.gliding() {
+        f64::NEG_INFINITY
+    } else {
+        f64::INFINITY
+    }
+}
 
 struct Route {
     env: usize,
@@ -63,7 +107,9 @@ struct Target {
 pub struct Modulation {
     glide: f64,
     targets: Vec<Target>,
-    used: Vec<bool>,
+    // the envelopes of the voice a route may read (ENV 1–3 at most), the sources the routes read
+    envelopes: usize,
+    used: [bool; SOURCES],
     dropped: bool,
     quiet_until: f64,
     // the params of the voice a route may move (an oscillator off for the note has none)
@@ -72,6 +118,7 @@ pub struct Modulation {
 }
 
 impl Modulation {
+    /// the routes of a voice with `envelopes` envelopes and the velocity
     pub fn new(
         sample_rate: f64,
         envelopes: usize,
@@ -79,9 +126,10 @@ impl Modulation {
         accesses: [bool; TARGET_PARAMS],
     ) -> Modulation {
         let mut modulation = Modulation {
-            glide: max(1.0, round(ROUTE_GLIDE * sample_rate)),
+            glide: glide_length(sample_rate),
             targets: Vec::new(),
-            used: vec![false; envelopes],
+            envelopes: envelopes.min(VELO),
+            used: [false; SOURCES],
             dropped: false,
             quiet_until: f64::NEG_INFINITY,
             accesses,
@@ -128,11 +176,14 @@ impl Modulation {
         }
         for route in routes {
             let env = route.env;
-            // envelopes[env] === undefined: not a whole index of an envelope
-            if !(env >= 0.0 && env < self.used.len() as f64 && env == jsmath::floor(env)) {
+            // not a whole index of a source, or of an envelope the voice has not
+            if !(env >= 0.0 && env < SOURCES as f64 && env == jsmath::floor(env)) {
                 continue;
             }
             let env = env as usize;
+            if env != VELO && env >= self.envelopes {
+                continue;
+            }
             if route.param >= TARGET_PARAMS || !self.accesses[route.param] {
                 continue;
             }
@@ -194,7 +245,7 @@ impl Modulation {
     }
 
     pub fn renders(&self, k: usize, end: f64) -> bool {
-        self.used[k] && end > self.quiet_until
+        k < self.envelopes && self.used[k] && end > self.quiet_until
     }
 
     pub fn wake(&mut self) {
@@ -207,11 +258,14 @@ impl Modulation {
             .any(|target| target.param == param && target.routes.iter().any(|route| route.target > 0.0))
     }
 
-    /// the moved params of the samples a..b of a block of n; `bases` the base of each param in the block
+    /// the moved params of the samples a..b of a block of n; `bases` the base of each param in the block, the
+    /// levels of the envelopes and of the velocity (VELO) there
+    #[allow(clippy::too_many_arguments)]
     pub fn apply(
         &mut self,
         bases: &[&[f32]; TARGET_PARAMS],
         envelopes: &[EnvelopeBlock],
+        velocity: &Glided,
         frame: f64,
         a: f64,
         b: f64,
@@ -242,7 +296,7 @@ impl Modulation {
             let mut constant = is_constant(base);
             let mut same = constant && base[0] as f64 == target.base && target.current == Current::One;
             for route in &target.routes {
-                let envelope = &envelopes[route.env];
+                let envelope = source(envelopes, velocity, route.env);
                 if !envelope.constant || route.step != 0.0 {
                     constant = false;
                     same = false;
@@ -256,7 +310,7 @@ impl Modulation {
             if constant {
                 let mut sum = 0.0;
                 for route in target.routes.iter_mut() {
-                    route.level = envelopes[route.env].value;
+                    route.level = source(envelopes, velocity, route.env).value;
                     sum += route.amount * route.level;
                 }
                 let x = base[0] as f64;
@@ -278,7 +332,7 @@ impl Modulation {
             loop {
                 let mut sum = 0.0;
                 for route in &target.routes {
-                    let envelope = &envelopes[route.env];
+                    let envelope = source(envelopes, velocity, route.env);
                     let mut amount = route.amount;
                     if route.step != 0.0 {
                         amount += route.step * (p - a);
@@ -354,7 +408,7 @@ impl Modulation {
         self.quiet_until = f64::INFINITY;
         for (k, used) in self.used.iter().enumerate() {
             if *used {
-                self.quiet_until = min(self.quiet_until, envelopes[k].flat_until());
+                self.quiet_until = min(self.quiet_until, flat_until(envelopes, velocity, k));
             }
         }
     }

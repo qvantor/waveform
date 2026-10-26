@@ -250,6 +250,18 @@ describe('scheduleRouted', () => {
     ]);
   });
 
+  it('glides to a knob VELO moves and holds it there: the velocity has no corners', () => {
+    const { calls, param } = setup();
+    const played: FxNote = { ...note(2), velo: 0.5 };
+    scheduleRouted(param, 1.05, played, [{ ...time, env: 3 }], 0.2, 'linear');
+    expect(calls('linearRampToValueAtTime')).toEqual([[0.4, expect.closeTo(1.07, 9)]]);
+    expect(calls('setValueAtTime')).toEqual([[0.2, 1.06]]);
+    // with an envelope: its corners alone
+    const both = setup();
+    scheduleRouted(both.param, 1.05, played, [{ ...time, env: 3 }, time], 0.2, 'linear');
+    expect(both.calls('setValueAtTime').map(([, at]) => at)).toEqual([1.06, 2]);
+  });
+
   it('held again before it took over (within 10 ms) at the point it starts at', () => {
     const { param, calls } = setup();
     scheduleRouted(param, 1.04, note(), [time], 0.2, 'linear');

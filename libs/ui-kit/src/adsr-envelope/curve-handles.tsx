@@ -53,7 +53,6 @@ const Point = styled.g`
 `;
 
 interface PointProps {
-  stage: CurveStage;
   label: string;
   // the corners of the stage: [seconds, level]
   from: [number, number];
@@ -62,13 +61,13 @@ interface PointProps {
   max: number;
   // the k of a double click
   fallback: number;
-  onChange: (stage: CurveStage, k: number) => void;
+  onChange: (k: number) => void;
 }
 
-// the point of a curved stage, in its middle on its curve: dragged up or down it follows the pointer (the share
-// of the stage done there gives the k), arrows move it too, a double click sets the default
-const CurvePoint = ({
-  stage,
+// the point of a curved stage (or of any curve from one corner to another), in its middle on its curve: dragged
+// up or down it follows the pointer (the share of the stage done there gives the k), arrows move it too, a
+// double click sets the default
+export const CurvePoint = ({
   label,
   from: [x0, y0],
   to: [x1, y1],
@@ -90,7 +89,7 @@ const CurvePoint = ({
     const value = number.thresholds(number.round(next, PRECISION), min, max);
     if (value === last.current) return;
     last.current = value;
-    onChange(stage, value);
+    onChange(value);
   };
   // a change from the k it has now (a key, a double click)
   const emitFromNow = (next: number) => {
@@ -170,14 +169,13 @@ export const CurveHandles = ({
         return (
           <CurvePoint
             key={stage}
-            stage={stage}
             label={label}
             from={from}
             to={to}
             k={curves[stage]}
             max={max}
             fallback={defaults?.[stage] ?? 0}
-            onChange={onChange}
+            onChange={(k) => onChange(stage, k)}
           />
         );
       })}

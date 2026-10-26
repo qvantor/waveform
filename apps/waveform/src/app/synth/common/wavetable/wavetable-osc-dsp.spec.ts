@@ -18,6 +18,7 @@ import {
   VoiceOscOptions,
   VoiceRoute,
   VoiceStats,
+  VoiceVelocity,
 } from './voice-options';
 import { RELEASE_GATE, VoiceParam } from './wavetable-osc-params';
 import {
@@ -53,6 +54,7 @@ interface CoreVoice {
   ): boolean;
   setRoutes(routes: VoiceRoute[]): void;
   setFilter(filter: VoiceFilterOptions | null): void;
+  setVelocity(velocity: VoiceVelocity): void;
   end(): void;
   readonly ended: boolean;
   startFrame: number;
@@ -143,6 +145,8 @@ interface RenderOptions {
   phrase?: number;
   routes?: VoiceRoute[];
   filter?: VoiceFilterOptions | null;
+  // its velocity (none: no VELO, the amp 1)
+  velocity?: VoiceVelocity;
   random?: () => number;
   rate?: number;
   // the frame of the first block processed (its node came late), 0 by default
@@ -167,6 +171,7 @@ const render = ({
   phrase = 0,
   routes = [],
   filter = null,
+  velocity,
   random,
   rate = RATE,
   from = 0,
@@ -175,7 +180,16 @@ const render = ({
 }: RenderOptions) => {
   const dsp = core.createVoiceDsp(
     rate,
-    { osc: oscs, start, envelopes: [envelope, ...envelopes], envStart, phrase, routes, filter },
+    {
+      osc: oscs,
+      start,
+      envelopes: [envelope, ...envelopes],
+      envStart,
+      phrase,
+      routes,
+      filter,
+      ...(velocity && { velocity }),
+    },
     store,
     random ?? seeded(1),
     shared
@@ -1575,6 +1589,93 @@ describe('the wavetable voice', () => {
       expect(left[2048 + 240]).toBeCloseTo(0.5, 2);
       expect(left[2048 + 480]).toBeCloseTo(1, 4);
       expect(maxStep(left)).toBeLessThan(0.003);
+    });
+
+    describe('the velocity', () => {
+      const VELO = 3;
+
+      it('at an amp of 1 plays as a voice without one, bit for bit, whatever its VELO no route reads', () => {
+        const { store } = core.storeWith({ a: [saw, square] });
+        const play = (velocity?: VoiceVelocity) =>
+          render({
+            store,
+            oscs: [osc({ unison: 3 })],
+            params: { spread1: 15, position1: 0.5 },
+            envelope: { attack: 0.01, hold: 0, decay: 0.05, sustain: 0.6, release: 0.02 },
+            envelopes: [decay(0.3), FLAT],
+            routes: [route('gain1', -0.25)],
+            velocity,
+            frames: 4096,
+          });
+        const none = play();
+        const unity = play({ level: 0.7, amp: 1 });
+        expect(unity.left).toEqual(none.left);
+        expect(unity.right).toEqual(none.right);
+      });
+
+      it.each<[string, VoiceFilterOptions | undefined]>([
+        ['no filter', undefined],
+        ['the filter', { type: 'lowpass', cutoff: 2000, resonance: 3, gain: 0 }],
+      ])('scales the output by its amp with ENV 1, its stages and its sustain: %s', (_, filter) => {
+        const { store } = core.storeWith({ a: [saw] });
+        const envelope = { attack: 0.01, hold: 0, decay: 0.02, sustain: 0.5, release: 0 };
+        const play = (velocity?: VoiceVelocity) =>
+          render({ store, envelope, filter, velocity, params: { frequency: 220 }, frames: 2048 });
+        const full = play();
+        // a quarter: a power of 2, exact in f32
+        const quarter = play({ level: 0.5, amp: 0.25 });
+        quarter.left.forEach((value, i) => expect(value).toBe(Math.fround(full.left[i] * 0.25)));
+        quarter.right.forEach((value, i) => expect(value).toBe(Math.fround(full.right[i] * 0.25)));
+      });
+
+      it('VELO moves a param by amount × its level, one value: the voice stays on its mix tables', () => {
+        const { store } = core.storeWith({ a: [saw, square, sine] });
+        const play = (options: Partial<RenderOptions>) => {
+          const shared = core.createVoiceShared();
+          const { left } = render({ store, shared, oscs: [osc({ unison: 2 })], frames: 1024, ...options });
+          return { left, stats: shared.stats() };
+        };
+        const routed = play({
+          params: { spread1: 10, position1: 0.25 },
+          routes: [route('position1', 0.5, 0, 1, VELO)],
+          velocity: { level: 0.5, amp: 1 },
+        });
+        const knob = play({ params: { spread1: 10, position1: 0.5 } });
+        expect(routed.left).toEqual(knob.left);
+        expect(routed.stats.mixSamples).toBe(knob.stats.mixSamples);
+        expect(routed.stats.mixSamples).toBeGreaterThan(0);
+      });
+
+      it('VELO is source 3 whatever the envelopes of the voice, a route of one it has not moves nothing', () => {
+        const { store } = core.storeWith({ a: [saw, square, sine] });
+        // ENV 1 alone
+        const play = (params: Params, routes: VoiceRoute[] = []) =>
+          render({ store, params, routes, envelopes: [], velocity: { level: 0.5, amp: 1 }, frames: 1024 })
+            .left;
+        expect(play({ position1: 0.25 }, [route('position1', 0.5, 0, 1, VELO)])).toEqual(
+          play({ position1: 0.5 })
+        );
+        expect(play({ position1: 0.25 }, [route('position1', 0.5, 0, 1, 1)])).toEqual(
+          play({ position1: 0.25 })
+        );
+      });
+
+      it('glides VELO and the amp to a new velocity in 10 ms, no step', () => {
+        const { left } = peak(4096, {
+          envelopes: [FLAT, FLAT],
+          routes: [route('gain1', -1, 0, 1, VELO)],
+          velocity: { level: 0, amp: 1 },
+          before: (frame, dsp) => {
+            if (frame === 1024) dsp.setVelocity({ level: 0.5, amp: 0.5 });
+          },
+        });
+        expect(left[1023]).toBeCloseTo(1, 4);
+        // halfway: VELO at 0.25, the amp at 0.75
+        expect(left[1024 + 240]).toBeCloseTo(0.75 * 0.75, 2);
+        expect(left[1024 + 480]).toBeCloseTo(0.25, 4);
+        expect(left[4095]).toBeCloseTo(0.25, 4);
+        expect(maxStep(left)).toBeLessThan(0.003);
+      });
     });
   });
 

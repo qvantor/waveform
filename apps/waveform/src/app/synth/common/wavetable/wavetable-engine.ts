@@ -19,6 +19,7 @@ import type {
   VoiceOptions,
   VoiceRoute,
   VoicesReportMessage,
+  VoiceVelocity,
 } from './voice-options';
 import { STORE_PROCESSOR, VOICE_PARAMETERS, VOICES_PROCESSOR, VoiceParam } from './wavetable-osc-params';
 import type { StoreFreedBytesMessage, StoreRefusedMessage } from './wavetable-osc-wasm';
@@ -117,6 +118,8 @@ export const createWavetableEngine = (
   const handles = new Map<number, VoiceHandle>();
   let lastVoice = 0;
   let events: VoiceEvent[] = [];
+  // the pitch bend of the voices (cents): a node made again (Retry) takes it at once
+  let bend = 0;
   let sending = false;
   // the version of each table the store has acknowledged (when it is the latest, new voices play it)
   const stored = new Map<string, number>();
@@ -294,6 +297,7 @@ export const createWavetableEngine = (
         store = node;
         voices = voicesNode;
         worker = created;
+        if (bend !== 0) enqueue({ kind: 'bend', cents: bend, instantly: true });
         $status.next('ready');
         tables.forEach((_, table) => send(table));
       })
@@ -356,12 +360,20 @@ export const createWavetableEngine = (
       enqueue({ kind: 'on', voice: id, options, params: initial });
       return handle;
     },
-    // the routes, the filter of playing voices changed (one event for them all)
+    // the routes, the filter, the velocity of playing voices changed (one event for them all)
     setRoutes: (ids: number[], routes: VoiceRoute[]) => {
       if (ids.length > 0) enqueue({ kind: 'routes', voices: ids, routes });
     },
     setFilter: (ids: number[], filter: VoiceFilterOptions | null) => {
       if (ids.length > 0) enqueue({ kind: 'filter', voices: ids, filter });
+    },
+    setVelocity: (ids: number[], velocity: VoiceVelocity) => {
+      if (ids.length > 0) enqueue({ kind: 'velocity', voices: ids, velocity });
+    },
+    // the pitch bend of every voice (cents on top of their detunes), new ones start with it: the node glides there
+    setBend: (cents: number) => {
+      bend = cents;
+      enqueue({ kind: 'bend', cents });
     },
     // the events of this task to the node now (the specs)
     flush,

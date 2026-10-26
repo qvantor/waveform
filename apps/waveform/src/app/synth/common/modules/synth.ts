@@ -1,8 +1,18 @@
-import { BehaviorSubject, distinctUntilChanged, map, pairwise, skip, Subject } from 'rxjs';
+import {
+  asyncScheduler,
+  BehaviorSubject,
+  combineLatest,
+  distinctUntilChanged,
+  map,
+  pairwise,
+  skip,
+  Subject,
+  throttleTime,
+} from 'rxjs';
 import { isEqual } from 'lodash';
 import { Note } from '@waveform/ui-kit';
 import { PrimitiveBS, rxModel, rxModelReact } from '@waveform/rxjs-react';
-import { ENVELOPES, MOD_SOURCES } from '@waveform/preset-schema';
+import { ENVELOPES, MOD_SOURCES, PITCH_BEND_DEFAULT, PITCH_BEND_MAX } from '@waveform/preset-schema';
 import { getFq, stringToNote, noteToString } from '../../services';
 import { urlSnapshotPlugin } from '../../../app';
 import type {
@@ -10,9 +20,11 @@ import type {
   VoiceOscOptions,
   VoiceRoute,
   VoiceStartedMessage,
+  VoiceVelocity,
 } from '../wavetable/voice-options';
 import type { ParamAutomation, VoiceHandle } from '../wavetable/wavetable-engine';
 import { EnvelopeParams, envelopeValue } from '../envelope/envelope-curve';
+import { velocityAmp, velocityLevel, velocityShare } from '../envelope/velocity';
 import { amountInUnits, filterTargetScale, MOD_TARGETS } from '../modulation/modulation-targets';
 import type { FilterModule } from '../../filter/modules/filter';
 import type { FxNote } from '../../fx/effects/fx-modulation';
@@ -28,8 +40,8 @@ import {
   VoiceParam,
 } from '../wavetable/wavetable-osc-params';
 import { Glide, glideFrom, scheduleGlide, steady } from './glide';
-import { InputControllerModule } from './input-controller';
-import { Envelopes, EnvelopesModule } from './envelopes';
+import { DEFAULT_VELOCITY, InputControllerModule } from './input-controller';
+import { Envelopes, EnvelopesModule, VelocityKnobs } from './envelopes';
 import { ModRoute, ModulationModule } from './modulation';
 import { OscillatorModel, OscillatorModule } from './oscillator';
 import { SynthCoreModule } from './synth-core';
@@ -55,6 +67,20 @@ export interface VoiceStart {
 // exactly after SETTLE of them (the param is constant again, the voice reads its mix table)
 const SMOOTHING = 0.0033;
 const SETTLE = 6;
+
+// milliseconds: the voices node takes the pitch bend at most this often (MIDI sends hundreds of messages a
+// second), the first value at once, the last one after the pause
+const BEND_INTERVAL = 5;
+
+// the cents of the pitch bend: its share (-1..1) of the range down or up (semitones)
+export const bendCents = (bend: number, down: number, up: number) => 100 * (bend > 0 ? up : down) * bend;
+
+// the range of the bend of a snapshot: whole semitones within 0..PITCH_BEND_MAX, one that isn't a number its
+// default (a url snapshot skips presetDataSchema: `bd` may be anything, Infinity too, whose cents are NaN)
+const bendRangeFrom = (value: unknown) =>
+  typeof value === 'number' && !Number.isNaN(value)
+    ? Math.round(Math.min(PITCH_BEND_MAX, Math.max(0, value)))
+    : PITCH_BEND_DEFAULT;
 
 // a knob on a playing note: no steps (crackles) from the steps of the UI
 const glideParam = (param: ParamAutomation, value: number, now: number) => {
@@ -156,6 +182,16 @@ const phraseLevel = (
 const sameEnvelopes = (envelopes: EnvelopeParams[], knobs: Envelopes) =>
   ENVELOPES.every((id, k) => isEqual(envelopes[k], knobs[id]));
 
+// the velocity of a note (MIDI 1..127) by the knobs of the velocity: VELO (the source of the routes after the
+// envelopes) and the amp of its voice (its volume after ENV 1); its share of 127 (the dot of the chart)
+interface NoteVelocity extends VoiceVelocity {
+  share: number;
+}
+const noteVelocity = (velocity: number, { amp, k }: VelocityKnobs): NoteVelocity => {
+  const level = velocityLevel(k, velocity);
+  return { level, amp: velocityAmp(amp, level), share: velocityShare(velocity) };
+};
+
 // the numbers of the phrases, unique in the page (a model created again on the same context doesn't take the
 // number of a voice still playing)
 let phrases = 0;
@@ -169,6 +205,8 @@ interface VoiceConfig {
   oscillators: VoiceOscillator[];
   // the frequency of the note, with portamento a glide to it from the note before
   pitch: Glide;
+  // its velocity
+  velocity: NoteVelocity;
   // its envelopes (its own, in legato those of its phrase)
   phrase: Phrase;
   // the routes of the modulation (to its params: voiceRoutes) and the filter (null: off)
@@ -195,6 +233,7 @@ const createVoiceHandle = ({
   start: now,
   oscillators,
   pitch,
+  velocity: { level, amp },
   phrase: { id: phrase, envelopes, start: envStart },
   routes,
   filter,
@@ -216,6 +255,7 @@ const createVoiceHandle = ({
       phrase,
       routes: voiceRoutes(routes, osc, filter),
       filter,
+      velocity: { level, amp },
       ...(onStarted && { trace: true }),
       ...(mono && { mono: true }),
     },
@@ -258,6 +298,8 @@ class Voice {
   // again; the time it was set at (none: the value of the node)
   private heldGate = HELD_GATE;
   private heldAt = -Infinity;
+  // the velocity it plays: of its note, in mono of the last note it took over
+  velocity: NoteVelocity;
 
   // handle: from createVoiceHandle, the voicing makes a voice only for a handle
   constructor(config: VoiceConfig, handle: VoiceHandle) {
@@ -268,6 +310,7 @@ class Voice {
     this.pitch = config.pitch;
     this.current = config.phrase;
     this.osc = config.oscillators.map(oscOptions);
+    this.velocity = config.velocity;
     this.routes = JSON.stringify(voiceRoutes(config.routes, this.osc, config.filter));
     handle.onStarted = (started, scheduled) => {
       if (__PERF__) config.onStarted?.({ started, scheduled });
@@ -363,6 +406,11 @@ class Voice {
     return phraseLevel(this.current, this.releaseAt, now, env);
   }
 
+  // its volume at `now`: ENV 1 × the amp of its velocity
+  volume(now: number) {
+    return this.level(now) * this.velocity.amp;
+  }
+
   // the key is released: the release of ENV 1 starts from the level it has reached, as long after the start as
   // the key was held (a note shorter than a device buffer would see the currentTime of its note on: released
   // at its start, silent). The gate tells the voice how long (from its first sample: it may be processed late),
@@ -404,9 +452,10 @@ type Wavetables = SynthCoreModule[0]['wavetables'];
 interface VoicingContext {
   audioCtx: AudioContext;
   createVoice: Wavetables['createVoice'];
-  // the routes and the filter of playing voices changed
+  // the routes, the filter and the velocity of playing voices changed
   setRoutes: Wavetables['setRoutes'];
   setFilter: Wavetables['setFilter'];
+  setVelocity: Wavetables['setVelocity'];
   // the wavetable oscillator can play (its module is ready)
   isReady: () => boolean;
 
@@ -415,6 +464,7 @@ interface VoicingContext {
   $portamento: PrimitiveBS<number>;
   oscillators: VoiceOscillator[];
   $envelopes: EnvelopesModule[0]['$envelopes'];
+  $velocity: EnvelopesModule[0]['$velocity'];
   $routes: ModulationModule[0]['$routes'];
   // the filter the notes play now (null: off)
   voiceFilter: () => VoiceFilterOptions | null;
@@ -448,11 +498,17 @@ class Voicing {
   // paused (a preset switch): the keys held, in the order they were pressed (in mono its stack), and those
   // pressed until resume; they start on the next preset. Null while it plays
   private waiting: string[] | null = null;
+  // the velocity of each key held (or waiting): a key of the stack of mono given the voice back plays it again
+  private velocities = new Map<string, number>();
 
   constructor(config: VoicingContext) {
     this.voices = {};
     this.config = config;
   }
+
+  // the velocity of a key held (at the knobs of the velocity now)
+  private velocityOf = (key: string) =>
+    noteVelocity(this.velocities.get(key) ?? DEFAULT_VELOCITY, this.config.$velocity.value);
 
   // the voice of a note, null if the oscillator isn't ready (a note played meanwhile is not played later); with
   // portamento it glides from `from` (the last key held). In mono a note starts a phrase of its own: its voice
@@ -482,6 +538,7 @@ class Voicing {
         from && $portamento.value > 0
           ? { from: getFq(from), to: frequency, start: now, seconds: $portamento.value / 1000 }
           : steady(frequency, now),
+      velocity: this.velocityOf(noteToString(note)),
       phrase,
       routes: $routes.value,
       filter: voiceFilter(),
@@ -512,22 +569,25 @@ class Voicing {
   };
 
   // the envelopes the fx follow: those of the phrase of the last note from where they started, released with
-  // fxRelease
+  // fxRelease; the velocity of the last note
   private followFx() {
     if (!this.last) return;
     const { envelopes, started, from } = this.last.phrase;
+    const { level: velo, share: velocity } = this.last.velocity;
     const release = this.fxRelease?.releaseAt ?? null;
     // a note of the phrase, or a late voice that didn't move its start, changes nothing; a note that started
-    // the envelopes again does (also at the same time)
+    // the envelopes again does (also at the same time), a note of another velocity too
     const note = this.config.$fxNote.value;
     if (
       note?.envelopes === envelopes &&
       note.start === started &&
       note.release === release &&
-      note.from === from
+      note.from === from &&
+      note.velo === velo &&
+      note.velocity === velocity
     )
       return;
-    this.config.$fxNote.next({ envelopes, start: started, release, from });
+    this.config.$fxNote.next({ envelopes, start: started, release, from, velo, velocity });
   }
 
   // a released voice is no longer counted: it has ended or it is stolen; true if it was
@@ -537,14 +597,14 @@ class Voicing {
     return index >= 0;
   }
 
-  // a voice above Poly is stolen (it fades out): the quietest released one at `now` (the smallest step; the
-  // oldest of equal ones), else the oldest held one
+  // a voice above Poly is stolen (it fades out): the quietest released one at `now` (ENV 1 × the amp of its
+  // velocity: the smallest step; the oldest of equal ones), else the oldest held one
   private steal(now: number) {
     if (this.released.length) {
       let quietest = 0;
       let level = Infinity;
       this.released.forEach((voice, index) => {
-        const value = voice.level(now);
+        const value = voice.volume(now);
         if (value < level) {
           level = value;
           quietest = index;
@@ -599,11 +659,25 @@ class Voicing {
     this.voices[noteToString(note)] = voice;
     this.forget(voice);
     voice.glide(note, held ? this.config.$portamento.value / 1000 : 0);
-    if (!again) return true;
+    this.takeVelocity(voice, noteToString(note));
+    if (!again) {
+      // in legato a note for the fx only by its velocity
+      this.followFx();
+      return true;
+    }
     // a new note for the fx: from now, from the levels of the envelopes
     voice.retrigger();
     this.followNote(voice);
     return true;
+  }
+
+  // mono: the voice plays the velocity of `key` now (VELO and its amp glide there in 10 ms)
+  private takeVelocity(voice: Voice, key: string) {
+    const velocity = this.velocityOf(key);
+    const { level, amp } = velocity;
+    const same = level === voice.velocity.level && amp === voice.velocity.amp;
+    voice.velocity = velocity;
+    if (!same) this.config.setVelocity([voice.id], { level, amp });
   }
 
   // mono: `note` on top of `stack`, its voice takes it over, else a new voice plays it
@@ -613,8 +687,10 @@ class Voicing {
     this.mono = voice && { voice, stack };
   }
 
-  // a note played before the oscillator is ready is not played (nor later); paused, it waits for resume
-  onPress = (note: Note) => {
+  // a note played before the oscillator is ready is not played (nor later); paused, it waits for resume (at its
+  // velocity)
+  onPress = (note: Note, velocity = DEFAULT_VELOCITY) => {
+    this.velocities.set(noteToString(note), velocity);
     if (this.waiting) {
       const key = noteToString(note);
       if (!this.waiting.includes(key)) this.waiting.push(key);
@@ -639,6 +715,7 @@ class Voicing {
 
   onRelease = (note: Note) => {
     const stringNote = noteToString(note);
+    this.velocities.delete(stringNote);
     if (this.waiting) {
       this.waiting = this.waiting.filter((key) => key !== stringNote);
       return;
@@ -749,8 +826,8 @@ class Voicing {
 
 export const synth = ({
   synthCore: [{ audioCtx, wavetables }],
-  inputController: [{ $onPress, $onRelease }],
-  envelopes: [{ $envelopes }],
+  inputController: [{ $onPress, $onRelease, $bend }],
+  envelopes: [{ $envelopes, $velocity }],
   modulation: [{ $routes }],
   oscillator: oscillators,
   filter: [{ voiceFilter, $voiceFilter }],
@@ -759,6 +836,9 @@ export const synth = ({
     const $maxVoices = new PrimitiveBS<number>(8);
     const $portamento = new PrimitiveBS<number>(0);
     const $legato = new PrimitiveBS<boolean>(false);
+    // the range of the pitch bend: semitones down and up
+    const $bendDown = new PrimitiveBS<number>(PITCH_BEND_DEFAULT);
+    const $bendUp = new PrimitiveBS<number>(PITCH_BEND_DEFAULT);
     const $voicesCount = new PrimitiveBS<number>(0);
     const $fxNote = new BehaviorSubject<FxNote | null>(null);
     const $voiceStarts = new Subject<VoiceStart>();
@@ -769,11 +849,13 @@ export const synth = ({
       createVoice: wavetables.createVoice,
       setRoutes: wavetables.setRoutes,
       setFilter: wavetables.setFilter,
+      setVelocity: wavetables.setVelocity,
       isReady: () => wavetables.$status.value === 'ready',
       $maxVoices,
       $legato,
       $portamento,
       $envelopes,
+      $velocity,
       $routes,
       voiceFilter,
       $fxNote,
@@ -783,25 +865,37 @@ export const synth = ({
     };
     const voicing = new Voicing(voicingContext);
 
-    return { $maxVoices, $portamento, $legato, $voicesCount, $fxNote, $voiceStarts, voicing };
+    return {
+      $maxVoices,
+      $portamento,
+      $legato,
+      $bendDown,
+      $bendUp,
+      $voicesCount,
+      $fxNote,
+      $voiceStarts,
+      voicing,
+    };
   })
-    .actions(({ $maxVoices, $portamento, $legato, $voicesCount, voicing }) => ({
+    .actions(({ $maxVoices, $portamento, $legato, $bendDown, $bendUp, $voicesCount, voicing }) => ({
       setMaxVoices: (value: number) => $maxVoices.next(value),
       setPortamento: (value: number) => $portamento.next(value),
       setLegato: (value: boolean) => $legato.next(value),
+      setBendDown: (value: number) => $bendDown.next(value),
+      setBendUp: (value: number) => $bendUp.next(value),
       setVoicesCount: (value: number) => $voicesCount.next(value),
       // a preset switch (soundSwitch): silence, the keys wait for the next preset; it is ready: they start on it
       pause: () => voicing.pause(),
       resume: () => voicing.resume(),
     }))
-    .subscriptions(({ voicing, $maxVoices }, { setVoicesCount }) => [
+    .subscriptions(({ voicing, $maxVoices, $bendDown, $bendUp }, { setVoicesCount }) => [
       $onRelease.subscribe((note) => {
         voicing.onRelease(note);
 
         setVoicesCount(voicing.voicesCount);
       }),
-      $onPress.subscribe((note) => {
-        voicing.onPress(note);
+      $onPress.subscribe(({ note, velocity }) => {
+        voicing.onPress(note, velocity);
         setVoicesCount(voicing.voicesCount);
       }),
       // Poly comes to 1 or leaves it while notes play
@@ -819,6 +913,16 @@ export const synth = ({
         voicing.setFilter(filter);
         voicing.setRoutes($routes.value, filter);
       }),
+      // the pitch bend of every note, in the voices node (on top of the detune of each oscillator, it glides
+      // there; new notes start with it), at most every BEND_INTERVAL
+      combineLatest([$bend, $bendDown, $bendUp])
+        .pipe(
+          map(([bend, down, up]) => bendCents(bend, down, up)),
+          distinctUntilChanged(),
+          skip(1),
+          throttleTime(BEND_INTERVAL, asyncScheduler, { leading: true, trailing: true })
+        )
+        .subscribe((cents) => wavetables.setBend(cents)),
       // the playing notes follow the knobs (the base of the params of each oscillator)
       ...oscillators.map(([{ $params }], osc) =>
         $params.pipe(pairwise()).subscribe(([previous, params]) =>
@@ -831,17 +935,21 @@ export const synth = ({
     .plugins(
       urlSnapshotPlugin({
         prefix: 'v',
-        modelToSnap: ({ $legato, $portamento, $maxVoices }) => {
+        modelToSnap: ({ $legato, $portamento, $maxVoices, $bendDown, $bendUp }) => {
           return {
             leg: $legato.value,
             port: $portamento.value,
             max: $maxVoices.value,
+            bd: $bendDown.value,
+            bu: $bendUp.value,
           };
         },
-        applySnap: (snap, { $legato, $portamento, $maxVoices }) => {
+        applySnap: (snap, { $legato, $portamento, $maxVoices, $bendDown, $bendUp }) => {
           snap.leg !== undefined && $legato.next(snap.leg);
           snap.port !== undefined && $portamento.next(snap.port);
           snap.max !== undefined && $maxVoices.next(snap.max);
+          snap.bd !== undefined && $bendDown.next(bendRangeFrom(snap.bd));
+          snap.bu !== undefined && $bendUp.next(bendRangeFrom(snap.bu));
         },
       })
     );

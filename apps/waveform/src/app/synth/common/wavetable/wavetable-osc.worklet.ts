@@ -36,10 +36,11 @@ const scope = createOscScope(instantiateCore<OscExports>(new WebAssembly.Module(
 
 // the functions of a block compile lazily, on their first call: while the module loads, a voice of both
 // oscillators (the placeholder sine) on a store and a shared of its own renders a moving position (the direct
-// path, the filter, a route), then a steady one (the mix builds, the pairs), and is freed with them (the first
-// block of the first note 0.014 ms instead of 0.93 in Node, the module 2 ms longer: before the first note); then
-// the same voice in a scope of voices, its params from events (a step, a target and ramps: the curves of the
-// timelines), stolen at its end
+// path, the filter, a route of an envelope and of the velocity, its amp), then a steady one (the mix builds, the
+// pairs), and is freed with them (the first block of the first note 0.014 ms instead of 0.93 in Node, the module
+// 2 ms longer: before the first note); then the same voice in a scope of voices, its params from events (a step, a
+// target and ramps: the curves of the timelines), its velocity gliding to another one, bent (the pitch bend of the
+// node, gliding), stolen at its end
 const WARM_ENVELOPE = { attack: 0.001, hold: 0, decay: 0.01, sustain: 0.5, release: 0.01 };
 const WARM_VOICE: VoiceOptions = {
   osc: [
@@ -50,8 +51,12 @@ const WARM_VOICE: VoiceOptions = {
   envelopes: [WARM_ENVELOPE, WARM_ENVELOPE, WARM_ENVELOPE],
   envStart: 0,
   phrase: -1,
-  routes: [{ env: 1, param: 'gain1', amount: -0.5, min: 0, max: 1 }],
+  routes: [
+    { env: 1, param: 'gain1', amount: -0.5, min: 0, max: 1 },
+    { env: 3, param: 'gain2', amount: 0.25, min: 0, max: 1 },
+  ],
   filter: { type: 'lowpass', cutoff: 4000, resonance: 3, gain: 0 },
+  velocity: { level: 0.5, amp: 0.75 },
 };
 const prewarm = () => {
   const warmStore = createTableStoreWasm(scope);
@@ -78,6 +83,8 @@ const prewarm = () => {
     { kind: 'cancel', voice: 0, param: 'position1', time: at(1) },
     { kind: 'target', voice: 0, param: 'position1', value: 0.5, time: at(1), constant: 0.0033 },
     { kind: 'set', voice: 0, param: 'position1', value: 0.5, time: at(3) },
+    { kind: 'velocity', voices: [0], velocity: { level: 1, amp: 1 } },
+    { kind: 'bend', cents: 200 },
     { kind: 'set', voice: 0, param: 'gate', value: -1, time: at(4) },
   ];
   voices.apply(events);

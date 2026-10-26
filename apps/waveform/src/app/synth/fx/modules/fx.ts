@@ -1,5 +1,5 @@
 import { distinctUntilChanged, map, combineLatest, shareReplay } from 'rxjs';
-import { isEqual, mapValues } from 'lodash';
+import { isEqual, mapValues, omit } from 'lodash';
 import { FX_MIX_PARAMS, FX_TYPES, FxType, fxSnapSchema, MOD_SOURCES } from '@waveform/preset-schema';
 import { ArrayBS, ObjectBS, rxModel, rxModelReact } from '@waveform/rxjs-react';
 import { SynthCoreModule } from '../../common/modules/synth-core';
@@ -8,7 +8,7 @@ import type { ModRoute, ModulationModule } from '../../common/modules/modulation
 import { amountInUnits, MOD_TARGETS } from '../../common/modulation/modulation-targets';
 import { urlSnapshotPlugin } from '../../../app';
 import { createFxSlot, FX_REGISTRY, FxSlot, FxStatus, isFxUsable } from '../effects';
-import type { FxModulation, FxNote, FxRoute } from '../effects/fx-modulation';
+import { FxModulation, FxNote, FxRoute, isEnvelope } from '../effects/fx-modulation';
 
 interface Dependencies {
   synthCore: SynthCoreModule;
@@ -52,10 +52,15 @@ const fxRoutes = (routes: ModRoute[], type: FxType): FxRoute[] =>
     return [definition.scale === 'log' ? { ...route, log: true } : route];
   });
 
+// the note of an effect without its velocity unless a route of it reads VELO: a note of a legato phrase at
+// another velocity changes nothing for the others
+const withoutVelocity = (note: FxNote, routes: FxRoute[]): FxNote =>
+  routes.some(({ env }) => !isEnvelope(note, env)) ? note : omit(note, ['velo', 'velocity']);
+
 // what an effect follows: nothing while it isn't active (in the chain, on and ready: an envelope is computed
 // only for an effect that sounds), has no route or no note was played yet
 const fxModulation = (routes: FxRoute[], note: FxNote | null, active: boolean): FxModulation | null =>
-  active && note && routes.length > 0 ? { note, routes } : null;
+  active && note && routes.length > 0 ? { note: withoutVelocity(note, routes), routes } : null;
 
 // the added effects in the chain order; an unavailable one (unsupported or failed) stays added in the state,
 // so a preset keeps it, but is left out of the chain
