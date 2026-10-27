@@ -27,7 +27,7 @@ const options = (routes = 0): VoiceOptions => ({
   envStart: 0,
   phrase: 1,
   // (more routes than the command buffer of the core holds: it reads past its end, a panic, so a trap)
-  routes: Array.from({ length: routes }, () => ({ env: 1, param: 'gain1', amount: 0.5, min: 0, max: 1 })),
+  routes: Array.from({ length: routes }, () => ({ source: 1, param: 'gain1', amount: 0.5, min: 0, max: 1 })),
   filter: null,
 });
 

@@ -129,7 +129,7 @@ const OSC_SCENES = [
         [[4096, 2.12]],
         {
           envelopes: [ENV, { attack: 0.1, hold: 0, decay: 0.1, sustain: 0.2, release: 0.1 }, FLAT],
-          routes: [{ env: 1, param: 'position1', amount: 1, min: 0, max: 1 }],
+          routes: [{ source: 1, param: 'position1', amount: 1, min: 0, max: 1 }],
         }
       ),
       note(
@@ -139,7 +139,7 @@ const OSC_SCENES = [
         {
           filter: { type: 'lowpass', cutoff: 900, resonance: 8, gain: 0 },
           envelopes: [FLAT, { attack: 0.05, hold: 0, decay: 0.2, sustain: 0, release: 0 }, FLAT],
-          routes: [{ env: 1, param: 'cutoff', amount: 3, min: 20, max: 16000, log: true }],
+          routes: [{ source: 1, param: 'cutoff', amount: 3, min: 20, max: 16000, scale: 'log' }],
         }
       ),
     ],

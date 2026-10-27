@@ -2,6 +2,7 @@
 //! render one after another), the pool of mix tables, the budget of mix builds per block, the legato phrases and
 //! the counters (VoiceStats, the perf build); and the params and outputs of the block the wrapper copies in and out
 
+use crate::lfo::{frac, Anchor, LfoGlobal, LfoState, LFOS, TABLE};
 use crate::store::FRAME_GUARD;
 use alloc::{vec, vec::Vec};
 use jsmath::{ceil, max};
@@ -63,6 +64,10 @@ pub struct Shared {
     frames: usize,
     // the weights of the 6-point Lagrange interpolation per ratio (the upsamplers of the TS, cached per scope)
     pub upsamplers: Vec<(usize, Vec<f64>)>,
+    // the LFOs of the voices (lfo.rs) and the count of their states: a voice that sees another one works its LFOs
+    // out again
+    pub lfos: [LfoGlobal; LFOS],
+    pub lfo_epoch: u32,
 }
 
 impl Default for Shared {
@@ -80,11 +85,58 @@ impl Default for Shared {
             output: Vec::new(),
             frames: 0,
             upsamplers: Vec::new(),
+            lfos: Default::default(),
+            lfo_epoch: 0,
         }
     }
 }
 
+/// the values of a state of an LFO in the command buffer: mode, delay, rise, smooth, phase, the anchor (time,
+/// phase, period), a new table
+pub const LFO_STATE: usize = 9;
+
 impl Shared {
+    /// the levels of a new shape of LFO `lfo` (TABLE + 1, within 0..1), until a state takes them
+    pub fn lfo_table(&mut self, lfo: usize, values: &[f64]) {
+        if let Some(global) = self.lfos.get_mut(lfo) {
+            for (level, value) in global.incoming.iter_mut().zip(values.iter().take(TABLE + 1)) {
+                *level = if *value > 1.0 {
+                    1.0
+                } else if *value > 0.0 {
+                    *value as f32
+                } else {
+                    0.0
+                };
+            }
+        }
+    }
+
+    /// the LFOs from `at` (seconds) on: LFO_STATE values each; `instantly`: there at once. A value that is not
+    /// finite is 0, a period that is not one keeps the clock as it was
+    pub fn set_lfos(&mut self, at: f64, instantly: bool, values: &[f64]) {
+        let finite = |value: f64| if value.is_finite() { value } else { 0.0 };
+        for (lfo, state) in values.chunks_exact(LFO_STATE).take(LFOS).enumerate() {
+            let period = state[7];
+            let anchor = (period.is_finite() && period > 0.0 && state[5].is_finite() && state[6].is_finite())
+                .then_some(Anchor {
+                    time: state[5],
+                    phase: state[6],
+                    period,
+                });
+            let state = LfoState {
+                mode: state[0] as u32,
+                delay: max(0.0, finite(state[1])),
+                rise: max(0.0, finite(state[2])),
+                smooth: max(0.0, finite(state[3])),
+                phase: frac(finite(state[4])),
+                anchor,
+                table: state[8] != 0.0,
+            };
+            self.lfos[lfo].set(finite(at), &state, instantly);
+        }
+        self.lfo_epoch = self.lfo_epoch.wrapping_add(1);
+    }
+
     /// room for one phrase more: a voice joins its phrase without allocating (Voice::attach)
     pub fn reserve_phrase(&mut self) {
         self.phrases.reserve(1);

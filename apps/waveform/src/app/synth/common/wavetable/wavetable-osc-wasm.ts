@@ -1,4 +1,5 @@
 import type { EnvelopeParams } from '../envelope/envelope-curve';
+import { LFO_TABLE_SIZE, LfosState } from '../lfo/lfo-curve';
 import { CoreExports, createView } from '../wasm/wasm-core';
 import type {
   BuilderPortMessage,
@@ -58,6 +59,8 @@ export interface OscExports extends CoreExports {
   osc_shared_new: () => number;
   osc_shared_free: (shared: number) => void;
   osc_shared_stats: (shared: number) => void;
+  osc_shared_lfo_table: (shared: number, lfo: number) => void;
+  osc_shared_lfos: (shared: number, at: number, instantly: number) => void;
   osc_io: (shared: number, frames: number) => number;
   osc_io_stride: (shared: number) => number;
   osc_io_lengths: (shared: number) => number;
@@ -109,7 +112,9 @@ export const VOICE_PARAM_ORDER: readonly VoiceParam[] = [
   'spread2',
   'gain2',
 ];
-// the params a route moves, by their id in the core (another name: none, the route is left out)
+// the params a route moves, by their id in the core (another name: none, the route is left out): those of the
+// voice, then the knobs of each LFO (lfo_target of modulation.rs)
+const LFO_KNOBS = ['rate', 'delay', 'rise', 'smooth', 'phase'];
 const ROUTE_PARAMS = [
   'position1',
   'spread1',
@@ -120,7 +125,12 @@ const ROUTE_PARAMS = [
   'cutoff',
   'resonance',
   'gain',
+  ...[1, 2, 3, 4].flatMap((lfo) => LFO_KNOBS.map((knob) => `lfo${lfo}.${knob}`)),
 ];
+// the scales of the params in the core (LINEAR, LOG, POW of modulation.rs)
+const ROUTE_SCALES = ['linear', 'log', 'pow'];
+// the values of a state of an LFO in the command buffer (LFO_STATE of shared.rs)
+const LFO_STATE = 9;
 // BiquadFilterType by its index in the core (another type: a constant 1)
 const FILTER_TYPES: readonly BiquadFilterType[] = [
   'lowpass',
@@ -354,6 +364,22 @@ export const createVoiceSharedWasm = (scope: OscScope) => {
         mixBytes,
       };
     },
+    // the LFOs of its voices from `state.at` on: the tables of new shapes, then the knobs and the anchors
+    setLfos: ({ at, instantly, lfos }: LfosState) => {
+      lfos.forEach(({ table }, lfo) => {
+        if (!table) return;
+        scope.command().set(table.subarray(0, LFO_TABLE_SIZE + 1));
+        scope.exports.osc_shared_lfo_table(handle, lfo);
+      });
+      const command = scope.command();
+      lfos.forEach(({ mode, delay, rise, smooth, phase, anchor, table }, lfo) =>
+        command.set(
+          [mode, delay, rise, smooth, phase, anchor.time, anchor.phase, anchor.period, table ? 1 : 0],
+          lfo * LFO_STATE
+        )
+      );
+      scope.exports.osc_shared_lfos(handle, at, instantly ? 1 : 0);
+    },
     // (once no voice of it is left)
     free: () => scope.exports.osc_shared_free(handle),
   };
@@ -362,14 +388,15 @@ export type VoiceSharedWasm = ReturnType<typeof createVoiceSharedWasm>;
 
 const writeRoutes = (command: Float64Array, at: number, routes: VoiceRoute[]) => {
   command[at++] = routes.length;
-  routes.forEach(({ env, param, amount, min, max, log }) => {
+  routes.forEach(({ source, param, amount, min, max, scale = 'linear', bipolar }) => {
     const id = ROUTE_PARAMS.indexOf(param);
-    command[at++] = env;
+    command[at++] = source;
     command[at++] = id < 0 ? 255 : id;
     command[at++] = amount;
     command[at++] = min;
     command[at++] = max;
-    command[at++] = log ? 1 : 0;
+    command[at++] = Math.max(0, ROUTE_SCALES.indexOf(scale));
+    command[at++] = bipolar ? 1 : 0;
   });
   return at;
 };
@@ -670,6 +697,7 @@ export const createVoiceScopeWasm = (
         guard(() => exports.osc_scope_bend(handle, event.cents, event.instantly ? 1 : 0));
       } else if (event.kind === 'lfos') {
         flush();
+        guard(() => shared.setLfos(event));
       } else {
         // (a param the core has not: nothing; as an index of -1 the core would take it as the frequency)
         const param = VOICE_PARAM_ORDER.indexOf(event.param);

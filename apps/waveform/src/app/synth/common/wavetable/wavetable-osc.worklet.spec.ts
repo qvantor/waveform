@@ -198,7 +198,7 @@ describe('wavetable oscillator wasm worklet', () => {
     const held = stats(store).versions;
     // more routes than the command buffer holds: the core reads past it
     const routes = Array.from({ length: 1000 }, () => ({
-      env: 1,
+      source: 1,
       param: 'gain1',
       amount: 1,
       min: 0,
@@ -254,7 +254,7 @@ describe('wavetable oscillator wasm worklet', () => {
   it('takes the routes of a playing note from its port: the amounts glide', () => {
     const processor = track(voice('none'));
     expect(render(processor, 0).left[0]).toBeCloseTo(1, 4);
-    const routes = [{ env: 1, param: 'gain1', amount: -1, min: 0, max: 1 }];
+    const routes = [{ source: 1, param: 'gain1', amount: -1, min: 0, max: 1 }];
     processor.port.onmessage({ data: { events: [{ kind: 'routes', voices: [1], routes }] } });
     [128, 256, 384, 512].forEach((frame) => render(processor, frame));
     expect(render(processor, 640).left.every((value) => Math.abs(value) < 1e-6)).toBe(true);
@@ -404,7 +404,7 @@ describe('wavetable oscillator wasm worklet', () => {
       node.port.onmessage({ data: { events: [on(1, 'none')] } });
       // more routes than the command buffer holds: the core reads past it
       const routes = Array.from({ length: 1000 }, () => ({
-        env: 1,
+        source: 1,
         param: 'gain1',
         amount: 1,
         min: 0,

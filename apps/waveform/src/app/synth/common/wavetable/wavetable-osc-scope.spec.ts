@@ -3,6 +3,7 @@ import '../../../../test-utils/js-math';
 import { BLOCK, oscScope, seeded, storeWith } from '../../../../test-utils/voice-dsp';
 import { expectSameBits } from '../../../../test-utils/parity';
 import type { EnvelopeParams } from '../envelope/envelope-curve';
+import { LfosState, lfoTable, LfoWire, RETRIG } from '../lfo/lfo-curve';
 import type { VoiceEvent, VoiceOptions, VoiceOscOptions } from './voice-options';
 import { HELD_AGAIN_GATE, RELEASE_GATE, VOICE_PARAMETERS, VoiceParam } from './wavetable-osc-params';
 import { createVoiceScopeWasm, createVoiceSharedWasm, VOICE_PARAM_ORDER } from './wavetable-osc-wasm';
@@ -56,7 +57,7 @@ const render = (voices: ReturnType<typeof node>['voices'], frame: number) => {
 
 // more routes than the command buffer holds: the core reads past it, it traps
 const TOO_MANY_ROUTES = Array.from({ length: 1000 }, () => ({
-  env: 1,
+  source: 1,
   param: 'gain1',
   amount: 1,
   min: 0,
@@ -285,6 +286,60 @@ describe('the voices of one node', () => {
     const { report, taps } = render(voices, 0);
     expect(report).toEqual({ ended: [2, 3] });
     expect(taps.map(({ voice }) => voice)).toEqual([1, 2, 4]);
+    voices.free();
+  });
+
+  it('takes the LFOs in the order of the other events: the voices of the block play them from their time on', () => {
+    const lfo = (change: Partial<LfoWire> = {}): LfoWire => ({
+      mode: RETRIG,
+      delay: 0,
+      rise: 0,
+      smooth: 0,
+      phase: 0,
+      anchor: { time: 0, phase: 0, period: 0.01 },
+      table: lfoTable('square'),
+      ...change,
+    });
+    const state = (change: Partial<LfoWire>, instantly = true): LfosState => ({
+      at: 0,
+      instantly,
+      lfos: [lfo(change), lfo(), lfo(), lfo()],
+    });
+    const routes = [{ source: 4, param: 'gain1', amount: -1, min: 0, max: 1 }];
+    const play = (events: VoiceEvent[]) => {
+      const { voices } = node();
+      voices.apply(events);
+      const blocks = Array.from({ length: 4 }, (_, block) => render(voices, block * BLOCK));
+      voices.free();
+      return blocks.flatMap(({ taps }) => taps);
+    };
+    // LFO 1 a flat 1 (its gain 0) or a flat 0 (its gain 1): the voice made after both plays the last one
+    const silent = { table: lfoTable('sine').fill(1) };
+    const open = { table: lfoTable('sine').fill(0) };
+    const on = (voice: number): VoiceEvent => ({
+      kind: 'on',
+      voice,
+      options: note({ routes, phrase: voice }),
+      params: {},
+    });
+    const both = play([{ kind: 'lfos', ...state(silent) }, on(1), { kind: 'lfos', ...state(open) }, on(2)]);
+    const plain = play([{ kind: 'lfos', ...state(open) }, on(1), on(2)]);
+    // the LFOs are the node's: both voices play the last state
+    expect(both.map(({ left }) => Array.from(left))).toEqual(plain.map(({ left }) => Array.from(left)));
+    expect(plain.some(({ left }) => left.some((value) => value !== 0))).toBe(true);
+    const quiet = play([{ kind: 'lfos', ...state(silent) }, on(1)]);
+    expect(quiet.every(({ left }) => left.every((value) => value === 0))).toBe(true);
+  });
+
+  it('loses only a state of the LFOs it can not read: the events after it are applied', () => {
+    const errors: unknown[] = [];
+    const { voices } = node((error) => errors.push(error));
+    voices.apply([
+      { kind: 'lfos', at: 0, lfos: [{ table: {} } as unknown as LfoWire] },
+      { kind: 'on', voice: 1, options: note(), params: {} },
+    ]);
+    expect(errors).toEqual([expect.any(TypeError)]);
+    expect(voices.stats()).toEqual({ voices: 1, events: 0 });
     voices.free();
   });
 

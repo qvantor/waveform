@@ -2,6 +2,7 @@ import { registrar } from 'standardized-audio-context-mock';
 import { withoutAudioWorklet } from '../../../../test-utils/no-audio-worklet';
 import { workletLoads } from '../../../../test-utils/worklet-loads';
 import { MessageChannelStub, WorkerStub } from '../../../../test-utils/worker-stub';
+import { LfoWire, lfoTable, RETRIG } from '../lfo/lfo-curve';
 import { createWavetableEngine, WavetableStatus } from './wavetable-engine';
 import { STORE_PROCESSOR, VOICES_PROCESSOR } from './wavetable-osc-params';
 import type { VoiceOptions } from './voice-options';
@@ -171,7 +172,7 @@ describe('wavetable engine', () => {
     voice?.params.gain1.setTargetAtTime(0.3, 1.5, 0.0033);
     voice?.params.frequency.exponentialRampToValueAtTime(440, 2);
     const other = engine.createVoice(NOTE, {});
-    engine.setRoutes([1, 2], [{ env: 1, param: 'gain1', amount: 0.5, min: 0, max: 1 }]);
+    engine.setRoutes([1, 2], [{ source: 1, param: 'gain1', amount: 0.5, min: 0, max: 1 }]);
     engine.setFilter([2], null);
     // a microtask sends the events of the task, in one message
     expect(events()).toEqual([]);
@@ -184,7 +185,11 @@ describe('wavetable engine', () => {
       { kind: 'target', voice: 1, param: 'gain1', value: Math.fround(0.3), time: 1.5, constant: 0.0033 },
       { kind: 'ramp', voice: 1, param: 'frequency', value: 440, time: 2 },
       { kind: 'on', voice: 2, options: NOTE, params: {} },
-      { kind: 'routes', voices: [1, 2], routes: [{ env: 1, param: 'gain1', amount: 0.5, min: 0, max: 1 }] },
+      {
+        kind: 'routes',
+        voices: [1, 2],
+        routes: [{ source: 1, param: 'gain1', amount: 0.5, min: 0, max: 1 }],
+      },
       { kind: 'filter', voices: [2], filter: null },
     ]);
     expect(other?.id).toBe(2);
@@ -357,6 +362,55 @@ describe('wavetable engine', () => {
     await flush();
     await Promise.resolve();
     expect(events(voices())).toEqual([]);
+  });
+
+  it('sends the LFOs once it is ready, the last state first at once with every table; a node made again takes them', async () => {
+    jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    const { engine, voices, events } = setup();
+    const wire = (change: Partial<LfoWire> = {}): LfoWire => ({
+      mode: RETRIG,
+      delay: 0,
+      rise: 0,
+      smooth: 0,
+      phase: 0,
+      anchor: { time: 0, phase: 0, period: 0.5 },
+      ...change,
+    });
+    const [sine, square] = [lfoTable('sine'), lfoTable('square')];
+    // before it is ready: kept, the tables of the states before taken on
+    engine.setLfos({ at: 0.01, lfos: [wire({ table: sine }), wire({ table: sine }), wire(), wire()] });
+    engine.setLfos({ at: 0.02, lfos: [wire({ delay: 1 }), wire({ table: square }), wire(), wire()] });
+    await flush();
+    const node = voices();
+    expect(events(node)).toEqual([
+      {
+        kind: 'lfos',
+        at: 0,
+        instantly: true,
+        lfos: [wire({ delay: 1, table: sine }), wire({ table: square }), wire(), wire()],
+      },
+    ]);
+    // ready: from their time on, as they come
+    engine.setLfos({ at: 1.5, lfos: [wire({ phase: 0.5 }), wire(), wire(), wire()] });
+    await Promise.resolve();
+    expect(events(node).at(-1)).toEqual({
+      kind: 'lfos',
+      at: 1.5,
+      lfos: [wire({ phase: 0.5 }), wire(), wire(), wire()],
+    });
+
+    node?.onprocessorerror?.(new Event('processorerror'));
+    engine.retry();
+    await flush();
+    expect(voices()).not.toBe(node);
+    expect(events()).toEqual([
+      {
+        kind: 'lfos',
+        at: 0,
+        instantly: true,
+        lfos: [wire({ phase: 0.5, table: sine }), wire({ table: square }), wire(), wire()],
+      },
+    ]);
   });
 
   it('retry does nothing unless it failed', async () => {

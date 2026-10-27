@@ -334,9 +334,9 @@ const createCases = (dsp) => {
       envStart: 0,
       phrase: 0,
       routes: [
-        { env: 1, param: 'gain1', amount: -0.5, min: 0, max: 1 },
-        { env: 1, param: 'cutoff', amount: 4, min: 20, max: 20000, log: true },
-        { env: 2, param: 'resonance', amount: 12, min: -12, max: 24 },
+        { source: 1, param: 'gain1', amount: -0.5, min: 0, max: 1 },
+        { source: 1, param: 'cutoff', amount: 4, min: 20, max: 20000, scale: 'log' },
+        { source: 2, param: 'resonance', amount: 12, min: -12, max: 24 },
       ],
       filter: { type: 'lowpass', cutoff: 400, resonance: 3, gain: 0 },
     });

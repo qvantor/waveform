@@ -3,6 +3,18 @@ import { join } from 'path';
 import FFT from 'fft.js';
 import { frequencyResponseDb } from '@waveform/ui-kit';
 import { EnvelopeParams, envelopeValue } from '../envelope/envelope-curve';
+import {
+  createLfoGlobal,
+  createLfoRunner,
+  FREE,
+  frac,
+  LfosState,
+  lfoTable,
+  lfoTableFrom,
+  LfoWire,
+  nextAnchor,
+  RETRIG,
+} from '../lfo/lfo-curve';
 import { withCurves } from '../../../../test-utils/envelopes';
 import { seeded, VOICE_DEFAULTS } from '../../../../test-utils/voice-dsp';
 import { wasmCore } from '../../../../test-utils/wasm';
@@ -20,7 +32,7 @@ import {
   VoiceStats,
   VoiceVelocity,
 } from './voice-options';
-import { RELEASE_GATE, VoiceParam } from './wavetable-osc-params';
+import { HELD_AGAIN_GATE, RELEASE_GATE, VoiceParam } from './wavetable-osc-params';
 import {
   createOscScope,
   createTableStoreWasm,
@@ -44,6 +56,7 @@ interface CoreStore {
 }
 interface CoreShared {
   stats(): VoiceStats;
+  setLfos(state: LfosState): void;
 }
 interface CoreVoice {
   process(
@@ -1662,7 +1675,7 @@ describe('the wavetable voice', () => {
       // ENV 2 lowers the gain: up in 5 ms, down to 0.2 in 20 ms; started again on a point the routes are worked
       // out at (every 32 samples, linear in between: exact there)
       const env2: EnvelopeParams = { attack: 0.005, hold: 0, decay: 0.02, sustain: 0.2, release: 0 };
-      const routes: VoiceRoute[] = [{ env: 1, param: 'gain1', amount: -0.5, min: 0, max: 1 }];
+      const routes: VoiceRoute[] = [{ source: 1, param: 'gain1', amount: -0.5, min: 0, max: 1 }];
       const plain = peak(4096, { envelopes: [env2, FLAT], routes });
       const { left } = peak(4096, {
         envelopes: [env2, FLAT],
@@ -1703,8 +1716,8 @@ describe('the wavetable voice', () => {
       release: 0,
     });
     const level = (env: EnvelopeParams, frame: number) => envelopeValue(env, frame / RATE);
-    const route = (param: VoiceParam, amount: number, min = 0, max = 1, env = 1): VoiceRoute => ({
-      env,
+    const route = (param: VoiceParam, amount: number, min = 0, max = 1, source = 1): VoiceRoute => ({
+      source,
       param,
       amount,
       min,
@@ -1907,6 +1920,306 @@ describe('the wavetable voice', () => {
     });
   });
 
+  describe('LFO', () => {
+    const sec = (frame: number) => frame / RATE;
+    // an LFO as the main thread sends it: a sine of 0.5 s, retrig, by default
+    const wire = (change: Partial<LfoWire> = {}): LfoWire => ({
+      mode: RETRIG,
+      delay: 0,
+      rise: 0,
+      smooth: 0,
+      phase: 0,
+      anchor: { time: 0, phase: 0, period: 0.5 },
+      ...change,
+    });
+    // a state of the LFOs from `at` on taken before the block at `frame`: LFO 1–4 of `lfos` (sines by default)
+    interface Scheduled {
+      frame: number;
+      state: LfosState;
+    }
+    const at = (
+      frame: number,
+      lfos: Partial<LfoWire>[],
+      time = sec(frame),
+      instantly = false
+    ): Scheduled => ({
+      frame,
+      state: { at: time, instantly, lfos: [0, 1, 2, 3].map((i) => wire(lfos[i])) },
+    });
+    // the first state of a node: at once, every table
+    const first = (lfos: Partial<LfoWire>[] = []) =>
+      at(
+        0,
+        [0, 1, 2, 3].map((i) => ({ table: lfoTable('sine'), ...lfos[i] })),
+        0,
+        true
+      );
+    // the levels of LFO `lfo` of a note from frame `start` at the points of its blocks, as the TS runs it: the states
+    // of `schedule` taken before their blocks, started again at the frames of `restarts`
+    const runnerLevels = (
+      schedule: Scheduled[],
+      frames: number,
+      {
+        start = 0,
+        lfo = 0,
+        restarts = [] as number[],
+        mods,
+      }: {
+        start?: number;
+        lfo?: number;
+        restarts?: number[];
+        mods?: (frame: number) => { rate?: number };
+      } = {}
+    ) => {
+      const global = createLfoGlobal();
+      const runner = createLfoRunner(RATE);
+      runner.start(start);
+      const levels = new Map<number, number>();
+      for (let block = 0; block < frames; block += BLOCK) {
+        schedule
+          .filter(({ frame }) => frame === block)
+          .forEach(({ state }) => global.set(state.at, state.lfos[lfo], state.instantly));
+        restarts.filter((f) => f >= block && f < block + BLOCK).forEach((f) => runner.retrigger(f));
+        const a = Math.max(0, start - block);
+        if (a >= BLOCK) continue;
+        for (let p = a; ; p = Math.min(p + 32, BLOCK - 1)) {
+          levels.set(block + p, Math.fround(runner.point(block + p, global, mods?.(block + p))));
+          if (p === BLOCK - 1) break;
+        }
+      }
+      return levels;
+    };
+    // a param moved by a route of amount 1 from 0: the levels at the points, linear between them in f32, as the voice
+    // interpolates its routes
+    const between = (levels: Map<number, number>, frames: number) => {
+      const values = new Float32Array(Math.ceil(frames / BLOCK) * BLOCK);
+      const points = [...levels.keys()].sort((a, b) => a - b);
+      points.forEach((point, k) => {
+        values[point] = levels.get(point) as number;
+        const from = points[k - 1];
+        if (from === undefined || Math.floor(from / BLOCK) !== Math.floor(point / BLOCK)) return;
+        const start = values[from];
+        const slope = (values[point] - start) / (point - from);
+        for (let i = from + 1; i < point; i++) values[i] = start + slope * (i - from);
+      });
+      return values;
+    };
+    const lfoRoute = (param: VoiceParam | string, change: Partial<VoiceRoute> = {}): VoiceRoute => ({
+      source: 4,
+      param,
+      amount: 1,
+      min: 0,
+      max: 1,
+      ...change,
+    });
+    // a voice of a saw with LFO `lfo` on its gain (from 0), its states taken before their blocks, and the same voice
+    // given the gain of the runner of the TS
+    const gainAgainstRunner = (
+      schedule: Scheduled[],
+      frames: number,
+      options: Partial<RenderOptions> & { lfo?: number; restarts?: number[] } = {}
+    ) => {
+      const { store } = core.storeWith({ a: [saw] });
+      const { lfo = 0, restarts, start = 0, ...rest } = options;
+      const shared = core.createVoiceShared();
+      const routed = render({
+        store,
+        frames,
+        start: sec(start),
+        routes: [lfoRoute('gain1', { source: 4 + lfo })],
+        shared,
+        before: (frame) =>
+          schedule.filter((item) => item.frame === frame).forEach(({ state }) => shared.setLfos(state)),
+        ...rest,
+        params: { frequency: 220, gain1: 0, ...rest.params },
+      });
+      const gain = between(runnerLevels(schedule, frames, { start, lfo, restarts }), frames);
+      const direct = render({
+        store,
+        frames,
+        start: sec(start),
+        ...rest,
+        params: { frequency: 220, ...rest.params, gain1: (frame) => gain[frame] },
+      });
+      return { routed, direct, gain };
+    };
+    const expectClose = (a: Float32Array, b: Float32Array, tolerance = 1e-6) => {
+      let worst = 0;
+      a.forEach((value, i) => (worst = Math.max(worst, Math.abs(value - b[i]))));
+      expect(worst).toBeLessThan(tolerance);
+    };
+
+    it('moves the gain by its level at the points of the routes, as the TS runs it: retrig from the note on', () => {
+      const schedule = [first([{ anchor: { time: 0, phase: 0.3, period: 0.25 } }])];
+      const { routed, direct, gain } = gainAgainstRunner(schedule, 24000, { start: 1000 });
+      expectClose(routed.left, direct.left);
+      expectClose(routed.right, direct.right);
+      // a sine of 0.25 s from 0 at the note on, at 1 half a cycle later
+      expect(gain[1000]).toBe(0);
+      expect(gain[1000 + 6000]).toBeCloseTo(1, 4);
+    });
+
+    it('runs its Delay, Rise and Smooth, a shape of its own, LFO 4 as LFO 1', () => {
+      const square = lfoTableFrom([1, 1, 0, 0]);
+      const schedule = [
+        first([
+          {},
+          {},
+          {},
+          { delay: 0.1, rise: 0.2, smooth: 0.02, table: square, anchor: { time: 0, phase: 0, period: 0.2 } },
+        ]),
+      ];
+      const { routed, direct, gain } = gainAgainstRunner(schedule, 24000, { lfo: 3 });
+      expectClose(routed.left, direct.left);
+      // the left point of the square through the Delay
+      expect(gain[4000]).toBe(1);
+    });
+
+    it('free: the notes of a node share its clock, their Delay from each note', () => {
+      const schedule = [first([{ mode: FREE, delay: 0.05, anchor: { time: 0, phase: 0.1, period: 0.3 } }])];
+      const { routed, direct } = gainAgainstRunner(schedule, 24000, { start: 7000 });
+      expectClose(routed.left, direct.left);
+      const levels = runnerLevels(schedule, 24000, { start: 7000 });
+      const other = runnerLevels(schedule, 24000, { start: 100 });
+      // past both Delays: the same levels
+      for (let frame = 12000; frame < 24000; frame += 32) {
+        if (levels.has(frame)) expect(levels.get(frame)).toBe(other.get(frame));
+      }
+      expect(levels.get(16000)).toBeCloseTo(
+        (1 - Math.cos(2 * Math.PI * frac(0.1 + sec(16000) / 0.3))) / 2,
+        5
+      );
+    });
+
+    it('takes a state from its time on: a new period keeps the phase, a new Phase glides, a new shape crossfades, a mode switches', () => {
+      const lfos = [{ anchor: { time: 0, phase: 0, period: 0.25 } }];
+      const anchor = nextAnchor([lfos[0].anchor], sec(4200), 0.1);
+      const schedule = [
+        first(lfos),
+        // in the middle of a block
+        at(4096, [{ anchor }], sec(4200)),
+        at(8192, [{ anchor, phase: 0.5 }], sec(8300)),
+        at(12288, [{ anchor, phase: 0.5, table: lfoTable('triangle') }], sec(12350)),
+        at(16384, [{ anchor, phase: 0.5, mode: FREE }], sec(16400)),
+      ];
+      const { routed, direct, gain } = gainAgainstRunner(schedule, 24000);
+      expectClose(routed.left, direct.left);
+      // no step at the new period nor where the phase glides: a step of the sine at its fastest (π × the phase a
+      // sample), the glide half a cycle in 10 ms on top
+      const fastest = Math.PI * (1 / (0.1 * RATE) + 0.5 / (0.01 * RATE)) * 1.01;
+      for (let i = 4096; i < 12288; i++) expect(Math.abs(gain[i] - gain[i - 1])).toBeLessThan(fastest);
+    });
+
+    it('starts again with the envelopes (mono): retrig from 0, the Delay again', () => {
+      const schedule = [first([{ delay: 0.02 }])];
+      const { routed, direct, gain } = gainAgainstRunner(schedule, 16384, {
+        params: { frequency: 220, gain1: 0, gate: (frame) => (frame < 6000 ? 1 : HELD_AGAIN_GATE) },
+        restarts: [6000],
+      });
+      expectClose(routed.left, direct.left);
+      expect(gain[6100]).toBe(0);
+      expect(gain[5990]).toBeGreaterThan(0);
+    });
+
+    it('a route of ENV 2 on its Rate runs its phase faster', () => {
+      const { store } = core.storeWith({ a: [saw] });
+      const shared = core.createVoiceShared();
+      shared.setLfos(first().state);
+      const period = 0.5;
+      const route = lfoRoute('lfo1.rate', { source: 1, min: 1 / 32, max: 100, scale: 'log' });
+      const routed = render({
+        store,
+        params: { frequency: 220, gain1: 0 },
+        frames: 12000,
+        routes: [lfoRoute('gain1'), route],
+        envelopes: [FLAT, FLAT],
+        shared,
+      });
+      // one octave up: twice the frequency
+      const levels = runnerLevels([first()], 12000, { mods: () => ({ rate: 2 / period }) });
+      const direct = render({
+        store,
+        params: { frequency: 220, gain1: (frame) => between(levels, 12000)[frame] },
+        frames: 12000,
+      });
+      expectClose(routed.left, direct.left, 1e-5);
+    });
+
+    it('plays its notes of a legato phrase in step, from the start of the phrase', () => {
+      const { store } = core.storeWith({ a: [saw] });
+      const shared = core.createVoiceShared();
+      shared.setLfos(first().state);
+      // (the saw of the joined note in phase with the one of the first)
+      const note = (start: number) =>
+        render({
+          store,
+          oscs: [osc({ phase: frac((220 * start) / RATE) })],
+          params: { frequency: 220, gain1: 0 },
+          frames: 12000,
+          start: sec(start),
+          envStart: 0,
+          phrase: 7,
+          routes: [lfoRoute('gain1')],
+          shared,
+        });
+      const opening = note(0);
+      const joined = note(4000);
+      // the gain of both: the LFO of the phrase from 0 (the joined note fades in over 1.5 ms)
+      for (let i = 5000; i < 12000; i++) expect(joined.left[i]).toBeCloseTo(opening.left[i], 5);
+    });
+
+    it('moves the wave as a share of the table: its frames', () => {
+      const { store } = core.storeWith({ a: [sine, square, saw] });
+      const shared = core.createVoiceShared();
+      const schedule = [first([{ anchor: { time: 0, phase: 0, period: 0.1 } }])];
+      shared.setLfos(schedule[0].state);
+      const routed = render({ store, frames: 9600, routes: [lfoRoute('position1')], shared });
+      const position = between(runnerLevels(schedule, 9600), 9600);
+      const direct = render({ store, frames: 9600, params: { position1: (frame) => position[frame] } });
+      expectClose(routed.left, direct.left);
+    });
+
+    it('moves the cutoff bipolar around its knob, in octaves', () => {
+      const { store } = core.storeWith({ a: [saw] });
+      const lowpass: VoiceFilterOptions = { type: 'lowpass', cutoff: 1000, resonance: 0, gain: 0 };
+      const at = (
+        level: number,
+        cutoff = 1000,
+        routes = [lfoRoute('cutoff', { amount: 2, min: 10, max: 22050, scale: 'log', bipolar: true })]
+      ) => {
+        const shared = core.createVoiceShared();
+        shared.setLfos(first([{ table: lfoTableFrom([level]) }]).state);
+        return render({
+          store,
+          frames: 4096,
+          params: { frequency: 110 },
+          filter: { ...lowpass, cutoff },
+          routes,
+          shared,
+        }).left;
+      };
+      // at ½ the knob, at 1 an octave up, at 0 one down
+      expectClose(at(0.5), at(0.5, 1000, []), 1e-6);
+      expectClose(at(1), at(1, 2000, []), 1e-5);
+      expectClose(at(0), at(0, 500, []), 1e-5);
+    });
+
+    it('without a route reads none of it: a state of the LFOs changes no bit', () => {
+      const { store } = core.storeWith({ a: [saw] });
+      const shared = core.createVoiceShared();
+      const plain = render({ store, params: { frequency: 220 }, frames: 8192 });
+      const states = render({
+        store,
+        params: { frequency: 220 },
+        frames: 8192,
+        shared,
+        before: (frame) =>
+          shared.setLfos(at(frame, [{ phase: frame / 8192, table: lfoTable('square') }]).state),
+      });
+      expect(states.left).toEqual(plain.left);
+    });
+  });
+
   describe('filter', () => {
     const lowpass: VoiceFilterOptions = { type: 'lowpass', cutoff: 1000, resonance: 6, gain: 0 };
     // the steady tone of a sine at `frequency` through the voice (the second half: the filter has settled)
@@ -1972,7 +2285,7 @@ describe('the wavetable voice', () => {
 
     it('moves the cutoff by octaves: base × 2^(amount × the envelope)', () => {
       // 8 kHz three octaves down on the sustain: 1 kHz
-      const route: VoiceRoute = { env: 1, param: 'cutoff', amount: -3, min: 10, max: 22050, log: true };
+      const route: VoiceRoute = { source: 1, param: 'cutoff', amount: -3, min: 10, max: 22050, scale: 'log' };
       const decaying: EnvelopeParams = { attack: 0, hold: 0, decay: 0.02, sustain: 1, release: 0 };
       const routed = tone(2500, {
         filter: { ...lowpass, cutoff: 8000 },

@@ -53,8 +53,8 @@ const WARM_VOICE: VoiceOptions = {
   envStart: 0,
   phrase: -1,
   routes: [
-    { env: 1, param: 'gain1', amount: -0.5, min: 0, max: 1 },
-    { env: 3, param: 'gain2', amount: 0.25, min: 0, max: 1 },
+    { source: 1, param: 'gain1', amount: -0.5, min: 0, max: 1 },
+    { source: 3, param: 'gain2', amount: 0.25, min: 0, max: 1 },
   ],
   filter: { type: 'lowpass', cutoff: 4000, resonance: 3, gain: 0 },
   velocity: { level: 0.5, amp: 0.75 },

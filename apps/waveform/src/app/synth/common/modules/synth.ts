@@ -25,7 +25,7 @@ import type {
 import type { ParamAutomation, VoiceHandle } from '../wavetable/wavetable-engine';
 import { EnvelopeParams, envelopeValue } from '../envelope/envelope-curve';
 import { velocityAmp, velocityLevel, velocityShare } from '../envelope/velocity';
-import { amountInUnits, filterTargetScale, MOD_TARGETS } from '../modulation/modulation-targets';
+import { amountInUnits, filterTargetScale, MOD_TARGETS, ModScale } from '../modulation/modulation-targets';
 import type { FilterModule } from '../../filter/modules/filter';
 import type { FxNote } from '../../fx/effects/fx-modulation';
 import {
@@ -108,37 +108,48 @@ const oscOptions = ({ id, $active, $osc, $unisonShape }: VoiceOscillator): Voice
 // the options of an oscillator but the phases: they only start a voice (taken over, it goes on with them)
 const withoutPhases = (options: VoiceOscOptions | null) => options && { ...options, phase: 0, phaseRand: 0 };
 
-// the routes of a note to its params: of the oscillators on for it (`osc`, null: off) and of the filter while it
-// is on, in the range of its type (a knob its type doesn't use is left out); an amount of 0 is left out (its
-// envelope isn't rendered for it)
+// a route of a voice: the scale in it only when not linear, bipolar only when it is
+const voiceRoute = (
+  source: number,
+  param: string,
+  amount: number,
+  scale: ModScale,
+  [min, max]: [number, number],
+  bipolar: boolean | undefined
+): VoiceRoute => ({
+  source,
+  param,
+  amount: amountInUnits(amount, scale, [min, max]),
+  min,
+  max,
+  ...(scale !== 'linear' && { scale }),
+  ...(bipolar && { bipolar }),
+});
+
+// the routes of a note to its params: of the oscillators on for it (`osc`, null: off), of the filter while it is
+// on, in the range of its type (a knob its type doesn't use is left out), and to the knobs of the LFOs (Rate by its
+// frequency); an amount of 0 is left out (its source isn't rendered for it)
 const voiceRoutes = (
   routes: ModRoute[],
   osc: (VoiceOscOptions | null)[],
   filter: VoiceFilterOptions | null
 ): VoiceRoute[] =>
-  routes.flatMap(({ source, target, amount }) => {
+  routes.flatMap(({ source: id, target, amount, bipolar }) => {
     const definition = MOD_TARGETS[target];
     if (!definition || amount === 0) return [];
-    const env = MOD_SOURCES.indexOf(source);
+    const source = MOD_SOURCES.indexOf(id);
     if (definition.kind === 'osc') {
       if (!osc[definition.osc]) return [];
-      const [min, max] = definition.range;
       const param = oscParamName(definition.param, definition.osc);
-      return [{ env, param, amount: amountInUnits(amount, definition.scale, definition.range), min, max }];
+      return [voiceRoute(source, param, amount, definition.scale, definition.range, bipolar)];
     }
+    if (definition.kind === 'lfo')
+      return [voiceRoute(source, target, amount, definition.scale, definition.range, bipolar)];
     // the fx follow the last note (the fx model)
-    if (definition.kind === 'fx' || definition.kind === 'lfo' || !filter) return [];
+    if (definition.kind === 'fx' || !filter) return [];
     const { scale, range, disabled } = filterTargetScale(filter.type, definition.param);
     if (disabled) return [];
-    const [min, max] = range;
-    const route: VoiceRoute = {
-      env,
-      param: definition.param,
-      amount: amountInUnits(amount, scale, range),
-      min,
-      max,
-    };
-    return [scale === 'log' ? { ...route, log: true } : route];
+    return [voiceRoute(source, definition.param, amount, scale, range, bipolar)];
   });
 
 // the envelopes of a note, in legato of its phrase (its notes share them): its number (the processors find
