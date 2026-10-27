@@ -103,6 +103,40 @@ describe('createFxMod', () => {
     expect(messages()).toEqual([{ note: null }]);
   });
 
+  it('posts the LFOs while a line has a route of one, as they are before the line; a node made later starts with them', async () => {
+    const { fxMod, node, messages, gain } = setup();
+    const wire = {
+      mode: 0,
+      delay: 0,
+      rise: 0,
+      smooth: 0,
+      phase: 0,
+      anchor: { time: 0, phase: 0, period: 0.5 },
+    };
+    fxMod.setLfos({ at: 0, instantly: true, lfos: [wire, wire, wire, wire] });
+    fxMod.setLfos({ at: 1, lfos: [{ ...wire, delay: 1 }, wire, wire, wire] });
+    await flush();
+    const merged = [{ ...wire, delay: 1 }, wire, wire, wire];
+    expect(node()?.options.processorOptions.lfos).toEqual({ at: 0, instantly: true, lfos: merged });
+    // no line of an LFO: a state is kept, not posted
+    fxMod.set(0, line, [gain()]);
+    fxMod.setLfos({ at: 2, lfos: [{ ...wire, phase: 0.5 }, wire, wire, wire] });
+    expect(messages()).toEqual([{ line: [0, line] }]);
+    // a line of an LFO: the LFOs as they are before it, then every state; the line gone: kept again
+    const lfoLine = { ...line, routes: [{ ...route, source: 4 }] };
+    fxMod.set(1, lfoLine, [gain()]);
+    const next = { at: 3, lfos: [{ ...wire, phase: 0.25 }, wire, wire, wire] };
+    fxMod.setLfos(next);
+    fxMod.set(1, null);
+    fxMod.setLfos({ at: 4, lfos: [{ ...wire, phase: 0.75 }, wire, wire, wire] });
+    expect(messages().slice(1)).toEqual([
+      { lfos: { at: 0, instantly: true, lfos: [{ ...wire, phase: 0.5 }, wire, wire, wire] } },
+      { line: [1, lfoLine] },
+      { lfos: next },
+      { line: [1, null] },
+    ]);
+  });
+
   it('without AudioWorklet: unsupported, every call is safe', async () => {
     withoutAudioWorklet();
     const { fxMod, gain } = setup();

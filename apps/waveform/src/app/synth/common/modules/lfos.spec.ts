@@ -18,6 +18,19 @@ const setup = async () => {
   // (the first state went at once: a change within LFO_STATE_INTERVAL of it would wait)
   await interval();
   const events = voiceEvents(audioCtx, wavetables);
+  // a voice with a route of LFO 1: the node reads the LFOs, the states go to it
+  wavetables.createVoice(
+    {
+      osc: [],
+      start: 0,
+      envelopes: [],
+      envStart: 0,
+      phrase: 0,
+      routes: [{ source: 4, param: 'gain1', amount: 0.5, min: 0, max: 1 }],
+      filter: null,
+    },
+    {}
+  );
   const travel = (seconds: number) => registrar.getDeLorean(audioCtx as never)?.travel(seconds);
   return { model, actions, audioCtx, lfos: events.lfos, travel };
 };

@@ -49,7 +49,7 @@ describe('useKnobModulation of the LFOs', () => {
     const { modulation, audioCtx, play, wrapper } = setup();
     act(() => modulation[1].addRoute('lfo1', 'osc1.wave'));
     const { result } = renderHook(() => useKnobModulation('osc1.wave'), { wrapper });
-    expect(result.current.modulations?.[0]).toMatchObject({ id: 'lfo1', color: '#ce6f70', label: 'LFO 1' });
+    expect(result.current.modulations?.[0]).toMatchObject({ id: 'lfo1', color: '#b73611', label: 'LFO 1' });
     expect(result.current.modulations?.[0].live).toBe(false);
     play(1);
     const [route] = result.current.modulations ?? [];

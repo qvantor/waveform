@@ -117,7 +117,7 @@ describe('Oscillator', () => {
         addRoute('env2', 'osc1.gain');
       });
       const [env2, env3] = knob('Detune').modulations ?? [];
-      expect(env2).toMatchObject({ id: 'env2', amount: 0.5, color: '#4796d3', label: 'ENV 2' });
+      expect(env2).toMatchObject({ id: 'env2', amount: 0.5, color: '#1663c7', label: 'ENV 2' });
       expect(env3).toMatchObject({ id: 'env3', amount: -0.25, label: 'ENV 3' });
       expect(env3.formatAmount?.(-0.25)).toBe('-25%');
 

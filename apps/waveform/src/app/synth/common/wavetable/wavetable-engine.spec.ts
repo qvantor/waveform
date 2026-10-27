@@ -364,7 +364,7 @@ describe('wavetable engine', () => {
     expect(events(voices())).toEqual([]);
   });
 
-  it('sends the LFOs once it is ready, the last state first at once with every table; a node made again takes them', async () => {
+  it('sends the LFOs once it is ready, the last state first at once with every table, then while a voice reads one; a node made again takes them', async () => {
     jest.spyOn(console, 'error').mockImplementation(() => undefined);
     const { engine, voices, events } = setup();
     const wire = (change: Partial<LfoWire> = {}): LfoWire => ({
@@ -390,14 +390,42 @@ describe('wavetable engine', () => {
         lfos: [wire({ delay: 1, table: sine }), wire({ table: square }), wire(), wire()],
       },
     ]);
-    // ready: from their time on, as they come
+    // ready, no voice reads an LFO: kept
     engine.setLfos({ at: 1.5, lfos: [wire({ phase: 0.5 }), wire(), wire(), wire()] });
     await Promise.resolve();
-    expect(events(node).at(-1)).toEqual({
-      kind: 'lfos',
-      at: 1.5,
-      lfos: [wire({ phase: 0.5 }), wire(), wire(), wire()],
-    });
+    expect(events(node)).toHaveLength(1);
+    // a voice with a route of an LFO: the LFOs as they are before it, then every state as it comes
+    const lfoRoute = { source: 4, param: 'gain1', amount: 0.5, min: 0, max: 1 };
+    const voice = engine.createVoice({ ...NOTE, routes: [lfoRoute] }, {});
+    engine.setLfos({ at: 2, lfos: [wire({ phase: 0.25 }), wire(), wire(), wire()] });
+    await Promise.resolve();
+    expect(events(node).slice(1)).toEqual([
+      {
+        kind: 'lfos',
+        at: 0,
+        instantly: true,
+        lfos: [wire({ phase: 0.5, table: sine }), wire({ table: square }), wire(), wire()],
+      },
+      expect.objectContaining({ kind: 'on', voice: voice?.id }),
+      { kind: 'lfos', at: 2, lfos: [wire({ phase: 0.25 }), wire(), wire(), wire()] },
+    ]);
+    // its routes read none: kept; a route of an LFO again: the LFOs as they are first; ended: kept
+    engine.setRoutes([voice?.id ?? 0], []);
+    engine.setLfos({ at: 3, lfos: [wire({ phase: 0.75 }), wire(), wire(), wire()] });
+    engine.setRoutes([voice?.id ?? 0], [lfoRoute]);
+    node?.port.onmessage?.({ data: { ended: [voice?.id] } } as MessageEvent);
+    engine.setLfos({ at: 4, lfos: [wire({ phase: 0.1 }), wire(), wire(), wire()] });
+    await Promise.resolve();
+    expect(events(node).slice(4)).toEqual([
+      { kind: 'routes', voices: [voice?.id], routes: [] },
+      {
+        kind: 'lfos',
+        at: 0,
+        instantly: true,
+        lfos: [wire({ phase: 0.75, table: sine }), wire({ table: square }), wire(), wire()],
+      },
+      { kind: 'routes', voices: [voice?.id], routes: [lfoRoute] },
+    ]);
 
     node?.onprocessorerror?.(new Event('processorerror'));
     engine.retry();
@@ -408,7 +436,7 @@ describe('wavetable engine', () => {
         kind: 'lfos',
         at: 0,
         instantly: true,
-        lfos: [wire({ phase: 0.5, table: sine }), wire({ table: square }), wire(), wire()],
+        lfos: [wire({ phase: 0.1, table: sine }), wire({ table: square }), wire(), wire()],
       },
     ]);
   });

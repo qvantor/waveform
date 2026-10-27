@@ -69,6 +69,31 @@ export interface LfosState {
 export const mergeLfos = (before: LfoWire[] | null, { lfos }: LfosState): LfoWire[] =>
   lfos.map((wire, i) => ({ ...wire, table: wire.table ?? before?.[i]?.table }));
 
+// the LFOs a consumer takes (the voices node, an fx worklet, fx-mod): every state merged (the table of each kept),
+// sent on only while the consumer reads an LFO (`use`): a state is a message every audio thread deserializes (a
+// table of 8 KB allocated there) and takes in, one that reads none gets none. Once it reads one it gets the LFOs as
+// they are at once (instantly, before the message that gives it the route), then every state; a node made later
+// starts with `initial`
+export const createLfoFeed = (send: (state: LfosState) => void) => {
+  let lfos: LfoWire[] | null = null;
+  let used = false;
+  const initial = (): LfosState | null => lfos && { at: 0, instantly: true, lfos };
+  return {
+    take: (state: LfosState) => {
+      lfos = mergeLfos(lfos, state);
+      if (used) send(state);
+    },
+    use: (reads: boolean) => {
+      if (reads && !used) {
+        const state = initial();
+        if (state) send(state);
+      }
+      used = reads;
+    },
+    initial,
+  };
+};
+
 // a state as an audio thread at `now` (seconds of the context: its next block) takes it: one that comes after its
 // `at` (the thread renders ahead of currentTime by a device buffer, longer than LFO_LEAD on Windows and Android)
 // from now on, so its Phase still glides and its shape still crossfades. Its anchors keep their times: the clock

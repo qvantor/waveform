@@ -72,10 +72,18 @@ const SynthRow = styled.div`
   gap: 1px;
 `;
 
+// the columns of the row above: fr shares what the gaps leave, a fourth column would move its lines
 const ModRow = styled.div`
   display: grid;
-  grid-template-columns: 3fr 3fr 1.5fr 1fr;
+  grid-template-columns: 3fr 3fr 2fr;
   background: ${theme.colors.primaryLowContrast};
+  gap: 1px;
+`;
+
+// the velocity and the voicing under the filter
+const ModRight = styled.div`
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 1px;
 `;
 
@@ -166,8 +174,10 @@ const ModRowInternal = () => (
   <ModRow>
     <EnvelopeSection />
     <LfoSection />
-    <VelocitySection />
-    <VoicingSection />
+    <ModRight>
+      <VelocitySection />
+      <VoicingSection />
+    </ModRight>
   </ModRow>
 );
 

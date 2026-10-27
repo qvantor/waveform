@@ -1,9 +1,9 @@
 import { isEqual } from 'lodash';
 import { BehaviorSubject } from 'rxjs';
 import { FX_MOD_PROCESSOR } from '../../common/processors';
-import { LfosState, LfoWire, mergeLfos } from '../../common/lfo/lfo-curve';
+import { createLfoFeed, LfosState } from '../../common/lfo/lfo-curve';
 import { isWorkletSupported, loadWorklet } from './load-worklet';
-import type { FxNote, FxRoute } from './fx-modulation';
+import { FxNote, FxRoute, isLfoSource } from './fx-modulation';
 import { FX_MOD_GLIDE } from './fx-mod-lines';
 import { FX_MOD_LINES, FxModLine, FxModMessage, FxModOptions } from './fx-mod-params';
 import type { FxStatus } from './types';
@@ -37,9 +37,10 @@ export const createFxMod = (audioCtx: BaseAudioContext) => {
   const timers: (number | undefined)[] = Array(FX_MOD_LINES).fill(undefined);
   let note: FxNote | null = null;
   let knobRoutes: FxRoute[] = [];
-  let lfos: LfoWire[] | null = null;
 
   const post = (message: FxModMessage) => node?.port.postMessage(message);
+  // the LFOs, only while a line has a route of one
+  const feed = createLfoFeed((state) => post({ lfos: state }));
   // line `index` adds to exactly `params` (none: disconnected)
   const connect = (index: number, params: AudioParam[]) => {
     const current = connected[index];
@@ -78,7 +79,7 @@ export const createFxMod = (audioCtx: BaseAudioContext) => {
           lines,
           note,
           knobRoutes,
-          lfos: lfos && { at: 0, instantly: true, lfos },
+          lfos: feed.initial(),
         };
         const current = new AudioWorkletNode(audioCtx, FX_MOD_PROCESSOR, {
           ...NODE_OPTIONS,
@@ -110,6 +111,7 @@ export const createFxMod = (audioCtx: BaseAudioContext) => {
       window.clearTimeout(timers[index]);
       timers[index] = undefined;
       lines[index] = line;
+      feed.use(lines.some((other) => other?.routes.some(({ source }) => isLfoSource(source))));
       if (!same) post({ line: [index, line] });
       if (line) {
         wanted[index] = params;
@@ -130,10 +132,7 @@ export const createFxMod = (audioCtx: BaseAudioContext) => {
       knobRoutes = routes;
       post({ knobRoutes });
     },
-    setLfos: (state: LfosState) => {
-      lfos = mergeLfos(lfos, state);
-      post({ lfos: state });
-    },
+    setLfos: (state: LfosState) => feed.take(state),
     destroy: () => {
       destroyed = true;
       timers.forEach((timer) => window.clearTimeout(timer));

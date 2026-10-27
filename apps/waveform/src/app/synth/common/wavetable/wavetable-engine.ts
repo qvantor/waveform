@@ -1,7 +1,8 @@
 import { BehaviorSubject } from 'rxjs';
 import { isWorkletSupported, loadWorklet, WORKLETS_PATH } from '../../fx/effects/load-worklet';
 import type { StopMessage } from '../../fx/effects/stereo-processor';
-import { LfosState, LfoWire, mergeLfos } from '../lfo/lfo-curve';
+import { createLfoFeed, LfosState } from '../lfo/lfo-curve';
+import { isLfoSource } from '../../fx/effects/fx-modulation';
 import type {
   BuilderFailedMessage,
   BuilderPortMessage,
@@ -121,8 +122,13 @@ export const createWavetableEngine = (
   let events: VoiceEvent[] = [];
   // the pitch bend of the voices (cents): a node made again (Retry) takes it at once
   let bend = 0;
-  // the LFOs as the last state left them, with the table of each: a node made again takes them at once
-  let lfos: LfoWire[] | null = null;
+  // the LFOs (every state merged: a node made again takes them at once), sent on only while a voice reads one:
+  // the voices whose routes read an LFO
+  const lfoVoices = new Set<number>();
+  const feed = createLfoFeed((state) => {
+    if (voices) enqueue({ kind: 'lfos', ...state });
+  });
+  const readsLfo = (routes: VoiceRoute[]) => routes.some(({ source }) => isLfoSource(source));
   let sending = false;
   // the version of each table the store has acknowledged (when it is the latest, new voices play it)
   const stored = new Map<string, number>();
@@ -161,6 +167,8 @@ export const createWavetableEngine = (
     events = [];
     const ended = [...handles.values()];
     handles.clear();
+    lfoVoices.clear();
+    feed.use(false);
     if (end) ended.forEach((handle) => handle.onEnded?.());
     stored.clear();
     storeWaiters.splice(0).forEach((answer) => answer(null));
@@ -180,8 +188,10 @@ export const createWavetableEngine = (
     ended?.forEach((id) => {
       const handle = handles.get(id);
       handles.delete(id);
+      lfoVoices.delete(id);
       handle?.onEnded?.();
     });
+    feed.use(lfoVoices.size > 0);
   };
 
   // the params of voice `id`: their calls as events (none once it has ended)
@@ -301,7 +311,8 @@ export const createWavetableEngine = (
         voices = voicesNode;
         worker = created;
         if (bend !== 0) enqueue({ kind: 'bend', cents: bend, instantly: true });
-        if (lfos) enqueue({ kind: 'lfos', at: 0, instantly: true, lfos });
+        const lfos = feed.initial();
+        if (lfos) enqueue({ kind: 'lfos', ...lfos });
         $status.next('ready');
         tables.forEach((_, table) => send(table));
       })
@@ -361,12 +372,19 @@ export const createWavetableEngine = (
       const initial = Object.fromEntries(
         Object.entries(values).map(([name, value]) => [name, Math.fround(value)])
       ) as Partial<Record<VoiceParam, number>>;
+      // (the LFOs before the voice that reads them)
+      if (readsLfo(options.routes)) lfoVoices.add(id);
+      feed.use(lfoVoices.size > 0);
       enqueue({ kind: 'on', voice: id, options, params: initial });
       return handle;
     },
     // the routes, the filter, the velocity of playing voices changed (one event for them all)
     setRoutes: (ids: number[], routes: VoiceRoute[]) => {
-      if (ids.length > 0) enqueue({ kind: 'routes', voices: ids, routes });
+      if (ids.length === 0) return;
+      const reads = readsLfo(routes);
+      ids.forEach((id) => (reads ? lfoVoices.add(id) : lfoVoices.delete(id)));
+      feed.use(lfoVoices.size > 0);
+      enqueue({ kind: 'routes', voices: ids, routes });
     },
     setFilter: (ids: number[], filter: VoiceFilterOptions | null) => {
       if (ids.length > 0) enqueue({ kind: 'filter', voices: ids, filter });
@@ -379,12 +397,9 @@ export const createWavetableEngine = (
       bend = cents;
       enqueue({ kind: 'bend', cents });
     },
-    // the LFOs of every voice from `state.at` on (their tables only when they changed); a node made later (ready,
-    // Retry) takes the last ones at once
-    setLfos: (state: LfosState) => {
-      lfos = mergeLfos(lfos, state);
-      if (voices) enqueue({ kind: 'lfos', ...state });
-    },
+    // the LFOs of every voice from `state.at` on (their tables only when they changed), while a voice reads one
+    // (the LFOs as they are first, once one does); a node made later (ready, Retry) takes the last ones at once
+    setLfos: (state: LfosState) => feed.take(state),
     // the events of this task to the node now (the specs)
     flush,
     // the tables whose latest version the store hasn't acknowledged yet (a note meanwhile plays the previous
