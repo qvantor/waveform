@@ -22,6 +22,7 @@ const Chart = styled(LineChart)`
 
 // the line runs edge to edge, 1px vertically keeps the stroke from being cut at the top/bottom
 const CHART_PADDING: Vector2D = [0, 1];
+const DOMAIN_Y: [number, number] = [DB_RANGE, -DB_RANGE];
 
 type Props = Partial<Pick<FilterProps, 'gain'>> &
   Omit<FilterProps, 'gain'> & {
@@ -54,9 +55,11 @@ export const FilterResponse = ({
   return (
     <Root className={className} data-testid='filter-response'>
       {!active && <Deactivated data-testid='filter-response-deactivated' />}
-      <Chart domainY={[DB_RANGE, -DB_RANGE]} padding={CHART_PADDING}>
-        <FilterLineChart type={type} sampleRate={sampleRate} knobs={knobs} active={active} />
-      </Chart>
+      <Chart
+        domainY={DOMAIN_Y}
+        padding={CHART_PADDING}
+        overlay={<FilterLineChart type={type} sampleRate={sampleRate} knobs={knobs} active={active} />}
+      />
     </Root>
   );
 };

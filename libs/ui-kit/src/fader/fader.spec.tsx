@@ -1,9 +1,12 @@
 import React from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
+import { drawn } from '../common/test-utils/canvas';
 import { Fader, FADER_TRAVEL } from './index';
 
 // the half of the cap height: the slot and the fill start there
 const BOTTOM = 6;
+// the height of the body
+const HEIGHT = 64;
 
 // jsdom has no PointerEvent: a mouse event with the pointer type name and a pointerId works for React and
 // the document listeners of the pointer tracker
@@ -261,25 +264,34 @@ describe('Fader modulation', () => {
       <Fader min={0} max={1} value={0.5} modulations={[live(0.25), live(-0.5, 'env3')]} />
     );
     const mark = screen.getByTestId('fader-mod-mark');
+    // the value line of the cap painted where the cap would be: its bottom over the body's
+    const bottom = () => {
+      const [line, ...rest] = drawn(mark);
+      expect(rest).toEqual([]);
+      expect([line.op, line.lineWidth, line.lineCap, line.alpha]).toEqual(['stroke', 2, 'round', 0.5]);
+      return HEIGHT - BOTTOM - line.points[0][1];
+    };
     // 0.5 + 0.25 - 0.5
-    expect(mark.style.visibility).toBe('visible');
-    expect(parseFloat(mark.style.bottom)).toBeCloseTo(FADER_TRAVEL / 4);
+    expect(bottom()).toBeCloseTo(FADER_TRAVEL / 4);
     level = 0.5;
     act(() => {
       jest.advanceTimersByTime(20);
     });
-    expect(parseFloat(mark.style.bottom)).toBeCloseTo((FADER_TRAVEL * 3) / 8);
+    expect(bottom()).toBeCloseTo((FADER_TRAVEL * 3) / 8);
     rerender(<Fader min={0} max={1} value={0.5} modulations={[live(1)]} />);
     level = 1;
     act(() => {
       jest.advanceTimersByTime(20);
     });
-    expect(parseFloat(mark.style.bottom)).toBeCloseTo(FADER_TRAVEL);
+    expect(bottom()).toBeCloseTo(FADER_TRAVEL);
     level = null;
     act(() => {
       jest.advanceTimersByTime(20);
     });
-    expect(mark.style.visibility).toBe('hidden');
+    expect(drawn(mark)).toEqual([]);
+    // no live route: no canvas
+    rerender(<Fader min={0} max={1} value={0.5} modulations={[modulation(1)]} />);
+    expect(screen.queryByTestId('fader-mod-mark')).toBeNull();
     jest.useRealTimers();
   });
 

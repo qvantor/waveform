@@ -1,4 +1,4 @@
-import { TextDecoder } from 'util';
+import { installCanvasStub } from './common/test-utils/canvas';
 
-// jsdom has no TextDecoder, the paths of the charts need it
-Object.assign(globalThis, { TextDecoder });
+// jsdom has no 2D context: the live charts and the marks draw on a recording stub
+installCanvasStub();

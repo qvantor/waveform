@@ -88,6 +88,13 @@ export const openPage = async (
   return { context, page, call, errors };
 };
 
+// the events of a Chrome trace of the page in `categories` while `during` runs (CDP tracing)
+export const traceEvents = async (browser, page, categories, during) => {
+  await browser.startTracing(page, { categories });
+  await during();
+  return JSON.parse(String(await browser.stopTracing())).traceEvents;
+};
+
 // a click at a neutral spot (the logo) resumes the context; again until it runs
 const resume = async (page) => {
   for (let attempt = 0; attempt < 10; attempt++) {

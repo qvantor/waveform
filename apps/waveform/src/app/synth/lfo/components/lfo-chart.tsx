@@ -1,7 +1,8 @@
 import React from 'react';
 import styled from 'styled-components';
 import { BehaviorSubject, distinctUntilChanged, map } from 'rxjs';
-import { Line, LineChart, onFrame, theme, useLineChartContext } from '@waveform/ui-kit';
+import { number } from '@waveform/math';
+import { Line, LineChart, onFrame, theme, useLineChartContext, useLiveCanvas } from '@waveform/ui-kit';
 import { useBehaviorSubject, useObservable } from '@waveform/rxjs-react';
 import { LfoId, LFOS } from '@waveform/preset-schema';
 import { LfoContext } from '../../common/modules/lfos';
@@ -29,28 +30,12 @@ const Chart = styled(LineChart)`
   border-radius: 3px;
 `;
 
-// over the chart, moved by its transform (a layer of its own: no layout nor paint of the chart a frame)
-const Dot = styled.div`
-  position: absolute;
-  left: ${-DOT_RADIUS}px;
-  top: ${-DOT_RADIUS}px;
-  width: ${DOT_RADIUS * 2}px;
-  height: ${DOT_RADIUS * 2}px;
-  border-radius: 50%;
-  background: ${theme.colors.white};
-  box-shadow: 0 0 0 1px ${theme.colors.primaryDark};
-  pointer-events: none;
-  visibility: hidden;
-  will-change: transform;
-`;
-
 // the level and the share of the cycle of LFO `id` in the last note while it is heard (a route reads it) and voices
-// sound (in free on the clock of the LFO): moved every frame without a render, hidden otherwise (and without the
-// synth: a spec of the section)
+// sound (in free on the clock of the LFO): a white dot in a dark ring on a canvas over the chart, painted again
+// every frame it moved, without a render; cleared otherwise (and without the synth: a spec of the section)
 const NoteDot = ({ id }: { id: LfoId }) => {
-  const { scaleX, scaleY, padding } = useLineChartContext();
-  const [paddingX, paddingY] = padding;
-  const ref = React.useRef<HTMLDivElement>(null);
+  const { scaleX, scaleY } = useLineChartContext();
+  const [canvas, begin] = useLiveCanvas('lfo-dot');
   const lfo = React.useContext(LfoContext);
   const synth = React.useContext(SynthContext);
   const modulation = React.useContext(ModulationContext);
@@ -68,30 +53,38 @@ const NoteDot = ({ id }: { id: LfoId }) => {
   );
   const sounds = useObservable($sounds, $voices.value > 0);
   React.useEffect(() => {
-    const dot = ref.current;
-    if (!dot || !heard || !sounds || !lfo || !synth || !modulation || !core) return;
+    if (!heard || !sounds || !lfo || !synth || !modulation || !core) return;
     const [{ audioCtx }] = core;
     const lfos = noteLfosOf(audioCtx.sampleRate, lfo, synth, modulation);
     const index = LFOS.indexOf(id);
-    let drawn = '';
+    let [drawnX, drawnY] = [NaN, NaN];
     const draw = () => {
       const level = lfos.level(index, audioCtx.currentTime * audioCtx.sampleRate);
-      const x = paddingX + scaleX(lfos.position(index) * (POINTS - 1));
-      const y = paddingY + scaleY(level);
-      const transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
-      if (transform === drawn) return;
-      dot.style.transform = transform;
-      drawn = transform;
+      // to 0.1 px: the dot is painted again only when it moved that much
+      const x = number.round(scaleX(lfos.position(index) * (POINTS - 1)), 10);
+      const y = number.round(scaleY(level), 10);
+      if (x === drawnX && y === drawnY) return;
+      drawnX = x;
+      drawnY = y;
+      const context = begin();
+      if (!context) return;
+      context.fillStyle = theme.colors.primaryDark;
+      context.beginPath();
+      context.arc(x, y, DOT_RADIUS + 1, 0, 2 * Math.PI);
+      context.fill();
+      context.fillStyle = theme.colors.white;
+      context.beginPath();
+      context.arc(x, y, DOT_RADIUS, 0, 2 * Math.PI);
+      context.fill();
     };
     draw();
-    dot.style.visibility = 'visible';
     const stop = onFrame(draw);
     return () => {
       stop();
-      dot.style.visibility = 'hidden';
+      begin();
     };
-  }, [id, heard, sounds, lfo, synth, modulation, core, scaleX, scaleY, paddingX, paddingY]);
-  return <Dot ref={ref} data-testid='lfo-dot' />;
+  }, [id, heard, sounds, lfo, synth, modulation, core, scaleX, scaleY, begin]);
+  return canvas;
 };
 
 // a cycle of the shape of an LFO (its points of its own when it has them), the dot of the last note on it

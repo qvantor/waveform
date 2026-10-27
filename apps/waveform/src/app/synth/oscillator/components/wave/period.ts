@@ -1,3 +1,6 @@
+import React from 'react';
+import { affine, useLineChartContext } from '@waveform/ui-kit';
+
 // one period of a wave from edge to edge (phase 0 to 360°) as the chart draws it, its period line: a zero, the
 // samples, the first sample again at the end, a zero; the zeros outside the chart close the fill along the middle
 
@@ -56,3 +59,37 @@ export const periodPoints = (
   ys[count++] = 0;
   return count;
 };
+
+// the period line of a wave in a chart (useLineChartContext): `points(wave)` puts it into xs and ys (buffers of the
+// width of the chart, their own per caller), the scales x and y map them to its pixels
+export const usePeriodLine = () => {
+  const {
+    width,
+    padding: [paddingX],
+    scaleX,
+    scaleY,
+  } = useLineChartContext();
+  const columns = Math.max(1, Math.round(width - paddingX * 2));
+  return React.useMemo(() => {
+    const capacity = periodCapacity(columns);
+    const xs = new Float64Array(capacity);
+    const ys = new Float64Array(capacity);
+    return {
+      xs,
+      ys,
+      x: affine(scaleX),
+      y: affine(scaleY),
+      points: (wave: ArrayLike<number>) => periodPoints(wave, columns, xs, ys),
+    };
+  }, [columns, scaleX, scaleY]);
+};
+
+export type PeriodLine = ReturnType<typeof usePeriodLine>;
+
+// a wave drawn in a chart: the points of its period line (`count` of them) are in the xs and ys of `line`, until
+// the next wave drawn by it
+export interface DrawnWave {
+  wave: ArrayLike<number>;
+  line: PeriodLine;
+  count: number;
+}

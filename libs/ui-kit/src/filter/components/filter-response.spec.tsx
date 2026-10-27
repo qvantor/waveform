@@ -1,6 +1,7 @@
 import React from 'react';
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { FilterRange } from '../types';
+import { drawn, svgPath } from '../../common/test-utils/canvas';
 import { withElementSize } from '../../common/test-utils/element-size';
 import { FilterResponse } from './filter-response';
 
@@ -14,20 +15,20 @@ beforeAll(() => {
 });
 afterAll(() => restoreSize());
 
+// the response line on the canvas of the chart
+const drawnLine = () => drawn(screen.getByTestId('filter-line')).find(({ op }) => op === 'stroke');
+
 const points = (sampleRate: number) => {
-  const { container } = render(
-    <FilterResponse type='bandpass' cutoff={1000} resonance={1} sampleRate={sampleRate} />
-  );
-  const d = container.querySelector('path')?.getAttribute('d') ?? '';
-  const offset = container.querySelector('svg > g')?.getAttribute('transform');
-  const coords = [...d.matchAll(/[ML]([-\d.e]+),([-\d.e]+)/g)].map(([, x, y]) => [Number(x), Number(y)]);
-  return { coords, offset };
+  render(<FilterResponse type='bandpass' cutoff={1000} resonance={1} sampleRate={sampleRate} />);
+  const line = drawnLine();
+  return { coords: line?.points ?? [], offset: line?.transform };
 };
 
 describe('FilterResponse', () => {
   it.each([48000, 32000])('draws the line from the left edge to the right edge at %i Hz', (sampleRate) => {
     const { coords, offset } = points(sampleRate);
-    expect(offset).toBe('translate(0, 1)');
+    // the padding of the chart
+    expect(offset).toEqual([1, 0, 0, 1, 0, 1]);
     expect(coords[0][0]).toBeCloseTo(0);
     expect(coords[coords.length - 1][0]).toBeCloseTo(WIDTH);
   });
@@ -49,12 +50,12 @@ describe('FilterResponse following its knobs', () => {
   };
   const route = (amount: number) => [{ id: 'env2', color: '#fff', amount, level: () => 0.5, live: true }];
   const line = (props: Partial<React.ComponentProps<typeof FilterResponse>>) => {
-    const { container, unmount } = render(
+    const { unmount } = render(
       <FilterResponse type='lowpass' cutoff={1000} resonance={4} gain={0.5} sampleRate={48000} {...props} />
     );
-    const d = container.querySelector('path')?.getAttribute('d');
+    const line = drawnLine();
     unmount();
-    return d;
+    return line && svgPath(line);
   };
 
   it('draws the response where the routes move the knobs: as at those values', () => {

@@ -9,7 +9,7 @@ import { ScaleMode, singlePointerTracker, valueScale } from '../common/utils';
 import { Tooltip } from '../tooltip';
 import { ValueTooltip } from '../tooltip/value-tooltip';
 import { Label } from '../label';
-import { useModulations } from '../common/utils/use-mod-mark';
+import { MarkCanvas, useModulations } from '../common/utils/use-mod-mark';
 import { AMOUNT_DOT_SIZE, RoutesDot } from '../amount-dot';
 import { MOD_DRAGGING_CLASS, MOD_OVER_ATTR, MOD_REFUSED_ATTR, MOD_TARGET_ATTR } from '../mod-drag';
 
@@ -178,25 +178,15 @@ const ModHighlight = styled.div<StyledProps>`
   }
 `;
 
-// where the knob moves with its modulations now: over the knob, its mark in the same place, half transparent
-const ModMark = styled.div<StyledProps>`
+// where the knob moves with its modulations now: over the knob, a canvas its mark is painted on (markCanvasOf)
+const ModMark = styled.canvas<StyledProps>`
   position: absolute;
   inset: 0;
   margin: auto;
   width: ${(props) => sizes[props.size].handleOuter}px;
   height: ${(props) => sizes[props.size].handleOuter}px;
-  display: flex;
   pointer-events: none;
-  visibility: hidden;
   z-index: 3;
-`;
-
-const ModMarkInner = styled.div<StyledProps>`
-  margin: auto;
-  width: ${(props) => sizes[props.size].handleInner}px;
-  height: ${(props) => sizes[props.size].handleInner}px;
-  position: relative;
-  opacity: 0.5;
 `;
 
 const Dot = styled(RoutesDot)`
@@ -254,9 +244,29 @@ const shapesOf = (size: Size) => {
 };
 const shapes: Record<Size, ReturnType<typeof shapesOf>> = { m: shapesOf('m'), l: shapesOf('l') };
 
-const placeMark = (element: HTMLElement, share: number) => {
-  element.style.transform = `rotate(${fromShare(share)}rad)`;
+// the mark of the knob at a share of its travel, half transparent, on the canvas of its box (ModMark): the dot of
+// HandleMark, 2 px into the face of the knob, turned with it from the top
+const markCanvasOf = (size: Size): MarkCanvas => {
+  const { handleOuter, handleInner, mark } = sizes[size];
+  const center = handleOuter / 2;
+  const radius = handleInner / 2 - 2 - mark / 2;
+  const paint: MarkCanvas['paint'] = (context, share) => {
+    const angle = fromShare(share);
+    context.globalAlpha = 0.5;
+    context.fillStyle = theme.colors.primaryDarkMediumContrast;
+    context.beginPath();
+    context.arc(
+      center + radius * Math.sin(angle),
+      center - radius * Math.cos(angle),
+      mark / 2,
+      0,
+      2 * Math.PI
+    );
+    context.fill();
+  };
+  return { paint, width: handleOuter, height: handleOuter };
 };
+const markCanvases: Record<Size, MarkCanvas> = { m: markCanvasOf('m'), l: markCanvasOf('l') };
 
 export const Handle = ({
   min = 0,
@@ -300,9 +310,10 @@ export const Handle = ({
   const {
     modulations,
     mark: modMark,
+    live,
     shown,
     spans,
-  } = useModulations(routes, disabled, share, placeMark, wrap);
+  } = useModulations(routes, disabled, share, markCanvases[size], wrap);
 
   // a knob that takes no modulations: on the arc of its travel the fill, from fillFrom (min by default) to the
   // value, none between them
@@ -366,11 +377,7 @@ export const Handle = ({
             </HandleCircleInner>
           </HandleCircle>
           <HandleCircleShadow size={size} />
-          <ModMark ref={modMark} size={size} data-testid='mod-mark'>
-            <ModMarkInner size={size}>
-              <HandleMark size={size} />
-            </ModMarkInner>
-          </ModMark>
+          {live && <ModMark {...modMark} size={size} data-testid='mod-mark' />}
           <Svg size={size} className={cls({ scale: !routes })}>
             <g transform={`translate(${svg / 2},${svg / 2})`}>
               {routes ? (

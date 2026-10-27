@@ -1,14 +1,16 @@
 export {
   LineChart,
+  ChartSvg,
   Line,
   SquareDots,
   XAxis,
   YAxis,
   useLineChartContext,
-  linePath,
   affine,
-  useLivePath,
-  areaPath,
+  useLiveCanvas,
+  useLiveLine,
+  tracePath,
+  strokePath,
 } from './line-chart';
 export { Handle } from './handle';
 export { AmountDot } from './amount-dot';

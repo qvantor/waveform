@@ -6,6 +6,7 @@ import { Vector2D } from '@waveform/math';
 import { theme } from '../../common/constants';
 import { useElementSize } from '../../common/hooks';
 import { LineChartContext } from '../constants';
+import { useLineChartContext } from '../hooks/use-line-chart-context';
 
 type Props = {
   padding?: Vector2D;
@@ -27,6 +28,19 @@ const Svg = styled.svg`
   width: 100%;
   height: 100%;
 `;
+
+// an svg in the coordinates of the chart (from its padding): the chart's own under its overlay, another one in the
+// overlay over what is drawn there
+export const ChartSvg = ({ children }: React.PropsWithChildren) => {
+  const {
+    padding: [paddingX, paddingY],
+  } = useLineChartContext();
+  return (
+    <Svg>
+      <g transform={`translate(${paddingX}, ${paddingY})`}>{children}</g>
+    </Svg>
+  );
+};
 
 export const LineChart = ({
   padding = [5, 2],
@@ -57,9 +71,7 @@ export const LineChart = ({
       <Root {...rest} ref={ref}>
         {width !== 0 && (
           <>
-            <Svg>
-              <g transform={`translate(${paddingX}, ${paddingY})`}>{children}</g>
-            </Svg>
+            <ChartSvg>{children}</ChartSvg>
             {overlay}
           </>
         )}

@@ -6,7 +6,7 @@ import { number } from '@waveform/math';
 import { theme } from '../common/constants';
 import { scaleTicks, TickKind } from '../common/constants/scale-ticks';
 import { singlePointerTracker, valueScale } from '../common/utils';
-import { useModulations } from '../common/utils/use-mod-mark';
+import { MarkCanvas, useModulations } from '../common/utils/use-mod-mark';
 import { Tooltip } from '../tooltip';
 import { ValueTooltip } from '../tooltip/value-tooltip';
 import { Label } from '../label';
@@ -146,16 +146,15 @@ const Cap = styled.div`
   }
 `;
 
-// where the fader moves with its modulations now: the value line of the cap there, half transparent
-const ModMark = styled.div`
-  ${capBox};
+// where the fader moves with its modulations now: a canvas over the body the value line of the cap is painted on
+// there (MARK_CANVAS)
+const ModMark = styled.canvas`
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: ${WIDTH}px;
+  height: ${HEIGHT}px;
   pointer-events: none;
-  visibility: hidden;
-
-  &::before {
-    ${valueLine};
-    opacity: 0.5;
-  }
 `;
 
 // the selected route: a bar of the color of its source on the edge of the slot, as wide as it, from the value
@@ -197,12 +196,26 @@ const ModHighlight = styled.div`
   }
 `;
 
-const placeMark = (element: HTMLElement, position: number) => {
-  element.style.bottom = `${position * FADER_TRAVEL}px`;
-};
-
 // y of a position (0: min at the bottom, 1: max at the top) in the body, at the middle of the cap
 const tickY = (position: number) => HEIGHT - CAP_HEIGHT / 2 - position * FADER_TRAVEL;
+
+// the value line of the cap (valueLine: 4 px in from its sides, 2 px high in its middle, round ends) at a position,
+// half transparent, on a canvas over the body
+const MARK_CANVAS: MarkCanvas = {
+  paint: (context, position) => {
+    const y = tickY(position);
+    context.globalAlpha = 0.5;
+    context.strokeStyle = theme.colors.primaryDarkMediumContrast;
+    context.lineWidth = 2;
+    context.lineCap = 'round';
+    context.beginPath();
+    context.moveTo((WIDTH - CAP_WIDTH) / 2 + 5, y);
+    context.lineTo((WIDTH + CAP_WIDTH) / 2 - 5, y);
+    context.stroke();
+  },
+  width: WIDTH,
+  height: HEIGHT,
+};
 
 // a vertical fader like on a hardware synth, the value grows from the bottom up; drag the cap or the label,
 // or press the track to jump there and drag on; arrows, page up/down, home and end when focused
@@ -237,7 +250,13 @@ export const Fader = ({
   const from = fillShare ?? 0;
   const [low, high] = [Math.min(from, position), Math.max(from, position)];
   const ticks = React.useMemo(() => scaleTicks(fillShare), [fillShare]);
-  const { modulations, mark: modMark, shown, spans } = useModulations(routes, disabled, position, placeMark);
+  const {
+    modulations,
+    mark: modMark,
+    live,
+    shown,
+    spans,
+  } = useModulations(routes, disabled, position, MARK_CANVAS);
   const [span] = spans;
 
   const bodyRef = React.useRef<HTMLDivElement>(null);
@@ -345,7 +364,7 @@ export const Fader = ({
               }}
             />
           )}
-          <ModMark ref={modMark} data-testid='fader-mod-mark' />
+          {live && <ModMark {...modMark} data-testid='fader-mod-mark' />}
           {modulations.length > 0 && (
             <DotBox ref={dotRef}>
               <Dot modulations={modulations} />

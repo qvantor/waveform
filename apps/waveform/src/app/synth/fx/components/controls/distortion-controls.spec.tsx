@@ -2,10 +2,13 @@ import { render, screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { FX_PARAMS } from '@waveform/preset-schema';
 import { mapValues } from 'lodash';
-import { withElementSize } from '@waveform/ui-kit/test-utils';
+import { drawn, svgPath, withElementSize } from '@waveform/ui-kit/test-utils';
 import { createLiveRoutes } from '../../../../../test-utils/live-routes';
 import { distortion } from '../../effects/distortion';
 import { DistortionControls } from './distortion-controls';
+
+// the curve on the canvas of the chart
+const curveLine = () => svgPath(drawn(screen.getByTestId('distortion-line'))[0]);
 
 const params = mapValues(FX_PARAMS.distortion, (param) => param.default);
 
@@ -92,10 +95,11 @@ describe('DistortionControls', () => {
 
   it('the curve follows the mode and the drive, the level only scales the output and leaves it', () => {
     const { rerender } = setup();
-    const path = () =>
-      Array.from(screen.getByTestId('distortion-curve').querySelectorAll('path')).map((item) =>
-        item.getAttribute('d')
-      );
+    // the dry diagonal (an svg path) and the curve (on the canvas)
+    const path = () => [
+      screen.getByTestId('distortion-curve').querySelector('path')?.getAttribute('d'),
+      curveLine(),
+    ];
     const soft = path();
     rerender({ mode: 1 });
     const hard = path();
@@ -116,7 +120,7 @@ describe('DistortionControls', () => {
         <DistortionControls params={{ ...params, drive }} setParam={jest.fn()} on sampleRate={48000} />,
         { wrapper: Wrapper }
       );
-      const d = screen.getByTestId('distortion-curve').querySelectorAll('path')[1].getAttribute('d');
+      const d = curveLine();
       unmount();
       return d;
     };
@@ -131,10 +135,9 @@ describe('DistortionControls', () => {
 
   it('the curve spans the whole width of the chart and stays inside it', () => {
     setup({ params: { ...params, mode: 1, drive: 12 } });
-    const [, curve] = Array.from(screen.getByTestId('distortion-curve').querySelectorAll('path'));
-    const points = (curve.getAttribute('d') ?? '').match(/-?[\d.]+,-?[\d.]+/g) ?? [];
-    const xs = points.map((point) => Number(point.split(',')[0]));
-    const ys = points.map((point) => Number(point.split(',')[1]));
+    const [{ points }] = drawn(screen.getByTestId('distortion-line'));
+    const xs = points.map(([x]) => x);
+    const ys = points.map(([, y]) => y);
     // the stubbed chart is 160×80, 1px of padding above and below
     expect(Math.min(...xs)).toBe(0);
     expect(Math.max(...xs)).toBe(160);

@@ -1,1 +1,1 @@
-export { linePath, areaPath, affine } from './path';
+export { affine } from './path';

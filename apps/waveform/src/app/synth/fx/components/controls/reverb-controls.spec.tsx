@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { FX_PARAMS } from '@waveform/preset-schema';
 import { mapValues } from 'lodash';
-import { withElementSize } from '@waveform/ui-kit/test-utils';
+import { drawn, svgPath, withElementSize } from '@waveform/ui-kit/test-utils';
 import { createLiveRoutes } from '../../../../../test-utils/live-routes';
 import { reverb } from '../../effects/reverb';
 import { ReverbControls } from './reverb-controls';
@@ -207,9 +207,8 @@ describe('reverb param formatting', () => {
         <ReverbControls params={{ ...params, ...changes }} setParam={jest.fn()} on sampleRate={48000} />,
         { wrapper: Wrapper }
       );
-      const d = Array.from(screen.getByTestId('reverb-decay').querySelectorAll('path')).map((path) =>
-        path.getAttribute('d')
-      );
+      // the area and the line on the canvas of the chart
+      const d = drawn(screen.getByTestId('reverb-line')).map(svgPath);
       unmount();
       return d;
     };

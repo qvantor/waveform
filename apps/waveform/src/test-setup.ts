@@ -1,4 +1,4 @@
-import { TextDecoder, TextEncoder } from 'util';
+import { TextEncoder } from 'util';
 import '@testing-library/jest-dom';
 import {
   AudioContext as AudioContextMock,
@@ -11,6 +11,7 @@ import {
   setMockingImplementation,
   WaveShaperNode as WaveShaperNodeMock,
 } from 'standardized-audio-context-mock';
+import { installCanvasStub } from '@waveform/ui-kit/test-utils';
 import { stopModels } from './test-utils/model-registry';
 import { restoreStorage } from './test-utils/storage';
 import { WorkerStub } from './test-utils/worker-stub';
@@ -114,8 +115,11 @@ Object.assign(globalThis, {
   Worker: WorkerStub,
 });
 
-// jsdom has no TextEncoder and TextDecoder: presetHash needs the encoder, the paths of the charts the decoder
-Object.assign(globalThis, { TextEncoder, TextDecoder });
+// jsdom has no TextEncoder: presetHash needs it
+Object.assign(globalThis, { TextEncoder });
+
+// jsdom has no 2D context: the live charts, the marks and the analysers draw on a recording stub
+installCanvasStub();
 
 // antd uses matchMedia for responsive observers
 Object.defineProperty(window, 'matchMedia', {
