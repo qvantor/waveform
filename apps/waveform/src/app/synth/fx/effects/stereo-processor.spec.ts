@@ -1,4 +1,5 @@
 import { installWorkletScope } from '../../../../test-utils/worklet-scope';
+import { FREE, LfosState, lfoTable, LfoWire } from '../../common/lfo/lfo-curve';
 import { registerStereoProcessor, StereoDsp } from './stereo-processor';
 
 const processors = installWorkletScope(44100);
@@ -104,7 +105,7 @@ describe('registerStereoProcessor', () => {
         data: {
           mod: {
             note: { envelopes: [ENV, ENV, ENV], start: 1, release: null },
-            routes: [{ param: 'drive', env: 1, amount: 6, min: 0, max: 12 }],
+            routes: [{ param: 'drive', source: 1, amount: 6, min: 0, max: 12 }],
           },
         },
       });
@@ -116,13 +117,60 @@ describe('registerStereoProcessor', () => {
       expect(modulate).toHaveBeenLastCalledWith(dsp, { drive: 5 });
     });
 
+    it('runs the LFOs of its options and of its messages: an LFO moves a knob without a note', () => {
+      const lfo = (change: Partial<LfoWire> = {}): LfoWire => ({
+        mode: FREE,
+        delay: 0,
+        rise: 0,
+        smooth: 0,
+        phase: 0,
+        anchor: { time: 0, phase: 0, period: 1 },
+        table: lfoTable('saw-up'),
+        ...change,
+      });
+      const lfos = (wire: Partial<LfoWire>): LfosState => ({
+        at: 0,
+        instantly: true,
+        lfos: [lfo(wire), lfo(), lfo(), lfo()],
+      });
+      const dsp = { process: jest.fn() };
+      const modulate = jest.fn();
+      registerStereoProcessor('lfo', () => dsp, undefined, modulate);
+      const processor = new processors['lfo']({
+        processorOptions: { params: { drive: 2 }, lfos: lfos({}) },
+      });
+      const outputs = [[new Float32Array(128), new Float32Array(128)]];
+      const block = (seconds: number) => {
+        Object.assign(globalThis, { currentFrame: Math.round(seconds * 44100) });
+        processor.process([[]], outputs);
+      };
+      processor.port.onmessage({
+        data: { mod: { note: null, routes: [{ param: 'drive', source: 4, amount: 4, min: 0, max: 12 }] } },
+      });
+      // a saw of 1 s on its clock: at a quarter
+      block(0.25);
+      expect(modulate).toHaveBeenLastCalledWith(dsp, { drive: expect.closeTo(3, 3) });
+      // a state posted: at 0.5 s a cycle of 2 s from where it is
+      processor.port.onmessage({
+        data: {
+          lfos: {
+            at: 0.5,
+            lfos: [lfo({ anchor: { time: 0.5, phase: 0.5, period: 2 } }), lfo(), lfo(), lfo()],
+          },
+        },
+      });
+      // three quarters
+      block(1);
+      expect(modulate).toHaveBeenLastCalledWith(dsp, { drive: expect.closeTo(5, 3) });
+    });
+
     it('a posted knob its routes move goes to them, the others to the dsp', () => {
       const { processor, dsp, onMessage, modulate, block } = setupModulated();
       processor.port.onmessage({
         data: {
           mod: {
             note: { envelopes: [ENV, ENV, ENV], start: 1, release: null },
-            routes: [{ param: 'drive', env: 1, amount: 6, min: 0, max: 12 }],
+            routes: [{ param: 'drive', source: 1, amount: 6, min: 0, max: 12 }],
           },
         },
       });

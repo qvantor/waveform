@@ -3,3 +3,4 @@
 export const LIMITER_PROCESSOR = 'waveform-limiter';
 export const REVERB_PROCESSOR = 'waveform-reverb';
 export const DISTORTION_PROCESSOR = 'waveform-distortion';
+export const FX_MOD_PROCESSOR = 'waveform-fx-mod';

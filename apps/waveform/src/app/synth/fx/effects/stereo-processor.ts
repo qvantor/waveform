@@ -1,3 +1,4 @@
+import { lateState, LfosState } from '../../common/lfo/lfo-curve';
 import { createFxModulator, FxModMessage } from './fx-modulation';
 
 // the processor of the audio worklet modules (reverb.worklet.ts, limiter.worklet.ts), bundled into each of
@@ -42,9 +43,9 @@ const silent = (length: number) => {
 // registers the processor `name`: its dsp is created at the context rate with the node options and renders
 // one input (a mono one feeds both sides) into the stereo output. onMessage gets the posted messages. It
 // keeps running until it is stopped: the fx slot drains an effect, the master lives as long as the synth.
-// An effect whose knobs follow the envelopes (fx-modulation.ts) gives `modulate`: the moved knobs are set
-// through it once per block (their params messages don't reach onMessage), its node options have the knobs
-// in processorOptions.params
+// An effect whose knobs follow the envelopes and the LFOs (fx-modulation.ts) gives `modulate`: the moved knobs
+// are set through it once per block (their params messages don't reach onMessage), its node options have the
+// knobs in processorOptions.params and the LFOs as they were then in processorOptions.lfos
 export const registerStereoProcessor = <Dsp extends StereoDsp, Message extends object = StopMessage>(
   name: string,
   createDsp: (sampleRate: number, options: AudioWorkletNodeOptions) => Dsp,
@@ -55,13 +56,19 @@ export const registerStereoProcessor = <Dsp extends StereoDsp, Message extends o
     private dsp: Dsp;
     private stopped = false;
     private modulator: ReturnType<typeof createFxModulator> | null = null;
+    // the frame of the next block (none before the first one): a state of the LFOs that comes after its time takes
+    // over then (lateState)
+    private next = -Infinity;
 
     constructor(options: AudioWorkletNodeOptions) {
       super();
       this.dsp = createDsp(sampleRate, options);
       if (modulate) {
-        const { params = {} } = (options.processorOptions ?? {}) as { params?: Record<string, number> };
-        this.modulator = createFxModulator(sampleRate, params);
+        const { params = {}, lfos = null } = (options.processorOptions ?? {}) as {
+          params?: Record<string, number>;
+          lfos?: LfosState | null;
+        };
+        this.modulator = createFxModulator(sampleRate, params, lfos);
       }
       this.port.onmessage = ({ data }: MessageEvent<Message & StopMessage & ClearMessage & FxModMessage>) => {
         // (its dsp is freed: a message after the stop would reach a core that holds it no more)
@@ -69,6 +76,7 @@ export const registerStereoProcessor = <Dsp extends StereoDsp, Message extends o
         if (data.clear) this.dsp.clear?.();
         const { modulator } = this;
         let message = data;
+        if (modulator && data.lfos) modulator.lfos(lateState(data.lfos, this.next / sampleRate));
         if (modulator && data.mod !== undefined) modulator.set(data.mod);
         const { params } = data as { params?: Record<string, number> };
         if (modulator && params) message = { ...data, params: modulator.bases(params) ?? undefined };
@@ -82,6 +90,7 @@ export const registerStereoProcessor = <Dsp extends StereoDsp, Message extends o
 
     process([input]: Float32Array[][], [[outL, outR]]: Float32Array[][]) {
       if (this.stopped) return false;
+      this.next = currentFrame + outL.length;
       const values = this.modulator?.block(currentFrame);
       if (values && modulate) modulate(this.dsp, values);
       const inL = input[0] ?? silent(outL.length);

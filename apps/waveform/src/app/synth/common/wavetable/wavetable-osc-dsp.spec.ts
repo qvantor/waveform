@@ -8,6 +8,7 @@ import {
   createLfoRunner,
   FREE,
   frac,
+  LfoMods,
   LfosState,
   lfoTable,
   lfoTableFrom,
@@ -1968,7 +1969,7 @@ describe('the wavetable voice', () => {
         start?: number;
         lfo?: number;
         restarts?: number[];
-        mods?: (frame: number) => { rate?: number };
+        mods?: (frame: number) => LfoMods | undefined;
       } = {}
     ) => {
       const global = createLfoGlobal();
@@ -2143,6 +2144,99 @@ describe('the wavetable voice', () => {
         frames: 12000,
       });
       expectClose(routed.left, direct.left, 1e-5);
+    });
+
+    // LFO 1 (a sine of 0.5 s) on the gain, its Rate moved by `rate` of a route of `source`; the same voice given the
+    // gain of the runner of the TS, its Rate `mods` at the points
+    const rateAgainstRunner = (
+      source: number,
+      mods: (frame: number) => LfoMods | undefined,
+      options: Partial<RenderOptions> & { frames: number }
+    ) => {
+      const { store } = core.storeWith({ a: [saw] });
+      const shared = core.createVoiceShared();
+      shared.setLfos(first().state);
+      const route = lfoRoute('lfo1.rate', { source, min: 1 / 32, max: 100, scale: 'log' });
+      const routed = render({ store, shared, routes: [lfoRoute('gain1'), route], ...options });
+      const levels = runnerLevels([first()], options.frames, { mods });
+      const gain = between(levels, options.frames);
+      const direct = render({
+        store,
+        ...options,
+        params: { ...options.params, gain1: (frame) => gain[frame] },
+      });
+      return { routed, direct, gain };
+    };
+
+    it('a route of ENV 2 on its Rate follows the release: the knob again once ENV 2 is at 0', () => {
+      const period = 0.5;
+      const frames = 12000;
+      // released at 6000: ENV 2 at 0 there at once, ENV 1 a second long
+      const params = { frequency: 220, gain1: 0, gate: gateAt(6000) };
+      const { routed, direct, gain } = rateAgainstRunner(
+        1,
+        (frame) => (frame < 6000 ? { rate: 2 / period } : undefined),
+        { frames, params, envelope: { ...FLAT, release: 1 } }
+      );
+      expectClose(routed.left, direct.left, 1e-5);
+      // the Rate of the sustain all along would play another phase
+      const held = between(runnerLevels([first()], frames, { mods: () => ({ rate: 2 / period }) }), frames);
+      expect(Math.abs(held[11000] - gain[11000])).toBeGreaterThan(0.1);
+    });
+
+    it('a route of VELO on its Rate follows the velocity of a note that takes the voice over (mono)', () => {
+      const frames = 12000;
+      const glide = Math.round(0.01 * RATE);
+      // the source after ENV 1–3
+      const VELO = 3;
+      // VELO 1, then 0 from the block at 6016: twice the frequency of the knob gliding to the knob
+      const level = (frame: number) => Math.fround(Math.max(0, 1 - Math.max(0, frame - 6016) / glide));
+      const { routed, direct, gain } = rateAgainstRunner(VELO, (frame) => ({ rate: 2 * 2 ** level(frame) }), {
+        frames,
+        params: { frequency: 220, gain1: 0 },
+        velocity: { level: 1, amp: 1 },
+        before: (frame, dsp) => {
+          if (frame === 6016) dsp.setVelocity({ level: 0, amp: 1 });
+        },
+      });
+      expectClose(routed.left, direct.left, 1e-5);
+      const held = between(runnerLevels([first()], frames, { mods: () => ({ rate: 4 }) }), frames);
+      expect(Math.abs(held[11000] - gain[11000])).toBeGreaterThan(0.1);
+    });
+
+    it('a route on its Delay added during the Delay ends it there, not at the end of the knob', () => {
+      const { store } = core.storeWith({ a: [saw] });
+      const shared = core.createVoiceShared();
+      const schedule = [first([{ delay: 1 }])];
+      shared.setLfos(schedule[0].state);
+      const frames = 24000;
+      // ENV 1 (at 1) down the whole travel of Delay from the block at 2560: its amount glides there from 0 in 10 ms
+      const added = 2560;
+      const glide = Math.round(0.01 * RATE);
+      const delay = lfoRoute('lfo1.delay', { source: 0, amount: -1, max: 32, scale: 'pow' });
+      const share = Math.sqrt(Math.sqrt(1 / 32));
+      const routed = render({
+        store,
+        shared,
+        frames,
+        params: { frequency: 220, gain1: 0 },
+        routes: [lfoRoute('gain1')],
+        before: (frame, dsp) => {
+          if (frame === added) dsp.setRoutes([lfoRoute('gain1'), delay]);
+        },
+      });
+      const levels = runnerLevels(schedule, frames, {
+        mods: (frame) =>
+          frame < added
+            ? undefined
+            : { delay: Math.fround(32 * Math.max(0, share - Math.min(1, (frame - added) / glide)) ** 4) },
+      });
+      const gain = between(levels, frames);
+      const direct = render({ store, frames, params: { frequency: 220, gain1: (frame) => gain[frame] } });
+      expectClose(routed.left, direct.left);
+      // flat (the left point of the sine) before it, the LFO runs within the glide, long before 1 s
+      expect(gain[added - 1]).toBe(0);
+      expect(Math.max(...gain.subarray(added, added + 18000))).toBeGreaterThan(0.9);
     });
 
     it('plays its notes of a legato phrase in step, from the start of the phrase', () => {

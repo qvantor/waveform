@@ -1,6 +1,7 @@
 import { mapValues, noop } from 'lodash';
 import { FX_PARAMS } from '@waveform/preset-schema';
 import { DISTORTION_PROCESSOR } from '../../common/processors';
+import { LfoWire, mergeLfos } from '../../common/lfo/lfo-curve';
 import { FxDefinition } from './types';
 import { DistortionParam, DISTORTION_PRESETS } from './distortion-presets';
 import { formatDb, formatHz } from './format';
@@ -40,10 +41,15 @@ export const distortion: FxDefinition<DistortionParam> = {
   presets: DISTORTION_PRESETS,
   create: (audioCtx) => {
     const values = mapValues(FX_PARAMS.distortion, (param) => param.default);
+    // the LFOs as the states so far left them
+    let lfos: LfoWire[] | null = null;
 
-    // the node starts with the params kept until the module has loaded
+    // the node starts with the params and the LFOs kept until the module has loaded
     const worklet = createWorkletFx(audioCtx, 'distortion', () => {
-      const processorOptions: DistortionOptions = { params: { ...values } };
+      const processorOptions: DistortionOptions = {
+        params: { ...values },
+        ...(lfos && { lfos: { at: 0, instantly: true, lfos } }),
+      };
       return new AudioWorkletNode(audioCtx, DISTORTION_PROCESSOR, {
         ...STEREO_WORKLET_OPTIONS,
         processorOptions,
@@ -70,6 +76,11 @@ export const distortion: FxDefinition<DistortionParam> = {
       // the worklet moves the knobs once per block
       setModulation: (mod) => {
         const message: FxModMessage = { mod };
+        worklet.post(message);
+      },
+      setLfos: (state) => {
+        lfos = mergeLfos(lfos, state);
+        const message: FxModMessage = { lfos: state };
         worklet.post(message);
       },
       destroy: worklet.destroy,

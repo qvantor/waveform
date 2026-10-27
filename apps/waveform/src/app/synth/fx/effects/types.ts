@@ -1,6 +1,8 @@
 import type { BehaviorSubject } from 'rxjs';
 import type { HandleProps } from '@waveform/ui-kit';
 import type { ParamRange } from '@waveform/preset-schema';
+import type { LfosState } from '../../common/lfo/lfo-curve';
+import type { FxMod } from './fx-mod';
 import type { FxModulation } from './fx-modulation';
 
 export type FxParamDef = Pick<HandleProps, 'name' | 'mode' | 'precision' | 'formatValue' | 'fillFrom'> &
@@ -30,8 +32,11 @@ export interface FxCore {
   // the tail is forgotten at once, its loops and lines start empty (a preset switch, the output muted);
   // absent: it has none
   clear?: () => void;
-  // its knobs follow the envelopes of the last note (fx-modulation.ts); null: they are at their own values
+  // its knobs follow the envelopes and the LFOs of the last note (fx-modulation.ts); null: they are at their own
+  // values
   setModulation: (mod: FxModulation | null) => void;
+  // the LFOs from the time of a state on (absent: it runs none)
+  setLfos?: (state: LfosState) => void;
   destroy: () => void;
   // effects loaded asynchronously (audio worklets, see createWorkletFx), absent: always ready
   $status?: BehaviorSubject<FxStatus>;
@@ -59,5 +64,6 @@ export interface FxDefinition<K extends string = string> {
   // param keys are the preset snapshot keys of the effect
   params: Record<K, FxParamDef>;
   presets: FxPreset<K>[];
-  create: (audioCtx: BaseAudioContext) => FxCore;
+  // (the knobs of native nodes follow their routes by the lines of `fxMod`)
+  create: (audioCtx: BaseAudioContext, fxMod?: FxMod) => FxCore;
 }

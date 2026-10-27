@@ -23,6 +23,7 @@ import {
   EnvelopesProvider,
   useEnvelopes,
   LfoProvider,
+  useLfos,
   ModulationProvider,
   useModulation,
   Oscillator1Provider,
@@ -42,6 +43,7 @@ import { VoicingSection } from './voicing';
 import { MidiInput, SettingsButton } from './settings';
 import { PitchBend } from './pitch-bend';
 import { EnvelopeSection, VelocitySection } from './envelope';
+import { LfoSection } from './lfo';
 import { MobileLayout } from './mobile';
 import { FxScreen, FxProvider, useFx } from './fx';
 import { SYNTH_SCREENS, SynthScreen } from './screens';
@@ -63,7 +65,7 @@ const Root = styled.div`
 
 const AdsrContainer = styled.div`
   display: grid;
-  grid-template-columns: 3fr 1.5fr 3fr 1fr;
+  grid-template-columns: 3fr 1.5fr 3fr 3fr 1fr;
   background: ${theme.colors.primaryLowContrast};
   gap: 1px;
 `;
@@ -151,6 +153,7 @@ const AdsrEnvelopeInternal = () => {
     <AdsrContainer>
       <EnvelopeSection />
       <VelocitySection />
+      <LfoSection />
       <FilterSection />
       <VoicingSection />
     </AdsrContainer>
@@ -199,13 +202,14 @@ const SoundSwitchInternal = ({ children }: React.PropsWithChildren) => {
   );
 };
 
-// the fx follow the envelopes of the last note of the synth
+// the fx follow the envelopes and the LFOs of the last note of the synth
 const FxInternal = ({ children }: React.PropsWithChildren) => {
   const synthCore = useSynthCore();
   const synth = useSynth();
+  const lfo = useLfos();
   const modulation = useModulation();
   return (
-    <FxProvider initial={{}} synthCore={synthCore} synth={synth} modulation={modulation}>
+    <FxProvider initial={{}} synthCore={synthCore} synth={synth} lfo={lfo} modulation={modulation}>
       <SoundSwitchInternal>{children}</SoundSwitchInternal>
     </FxProvider>
   );

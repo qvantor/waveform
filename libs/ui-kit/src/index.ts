@@ -48,5 +48,5 @@ export type { HandleProps, HandleModulation } from './handle';
 export type { NotePath } from './adsr-envelope';
 export type { Theme } from './common/constants';
 export { useIsMobile, useIsPortrait, useElementSize } from './common/hooks';
-export { useLiveDraw, liveKnob } from './common/utils';
+export { useLiveDraw, liveKnob, onFrame } from './common/utils';
 export type { LiveKnob } from './common/utils';

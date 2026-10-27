@@ -4,6 +4,7 @@ import cls from 'classnames';
 import { theme } from '@waveform/ui-kit';
 import { Oscillator1, Oscillator2 } from '../synth/components';
 import { EnvelopeSection, VelocitySection } from '../envelope';
+import { LfoSection } from '../lfo';
 import { FilterSection } from '../filter';
 import { VoicingSection } from '../voicing';
 
@@ -17,23 +18,24 @@ const Root = styled.div`
 
   &.column {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: 280px 280px 230px 200px 230px 200px;
-    grid-template-areas: 'osc1' 'osc2' 'env' 'velo' 'filter' 'voicing';
+    grid-template-rows: 280px 280px 230px 200px 260px 230px 200px;
+    grid-template-areas: 'osc1' 'osc2' 'env' 'velo' 'lfo' 'filter' 'voicing';
   }
 
   &.grid {
     /* the oscillators half each */
     grid-template-columns: minmax(0, 8fr) minmax(0, 4fr) minmax(0, 7fr) minmax(0, 5fr);
-    grid-template-rows: 270px 230px;
+    grid-template-rows: 270px 230px 230px;
     grid-template-areas:
       'osc1 osc1 osc2 osc2'
-      'env velo filter voicing';
+      'env velo lfo lfo'
+      'filter filter filter voicing';
   }
 
   &.row {
-    grid-template-columns: 3fr 3fr 3fr 1.5fr 3fr 2fr;
+    grid-template-columns: 3fr 3fr 3fr 1.5fr 3fr 3fr 2fr;
     grid-template-rows: 270px;
-    grid-template-areas: 'osc1 osc2 env velo filter voicing';
+    grid-template-areas: 'osc1 osc2 env velo lfo filter voicing';
   }
 `;
 
@@ -47,6 +49,7 @@ const sections: [string, React.ComponentType][] = [
   ['osc2', Oscillator2],
   ['env', EnvelopeSection],
   ['velo', VelocitySection],
+  ['lfo', LfoSection],
   ['filter', FilterSection],
   ['voicing', VoicingSection],
 ];

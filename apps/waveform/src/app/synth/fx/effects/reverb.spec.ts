@@ -212,7 +212,7 @@ describe('reverb', () => {
     await flush();
     const mod = {
       note: { envelopes: [ENV, ENV, ENV], start: 1, release: null },
-      routes: [{ param: 'decay', env: 1, amount: 2, min: 0.1, max: 20, log: true }],
+      routes: [{ param: 'decay', source: 1, amount: 2, min: 0.1, max: 20, scale: 'log' as const }],
     };
     core.setModulation(mod);
     core.setModulation(null);

@@ -5,8 +5,8 @@ import { MdDragIndicator } from 'react-icons/md';
 import { ModSource } from '@waveform/preset-schema';
 import { startModDrag, theme } from '@waveform/ui-kit';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
-import { useEnvelopes, useModulation } from '../../common/modules';
-import { SOURCE_COLORS, SOURCE_LABELS } from '../envelope-colors';
+import { useEnvelopes, useModulation } from '../common/modules';
+import { SOURCE_COLORS, SOURCE_LABELS } from '../envelope/envelope-colors';
 
 // the whole header (a plain one): a segmented control on its grey, as high as the other headers
 const Root = styled.div`
@@ -82,23 +82,31 @@ const Grip = styled(MdDragIndicator)`
   color: ${theme.colors.primaryMediumContrast};
 `;
 
-interface Props {
+interface Props<S extends ModSource> {
   // the accessible name of the tabs
   label: string;
-  sources: readonly ModSource[];
-  // the tab of the envelope the section shows (the ENV section: the last one selected), a translucent key while
+  sources: readonly S[];
+  // the tab of the source the section shows (the ENV section: the last envelope selected), a translucent key while
   // another source is selected; without it the section shows each of its sources (VELO)
-  shown?: ModSource;
+  shown?: S;
+  // a tab was selected (or dropped on a knob): the section shows it
+  onSelect?: (id: S) => void;
+  // the knobs its sources go to (all by default): the others don't light up while one is dragged
+  accepts?: (target: string) => boolean;
 }
 
-// the tabs of sources in the header of a section, ENV 1 | ENV 2 | ENV 3 or VELO: the selected one (of every
-// source, the tabs of the other section too) is the source the knobs show the routes of. A tab dragged onto a knob
-// assigns its source to it at +50% and selects it, the knobs show the new route at once (a click selects it), the
-// grip of the selected one tells it
-export const EnvelopeTabs = ({ label, sources, shown }: Props) => {
-  const [{ $selected }, { select }] = useEnvelopes();
+// the tabs of sources in the header of a section, ENV 1 | ENV 2 | ENV 3, VELO or LFO 1 | … | LFO 4: the selected one
+// (of every source, the tabs of the other sections too) is the source the knobs show the routes of. A tab dragged
+// onto a knob assigns its source to it at +50% (bipolar on a knob centered on 0) and selects it, the knobs show the
+// new route at once (a click selects it), the grip of the selected one tells it
+export const SourceTabs = <S extends ModSource>({ label, sources, shown, onSelect, accepts }: Props<S>) => {
+  const [{ $selected }, { select: selectSource }] = useEnvelopes();
   const [, { addRoute }] = useModulation();
   const selected = useBehaviorSubject($selected);
+  const select = (id: S) => {
+    selectSource(id);
+    onSelect?.(id);
+  };
   return (
     <Root role='tablist' aria-label={label}>
       {sources.map((id) => (
@@ -114,6 +122,7 @@ export const EnvelopeTabs = ({ label, sources, shown }: Props) => {
             startModDrag(e, {
               label: SOURCE_LABELS[id],
               color: SOURCE_COLORS[id],
+              accepts,
               onDrop: (target) => {
                 addRoute(id, target);
                 select(id);

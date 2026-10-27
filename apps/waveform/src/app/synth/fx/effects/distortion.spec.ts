@@ -2,6 +2,7 @@ import { mapValues } from 'lodash';
 import { FX_PARAMS } from '@waveform/preset-schema';
 import { withoutAudioWorklet } from '../../../../test-utils/no-audio-worklet';
 import { DISTORTION_PROCESSOR } from '../../common/processors';
+import { lfoTable, LfoWire, RETRIG } from '../../common/lfo/lfo-curve';
 import { distortion } from './distortion';
 import { DISTORTION_LATENCY } from './distortion-params';
 import { DISTORTION_MODES } from './distortion-modes';
@@ -93,6 +94,31 @@ describe('distortion', () => {
       params: { ...DEFAULTS, drive: 0, mode: 1, level: -3 },
     });
     expect(node()?.port.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('posts the LFOs; a node made later starts with them at once, the tables of the states before kept', async () => {
+    const { core, node, messages } = setup();
+    const wire = (change: Partial<LfoWire> = {}): LfoWire => ({
+      mode: RETRIG,
+      delay: 0,
+      rise: 0,
+      smooth: 0,
+      phase: 0,
+      anchor: { time: 0, phase: 0, period: 0.5 },
+      ...change,
+    });
+    const table = lfoTable('square');
+    core.setLfos?.({ at: 0, instantly: true, lfos: [wire({ table }), wire(), wire(), wire()] });
+    core.setLfos?.({ at: 1, lfos: [wire({ delay: 1 }), wire(), wire(), wire()] });
+    await flush();
+    expect(node()?.options.processorOptions.lfos).toEqual({
+      at: 0,
+      instantly: true,
+      lfos: [wire({ delay: 1, table }), wire(), wire(), wire()],
+    });
+    const state = { at: 2, lfos: [wire({ phase: 0.5 }), wire(), wire(), wire()] };
+    core.setLfos?.(state);
+    expect(messages()).toEqual([{ lfos: state }]);
   });
 
   it('posts every changed param', async () => {
@@ -190,7 +216,7 @@ describe('distortion', () => {
     await flush();
     const mod = {
       note: { envelopes: [ENV, ENV, ENV], start: 1, release: null },
-      routes: [{ param: 'drive', env: 1, amount: 6, min: 0, max: 12 }],
+      routes: [{ param: 'drive', source: 1, amount: 6, min: 0, max: 12 }],
     };
     core.setModulation(mod);
     core.setModulation(null);

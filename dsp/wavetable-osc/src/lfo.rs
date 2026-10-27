@@ -209,10 +209,16 @@ impl LfoGlobal {
         a + (table_level(&self.table, x) - a) * w
     }
 
+    /// every level of the shape it plays at t is the same (`flat` is the one of the newest shape, which plays only
+    /// once its crossfade is over)
+    pub fn flat_at(&self, t: f64) -> bool {
+        self.flat && t >= self.fade_at + GLIDE
+    }
+
     /// the time from which on nothing it gives changes (a state or a shape still to take over: before them), from t;
-    /// -Infinity: its shape crossfades at t
+    /// -Infinity: its shape crossfades from t on
     pub fn still_until(&self, t: f64) -> f64 {
-        if t < self.fade_at + GLIDE && t > self.fade_at {
+        if t < self.fade_at + GLIDE && t >= self.fade_at {
             return f64::NEG_INFINITY;
         }
         let mut until = f64::INFINITY;
@@ -321,9 +327,16 @@ impl LfoBlock {
             }; 3],
             next_coefficient: 0,
             flat_until: f64::NEG_INFINITY,
-            values: vec![0.0; BLOCK],
+            values: Vec::new(),
             constant: false,
             value: 0.0,
+        }
+    }
+
+    /// the levels of a block (a voice whose routes read an LFO: none allocated without)
+    pub fn reserve(&mut self) {
+        if self.values.len() < BLOCK {
+            self.values = vec![0.0; BLOCK];
         }
     }
 
@@ -407,8 +420,8 @@ impl LfoBlock {
             );
             self.phase_d = lfo.clock(self.t_d);
         }
-        // (from the point before, not before tD; nothing at the first point)
-        if self.t_d != f64::INFINITY && !self.last.is_nan() {
+        // (from the point before, not before tD; at the first point from tD)
+        if self.t_d != f64::INFINITY {
             if let Some(frequency) = mods[RATE] {
                 // (the base of the route in f32, as the routes read it)
                 let extra = frequency - (1.0 / lfo.period(t)) as f32 as f64;
@@ -445,10 +458,11 @@ impl LfoBlock {
         self.out
     }
 
-    // the frame its flat level lasts until from frame `end` on (after a flat block): in its Delay (no route moves
-    // it), smoothed to the left point, until the Delay ends; on a flat shape smoothed to it for ever; before a state
-    // or a shape of the LFO that takes over later
-    fn flat_from(&self, end: f64, lfo: &LfoGlobal, delay_moved: bool) -> f64 {
+    // the frame its flat level lasts until from frame `end` on (after a flat block), smoothed to it, before a state or
+    // a shape of the LFO that takes over later: past its Delay on a flat shape for ever (not while a route moves
+    // Rate: it adds to the phase meanwhile); in its Delay (no route moves it) until the Delay ends, on a flat shape
+    // too (tD at its point: the runner of the TS skips no point)
+    fn flat_from(&self, end: f64, lfo: &LfoGlobal, delay_moved: bool, rate_moved: bool) -> f64 {
         let rate = self.rate;
         let t = end / rate;
         let still = lfo.still_until(t);
@@ -460,10 +474,14 @@ impl LfoBlock {
         } else {
             floor(still * rate)
         };
-        if lfo.flat {
-            return bound;
+        if self.t_d != f64::INFINITY {
+            return if lfo.flat_at(t) && !rate_moved {
+                bound
+            } else {
+                f64::NEG_INFINITY
+            };
         }
-        if self.t_d != f64::INFINITY || delay_moved {
+        if delay_moved {
             return f64::NEG_INFINITY;
         }
         // the first frame whose point is past the Delay, as point() tests it
@@ -526,7 +544,7 @@ impl LfoBlock {
         self.constant = constant;
         self.value = first as f64;
         self.flat_until = if constant {
-            self.flat_from(frame + b, lfo, moved[DELAY].is_some())
+            self.flat_from(frame + b, lfo, moved[DELAY].is_some(), moved[RATE].is_some())
         } else {
             f64::NEG_INFINITY
         };
@@ -566,9 +584,19 @@ mod tests {
 
     // the levels at the points of blocks of 128 from frame `from` to `to` (the frame and the level of each)
     fn points(lfo: &LfoGlobal, block: &mut LfoBlock, from: usize, to: usize) -> Vec<(f64, f64)> {
+        points_moved(lfo, block, from, to, &[None; KNOBS])
+    }
+
+    fn points_moved(
+        lfo: &LfoGlobal,
+        block: &mut LfoBlock,
+        from: usize,
+        to: usize,
+        moved: &[Option<&[f32]>; KNOBS],
+    ) -> Vec<(f64, f64)> {
         let mut levels = Vec::new();
         for frame in (from..to).step_by(128) {
-            block.render(frame as f64, 0.0, 128.0, 128, lfo, &[None; KNOBS]);
+            block.render(frame as f64, 0.0, 128.0, 128, lfo, moved);
             let mut p = 0.0;
             loop {
                 let level = if block.constant {
@@ -584,6 +612,86 @@ mod tests {
             }
         }
         levels
+    }
+
+    // the levels at the same points worked out one by one, none skipped (the runner of the TS)
+    fn every_point(
+        lfo: &LfoGlobal,
+        block: &mut LfoBlock,
+        from: usize,
+        to: usize,
+        mods: &[Option<f64>; KNOBS],
+    ) -> Vec<(f64, f64)> {
+        let mut levels = Vec::new();
+        for frame in (from..to).step_by(128) {
+            for p in [0.0, 32.0, 64.0, 96.0, 127.0] {
+                let f = frame as f64 + p;
+                levels.push((f, block.point(f, lfo, mods) as f32 as f64));
+            }
+        }
+        levels
+    }
+
+    // a flat shape (0.5) of `period` from 0, its Delay
+    fn flat_lfo(period: f64, delay: f64) -> LfoGlobal {
+        let mut lfo = LfoGlobal::default();
+        lfo.incoming.fill(0.5);
+        lfo.set(
+            0.0,
+            &state(|s| {
+                s.delay = delay;
+                s.anchor = Some(Anchor {
+                    period,
+                    ..FIRST_ANCHOR
+                });
+                s.table = true;
+            }),
+            true,
+        );
+        lfo
+    }
+
+    // a sine from `at` on (crossfaded into), the blocks woken as a state of the shared wakes the voices
+    fn sine_from(lfo: &mut LfoGlobal, at: f64, blocks: &mut [&mut LfoBlock]) {
+        lfo.incoming.copy_from_slice(&sine_table());
+        lfo.set(
+            at,
+            &state(|s| {
+                s.anchor = None;
+                s.table = true;
+            }),
+            false,
+        );
+        blocks.iter_mut().for_each(|block| block.wake());
+    }
+
+    #[test]
+    fn a_flat_shape_skips_blocks_but_not_the_phase_a_route_of_rate_adds() {
+        let mut lfo = flat_lfo(0.5, 0.0);
+        let rates = [4.0f32];
+        let moved: [Option<&[f32]>; KNOBS] = [Some(&rates), None, None, None, None];
+        let mut mods = NONE;
+        mods[RATE] = Some(4.0);
+        let (mut skipping, mut every) = (LfoBlock::new(RATE_48, 0.0), LfoBlock::new(RATE_48, 0.0));
+        points_moved(&lfo, &mut skipping, 0, 12800, &moved);
+        every_point(&lfo, &mut every, 0, 12800, &mods);
+        sine_from(&mut lfo, 12800.0 / RATE_48, &mut [&mut skipping]);
+        let played = points_moved(&lfo, &mut skipping, 12800, 24064, &moved);
+        let expected = every_point(&lfo, &mut every, 12800, 24064, &mods);
+        assert_eq!(played, expected);
+    }
+
+    #[test]
+    fn a_flat_shape_in_its_delay_starts_its_cycle_where_the_delay_ends() {
+        let mut lfo = flat_lfo(0.25, 0.1);
+        let (mut skipping, mut every) = (LfoBlock::new(RATE_48, 0.0), LfoBlock::new(RATE_48, 0.0));
+        points(&lfo, &mut skipping, 0, 9600);
+        every_point(&lfo, &mut every, 0, 9600, &NONE);
+        sine_from(&mut lfo, 0.2, &mut [&mut skipping]);
+        assert_eq!(
+            points(&lfo, &mut skipping, 9600, 19200),
+            every_point(&lfo, &mut every, 9600, 19200, &NONE)
+        );
     }
 
     #[test]
@@ -750,6 +858,47 @@ mod tests {
         assert!(lfo.flat);
         assert_eq!(lfo.still_until(2.005), f64::NEG_INFINITY);
         assert_eq!(lfo.still_until(1.5), 2.0);
+        // (from the time it starts: a block that ends there is flat only until then)
+        assert_eq!(lfo.still_until(2.0), f64::NEG_INFINITY);
+    }
+
+    #[test]
+    fn a_flat_shape_to_come_holds_nothing_before_it_plays() {
+        // a square of 1 s, a flat shape from 0.6 s on: the blocks of its top half are flat, its fall at 0.5 s is
+        // played
+        let mut lfo = LfoGlobal::default();
+        let mut square = vec![0.0f32; TABLE + 1];
+        square[..TABLE / 2].fill(1.0);
+        square[TABLE] = 1.0;
+        lfo.incoming.copy_from_slice(&square);
+        lfo.set(
+            0.0,
+            &state(|s| {
+                s.anchor = Some(Anchor {
+                    period: 1.0,
+                    ..FIRST_ANCHOR
+                });
+                s.table = true;
+            }),
+            true,
+        );
+        let mut block = LfoBlock::new(RATE_48, 0.0);
+        points(&lfo, &mut block, 0, 12800);
+        lfo.incoming.fill(0.5);
+        lfo.set(
+            0.6,
+            &state(|s| {
+                s.anchor = None;
+                s.table = true;
+            }),
+            false,
+        );
+        assert!(!lfo.flat_at(0.6) && lfo.flat_at(0.62));
+        let levels = points(&lfo, &mut block, 12800, 25600);
+        for (f, level) in levels {
+            let expected = if f < 24000.0 { 1.0 } else { 0.0 };
+            assert_eq!(level, expected, "{f}");
+        }
     }
 
     #[test]

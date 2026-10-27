@@ -112,6 +112,20 @@ fn flat_until(sources: &Sources, k: usize) -> f64 {
     }
 }
 
+// a glide of `step` a sample from `value`, `frames` on: not past its `target`
+#[inline(always)]
+fn toward(value: f64, step: f64, target: f64, frames: f64) -> f64 {
+    if step == 0.0 {
+        return value;
+    }
+    let next = value + step * frames;
+    if if step > 0.0 { next > target } else { next < target } {
+        target
+    } else {
+        next
+    }
+}
+
 // a param moved by the sum of its routes from its base `x`, not clamped
 #[inline(always)]
 fn moved_value(scale: u32, x: f64, sum: f64, max_value: f64) -> f64 {
@@ -134,8 +148,10 @@ fn moved_value(scale: u32, x: f64, sum: f64, max_value: f64) -> f64 {
 
 struct Route {
     source: usize,
-    // ½ of a bipolar one, else 0
+    // ½ of a bipolar one, else 0; another polarity glides there as the amount does
     offset: f64,
+    offset_target: f64,
+    offset_step: f64,
     amount: f64,
     target: f64,
     step: f64,
@@ -288,6 +304,8 @@ impl Modulation {
                     target.routes.push(Route {
                         source,
                         offset,
+                        offset_target: offset,
+                        offset_step: 0.0,
                         amount: if gliding { 0.0 } else { route.amount },
                         target: route.amount,
                         step: 0.0,
@@ -299,7 +317,7 @@ impl Modulation {
             };
             let item = &mut target.routes[position];
             item.removed = false;
-            item.offset = offset;
+            item.offset_target = offset;
             item.target = route.amount;
         }
         let glide = self.glide;
@@ -309,6 +327,7 @@ impl Modulation {
                     route.target = 0.0;
                 }
                 route.step = (route.target - route.amount) / glide;
+                route.offset_step = (route.offset_target - route.offset) / glide;
             }
         }
         self.index();
@@ -380,7 +399,7 @@ impl Modulation {
             let mut same = constant && base[0] as f64 == target.base && target.current == Current::One;
             for route in &target.routes {
                 let envelope = source(sources, route.source);
-                if !envelope.constant || route.step != 0.0 {
+                if !envelope.constant || route.step != 0.0 || route.offset_step != 0.0 {
                     constant = false;
                     same = false;
                 } else if envelope.value != route.level {
@@ -421,23 +440,14 @@ impl Modulation {
                 let mut sum = 0.0;
                 for route in &target.routes {
                     let envelope = source(sources, route.source);
-                    let mut amount = route.amount;
-                    if route.step != 0.0 {
-                        amount += route.step * (p - a);
-                        if if route.step > 0.0 {
-                            amount > route.target
-                        } else {
-                            amount < route.target
-                        } {
-                            amount = route.target;
-                        }
-                    }
+                    let amount = toward(route.amount, route.step, route.target, p - a);
+                    let offset = toward(route.offset, route.offset_step, route.offset_target, p - a);
                     let level = if envelope.constant {
                         envelope.value
                     } else {
                         envelope.values[p as usize] as f64
                     };
-                    sum += amount * (level - route.offset);
+                    sum += amount * (level - offset);
                 }
                 let x = if base.len() > 1 { base[p as usize] } else { base[0] } as f64;
                 let value = moved_value(scale, x, sum, max_value);
@@ -467,16 +477,17 @@ impl Modulation {
             }
             // the glides go on
             for route in target.routes.iter_mut() {
+                if route.offset_step != 0.0 {
+                    route.offset = toward(route.offset, route.offset_step, route.offset_target, b - a);
+                    if route.offset == route.offset_target {
+                        route.offset_step = 0.0;
+                    }
+                }
                 if route.step == 0.0 {
                     continue;
                 }
-                route.amount += route.step * (b - a);
-                if if route.step > 0.0 {
-                    route.amount >= route.target
-                } else {
-                    route.amount <= route.target
-                } {
-                    route.amount = route.target;
+                route.amount = toward(route.amount, route.step, route.target, b - a);
+                if route.amount == route.target {
                     route.step = 0.0;
                     if route.removed {
                         dropped = true;
@@ -675,5 +686,52 @@ mod tests {
         modulation.apply(&bases, &sources, 0.0, 0.0, 128.0, 128);
         assert_eq!(modulation.moved(GAIN1).map(|values| values[0]), Some(0.5));
         assert_eq!(modulation.quiet_until, 4800.0);
+    }
+
+    #[test]
+    fn another_polarity_glides_as_the_amount_does() {
+        let mut accesses = [false; TARGET_PARAMS];
+        accesses[GAIN1] = true;
+        let uni = route(1.0, GAIN1, 10.0, LINEAR, false);
+        let bipolar = route(1.0, GAIN1, 10.0, LINEAR, true);
+        let mut modulation = Modulation::new(RATE_48, 3, false, &[uni], accesses);
+        let envelopes = envelopes(0.25);
+        let velocity = Glided::new(0.0);
+        let one = [1.0f32];
+        let bases: [&[f32]; TARGET_PARAMS] = core::array::from_fn(|_| &one[..]);
+        let sources = Sources {
+            envelopes: &envelopes,
+            velocity: &velocity,
+            lfos: &[],
+        };
+        let mut played: Vec<f32> = Vec::new();
+        let mut render = |modulation: &mut Modulation, blocks: usize| {
+            for _ in 0..blocks {
+                let frame = played.len() as f64;
+                modulation.apply(&bases, &sources, frame, 0.0, 128.0, 128);
+                let moved = modulation.moved(GAIN1).expect("moved");
+                played.extend((0..128).map(|i| moved[if moved.len() > 1 { i } else { 0 }]));
+            }
+        };
+        // 1 + 10 × 0.25 uni, then bipolar at 256: 1 + 10 × (0.25 - ½), uni again at 1024
+        render(&mut modulation, 2);
+        modulation.set(&[bipolar]);
+        render(&mut modulation, 6);
+        modulation.set(&[uni]);
+        render(&mut modulation, 6);
+        let glide = glide_length(RATE_48) as usize;
+        assert!(played[..257].iter().all(|value| *value == 3.5));
+        assert!(played[256 + glide..1024].iter().all(|value| *value == -1.5));
+        assert!(played[1024 + glide..].iter().all(|value| *value == 3.5));
+        // no step: amount × ½ over the glide
+        let most = 10.0 * 0.5 / glide as f64 * 1.001;
+        for i in 1..played.len() {
+            assert!(
+                ((played[i] - played[i - 1]) as f64).abs() <= most,
+                "{i}: {} after {}",
+                played[i],
+                played[i - 1]
+            );
+        }
     }
 }

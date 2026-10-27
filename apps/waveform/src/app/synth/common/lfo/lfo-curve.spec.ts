@@ -4,6 +4,7 @@ import {
   createLfoRunner,
   FREE,
   frac,
+  lateState,
   LFO_GLIDE,
   LFO_SEGMENT,
   LFO_TABLE_SIZE,
@@ -292,5 +293,24 @@ describe('createLfoRunner', () => {
     level = pointed.point(1000, lfo);
     expect(stepped.at(1000, lfo)).toBe(level);
     expect(stepped.at(900, lfo)).toBe(level);
+  });
+});
+
+describe('lateState', () => {
+  const wire: LfoWire = {
+    mode: RETRIG,
+    delay: 0,
+    rise: 0,
+    smooth: 0,
+    phase: 0.5,
+    anchor: { time: 1, phase: 0, period: 2 },
+  };
+
+  it('takes a state that comes after its time from now on, its anchors as they are', () => {
+    expect(lateState({ at: 1, lfos: [wire] }, 1.03)).toEqual({ at: 1.03, lfos: [wire] });
+    const early = { at: 1, lfos: [wire] };
+    expect(lateState(early, 0.99)).toBe(early);
+    const instant = { at: 0, instantly: true, lfos: [wire] };
+    expect(lateState(instant, 1)).toBe(instant);
   });
 });

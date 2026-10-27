@@ -2,7 +2,7 @@
 //! render one after another), the pool of mix tables, the budget of mix builds per block, the legato phrases and
 //! the counters (VoiceStats, the perf build); and the params and outputs of the block the wrapper copies in and out
 
-use crate::lfo::{frac, Anchor, LfoGlobal, LfoState, LFOS, TABLE};
+use crate::lfo::{frac, Anchor, LfoGlobal, LfoState, KNOBS, LFOS, TABLE};
 use crate::store::FRAME_GUARD;
 use alloc::{vec, vec::Vec};
 use jsmath::{ceil, max};
@@ -41,6 +41,8 @@ pub struct Scratch {
     pub fading: Vec<f32>,
     pub points: Vec<i32>,
     pub positions: Vec<f64>,
+    // the bases of the knobs of the LFOs of a voice per sample (LFOS · KNOBS × the block), while one changes in it
+    pub lfo_bases: Vec<f32>,
 }
 
 struct Phrase {
@@ -206,6 +208,7 @@ impl Shared {
             let points = ceil(length as f64 / SEGMENT) as usize + 2;
             s.points = vec![0; points];
             s.positions = vec![0.0; points];
+            s.lfo_bases = vec![0.0; LFOS * KNOBS * length];
             self.size = length;
         }
     }

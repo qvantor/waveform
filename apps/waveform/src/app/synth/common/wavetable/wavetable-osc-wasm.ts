@@ -1,5 +1,5 @@
 import type { EnvelopeParams } from '../envelope/envelope-curve';
-import { LFO_TABLE_SIZE, LfosState } from '../lfo/lfo-curve';
+import { lateState, LFO_TABLE_SIZE, LfosState } from '../lfo/lfo-curve';
 import { CoreExports, createView } from '../wasm/wasm-core';
 import type {
   BuilderPortMessage,
@@ -661,8 +661,9 @@ export const createVoiceScopeWasm = (
     }
   };
 
-  // (an event the core finds no memory for ends its voice: it is told ended)
-  const apply = (events: VoiceEvent[]) => {
+  // (an event the core finds no memory for ends its voice: it is told ended); `now`: the frame of the next block
+  // of a node (a state of the LFOs that comes after its time takes over then: lateState)
+  const apply = (events: VoiceEvent[], now = -Infinity) => {
     let count = 0;
     const flush = () => {
       const n = count;
@@ -697,7 +698,7 @@ export const createVoiceScopeWasm = (
         guard(() => exports.osc_scope_bend(handle, event.cents, event.instantly ? 1 : 0));
       } else if (event.kind === 'lfos') {
         flush();
-        guard(() => shared.setLfos(event));
+        guard(() => shared.setLfos(lateState(event, now / sampleRate)));
       } else {
         // (a param the core has not: nothing; as an index of -1 the core would take it as the frequency)
         const param = VOICE_PARAM_ORDER.indexOf(event.param);

@@ -1,7 +1,7 @@
 import { mapValues } from 'lodash';
 import { FX_MIX_PARAM, FX_PARAMS, FX_TYPES } from '@waveform/preset-schema';
 import { applySnapshot, getSnapshot } from '../../../app';
-import { createFx, createSynthCore } from '../../../../test-utils/models';
+import { createFx, createLfos, createModulation, createSynthCore } from '../../../../test-utils/models';
 import { withoutAudioWorklet } from '../../../../test-utils/no-audio-worklet';
 import { workletLoads } from '../../../../test-utils/worklet-loads';
 import { DELAY_PRESETS } from '../effects/delay-presets';
@@ -782,14 +782,52 @@ describe('fx', () => {
     const note = (start: number) => ({ envelopes: [FLAT, ENV, FLAT], start, release: null });
     const setupModulated = () => {
       const synthCore = createSynthCore();
-      const { fx, modulation, $fxNote } = createFx(synthCore);
+      const { fx, modulation, lfos, $fxNote } = createFx(synthCore);
       const [model, actions] = fx;
       const setModulation = FX_TYPES.reduce(
         (spies, type) => ({ ...spies, [type]: jest.spyOn(model.slots[type], 'setModulation') }),
         {} as Record<typeof FX_TYPES[number], jest.SpyInstance>
       );
-      return { model, actions, modulation, $fxNote, setModulation };
+      return { model, actions, modulation, lfos, $fxNote, setModulation };
     };
+
+    it('moves the knobs an LFO routes without a note, with the routes of the note to the knobs of the LFOs', async () => {
+      const { actions, modulation, setModulation } = setupModulated();
+      await flush();
+      actions.setAdded('reverb', true);
+      modulation[1].addRoute('lfo2', 'reverb.size', 0.5);
+      modulation[1].addRoute('env2', 'lfo2.rate', 0.25);
+      expect(setModulation.reverb).toHaveBeenLastCalledWith({
+        note: null,
+        routes: [
+          { param: 'size', source: 5, amount: 0.5, min: 0, max: 1 },
+          {
+            param: 'lfo2.rate',
+            source: 1,
+            amount: expect.closeTo(0.25 * Math.log2(3200), 9),
+            min: 1 / 32,
+            max: 100,
+            scale: 'log',
+          },
+        ],
+      });
+      // an envelope alone without a note: nothing
+      modulation[1].removeRoute('lfo2', 'reverb.size');
+      modulation[1].addRoute('env2', 'reverb.size', 0.5);
+      expect(setModulation.reverb).toHaveBeenLastCalledWith(null);
+    });
+
+    it('gives every effect the LFOs: as they are at once, then every state', async () => {
+      const synthCore = createSynthCore();
+      const lfosModule = createLfos(synthCore);
+      const setLfos = jest.fn();
+      const { fx } = createFx(synthCore, createModulation(), lfosModule);
+      FX_TYPES.forEach((type) => (fx[0].slots[type].setLfos = setLfos));
+      lfosModule[1].setMode('lfo3', 'free');
+      expect(setLfos).toHaveBeenCalledTimes(FX_TYPES.length);
+      expect(setLfos.mock.lastCall?.[0].lfos[2].mode).toBe(1);
+      await flush();
+    });
 
     it('gives an effect in the chain, on and ready its routes and the last note', async () => {
       const { actions, modulation, $fxNote, setModulation } = setupModulated();
@@ -803,7 +841,7 @@ describe('fx', () => {
       actions.setAdded('delay', true);
       expect(setModulation.delay).toHaveBeenLastCalledWith({
         note: note(1),
-        routes: [{ param: 'time', env: 1, amount: 0.5 * (1 - 0.01), min: 0.01, max: 1 }],
+        routes: [{ param: 'time', source: 1, amount: 0.5 * (1 - 0.01), min: 0.01, max: 1 }],
       });
       // bypassed: nothing computed
       actions.setOn('delay', false);
@@ -824,11 +862,11 @@ describe('fx', () => {
         routes: [
           {
             param: 'decay',
-            env: 1,
+            source: 1,
             amount: expect.closeTo(0.5 * Math.log2(200), 9),
             min: 0.1,
             max: 20,
-            log: true,
+            scale: 'log',
           },
         ],
       });

@@ -1,4 +1,11 @@
-import { MOD_DRAGGING_CLASS, MOD_DWELL_ATTR, MOD_OVER_ATTR, MOD_TARGET_ATTR, startModDrag } from './index';
+import {
+  MOD_DRAGGING_CLASS,
+  MOD_DWELL_ATTR,
+  MOD_OVER_ATTR,
+  MOD_REFUSED_ATTR,
+  MOD_TARGET_ATTR,
+  startModDrag,
+} from './index';
 
 const pointer = (type: string, [clientX, clientY]: [number, number], target: EventTarget = document) => {
   const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX, clientY, button: 0 });
@@ -15,13 +22,14 @@ const setup = () => {
   let under: Element | null = null;
   Object.assign(document, { elementFromPoint: jest.fn(() => under) });
   const onDrop = jest.fn();
-  const drag = () =>
+  const drag = (accepts?: (target: string) => boolean) =>
     startModDrag(
       { pointerId: 1, button: 0, clientX: 0, clientY: 0 },
       {
         label: 'ENV 2',
         color: '#f1c40f',
         onDrop,
+        accepts,
       }
     );
   return { byId, onDrop, drag, over: (element: Element | null) => (under = element) };
@@ -36,6 +44,44 @@ describe('startModDrag', () => {
     jest.runOnlyPendingTimers();
     jest.useRealTimers();
     Reflect.deleteProperty(document, 'elementFromPoint');
+  });
+
+  it('a target its source does not go to lights up not, takes no drop; the marks go with the drag', () => {
+    const { drag, byId, over, onDrop } = setup();
+    drag((target) => target !== 'osc1.gain');
+    over(byId('inner'));
+    pointer('pointermove', [20, 20]);
+    expect(byId('knob').hasAttribute(MOD_REFUSED_ATTR)).toBe(true);
+    expect(byId('knob').hasAttribute(MOD_OVER_ATTR)).toBe(false);
+    pointer('pointerup', [20, 20]);
+    expect(onDrop).not.toHaveBeenCalled();
+    expect(byId('knob').hasAttribute(MOD_REFUSED_ATTR)).toBe(false);
+  });
+
+  it('marks the targets of a screen the dwell brought up too', () => {
+    const { drag, byId, over } = setup();
+    byId('switch').addEventListener('click', () => {
+      const knob = document.createElement('div');
+      knob.id = 'later';
+      knob.setAttribute(MOD_TARGET_ATTR, 'osc2.gain');
+      document.body.append(knob);
+    });
+    drag((target) => !target.endsWith('.gain'));
+    over(byId('switch'));
+    pointer('pointermove', [20, 20]);
+    jest.advanceTimersByTime(600);
+    expect(byId('later').hasAttribute(MOD_REFUSED_ATTR)).toBe(true);
+    pointer('pointerup', [20, 20]);
+    expect(byId('later').hasAttribute(MOD_REFUSED_ATTR)).toBe(false);
+  });
+
+  it('a target it goes to takes it', () => {
+    const { drag, byId, over, onDrop } = setup();
+    drag((target) => target === 'osc1.gain');
+    over(byId('inner'));
+    pointer('pointermove', [20, 20]);
+    pointer('pointerup', [20, 20]);
+    expect(onDrop).toHaveBeenCalledWith('osc1.gain');
   });
 
   it('becomes a drag after 4 px: a label of the color of the source follows the pointer', () => {

@@ -1,3 +1,4 @@
+import type { LfosState } from '../../common/lfo/lfo-curve';
 // the params, the options and the messages of the reverb (its Rust core, dsp/reverb: reverb-wasm.ts), no signal
 // processing here
 
@@ -21,6 +22,8 @@ export interface ReverbDspParams {
 export interface ReverbOptions {
   params: ReverbDspParams;
   active: boolean;
+  // the LFOs as they are when the node is made (stereo-processor.ts)
+  lfos?: LfosState;
 }
 
 // main thread → worklet: changed params, the active flag

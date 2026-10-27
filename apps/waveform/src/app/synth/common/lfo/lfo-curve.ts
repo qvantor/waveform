@@ -20,6 +20,10 @@ export const LFO_GLIDE = 0.01;
 export const LFO_LEAD = 0.01;
 // samples between the points an LFO is worked out at (the voice interpolates its routes between them)
 export const LFO_SEGMENT = 32;
+// the points a runner steps through to a later frame at most (0.34 s at 48 kHz): a tab hidden for minutes asks once
+// for a frame far after its last point, the points before are skipped (its smoothing and the phase of a route of
+// Rate from there)
+const MAX_STEPS = 512;
 
 export const RETRIG = 0;
 export const FREE = 1;
@@ -55,6 +59,19 @@ export interface LfosState {
   instantly?: boolean;
   lfos: LfoWire[];
 }
+
+// the LFOs as a state leaves them after `before` (null: none yet): the table of each kept from the states before
+// (a node made later takes them all at once)
+export const mergeLfos = (before: LfoWire[] | null, { lfos }: LfosState): LfoWire[] =>
+  lfos.map((wire, i) => ({ ...wire, table: wire.table ?? before?.[i]?.table }));
+
+// a state as an audio thread at `now` (seconds of the context: its next block) takes it: one that comes after its
+// `at` (the thread renders ahead of currentTime by a device buffer, longer than LFO_LEAD on Windows and Android)
+// from now on, so its Phase still glides and its shape still crossfades. Its anchors keep their times: the clock
+// stays the one of the main thread (the voices, the fx and the marks in phase), a new period applies from its
+// anchor on
+export const lateState = (state: LfosState, now: number): LfosState =>
+  state.instantly || state.at >= now ? state : { ...state, at: now };
 
 // the knobs of an LFO moved by the routes of a note (the envelopes, the velocity), each in its units: Rate a
 // frequency (Hz), the times seconds, Phase a share of the cycle; absent: the knob
@@ -279,6 +296,8 @@ export const createLfoRunner = (sampleRate: number) => {
   // the frame of the last point (NaN: none yet)
   let last = NaN;
   let noteless = false;
+  // the share of the cycle of the last point (the left point before tD)
+  let position = 0;
 
   // the level at frame `f`
   const point = (f: number, lfo: LfoGlobal, mods?: LfoMods | null) => {
@@ -299,9 +318,9 @@ export const createLfoRunner = (sampleRate: number) => {
       tD = Math.max(start + delay, previous >= start ? previous : start);
       phaseD = lfo.clock(tD);
     }
-    // (from the point before, not before tD; nothing at the first point: a route of Rate added to a playing
-    // note moves its phase from then on)
-    if (tD !== Infinity && mods?.rate !== undefined && !Number.isNaN(last)) {
+    // (from the point before, not before tD; at the first point from tD: a runner that starts late runs as if it
+    // had all along, at the frequency of then)
+    if (tD !== Infinity && mods?.rate !== undefined) {
       const extra = mods.rate - 1 / lfo.period(t);
       delta += extra * (t - (previous > tD ? previous : tD));
     }
@@ -309,8 +328,10 @@ export const createLfoRunner = (sampleRate: number) => {
     const theta = noteless || knobs.mode === FREE ? clock + delta : clock - phaseD + delta;
     const c = lfo.shape(0, t);
     let x = c;
+    position = 0;
     if (t >= tD) {
-      const y = lfo.shape(frac(theta + phase), t);
+      position = frac(theta + phase);
+      const y = lfo.shape(position, t);
       const r = rise > 0 ? Math.min(1, (t - tD) / rise) : 1;
       x = c + (y - c) * r;
     }
@@ -354,12 +375,16 @@ export const createLfoRunner = (sampleRate: number) => {
     at: (frame: number, lfo: LfoGlobal, mods?: (t: number) => LfoMods | null) => {
       if (!Number.isNaN(last)) {
         if (frame <= last) return out;
-        for (let f = last + LFO_SEGMENT; f < frame; f += LFO_SEGMENT) point(f, lfo, mods?.(f / sampleRate));
+        const from = Math.max(last + LFO_SEGMENT, frame - MAX_STEPS * LFO_SEGMENT);
+        for (let f = from; f < frame; f += LFO_SEGMENT) point(f, lfo, mods?.(f / sampleRate));
       }
       return point(frame, lfo, mods?.(frame / sampleRate));
     },
     get started() {
       return !Number.isNaN(last);
+    },
+    get position() {
+      return position;
     },
   };
 };

@@ -47,7 +47,7 @@ describe('distortion wasm worklet', () => {
             release: null,
             envelopes: [0, 1, 2].map(() => ({ attack: 0, hold: 0, decay: 0, sustain: 1, release: 0 })),
           },
-          routes: [{ env: 1, param: 'level', amount: -12, min: -24, max: 12 }],
+          routes: [{ source: 1, param: 'level', amount: -12, min: -24, max: 12 }],
         },
       },
     });

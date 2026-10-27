@@ -59,7 +59,12 @@ const setup = async ({ ready = true } = {}) => {
   const resolveTables = () => loads.forEach(({ resolve }) => resolve({ frames: TABLE, morph: false }));
   const modules = createSynth(['default'], (id) => load(id).promise);
   const fxModule = initModel(
-    fx({ synthCore: modules.synthCore, synth: modules.synth, modulation: modules.modulation }),
+    fx({
+      synthCore: modules.synthCore,
+      synth: modules.synth,
+      lfo: modules.lfos,
+      modulation: modules.modulation,
+    }),
     'fx',
     undefined
   );

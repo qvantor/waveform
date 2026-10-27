@@ -91,14 +91,19 @@ export const createSpiedInputController = () => {
   return { module, onPress, onRelease };
 };
 
-// the fx model with the routes of a modulation model and the last note of the synth: a subject the spec drives
-export const createFx = (synthCoreModule = createSynthCore(), modulationModule = createModulation()) => {
+// the fx model with the routes of a modulation model, the LFOs and the last note of the synth: a subject the spec
+// drives
+export const createFx = (
+  synthCoreModule = createSynthCore(),
+  modulationModule = createModulation(),
+  lfosModule = createLfos(synthCoreModule)
+) => {
   const $fxNote = new BehaviorSubject<FxNote | null>(null);
   const synthModule = [{ $fxNote }, {}] as unknown as SynthModule;
   const fxModule = initModel(
-    fx({ synthCore: synthCoreModule, synth: synthModule, modulation: modulationModule }),
+    fx({ synthCore: synthCoreModule, synth: synthModule, lfo: lfosModule, modulation: modulationModule }),
     'fx',
     undefined
   );
-  return { fx: fxModule, modulation: modulationModule, $fxNote };
+  return { fx: fxModule, modulation: modulationModule, lfos: lfosModule, $fxNote };
 };

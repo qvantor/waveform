@@ -12,7 +12,7 @@ import { ValueTooltip } from '../tooltip/value-tooltip';
 import { Label } from '../label';
 import type { HandleProps } from '../handle';
 import { RoutesDot } from '../amount-dot';
-import { MOD_DRAGGING_CLASS, MOD_OVER_ATTR, MOD_TARGET_ATTR } from '../mod-drag';
+import { MOD_DRAGGING_CLASS, MOD_OVER_ATTR, MOD_REFUSED_ATTR, MOD_TARGET_ATTR } from '../mod-drag';
 
 // the props of a knob, fillFrom is e.g. the natural width of a stereo fader
 type FaderProps = Omit<HandleProps, 'step' | 'size' | 'plotSize'> & { className?: string };
@@ -187,7 +187,7 @@ const ModHighlight = styled.div`
   pointer-events: none;
   display: none;
 
-  body.${MOD_DRAGGING_CLASS} [${MOD_TARGET_ATTR}] > * > & {
+  body.${MOD_DRAGGING_CLASS} [${MOD_TARGET_ATTR}]:not([${MOD_REFUSED_ATTR}]) > * > & {
     display: block;
     box-shadow: 0 0 0 2px var(--mod-drag-color);
   }
@@ -237,12 +237,8 @@ export const Fader = ({
   const from = fillShare ?? 0;
   const [low, high] = [Math.min(from, position), Math.max(from, position)];
   const ticks = React.useMemo(() => scaleTicks(fillShare), [fillShare]);
-  const {
-    modulations,
-    mark: modMark,
-    shown,
-    end: modEnd,
-  } = useModulations(routes, disabled, position, placeMark);
+  const { modulations, mark: modMark, shown, spans } = useModulations(routes, disabled, position, placeMark);
+  const [span] = spans;
 
   const bodyRef = React.useRef<HTMLDivElement>(null);
   const capRef = React.useRef<HTMLDivElement>(null);
@@ -257,6 +253,11 @@ export const Fader = ({
 
   const [trackPointer] = React.useState(singlePointerTracker);
   const onPointerDown = (e: React.PointerEvent) => {
+    // Shift+Alt+click: the selected route switches its polarity, the fader doesn't move
+    if (e.shiftKey && e.altKey && shown?.onPolarity) {
+      shown.onPolarity(!shown.bipolar);
+      return;
+    }
     lastValue.current = value;
     const target = e.target as Node;
     // the track beside the cap: the cap jumps under the pointer, then follows it; the cap, the dot of the routes
@@ -334,13 +335,13 @@ export const Fader = ({
             />
           )}
           <Cap ref={capRef} data-testid='fader-cap' style={{ bottom: position * FADER_TRAVEL }} />
-          {shown && modEnd !== undefined && (
+          {shown && span && (
             <ModBar
               data-testid='mod-bar'
               style={{
                 background: shown.color,
-                bottom: CAP_HEIGHT / 2 + Math.min(position, modEnd) * FADER_TRAVEL,
-                height: Math.abs(modEnd - position) * FADER_TRAVEL,
+                bottom: CAP_HEIGHT / 2 + span[0] * FADER_TRAVEL,
+                height: (span[1] - span[0]) * FADER_TRAVEL,
               }}
             />
           )}

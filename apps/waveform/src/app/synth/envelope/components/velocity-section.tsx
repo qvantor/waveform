@@ -6,7 +6,7 @@ import { ENVELOPE_CURVE_MAX } from '@waveform/preset-schema';
 import { useEnvelopes } from '../../common/modules';
 import { SynthContext } from '../../common/modules/synth';
 import type { FxNote } from '../../fx/effects/fx-modulation';
-import { EnvelopeTabs } from './envelope-tabs';
+import { SourceTabs } from '../../modulation/source-tabs';
 
 // without the synth (a spec of the section) no note is played
 const NO_NOTE = new BehaviorSubject<FxNote | null>(null);
@@ -34,7 +34,7 @@ export const VelocitySection = () => {
   const [{ $velocity }, { setVelocity }] = useEnvelopes();
   const { amp, k } = useBehaviorSubject($velocity);
   return (
-    <Section plain name={<EnvelopeTabs label='Velocity' sources={['velo']} />}>
+    <Section plain name={<SourceTabs label='Velocity' sources={['velo']} />}>
       <VelocityCurve
         k={k}
         curveMax={ENVELOPE_CURVE_MAX}

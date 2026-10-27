@@ -56,7 +56,7 @@ const saw = (size, harmonics, shift = 0) =>
   });
 const FLAT = { attack: 0, hold: 0, decay: 0, sustain: 1, release: 0 };
 const ENV = { attack: 0.01, hold: 0.005, decay: 0.05, sustain: 0.6, release: 0.08 };
-const oscScene = (name, { tables, voices, frames }) => ({
+const oscScene = (name, { tables, voices, frames, lfos = null }) => ({
   name,
   module: 'wavetable-osc',
   kind: 'osc',
@@ -64,6 +64,19 @@ const oscScene = (name, { tables, voices, frames }) => ({
   frames,
   tables,
   voices,
+  lfos,
+});
+// the LFOs of a scene: at once, the shapes as tables of 2049 levels (lfoTable of the app, built in Node: the page
+// gets their bits)
+const lfo = (shape, change = {}) => ({
+  mode: 0,
+  delay: 0,
+  rise: 0,
+  smooth: 0,
+  phase: 0,
+  anchor: { time: 0, phase: 0, period: 0.1 },
+  shape,
+  ...change,
 });
 const note = (osc, params, gate = [], options = {}) => ({
   options: {
@@ -144,6 +157,28 @@ const OSC_SCENES = [
       ),
     ],
   }),
+  oscScene('wavetable, LFOs on the wave, the gain and the cutoff, ENV 2 on a Rate', {
+    frames: OSC_RATE / 2,
+    tables: { a: [saw(2048, 200), saw(1024, 300, 0.7), saw(2048, 50)] },
+    lfos: [
+      lfo('sine'),
+      lfo('square', { mode: 1, smooth: 0.01, anchor: { time: 0, phase: 0.3, period: 0.13 } }),
+      lfo('triangle', { delay: 0.05, rise: 0.1, phase: 0.25 }),
+      lfo('saw-down'),
+    ],
+    voices: [
+      note([{ table: 'a', unison: 3, phase: 0, phaseRand: 0 }, null], { frequency: 220, spread1: 12 }, [], {
+        envelopes: [FLAT, { attack: 0.1, hold: 0, decay: 0.1, sustain: 0.4, release: 0.1 }, FLAT],
+        filter: { type: 'lowpass', cutoff: 1500, resonance: 4, gain: 0 },
+        routes: [
+          { source: 4, param: 'position1', amount: 1, min: 0, max: 1 },
+          { source: 5, param: 'gain1', amount: 0.6, min: 0, max: 1, bipolar: true },
+          { source: 6, param: 'cutoff', amount: 2, min: 20, max: 16000, scale: 'log' },
+          { source: 1, param: 'lfo1.rate', amount: 1.5, min: 1 / 32, max: 100, scale: 'log' },
+        ],
+      }),
+    ],
+  }),
 ];
 
 export const SCENES = [
@@ -191,6 +226,7 @@ export {
 } from './apps/waveform/src/app/synth/common/wavetable/wavetable-osc-wasm';
 export { buildLevels } from './apps/waveform/src/app/synth/common/wavetable/wavetable-mipmap';
 export { VOICE_PARAMETERS } from './apps/waveform/src/app/synth/common/wavetable/wavetable-osc-params';
+export { lfoTable } from './apps/waveform/src/app/synth/common/lfo/lfo-curve';
 `;
 let loaded = null;
 const load = async () => {
@@ -206,6 +242,18 @@ const load = async () => {
   );
   loaded = { dsp, wasm };
   return loaded;
+};
+
+// the LFOs of an oscillator scene as a state at once (null: none), their tables as arrays (the page makes them
+// Float32Arrays again)
+export const sceneLfos = async (scene) => {
+  if (!scene.lfos) return null;
+  const { dsp } = await load();
+  return {
+    at: 0,
+    instantly: true,
+    lfos: scene.lfos.map(({ shape, ...wire }) => ({ ...wire, table: Array.from(dsp.lfoTable(shape)) })),
+  };
 };
 
 // the levels of the tables of an oscillator scene (the page gets them as they are)
@@ -224,6 +272,12 @@ const nodeOscRender = async (scene) => {
   const store = dsp.createTableStoreWasm(scope);
   Object.entries(await sceneLevels(scene)).forEach(([table, levels]) => store.set(table, 1, levels));
   const shared = dsp.createVoiceSharedWasm(scope);
+  const lfos = await sceneLfos(scene);
+  if (lfos)
+    shared.setLfos({
+      ...lfos,
+      lfos: lfos.lfos.map((wire) => ({ ...wire, table: Float32Array.from(wire.table) })),
+    });
   const voices = scene.voices.map((voice) => ({
     ...voice,
     dsp: dsp.createVoiceWasm(scope, scene.rate, voice.options, store, Math.random, shared),

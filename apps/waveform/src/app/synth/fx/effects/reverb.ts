@@ -2,6 +2,7 @@ import { mapValues, omit } from 'lodash';
 import { FX_PARAMS } from '@waveform/preset-schema';
 import { number } from '@waveform/math';
 import { REVERB_PROCESSOR } from '../../common/processors';
+import { LfoWire, mergeLfos } from '../../common/lfo/lfo-curve';
 import { FxDefinition } from './types';
 import { ReverbParam, REVERB_PRESETS } from './reverb-presets';
 import { formatHz, formatMs, formatSeconds } from './format';
@@ -78,6 +79,8 @@ export const reverb: FxDefinition<ReverbParam> = {
   create: (audioCtx) => {
     const values = mapValues(FX_PARAMS.reverb, (param) => param.default);
     let active = true;
+    // the LFOs as the states so far left them
+    let lfos: LfoWire[] | null = null;
 
     // the era is resolved here, the worklet gets the values of its input stage; null bandwidth: full band
     const eraParams = (value: number) => {
@@ -88,7 +91,11 @@ export const reverb: FxDefinition<ReverbParam> = {
     // the node starts with the params and the active flag kept until the module has loaded
     const worklet = createWorkletFx(audioCtx, 'reverb', () => {
       const params: ReverbDspParams = { ...omit(values, 'era'), ...eraParams(values.era) };
-      const processorOptions: ReverbOptions = { params, active };
+      const processorOptions: ReverbOptions = {
+        params,
+        active,
+        ...(lfos && { lfos: { at: 0, instantly: true, lfos } }),
+      };
       return new AudioWorkletNode(audioCtx, REVERB_PROCESSOR, {
         ...STEREO_WORKLET_OPTIONS,
         processorOptions,
@@ -116,6 +123,11 @@ export const reverb: FxDefinition<ReverbParam> = {
       // the worklet moves the knobs once per block, the lines are worked out again only while they move
       setModulation: (mod) => {
         const message: FxModMessage = { mod };
+        worklet.post(message);
+      },
+      setLfos: (state) => {
+        lfos = mergeLfos(lfos, state);
+        const message: FxModMessage = { lfos: state };
         worklet.post(message);
       },
       destroy: worklet.destroy,

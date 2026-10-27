@@ -1,4 +1,6 @@
 import { delay } from './delay';
+import type { FxMod } from './fx-mod';
+import { DELAY_LINES } from './fx-mod-params';
 
 // the gains are found through the graph: the mocked createDelay also creates a gain for delayTime
 const setup = () => {
@@ -298,41 +300,42 @@ describe('delay', () => {
   describe('modulation', () => {
     const ENV = { attack: 0.1, hold: 0, decay: 0.1, sustain: 0.5, release: 0.2 };
     const note = { envelopes: [ENV, ENV, ENV], start: 1, release: null };
-    const calls = (param: AudioParam, method: keyof AudioParam) => (param[method] as jest.Mock).mock.calls;
-    const route = (param: string, amount: number, min: number, max: number, log = false) => ({
+    const route = (param: string, amount: number, min: number, max: number) => ({
       param,
-      env: 1,
+      source: 1,
       amount,
       min,
       max,
-      ...(log && { log }),
     });
-
-    it('automates the time of both lines directly: ramps of base + amount × level', () => {
-      const { core, lines } = setup();
-      core.setModulation({ note, routes: [route('time', 0.4, 0.01, 1)] });
-      // after the glide into it
-      lines.forEach((line) =>
-        expect(calls(line.delayTime, 'linearRampToValueAtTime')[1]).toEqual([
-          expect.closeTo(0.6, 9),
-          expect.closeTo(1.1, 9),
-        ])
-      );
-    });
-
-    it('clear automates the time of the new lines again, from their knob', () => {
-      const { core, createDelay } = setup();
-      core.setModulation({ note, routes: [route('time', 0.4, 0.01, 1)] });
-      core.clear?.();
-      const lines = createDelay.mock.results.slice(4, 6).map(({ value }) => value as DelayNode);
-      lines.forEach((line) => {
-        expect(calls(line.delayTime, 'setValueAtTime')[0]).toEqual([0.2, 0]);
-        expect(calls(line.delayTime, 'linearRampToValueAtTime')[1]).toEqual([
-          expect.closeTo(0.6, 9),
-          expect.closeTo(1.1, 9),
-        ]);
-      });
-    });
+    // the delay with the lines of an fx-mod: the line, the knob and the params of each set
+    const setupLines = () => {
+      const fxMod = { set: jest.fn() };
+      const audioCtx = new AudioContext();
+      const createDelay = jest.spyOn(audioCtx, 'createDelay');
+      const createBiquadFilter = jest.spyOn(audioCtx, 'createBiquadFilter');
+      const core = delay.create(audioCtx, fxMod as unknown as FxMod);
+      const results = <T>(spy: jest.SpyInstance) => spy.mock.results.map(({ value }) => value as T);
+      const targets = (node: AudioNode) => (node.connect as jest.Mock).mock.calls.map(([target]) => target);
+      const [lineL, lineR, offL, offR] = results<DelayNode>(createDelay);
+      const [bpL, bpR] = results<BiquadFilterNode>(createBiquadFilter);
+      const [fbLL, fbLR] = targets(bpL) as GainNode[];
+      const [fbRR, fbRL] = targets(bpR) as GainNode[];
+      const lineOf = (index: number) =>
+        fxMod.set.mock.calls
+          .filter(([line]) => line === index)
+          .at(-1)
+          ?.slice(1) as [unknown, AudioParam[]];
+      return {
+        core,
+        fxMod,
+        lineOf,
+        createDelay,
+        lines: [lineL, lineR],
+        offsets: [offL, offR],
+        filters: [bpL, bpR],
+        feedbacks: { ll: fbLL, rr: fbRR, lr: fbLR, rl: fbRL },
+      };
+    };
 
     it('works the bandpass out once per block: its Freq and Q are k-rate', () => {
       const { filters } = setup();
@@ -342,108 +345,72 @@ describe('delay', () => {
       });
     });
 
-    it('ramps the frequency and the Q of the bandpass exponentially', () => {
-      const { core, filters } = setup();
-      core.setModulation({
-        note,
-        routes: [route('freq', 2, 50, 17000, true), route('q', -1, 0.01, 3, true)],
-      });
-      filters.forEach((filter) => {
-        expect(calls(filter.frequency, 'exponentialRampToValueAtTime')[0]).toEqual([
-          expect.closeTo(4000, 6),
-          expect.closeTo(1.1, 9),
-        ]);
-        expect(calls(filter.Q, 'setValueAtTime').length).toBeGreaterThan(1);
-      });
-    });
-
-    it('moves the feedback on the gains of the mode, the pan on the delay of its side', () => {
-      const { core, feedbacks, offsets } = setup();
-      core.setParam('mode', 1);
-      core.setModulation({ note, routes: [route('fb', 0.4, 0, 0.9), route('pan', 0.04, -0.05, 0.05)] });
-      // ping-pong: the lines feed each other
-      [feedbacks.lr, feedbacks.rl].forEach((node) =>
-        expect(calls(node.gain, 'linearRampToValueAtTime')[1]).toEqual([
-          expect.closeTo(0.9, 9),
-          expect.closeTo(1.1, 9),
-        ])
-      );
-      [feedbacks.ll, feedbacks.rr].forEach((node) =>
-        expect(calls(node.gain, 'linearRampToValueAtTime')).toEqual([])
-      );
-      // from 0 the pan moves right: the left channel is delayed
-      expect(calls(offsets[0].delayTime, 'linearRampToValueAtTime')[15]).toEqual([
-        expect.closeTo(0.04, 9),
-        expect.closeTo(1.1, 9),
+    it('a knob its routes move is a line of fx-mod on its params: Time on both lines, Freq and Q on both bandpasses', () => {
+      const { core, lineOf, lines, filters } = setupLines();
+      const time = route('time', 0.4, 0.01, 1);
+      const freq = { ...route('freq', 2, 50, 17000), scale: 'log' as const };
+      core.setModulation({ note, routes: [time, freq] });
+      expect(lineOf(DELAY_LINES.time)).toEqual([
+        { routes: [time], base: 0.2, map: 'linear' },
+        [lines[0].delayTime, lines[1].delayTime],
       ]);
-      const right = calls(offsets[1].delayTime, 'linearRampToValueAtTime');
-      expect(right.length).toBeGreaterThan(0);
-      expect(Math.max(...right.map(([value]) => value))).toBe(0);
+      expect(lineOf(DELAY_LINES.freq)).toEqual([
+        { routes: [freq], base: 1000, map: 'linear' },
+        [filters[0].frequency, filters[1].frequency],
+      ]);
+      // the others have none
+      expect(lineOf(DELAY_LINES.q)?.[0]).toBeNull();
     });
 
-    // the order of the last call of a method of a param (-Infinity: none)
-    const lastOrder = (param: AudioParam, method: keyof AudioParam) =>
-      Math.max(-Infinity, ...(param[method] as jest.Mock).mock.invocationCallOrder);
-    // the order of its last hold: its automation left where it is (an automation of its own at a point of its
-    // line, then what follows cancelled; any other by cancelAndHoldAtTime)
-    const lastHold = (param: AudioParam) =>
-      Math.max(lastOrder(param, 'cancelScheduledValues'), lastOrder(param, 'cancelAndHoldAtTime'));
-    const holds = (param: AudioParam) =>
-      calls(param, 'cancelScheduledValues').length + calls(param, 'cancelAndHoldAtTime').length;
-
-    it('a mode change leaves the automation of the feedback gains of the old mode: one loop feeds back', () => {
-      const { core, feedbacks } = setup();
-      core.setModulation({ note, routes: [route('fb', 0.4, 0, 0.9)] });
-      expect(calls(feedbacks.ll.gain, 'linearRampToValueAtTime').length).toBeGreaterThan(0);
+    it('moves the feedback on the gains of the mode while it is active, the pan on the delay of each side', () => {
+      const { core, lineOf, feedbacks, offsets } = setupLines();
+      const fb = route('fb', 0.3, 0, 0.9);
+      const pan = route('pan', 0.05, -0.05, 0.05);
+      core.setModulation({ note, routes: [fb, pan] });
+      expect(lineOf(DELAY_LINES.fb)).toEqual([
+        { routes: [fb], base: 0.5, map: 'linear' },
+        [feedbacks.ll.gain, feedbacks.rr.gain],
+      ]);
+      expect(lineOf(DELAY_LINES.fbX)).toEqual([null, []]);
+      expect(lineOf(DELAY_LINES.panL)).toEqual([
+        { routes: [pan], base: 0, map: 'panL' },
+        [offsets[0].delayTime],
+      ]);
+      expect(lineOf(DELAY_LINES.panR)).toEqual([
+        { routes: [pan], base: 0, map: 'panR' },
+        [offsets[1].delayTime],
+      ]);
+      // ping-pong: the line of the gains between the lines comes in, the other one goes (its offset glides to 0 on
+      // the gains it was on: fx-mod disconnects them after)
       core.setParam('mode', 1);
-      // normal → ping-pong: the lines no longer feed themselves, from where they are to 0
-      [feedbacks.ll, feedbacks.rr].forEach(({ gain }) => {
-        expect(lastHold(gain)).toBeGreaterThan(lastOrder(gain, 'linearRampToValueAtTime'));
-        expect(lastValue(gain)).toBe(0);
-      });
-      // they feed each other, moved by the envelope
-      [feedbacks.lr, feedbacks.rl].forEach(({ gain }) =>
-        expect(calls(gain, 'linearRampToValueAtTime')[1]).toEqual([
-          expect.closeTo(0.9, 9),
-          expect.closeTo(1.1, 9),
-        ])
-      );
-    });
-
-    it('does not move the feedback while inactive: the lines drain', () => {
-      const { core, feedbacks } = setup();
-      core.setModulation({ note, routes: [route('fb', 0.4, 0, 0.9)] });
+      expect(lineOf(DELAY_LINES.fb)).toEqual([null, []]);
+      expect(lineOf(DELAY_LINES.fbX)).toEqual([
+        { routes: [fb], base: 0.5, map: 'linear' },
+        [feedbacks.lr.gain, feedbacks.rl.gain],
+      ]);
+      // inactive: no feedback, the lines drain
       core.setActive(false);
-      core.setModulation({ note: { ...note, start: 2 }, routes: [route('fb', 0.4, 0, 0.9)] });
-      Object.values(feedbacks).forEach(({ gain }) => {
-        expect(lastOrder(gain, 'setTargetAtTime')).toBeGreaterThan(
-          lastOrder(gain, 'linearRampToValueAtTime')
-        );
-        expect(lastValue(gain)).toBe(0);
-      });
-      [feedbacks.ll, feedbacks.rr].forEach(({ gain }) =>
-        expect(lastHold(gain)).toBeGreaterThan(lastOrder(gain, 'linearRampToValueAtTime'))
-      );
-      // active again: moved on the gains of the mode
-      core.setActive(true);
-      expect(calls(feedbacks.ll.gain, 'linearRampToValueAtTime').at(-2)).toEqual([
-        expect.closeTo(0.9, 9),
-        expect.closeTo(2.1, 9),
-      ]);
+      expect(lineOf(DELAY_LINES.fb)).toEqual([null, []]);
+      expect(lineOf(DELAY_LINES.fbX)).toEqual([null, []]);
     });
 
-    it('builds the automation again when a knob turns, lets a knob go back to its value without its routes', () => {
-      const { core, lines } = setup();
-      core.setModulation({ note, routes: [route('time', 0.4, 0.01, 1)] });
-      core.setParam('time', 0.3);
-      expect(calls(lines[0].delayTime, 'linearRampToValueAtTime').at(-2)).toEqual([
-        expect.closeTo(0.7, 9),
-        expect.closeTo(1.1, 9),
-      ]);
+    it('a knob turned gives its line its value, routes gone none; the knob glides as ever (Time with its tape glide)', () => {
+      const { core, lineOf, lines } = setupLines();
+      const time = route('time', 0.4, 0.01, 1);
+      core.setModulation({ note, routes: [time] });
+      core.setParam('time', 0.5);
+      expect(lineOf(DELAY_LINES.time)?.[0]).toEqual({ routes: [time], base: 0.5, map: 'linear' });
+      expect((lines[0].delayTime.setTargetAtTime as jest.Mock).mock.lastCall).toEqual([0.5, 0, 0.1]);
       core.setModulation(null);
-      // held for the note, the knob turned and the routes gone
-      expect(holds(lines[0].delayTime)).toBe(3);
-      expect(lastValue(lines[0].delayTime)).toBe(0.3);
+      expect(lineOf(DELAY_LINES.time)).toEqual([null, [lines[0].delayTime, lines[1].delayTime]]);
+    });
+
+    it('clear puts the lines on the params of the new nodes', () => {
+      const { core, lineOf, createDelay } = setupLines();
+      core.setModulation({ note, routes: [route('time', 0.4, 0.01, 1)] });
+      core.clear?.();
+      const [l, r] = createDelay.mock.results.slice(4, 6).map(({ value }) => value as DelayNode);
+      expect(lineOf(DELAY_LINES.time)?.[1]).toEqual([l.delayTime, r.delayTime]);
     });
   });
 });

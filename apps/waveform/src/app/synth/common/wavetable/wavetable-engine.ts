@@ -1,7 +1,7 @@
 import { BehaviorSubject } from 'rxjs';
 import { isWorkletSupported, loadWorklet, WORKLETS_PATH } from '../../fx/effects/load-worklet';
 import type { StopMessage } from '../../fx/effects/stereo-processor';
-import type { LfosState, LfoWire } from '../lfo/lfo-curve';
+import { LfosState, LfoWire, mergeLfos } from '../lfo/lfo-curve';
 import type {
   BuilderFailedMessage,
   BuilderPortMessage,
@@ -382,7 +382,7 @@ export const createWavetableEngine = (
     // the LFOs of every voice from `state.at` on (their tables only when they changed); a node made later (ready,
     // Retry) takes the last ones at once
     setLfos: (state: LfosState) => {
-      lfos = state.lfos.map((wire, i) => ({ ...wire, table: wire.table ?? lfos?.[i]?.table }));
+      lfos = mergeLfos(lfos, state);
       if (voices) enqueue({ kind: 'lfos', ...state });
     },
     // the events of this task to the node now (the specs)

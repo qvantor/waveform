@@ -133,6 +133,27 @@ describe('AmountDot', () => {
     expect(onRemove).toHaveBeenCalled();
   });
 
+  it('switches the polarity on Shift+click or B, shows a bipolar amount as ±', () => {
+    const onPolarity = jest.fn();
+    const { dot, onChange } = setup({ amount: -0.35, bipolar: true, onPolarity });
+    const event = new MouseEvent('pointerdown', {
+      bubbles: true,
+      cancelable: true,
+      shiftKey: true,
+      button: 0,
+    });
+    Object.defineProperty(event, 'pointerId', { value: 1 });
+    act(() => {
+      dot.dispatchEvent(event);
+    });
+    expect(onPolarity).toHaveBeenLastCalledWith(false);
+    fireEvent.keyDown(dot, { key: 'b' });
+    expect(onPolarity).toHaveBeenCalledTimes(2);
+    expect(onChange).not.toHaveBeenCalled();
+    fireEvent.mouseEnter(dot);
+    expect(document.getElementById('tooltip')?.textContent ?? '±35%').toContain('±35%');
+  });
+
   it('a press does not reach the knob under it', () => {
     const onKnob = jest.fn();
     render(

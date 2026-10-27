@@ -1,4 +1,4 @@
-import { BehaviorSubject } from 'rxjs';
+import { BehaviorSubject, Subject } from 'rxjs';
 import { ObjectBS, rxModel, rxModelReact } from '@waveform/rxjs-react';
 import {
   ENVELOPE_CURVE_MAX,
@@ -114,7 +114,9 @@ export const lfos = ({ synthCore: [{ audioCtx, wavetables }] }: Deps) =>
     const $selected = new BehaviorSubject<LfoId>(LFOS[0]);
     const globals = Object.fromEntries(LFOS.map((id) => [id, createLfoGlobal()])) as Record<LfoId, LfoGlobal>;
     const $state = new BehaviorSubject<LfosState | null>(null);
-    return { $lfos, $selected, globals, $state };
+    // every state as it is sent (the tables only of the shapes that changed)
+    const $changes = new Subject<LfosState>();
+    return { $lfos, $selected, globals, $state, $changes };
   })
     .actions(({ $lfos, $selected }) => {
       const update = (id: LfoId, change: Partial<LfoParams>) =>
@@ -136,7 +138,7 @@ export const lfos = ({ synthCore: [{ audioCtx, wavetables }] }: Deps) =>
         select: (id: LfoId) => $selected.next(id),
       };
     })
-    .subscriptions(({ $lfos, globals, $state }) => {
+    .subscriptions(({ $lfos, globals, $state, $changes }) => {
       let previous: Lfos | null = null;
       const tables = {} as Record<LfoId, Float32Array>;
       return [
@@ -167,6 +169,7 @@ export const lfos = ({ synthCore: [{ audioCtx, wavetables }] }: Deps) =>
           });
           wavetables.setLfos({ at, lfos: wires });
           $state.next({ at, lfos: wires.map((wire, i) => ({ ...wire, table: tables[LFOS[i]] })) });
+          $changes.next({ at, lfos: wires });
         }),
       ];
     })
@@ -184,3 +187,5 @@ export const {
   useModel: useLfos,
   Context: LfoContext,
 } = rxModelReact('lfo', lfos);
+
+export type LfoModule = ReturnType<typeof useLfos>;

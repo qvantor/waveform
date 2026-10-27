@@ -904,13 +904,12 @@ pub struct Voice {
     oscs: Vec<Osc>,
     modulation: Modulation,
     points_length: usize,
-    // its LFOs (run while a route of a param reads one), the routes of their knobs (of the envelopes and the
-    // velocity), the bases of those knobs in a block (one value each, or per sample while one changes) and the
-    // state of the LFOs of the shared it has seen
-    lfos: Vec<LfoBlock>,
+    // its LFOs (run while a route of a param reads one; their levels allocated only then), the routes of their
+    // knobs (of the envelopes and the velocity), the bases of those knobs in a block (one value each; per sample
+    // while one changes: in the scratch of the shared) and the state of the LFOs of the shared it has seen
+    lfos: [LfoBlock; LFOS],
     lfo_mod: Modulation,
     lfo_one: [f32; LFOS * KNOBS],
-    lfo_bases: Vec<f32>,
     lfo_epoch: u32,
 }
 
@@ -993,9 +992,11 @@ impl Voice {
         let mut lfo_accesses = [false; TARGET_PARAMS];
         lfo_accesses[VOICE_TARGETS..].fill(true);
         let lfo_mod = Modulation::new(sample_rate, envelopes.len(), false, &options.routes, lfo_accesses);
-        let lfos = (0..LFOS)
-            .map(|_| LfoBlock::new(sample_rate, env_start_frame))
-            .collect();
+        let mut lfos: [LfoBlock; LFOS] =
+            core::array::from_fn(|_| LfoBlock::new(sample_rate, env_start_frame));
+        if modulation.uses_lfos() {
+            lfos.iter_mut().for_each(LfoBlock::reserve);
+        }
         shared.grow(BLOCK);
         Voice {
             sample_rate,
@@ -1030,7 +1031,6 @@ impl Voice {
             lfos,
             lfo_mod,
             lfo_one: [0.0; LFOS * KNOBS],
-            lfo_bases: Vec::new(),
             lfo_epoch: shared.lfo_epoch,
         }
     }
@@ -1154,22 +1154,35 @@ impl Voice {
         self.hold_from = at;
         self.released = false;
         self.stop_frame = f64::INFINITY;
+        self.wake_routes();
+    }
+
+    // the levels the routes read may move again (a release, a start again, another velocity, a state of the
+    // LFOs): the routes of the params and those of the knobs of the LFOs
+    fn wake_routes(&mut self) {
         self.modulation.wake();
         self.lfo_mod.wake();
     }
 
     pub fn set_routes(&mut self, routes: &[VoiceRoute]) {
+        // (the levels of the LFOs before the routes: an allocation that traps leaves the routes as they were)
+        if routes.iter().any(|route| route.source >= LFO as f64) {
+            self.lfos.iter_mut().for_each(LfoBlock::reserve);
+        }
         self.modulation.set(routes);
         self.lfo_mod.set(routes);
+        // a knob of an LFO a route moves now (its Delay: a flat LFO may end sooner)
+        for lfo in self.lfos.iter_mut() {
+            lfo.wake();
+        }
     }
 
     // the LFOs the routes of the params read at the points of the block (from a to b of n at `frame`), their knobs
     // moved by their own routes; a new state of the LFOs of the shared wakes them and the routes
-    fn render_lfos(&mut self, frame: f64, a: f64, b: f64, n: usize, shared: &Shared) {
+    fn render_lfos(&mut self, frame: f64, a: f64, b: f64, n: usize, shared: &mut Shared) {
         if shared.lfo_epoch != self.lfo_epoch {
             self.lfo_epoch = shared.lfo_epoch;
-            self.modulation.wake();
-            self.lfo_mod.wake();
+            self.wake_routes();
             for lfo in self.lfos.iter_mut() {
                 lfo.wake();
             }
@@ -1178,6 +1191,8 @@ impl Voice {
         let mut changing = [false; LFOS * KNOBS];
         if self.lfo_mod.active {
             let (from, to) = ((frame + a) / rate, (frame + b - 1.0) / rate);
+            // (grown with the buffers of the block: Shared::grow)
+            let each = &mut shared.scratch.lfo_bases;
             for (i, global) in shared.lfos.iter().enumerate() {
                 if !self.modulation.uses(LFO + i) {
                     continue;
@@ -1190,15 +1205,12 @@ impl Voice {
                     if !changing[j] {
                         continue;
                     }
-                    if self.lfo_bases.len() < LFOS * KNOBS * n {
-                        self.lfo_bases = vec![0.0; LFOS * KNOBS * n];
-                    }
-                    for (s, value) in self.lfo_bases[j * n..(j + 1) * n].iter_mut().enumerate() {
+                    for (s, value) in each[j * n..(j + 1) * n].iter_mut().enumerate() {
                         *value = lfo_knob(global, k, (frame + s as f64) / rate) as f32;
                     }
                 }
             }
-            let (one, each) = (&self.lfo_one, &self.lfo_bases);
+            let (one, each) = (&self.lfo_one, &shared.scratch.lfo_bases);
             let bases: [&[f32]; TARGET_PARAMS] = core::array::from_fn(|param| {
                 if param < VOICE_TARGETS {
                     return &[][..];
@@ -1234,7 +1246,7 @@ impl Voice {
     /// a note took the voice over (mono): its VELO and its amp glide to the velocity of that note
     pub fn set_velocity(&mut self, velocity: VoiceVelocity) {
         self.velocity.set(velocity);
-        self.modulation.wake();
+        self.wake_routes();
     }
 
     /// a block starting at `frame` into the outputs; false once the voice has ended
@@ -1287,7 +1299,7 @@ impl Voice {
                     for envelope in self.envelopes.iter_mut() {
                         envelope.release(at);
                     }
-                    self.modulation.wake();
+                    self.wake_routes();
                     self.stop_frame = min(self.stop_frame, self.envelopes[0].end_frame());
                 }
                 i += 1.0;
