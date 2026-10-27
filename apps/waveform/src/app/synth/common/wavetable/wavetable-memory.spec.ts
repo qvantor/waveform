@@ -3,15 +3,8 @@ import { BLOCK, createVoiceScope } from '../../../../test-utils/voice-dsp';
 import { wasmCore } from '../../../../test-utils/wasm';
 import { WorkerStub } from '../../../../test-utils/worker-stub';
 import { createTableBuilder } from './wavetable-builder';
-import { FRAME_GUARD } from './wavetable-levels';
-import {
-  createLevels,
-  levelHarmonics,
-  levelLength,
-  MAX_FRAMES,
-  MAX_HARMONICS,
-  tableBytes,
-} from './wavetable-mipmap';
+import { createLevels, FRAME_GUARD, levelHarmonics, levelLength } from './wavetable-levels';
+import { MAX_FRAMES, MAX_HARMONICS, tableBytes } from './wavetable-mipmap';
 import { CROSSFADE, nativeTableLength, VoiceOscOptions } from './voice-options';
 import {
   createOscScope,

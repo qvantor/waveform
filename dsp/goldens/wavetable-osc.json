@@ -168,7 +168,7 @@
     ]
   },
   "a note takes the voice over (mono): its VELO and its amp glide to its velocity": {
-    "sha256": "844b770a2ffa9a4500b3a9f9f73f5705d3e40fde3c8f2dda5d71359b3bfa5616",
+    "sha256": "5dc1d24c224e5fc0dac43ab80a3c316151a7cc7f153a4d75572171348b1a9d49",
     "at": 1,
     "head": [
       -0.000027307329219183885,
@@ -182,7 +182,7 @@
     ]
   },
   "a note takes the voice over (mono): its VELO and its amp glide to its velocity: the sum of one node": {
-    "sha256": "2b8619453484bc4e21eb1129ed5a1315e1edf2065e671d142dbcd5dc8d26802b",
+    "sha256": "8159300aaa9f0b95c6620a114a6a8c55f6e1ca08d8f3a51071587bf4325b077b",
     "at": 1,
     "head": [
       -0.000027307329219183885,
@@ -196,7 +196,7 @@
     ]
   },
   "a position that moves, down across the frames, then stays": {
-    "sha256": "64621f4b48c3659df12b874ebd73277e170954d4818d6cddfe7ef0f3bfa8eb54",
+    "sha256": "7b9b21b8cba5aec1a9b60142bdaf12c962556c928f258e464974d9f5f90549e1",
     "at": 0,
     "head": [
       8.325602246801581e-16,
@@ -210,7 +210,7 @@
     ]
   },
   "a position that moves, down across the frames, then stays: the sum of one node": {
-    "sha256": "64621f4b48c3659df12b874ebd73277e170954d4818d6cddfe7ef0f3bfa8eb54",
+    "sha256": "7b9b21b8cba5aec1a9b60142bdaf12c962556c928f258e464974d9f5f90549e1",
     "at": 0,
     "head": [
       8.325602246801581e-16,
@@ -224,7 +224,7 @@
     ]
   },
   "a shaped unison: blend, width, a stack, a random detune, a position spread; into a new version": {
-    "sha256": "e41a63327f77b74bca6f6d5836621933dd8d3869f702ecb065da1272d5a39dc5",
+    "sha256": "2b8b368515dc4fd616145f5ea696435006d521188006d0cf5ee6285eb88bcf5d",
     "at": 0,
     "head": [
       -0.2514766752719879,
@@ -233,12 +233,12 @@
       1.3806443214416504,
       1.3390980958938599,
       1.1131483316421509,
-      1.100696086883545,
-      1.1222350597381592
+      1.100553274154663,
+      1.119336485862732
     ]
   },
   "a shaped unison: blend, width, a stack, a random detune, a position spread; into a new version: the sum of one node": {
-    "sha256": "e41a63327f77b74bca6f6d5836621933dd8d3869f702ecb065da1272d5a39dc5",
+    "sha256": "2b8b368515dc4fd616145f5ea696435006d521188006d0cf5ee6285eb88bcf5d",
     "at": 0,
     "head": [
       -0.2514766752719879,
@@ -247,8 +247,8 @@
       1.3806443214416504,
       1.3390980958938599,
       1.1131483316421509,
-      1.100696086883545,
-      1.1222350597381592
+      1.100553274154663,
+      1.119336485862732
     ]
   },
   "a table of one frame, a silent table": {
@@ -280,31 +280,31 @@
     ]
   },
   "a table played expanded (a morph mark) under a moving position: its 256 frames one by one": {
-    "sha256": "c9facdd31d32b4860940f3b889a81872f050f0802158d6c81f6bb6fe50844eb9",
+    "sha256": "5f7552d336fa7f94e25a68fe255556e1dc04341a8284dcba9682bf5b29fa1183",
     "at": 0,
     "head": [
       1.2449677023853906e-16,
-      1.2286089658737183,
-      1.0637904405593872,
-      1.0090816020965576,
-      1.070892333984375,
-      0.989384651184082,
-      0.9802736043930054,
-      0.9921501278877258
+      1.2194013595581055,
+      1.0561758279800415,
+      1.002204418182373,
+      1.0638461112976074,
+      0.9832762479782104,
+      0.9745365381240845,
+      0.9866155385971069
     ]
   },
   "a table played expanded (a morph mark) under a moving position: its 256 frames one by one: the sum of one node": {
-    "sha256": "c9facdd31d32b4860940f3b889a81872f050f0802158d6c81f6bb6fe50844eb9",
+    "sha256": "5f7552d336fa7f94e25a68fe255556e1dc04341a8284dcba9682bf5b29fa1183",
     "at": 0,
     "head": [
       1.2449677023853906e-16,
-      1.2286089658737183,
-      1.0637904405593872,
-      1.0090816020965576,
-      1.070892333984375,
-      0.989384651184082,
-      0.9802736043930054,
-      0.9921501278877258
+      1.2194013595581055,
+      1.0561758279800415,
+      1.002204418182373,
+      1.0638461112976074,
+      0.9832762479782104,
+      0.9745365381240845,
+      0.9866155385971069
     ]
   },
   "released, its envelope to 0": {
@@ -336,7 +336,7 @@
     ]
   },
   "routes to the wave, the gain and the spread, changed on the note": {
-    "sha256": "95160dfe0b21db58ee632b15dab94f3f7cda45fe96eebe54522afaa87818d41b",
+    "sha256": "ee48cf825e46b57d7872af5a13a4f1e7a4ae0ac96731819a2d9a521b89b33973",
     "at": 1,
     "head": [
       0.0010638420935720205,
@@ -350,7 +350,7 @@
     ]
   },
   "routes to the wave, the gain and the spread, changed on the note: the sum of one node": {
-    "sha256": "95160dfe0b21db58ee632b15dab94f3f7cda45fe96eebe54522afaa87818d41b",
+    "sha256": "ee48cf825e46b57d7872af5a13a4f1e7a4ae0ac96731819a2d9a521b89b33973",
     "at": 1,
     "head": [
       0.0010638420935720205,
