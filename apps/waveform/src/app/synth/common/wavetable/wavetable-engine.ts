@@ -1,6 +1,7 @@
 import { BehaviorSubject } from 'rxjs';
 import { isWorkletSupported, loadWorklet, WORKLETS_PATH } from '../../fx/effects/load-worklet';
 import type { StopMessage } from '../../fx/effects/stereo-processor';
+import type { LfosState, LfoWire } from '../lfo/lfo-curve';
 import type {
   BuilderFailedMessage,
   BuilderPortMessage,
@@ -120,6 +121,8 @@ export const createWavetableEngine = (
   let events: VoiceEvent[] = [];
   // the pitch bend of the voices (cents): a node made again (Retry) takes it at once
   let bend = 0;
+  // the LFOs as the last state left them, with the table of each: a node made again takes them at once
+  let lfos: LfoWire[] | null = null;
   let sending = false;
   // the version of each table the store has acknowledged (when it is the latest, new voices play it)
   const stored = new Map<string, number>();
@@ -298,6 +301,7 @@ export const createWavetableEngine = (
         voices = voicesNode;
         worker = created;
         if (bend !== 0) enqueue({ kind: 'bend', cents: bend, instantly: true });
+        if (lfos) enqueue({ kind: 'lfos', at: 0, instantly: true, lfos });
         $status.next('ready');
         tables.forEach((_, table) => send(table));
       })
@@ -374,6 +378,12 @@ export const createWavetableEngine = (
     setBend: (cents: number) => {
       bend = cents;
       enqueue({ kind: 'bend', cents });
+    },
+    // the LFOs of every voice from `state.at` on (their tables only when they changed); a node made later (ready,
+    // Retry) takes the last ones at once
+    setLfos: (state: LfosState) => {
+      lfos = state.lfos.map((wire, i) => ({ ...wire, table: wire.table ?? lfos?.[i]?.table }));
+      if (voices) enqueue({ kind: 'lfos', ...state });
     },
     // the events of this task to the node now (the specs)
     flush,

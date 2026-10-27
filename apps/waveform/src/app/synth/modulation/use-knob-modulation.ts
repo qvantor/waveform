@@ -10,7 +10,7 @@ import { SynthContext } from '../common/modules/synth';
 import { SynthCoreContext } from '../common/modules/synth-core';
 import { amountInUnits, MOD_TARGETS, ModScale } from '../common/modulation/modulation-targets';
 import { noteLevel } from '../fx/effects/fx-modulation';
-import { ENVELOPE_COLORS, ENVELOPE_LABELS } from '../envelope/envelope-colors';
+import { SOURCE_COLORS, SOURCE_LABELS } from '../envelope/envelope-colors';
 
 const NO_ROUTES = new BehaviorSubject<ModRoute[]>([]);
 const NOT_LIVE = new BehaviorSubject(false);
@@ -91,9 +91,9 @@ export const useKnobModulation = (target: string, knob?: KnobScale): KnobModulat
       .map(
         ({ source, amount }): HandleModulation => ({
           id: source,
-          color: ENVELOPE_COLORS[source],
+          color: SOURCE_COLORS[source],
           amount,
-          label: ENVELOPE_LABELS[source],
+          label: SOURCE_LABELS[source],
           onChange: (value) => actions?.setAmount(source, target, value),
           onRemove: () => actions?.removeRoute(source, target),
           formatAmount: units && ((value) => formatAmount(value, units.scale, units.range)),

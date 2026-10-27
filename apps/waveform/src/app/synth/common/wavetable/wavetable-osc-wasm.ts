@@ -668,6 +668,8 @@ export const createVoiceScopeWasm = (
       } else if (event.kind === 'bend') {
         flush();
         guard(() => exports.osc_scope_bend(handle, event.cents, event.instantly ? 1 : 0));
+      } else if (event.kind === 'lfos') {
+        flush();
       } else {
         // (a param the core has not: nothing; as an index of -1 the core would take it as the frequency)
         const param = VOICE_PARAM_ORDER.indexOf(event.param);

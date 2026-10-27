@@ -1,4 +1,5 @@
 import type { EnvelopeParams } from '../envelope/envelope-curve';
+import type { LfosState } from '../lfo/lfo-curve';
 import type { WavetableLevels } from './wavetable-levels';
 import type { VoiceParam } from './wavetable-osc-params';
 
@@ -143,13 +144,19 @@ export interface VoicesBend {
   cents: number;
   instantly?: boolean;
 }
+// the LFOs of every voice of the node from `at` on (their knobs, clocks and shapes: lfo-curve.ts), in the order of
+// the other events (a voice made after it plays them)
+export interface VoicesLfos extends LfosState {
+  kind: 'lfos';
+}
 export type VoiceEvent =
   | VoiceOn
   | VoiceAutomation
   | VoicesRoutes
   | VoicesFilter
   | VoicesVelocity
-  | VoicesBend;
+  | VoicesBend
+  | VoicesLfos;
 export interface VoiceEventsMessage {
   events: VoiceEvent[];
 }

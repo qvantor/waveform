@@ -6,7 +6,7 @@ import { ModSource } from '@waveform/preset-schema';
 import { startModDrag, theme } from '@waveform/ui-kit';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
 import { useEnvelopes, useModulation } from '../../common/modules';
-import { ENVELOPE_COLORS, ENVELOPE_LABELS } from '../envelope-colors';
+import { SOURCE_COLORS, SOURCE_LABELS } from '../envelope-colors';
 
 // the whole header (a plain one): a segmented control on its grey, as high as the other headers
 const Root = styled.div`
@@ -112,8 +112,8 @@ export const EnvelopeTabs = ({ label, sources, shown }: Props) => {
           onClick={() => select(id)}
           onPointerDown={(e) =>
             startModDrag(e, {
-              label: ENVELOPE_LABELS[id],
-              color: ENVELOPE_COLORS[id],
+              label: SOURCE_LABELS[id],
+              color: SOURCE_COLORS[id],
               onDrop: (target) => {
                 addRoute(id, target);
                 select(id);
@@ -121,8 +121,8 @@ export const EnvelopeTabs = ({ label, sources, shown }: Props) => {
             })
           }
         >
-          <Dot aria-hidden style={{ background: ENVELOPE_COLORS[id] }} />
-          {ENVELOPE_LABELS[id]}
+          <Dot aria-hidden style={{ background: SOURCE_COLORS[id] }} />
+          {SOURCE_LABELS[id]}
           {id === selected && <Grip aria-hidden data-testid='env-grip' />}
         </Tab>
       ))}

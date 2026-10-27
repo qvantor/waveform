@@ -22,6 +22,7 @@ import {
   useInputController,
   EnvelopesProvider,
   useEnvelopes,
+  LfoProvider,
   ModulationProvider,
   useModulation,
   Oscillator1Provider,
@@ -316,15 +317,27 @@ const HeaderInternal = ({ screen, onScreenChange }: ScreenProps) => {
   );
 };
 
+// the LFOs run in the voices node of the synth core
+const LfoInternal = ({ children }: React.PropsWithChildren) => {
+  const synthCore = useSynthCore();
+  return (
+    <LfoProvider initial={{}} synthCore={synthCore}>
+      {children}
+    </LfoProvider>
+  );
+};
+
 export default () => (
   <InputControllerProvider initial={{}}>
     <SynthCoreProvider initial={{}}>
       <EnvelopesProvider initial={{}}>
-        <ModulationProvider initial={{}}>
-          <OscillatorInternal>
-            <Internal />
-          </OscillatorInternal>
-        </ModulationProvider>
+        <LfoInternal>
+          <ModulationProvider initial={{}}>
+            <OscillatorInternal>
+              <Internal />
+            </OscillatorInternal>
+          </ModulationProvider>
+        </LfoInternal>
       </EnvelopesProvider>
     </SynthCoreProvider>
   </InputControllerProvider>

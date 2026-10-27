@@ -127,7 +127,7 @@ const voiceRoutes = (
       return [{ env, param, amount: amountInUnits(amount, definition.scale, definition.range), min, max }];
     }
     // the fx follow the last note (the fx model)
-    if (definition.kind === 'fx' || !filter) return [];
+    if (definition.kind === 'fx' || definition.kind === 'lfo' || !filter) return [];
     const { scale, range, disabled } = filterTargetScale(filter.type, definition.param);
     if (disabled) return [];
     const [min, max] = range;

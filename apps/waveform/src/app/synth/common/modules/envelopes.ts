@@ -23,6 +23,8 @@ export type Envelopes = Record<EnvelopeId, Required<EnvelopeParams>>;
 // the knobs of the velocity: Amp (the share of the volume of a note it takes) and k (the curve of VELO)
 export type VelocityKnobs = Record<VelocityKnob, number>;
 
+const isEnvelope = (id: ModSource): id is EnvelopeId => (ENVELOPES as readonly string[]).includes(id);
+
 // the snapshot of the model, env: { e1, e2, e3, vel }
 type EnvSnap = Record<string, Required<EnvelopeParams> | VelocityKnobs>;
 
@@ -65,7 +67,7 @@ export const envelopes = () =>
   rxModel(() => {
     const $envelopes = new ObjectBS<Envelopes>(envelopesFrom({}));
     const $velocity = new ObjectBS<VelocityKnobs>(velocityFrom());
-    // the selected tab (an envelope or the velocity), the knobs show its routes, and the envelope the ENV
+    // the selected tab (an envelope, the velocity or an LFO), the knobs show its routes, and the envelope the ENV
     // section shows: the last one selected. The state of the UI, not in the preset
     const $selected = new BehaviorSubject<ModSource>(ENVELOPES[0]);
     const $envelope = new BehaviorSubject<EnvelopeId>(ENVELOPES[0]);
@@ -85,7 +87,7 @@ export const envelopes = () =>
         $velocity.next({ ...$velocity.value, [knob]: value }),
       select: (id: ModSource) => {
         $selected.next(id);
-        if (id !== 'velo') $envelope.next(id);
+        if (isEnvelope(id)) $envelope.next(id);
       },
     }))
     .plugins(

@@ -47,9 +47,11 @@ describe('the path of a note', () => {
   it('a key makes the voice in its keydown event, at the context time, sent before its task ends', async () => {
     const { key, voices, audioCtx, travel } = await setup();
     travel(1.5);
+    // (the LFOs as the node got ready)
+    const sent = eventsOf(voicesNodes(audioCtx)[0]).length;
     key('keydown', 'KeyQ');
     await Promise.resolve();
-    expect(eventsOf(voicesNodes(audioCtx)[0])).toHaveLength(1);
+    expect(eventsOf(voicesNodes(audioCtx)[0])).toHaveLength(sent + 1);
     expect(voices()).toHaveLength(1);
     expect(voices()[0].options.start).toBe(audioCtx.currentTime);
     expect(audioCtx.currentTime).toBe(1.5);

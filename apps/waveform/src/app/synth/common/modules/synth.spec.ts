@@ -160,14 +160,16 @@ describe('synth', () => {
     const { onPress, onRelease, voices, audioCtx, synthActions } = await setup();
     synthActions.setPortamento(100);
     const [node] = voicesNodes(audioCtx);
+    // (the LFOs as the node got ready)
+    const sent = eventsOf(node).length;
     onPress([4, 'C']);
     onPress([4, 'E']);
     onRelease([4, 'C']);
     // (a microtask sends them)
-    expect(eventsOf(node)).toEqual([]);
+    expect(eventsOf(node).slice(sent)).toEqual([]);
     await Promise.resolve();
-    const [{ events }] = eventsOf(node);
-    expect(eventsOf(node)).toHaveLength(1);
+    const [{ events }] = eventsOf(node).slice(sent);
+    expect(eventsOf(node).slice(sent)).toHaveLength(1);
     const [c, e] = voices();
     expect(events.map(({ kind }) => kind)).toEqual([
       'on',
