@@ -15,6 +15,8 @@ import {
   nextAnchor,
   phaseAt,
   RETRIG,
+  segmentAt,
+  segmentEnd,
   tableLevel,
 } from './lfo-curve';
 
@@ -100,6 +102,16 @@ describe('lfoTable', () => {
     expect(table[LFO_TABLE_SIZE]).toBe(table[0]);
   });
 
+  it('has fewer levels of the same cycle: every 8th level of the table at 256', () => {
+    const points = [
+      [0, 0.2, 2],
+      [0.3, 1, 0],
+      [0.3, 0.4, -1],
+    ] as const;
+    const [table, line] = [lfoTable('sine', points), lfoTable('sine', points, 256)];
+    expect(line).toEqual(table.filter((_, i) => i % 8 === 0));
+  });
+
   it('takes a cycle of any length, linear around it, within 0..1', () => {
     const table = lfoTableFrom([0, 1, 2, NaN]);
     expect(table[0]).toBe(0);
@@ -116,6 +128,22 @@ describe('lfoTable', () => {
     const table = lfoTable('saw-up');
     expect(tableLevel(table, 0.3)).toBeCloseTo(0.3, 6);
     expect(tableLevel(table, 1 - 1e-17)).toBeCloseTo(0, 6);
+  });
+});
+
+describe('segmentAt, segmentEnd', () => {
+  // a step at 0.6, then the wrap to the first point at 1
+  const points = [
+    [0, 0, 3],
+    [0.4, 1, 0],
+    [0.6, 0.2, -2],
+    [0.6, 0, 0],
+  ] as const;
+
+  it('is the segment of the last point at or before x, to the next point or the first one at 1', () => {
+    expect([0, 0.39, 0.4, 0.59, 0.6, 0.99].map((x) => segmentAt(points, x))).toEqual([0, 0, 1, 1, 3, 3]);
+    expect(segmentEnd(points, 0)).toEqual(points[1]);
+    expect(segmentEnd(points, 3)).toEqual([1, 0]);
   });
 });
 

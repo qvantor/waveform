@@ -304,7 +304,7 @@ const lfoSchema = z
     phase: range(0, 1).default(LFO_DEFAULTS.phase),
     shape: z.enum(LFO_SHAPES).default(LFO_DEFAULTS.shape),
     mode: z.enum(LFO_MODES).default(LFO_DEFAULTS.mode),
-    // a shape of its own (before shape: no editor draws it yet)
+    // a shape of its own (before shape; drawn and edited on the chart of the LFO section)
     points: z
       .array(
         z.tuple([

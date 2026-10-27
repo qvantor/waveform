@@ -24,7 +24,18 @@ export { FileDrop } from './file-drop';
 export { Tabs } from './tabs';
 export { PianoKeyboard } from './piano-keyboard';
 export { PitchWheel } from './pitch-wheel';
-export { AdsrEnvelope, formatTime, NoteDot, VelocityCurve, VelocityDot } from './adsr-envelope';
+export {
+  AdsrEnvelope,
+  formatTime,
+  NoteDot,
+  NOTE_DOT_COLOR,
+  NOTE_DOT_RADIUS,
+  VelocityCurve,
+  VelocityDot,
+  CurvePoint,
+  POINT_RADIUS,
+  POINT_HIT_RADIUS,
+} from './adsr-envelope';
 export { Modal } from './modal';
 export { Section } from './section';
 export { VolumeAnalyser } from './volume-analyser';
@@ -50,5 +61,5 @@ export type { HandleProps, HandleModulation } from './handle';
 export type { NotePath } from './adsr-envelope';
 export type { Theme } from './common/constants';
 export { useIsMobile, useIsPortrait, useElementSize } from './common/hooks';
-export { useLiveDraw, liveKnob, onFrame } from './common/utils';
+export { useLiveDraw, liveKnob, onFrame, singlePointerTracker } from './common/utils';
 export type { LiveKnob } from './common/utils';

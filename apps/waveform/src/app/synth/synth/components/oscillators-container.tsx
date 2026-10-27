@@ -1,6 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
-import { Section, theme } from '@waveform/ui-kit';
+import { Section } from '@waveform/ui-kit';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
 import { Oscillator } from '../../oscillator';
 import { useOscillator1, useOscillator2 } from '../../common/modules';
@@ -11,13 +10,6 @@ interface OscillatorComponentParams {
   // the prefix of its modulation targets
   target: 'osc1' | 'osc2';
 }
-
-const Root = styled.div`
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  background: ${theme.colors.primaryLowContrast};
-  gap: 1px;
-`;
 
 const OscillatorComponentFactory =
   ({ useOscillator, name, target }: OscillatorComponentParams) =>
@@ -43,10 +35,3 @@ export const Oscillator2 = OscillatorComponentFactory({
   useOscillator: useOscillator2,
   target: 'osc2',
 });
-
-export const OscillatorsContainer = () => (
-  <Root>
-    <Oscillator1 />
-    <Oscillator2 />
-  </Root>
-);

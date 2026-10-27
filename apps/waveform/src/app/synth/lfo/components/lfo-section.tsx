@@ -12,20 +12,16 @@ import {
   LfoKnob,
   LfoMode,
   LFOS,
-  LfoShape,
 } from '@waveform/preset-schema';
 import { useLfos } from '../../common/modules';
 import { useKnobModulation } from '../../modulation/use-knob-modulation';
 import { SourceTabs } from '../../modulation/source-tabs';
+import { CUSTOM_SHAPE, LFO_SHAPE_OPTIONS, shapeOptionOf } from '../lfo-shapes';
 import { LfoChart } from './lfo-chart';
 
-const SHAPES: { name: string; value: LfoShape }[] = [
-  { name: 'Sine', value: 'sine' },
-  { name: 'Triangle', value: 'triangle' },
-  { name: 'Saw up', value: 'saw-up' },
-  { name: 'Saw down', value: 'saw-down' },
-  { name: 'Square', value: 'square' },
-];
+// the shapes by category; points of its own that are none of them show as Custom, not chosen
+const SHAPES = LFO_SHAPE_OPTIONS.map(({ id, name, group }) => ({ name, value: id, group }));
+const SHAPES_CUSTOM = [...SHAPES, { name: 'Custom', value: CUSTOM_SHAPE, disabled: true }];
 const MODES: { name: string; value: LfoMode }[] = [
   { name: 'Retrig', value: 'retrig' },
   { name: 'Free', value: 'free' },
@@ -105,7 +101,8 @@ const KNOBS: Record<
   },
 };
 
-const LfoKnobHandle = ({ id, knob, value }: { id: LfoId; knob: LfoKnob; value: number }) => {
+// memoized: a drag of a point of the chart renders the section on every move, not its knobs
+const LfoKnobHandle = React.memo(({ id, knob, value }: { id: LfoId; knob: LfoKnob; value: number }) => {
   const [, { setLfoValue }] = useLfos();
   const modulation = useKnobModulation(`${id}.${knob}`);
   const rate = knob === 'rate';
@@ -119,27 +116,40 @@ const LfoKnobHandle = ({ id, knob, value }: { id: LfoId; knob: LfoKnob; value: n
       {...modulation}
     />
   );
-};
+});
 
 // an LFO goes to every knob but those of the LFOs
 const acceptsLfo = (target: string) => !isLfoKnob(target);
 
-// LFO 1–4 right of VELO: their tabs (dragged onto a knob: a route), the cycle of the one shown with the dot of the
-// last note, its shape and mode, Rate, Delay, Rise, Smooth and Phase (targets of the envelopes and the velocity)
+// LFO 1–4 right of ENV: their tabs (dragged onto a knob: a route), the cycle of the one shown with its points
+// (edited there: a shape of its own, Custom) and the dot of the last note, its shape (by category: lfo-shapes.ts)
+// and mode, Rate, Delay, Rise, Smooth and Phase (targets of the envelopes and the velocity)
 export const LfoSection = () => {
-  const [{ $lfos, $selected }, { select, setShape, setMode }] = useLfos();
+  const [{ $lfos, $selected }, { select, setShape, setPoints, setMode }] = useLfos();
   const lfos = useBehaviorSubject($lfos);
   const id = useBehaviorSubject($selected);
   const lfo = lfos[id];
+  const shape = shapeOptionOf(lfo);
+  // a shape of the LFO, or the points of one of the list
+  const chooseShape = (value: string) => {
+    const option = LFO_SHAPE_OPTIONS.find((option) => option.id === value);
+    if (!option) return;
+    if ('points' in option) setPoints(id, option.points);
+    else setShape(id, option.shape);
+  };
   return (
     <Section
       plain
       name={<SourceTabs label='LFOs' sources={LFOS} shown={id} onSelect={select} accepts={acceptsLfo} />}
     >
       <Root>
-        <LfoChart id={id} lfo={lfo} />
+        <LfoChart id={id} lfo={lfo} onPointsChange={(points) => setPoints(id, points)} />
         <Row>
-          <Select value={lfo.shape} options={SHAPES} onChange={(shape) => setShape(id, shape)} />
+          <Select
+            value={shape}
+            options={shape === CUSTOM_SHAPE ? SHAPES_CUSTOM : SHAPES}
+            onChange={chooseShape}
+          />
           <Select value={lfo.mode} options={MODES} onChange={(mode) => setMode(id, mode)} />
         </Row>
         <Knobs>

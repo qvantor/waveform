@@ -1,10 +1,12 @@
 import React from 'react';
 import styled from 'styled-components';
 import cls from 'classnames';
+import { distinctUntilChanged, map } from 'rxjs';
 import { MdDragIndicator } from 'react-icons/md';
 import { ModSource } from '@waveform/preset-schema';
 import { startModDrag, theme } from '@waveform/ui-kit';
-import { useBehaviorSubject } from '@waveform/rxjs-react';
+import { useBehaviorSubject, useObservable } from '@waveform/rxjs-react';
+import { ModRoute } from '../common/modules/modulation';
 import { useEnvelopes, useModulation } from '../common/modules';
 import { SOURCE_COLORS, SOURCE_LABELS } from '../envelope/envelope-colors';
 
@@ -63,13 +65,19 @@ const Tab = styled.button`
   }
 `;
 
-// a white ring around it: the colors are about as dark as the grey of the header
+// a white ring around it (the colors are about as dark as the grey of the header), the number of the routes of
+// its source in it (none: empty)
 const Dot = styled.span`
   flex: none;
-  width: 11px;
-  height: 11px;
+  width: 13px;
+  height: 13px;
   border-radius: 50%;
   box-shadow: 0 0 0 2px ${theme.colors.white};
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 13px;
+  text-align: center;
+  color: ${theme.colors.white};
 `;
 
 // the grip of the selected tab, in its right corner: the label stays centered
@@ -95,21 +103,36 @@ interface Props<S extends ModSource> {
   accepts?: (target: string) => boolean;
 }
 
+// the number of the routes of each source, in their order
+const routeCounts = (sources: readonly ModSource[], routes: ModRoute[]) =>
+  sources.map((id) => routes.filter(({ source }) => source === id).length);
+const sameCounts = (a: number[], b: number[]) => a.every((count, i) => count === b[i]);
+
 // the tabs of sources in the header of a section, ENV 1 | ENV 2 | ENV 3, VELO or LFO 1 | … | LFO 4: the selected one
 // (of every source, the tabs of the other sections too) is the source the knobs show the routes of. A tab dragged
 // onto a knob assigns its source to it at +50% (bipolar on a knob centered on 0) and selects it, the knobs show the
-// new route at once (a click selects it), the grip of the selected one tells it
+// new route at once (a click selects it), the grip of the selected one tells it. The dot of a tab has the number
+// of the routes of its source: a route added or removed renders the tabs, not an amount
 export const SourceTabs = <S extends ModSource>({ label, sources, shown, onSelect, accepts }: Props<S>) => {
   const [{ $selected }, { select: selectSource }] = useEnvelopes();
-  const [, { addRoute }] = useModulation();
+  const [{ $routes }, { addRoute }] = useModulation();
   const selected = useBehaviorSubject($selected);
+  const $counts = React.useMemo(
+    () =>
+      $routes.pipe(
+        map((routes) => routeCounts(sources, routes)),
+        distinctUntilChanged(sameCounts)
+      ),
+    [$routes, sources]
+  );
+  const counts = useObservable($counts, routeCounts(sources, $routes.value));
   const select = (id: S) => {
     selectSource(id);
     onSelect?.(id);
   };
   return (
     <Root role='tablist' aria-label={label}>
-      {sources.map((id) => (
+      {sources.map((id, i) => (
         <Tab
           key={id}
           type='button'
@@ -130,7 +153,9 @@ export const SourceTabs = <S extends ModSource>({ label, sources, shown, onSelec
             })
           }
         >
-          <Dot aria-hidden style={{ background: SOURCE_COLORS[id] }} />
+          <Dot aria-hidden data-testid='route-count' style={{ background: SOURCE_COLORS[id] }}>
+            {counts[i] || null}
+          </Dot>
           {SOURCE_LABELS[id]}
           {id === selected && <Grip aria-hidden data-testid='env-grip' />}
         </Tab>

@@ -13,9 +13,10 @@ export type CurveStage = keyof AdsrCurves;
 export const CURVE_HANDLE_MIN_TIME = 0.02;
 // px from the middle of the line a point snaps to it (k 0: a line can't be hit by a drag otherwise)
 const SNAP = 3;
-const RADIUS = 3.5;
+// px of a point (an editor of points on a chart has them as large: the points of an LFO)
+export const POINT_RADIUS = 3.5;
 // the area a press takes, around the point
-const HIT_RADIUS = 10;
+export const POINT_HIT_RADIUS = 10;
 // k a key press moves the point by, k in steps of 0.01
 const KEY_STEP = 0.1;
 const KEY_DIRECTIONS: Record<string, number> = { ArrowUp: 1, ArrowDown: -1 };
@@ -64,9 +65,9 @@ interface PointProps {
   onChange: (k: number) => void;
 }
 
-// the point of a curved stage (or of any curve from one corner to another), in its middle on its curve: dragged
-// up or down it follows the pointer (the share of the stage done there gives the k), arrows move it too, a
-// double click sets the default
+// the point of a curved stage (or of any curve from one corner to another: a segment of the points of an LFO), in
+// its middle on its curve: dragged up or down it follows the pointer (the share of the stage done there gives the
+// k), arrows move it too, a double click sets the default
 export const CurvePoint = ({
   label,
   from: [x0, y0],
@@ -134,8 +135,8 @@ export const CurvePoint = ({
       onDoubleClick={() => emitFromNow(fallback)}
       onKeyDown={onKeyDown}
     >
-      <circle r={HIT_RADIUS} fill='transparent' />
-      <circle className='dot' r={RADIUS} />
+      <circle r={POINT_HIT_RADIUS} fill='transparent' />
+      <circle className='dot' r={POINT_RADIUS} />
     </Point>
   );
 };

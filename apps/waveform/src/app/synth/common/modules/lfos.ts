@@ -38,7 +38,7 @@ interface Deps {
 }
 
 // the knobs of an LFO: rate is its period (seconds, the knob goes by its frequency), the times seconds, phase a
-// share of the cycle; points: a shape of its own (before `shape`; no editor draws it yet)
+// share of the cycle; points: a shape of its own (before `shape`; the chart of the section edits it)
 export type LfoParams = Record<LfoKnob, number> & { shape: LfoShape; mode: LfoMode; points?: LfoPoint[] };
 export type Lfos = Record<LfoId, LfoParams>;
 

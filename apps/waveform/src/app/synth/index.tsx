@@ -38,7 +38,7 @@ import {
   useSoundSwitch,
 } from './common/modules';
 import { FilterProvider, FilterSection, useFilter } from './filter';
-import { OscillatorsContainer, MasterHandle, LimiterStatus } from './synth/components';
+import { Oscillator1, Oscillator2, MasterHandle, LimiterStatus } from './synth/components';
 import { VoicingSection } from './voicing';
 import { MidiInput, SettingsButton } from './settings';
 import { PitchBend } from './pitch-bend';
@@ -55,17 +55,26 @@ const KEY_WIDTH = 40;
 const MIN_KEY_WIDTH = 36;
 const MAX_OCTAVES = 5;
 
+// the row of the modulation (and the voicing) lower than the one of the sound: it stays under the fx too
 const Root = styled.div`
   display: grid;
-  grid-template-rows: 1fr 1fr ${KEY_HEIGHT}px;
+  grid-template-rows: 1.6fr 1fr ${KEY_HEIGHT}px;
   height: calc(100vh - 80px);
   gap: 1px;
   background: ${theme.colors.primaryLowContrast};
 `;
 
-const AdsrContainer = styled.div`
+// the oscillators and the filter after them, in the order the sound goes
+const SynthRow = styled.div`
   display: grid;
-  grid-template-columns: 3fr 1.5fr 3fr 3fr 1fr;
+  grid-template-columns: 3fr 3fr 2fr;
+  background: ${theme.colors.primaryLowContrast};
+  gap: 1px;
+`;
+
+const ModRow = styled.div`
+  display: grid;
+  grid-template-columns: 3fr 3fr 1.5fr 1fr;
   background: ${theme.colors.primaryLowContrast};
   gap: 1px;
 `;
@@ -110,10 +119,6 @@ const MasterSection = styled(HeaderSection)`
   padding: 0 16px;
 `;
 
-const DesktopFx = styled(FxScreen)`
-  grid-row: span 2;
-`;
-
 const HeaderEq = styled(FqAnalyser)`
   flex: 1 1;
   height: 100%;
@@ -148,17 +153,23 @@ const PianoInternal = () => {
   );
 };
 
-const AdsrEnvelopeInternal = () => {
-  return (
-    <AdsrContainer>
-      <EnvelopeSection />
-      <VelocitySection />
-      <LfoSection />
-      <FilterSection />
-      <VoicingSection />
-    </AdsrContainer>
-  );
-};
+const SynthRowInternal = () => (
+  <SynthRow>
+    <Oscillator1 />
+    <Oscillator2 />
+    <FilterSection />
+  </SynthRow>
+);
+
+// the sources of the modulation and the voicing, on both screens
+const ModRowInternal = () => (
+  <ModRow>
+    <EnvelopeSection />
+    <LfoSection />
+    <VelocitySection />
+    <VoicingSection />
+  </ModRow>
+);
 
 interface ScreenProps {
   screen: SynthScreen;
@@ -169,14 +180,10 @@ const DesktopLayout = ({ screen, onScreenChange }: ScreenProps) => (
   <>
     <HeaderInternal screen={screen} onScreenChange={onScreenChange} />
     <Root>
-      {screen === 'osc' ? (
-        <>
-          <OscillatorsContainer />
-          <AdsrEnvelopeInternal />
-        </>
-      ) : (
-        <DesktopFx />
-      )}
+      {/* the fx in the row of the oscillators, scrolled there */}
+      {screen === 'osc' ? <SynthRowInternal /> : <FxScreen />}
+      {/* the same element on both screens: the tabs, the charts and the dots of a note go on */}
+      <ModRowInternal />
       <PianoInternal />
     </Root>
   </>

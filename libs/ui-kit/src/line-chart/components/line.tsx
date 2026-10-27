@@ -1,30 +1,29 @@
 import React from 'react';
-import { Line as LineType } from 'd3-shape';
+import { line } from 'd3-shape';
 import { theme } from '../../common/constants';
 import { useLineChartContext } from '../hooks';
 
+type Point = readonly [number, number];
+
 interface Props {
-  data: number[];
+  // values by their index, or [x, y] points in the domains of the chart
+  data: number[] | readonly Point[];
   style?: React.CSSProperties;
 }
 
-interface CustomLineProps<T> {
-  data: T[];
-  customLineFn: LineType<T>;
-  style?: React.CSSProperties;
-}
+const isValues = (data: Props['data']): data is number[] => typeof data[0] === 'number';
 
-export function Line(props: Props): JSX.Element;
-export function Line<T>(props: CustomLineProps<T>): JSX.Element;
-
-export function Line(props: Props | CustomLineProps<unknown>) {
-  const { data, style } = props;
-  const { lineFn } = useLineChartContext();
-  const customLineFn = 'customLineFn' in props ? props.customLineFn : undefined;
+export function Line({ data, style }: Props) {
+  const { lineFn, scaleX, scaleY } = useLineChartContext();
   // built again only for new data or scales, not on every render of the chart (a drag over it)
   const d = React.useMemo(
-    () => (customLineFn ? customLineFn(data) : lineFn(data as number[])),
-    [customLineFn, lineFn, data]
+    () =>
+      isValues(data)
+        ? lineFn(data)
+        : line<Point>()
+            .x((p) => scaleX(p[0]))
+            .y((p) => scaleY(p[1]))(data),
+    [lineFn, scaleX, scaleY, data]
   );
   return (
     <g>

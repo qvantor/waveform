@@ -1,5 +1,5 @@
 import React from 'react';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { Select } from './index';
 
@@ -46,5 +46,45 @@ describe('Select', () => {
     const { onChange } = renderSelect(value);
     await userEvent.setup().click(screen.getByRole('button', { name: button }));
     expect(onChange).toHaveBeenCalledWith(next);
+  });
+
+  describe('groups', () => {
+    const grouped = [
+      { name: 'One', value: 'a', group: 'Odd' },
+      { name: 'Three', value: 'c', group: 'Odd' },
+      { name: 'Two', value: 'b', group: 'Even' },
+      { name: 'Other', value: 'x', disabled: true },
+    ];
+    const renderGrouped = (value: string) => {
+      const onChange = jest.fn();
+      render(<Select value={value} options={grouped} onChange={onChange} />);
+      return onChange;
+    };
+
+    it('lists the options of a group under its label, those of none apart', () => {
+      renderGrouped('a');
+      const names = (group: HTMLElement) =>
+        within(group)
+          .getAllByRole('option')
+          .map(({ textContent }) => textContent);
+      expect(screen.getAllByRole('group').map((group) => group.getAttribute('label'))).toEqual([
+        'Odd',
+        'Even',
+      ]);
+      expect(names(screen.getByRole('group', { name: 'Odd' }))).toEqual(['One', 'Three']);
+      expect(names(screen.getByRole('group', { name: 'Even' }))).toEqual(['Two']);
+      expect(screen.getByRole<HTMLOptionElement>('option', { name: 'Other' }).disabled).toBe(true);
+    });
+
+    it.each([
+      ['Next', 'b', 'a'],
+      ['Next', 'x', 'a'],
+      ['Previous', 'a', 'b'],
+      ['Previous', 'x', 'b'],
+    ])('%s from %s steps over a disabled option to %s', async (button, value, next) => {
+      const onChange = renderGrouped(value);
+      await userEvent.setup().click(screen.getByRole('button', { name: button }));
+      expect(onChange).toHaveBeenCalledWith(next);
+    });
   });
 });

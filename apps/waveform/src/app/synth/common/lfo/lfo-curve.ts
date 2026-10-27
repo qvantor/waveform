@@ -101,28 +101,38 @@ const shapeLevel = (shape: LfoShapeName, x: number) => {
   return (1 - Math.cos(2 * Math.PI * x)) / 2;
 };
 
-// the level of points at x: the segment of the last point at or before it to the next one (the last one to the
-// first over the end of the cycle), curved by its k
-const pointsLevel = (points: LfoPoints, x: number) => {
+// the segment of points x is in: the one of the last point at or before it (the editor reads it too)
+export const segmentAt = (points: LfoPoints, x: number) => {
   let j = 0;
   for (let i = 1; i < points.length; i++) if (points[i][0] <= x) j = i;
+  return j;
+};
+
+// the end of segment j: the next point, of the last one the first one over the end of the cycle (at x 1)
+export const segmentEnd = (points: LfoPoints, j: number): readonly [number, number, number?] =>
+  j + 1 < points.length ? points[j + 1] : [1, points[0][1]];
+
+// the level of points at x: its segment to the end of it, curved by its k (the editor reads it too: the level a
+// point is added at)
+export const pointsLevel = (points: LfoPoints, x: number) => {
+  const j = segmentAt(points, x);
   const [x0, y0, k] = points[j];
-  const [x1, y1] = j + 1 < points.length ? points[j + 1] : [1, points[0][1]];
+  const [x1, y1] = segmentEnd(points, j);
   if (x1 <= x0) return y1;
   return y0 + (y1 - y0) * curveShape(k, (x - x0) / (x1 - x0));
 };
 
 const clamp = (value: number) => (value > 1 ? 1 : value >= 0 ? value : 0);
 
-// the table of a shape, of points of its own when there are (before the shape): LFO_TABLE_SIZE levels of the
-// cycle and the first one again
-export const lfoTable = (shape: LfoShapeName, points?: LfoPoints) => {
-  const table = new Float32Array(LFO_TABLE_SIZE + 1);
-  for (let i = 0; i < LFO_TABLE_SIZE; i++) {
-    const x = i / LFO_TABLE_SIZE;
+// the table of a shape, of points of its own when there are (before the shape): `size` levels of the cycle and the
+// first one again (the chart takes fewer: every 8th level of the table, the same values)
+export const lfoTable = (shape: LfoShapeName, points?: LfoPoints, size = LFO_TABLE_SIZE) => {
+  const table = new Float32Array(size + 1);
+  for (let i = 0; i < size; i++) {
+    const x = i / size;
     table[i] = clamp(points && points.length >= 2 ? pointsLevel(points, x) : shapeLevel(shape, x));
   }
-  table[LFO_TABLE_SIZE] = table[0];
+  table[size] = table[0];
   return table;
 };
 

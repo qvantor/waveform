@@ -12,6 +12,7 @@ import { EnvelopesContext } from '../../common/modules/envelopes';
 import { LfoContext } from '../../common/modules/lfos';
 import { ModulationContext } from '../../common/modules/modulation';
 import { SynthCoreContext } from '../../common/modules/synth-core';
+import { shapeOptionOf } from '../lfo-shapes';
 import { LfoSection } from './lfo-section';
 
 // the knobs are inspected by their props
@@ -117,6 +118,62 @@ describe('LfoSection', () => {
     fireEvent.change(shape, { target: { value: 'square' } });
     fireEvent.change(mode, { target: { value: 'free' } });
     expect(lfos[0].$lfos.value.lfo1).toMatchObject({ shape: 'square', mode: 'free' });
+  });
+
+  it('lists the shapes by category: one of Sidechain, Rhythm or Steps sets its points, a basic one drops them', () => {
+    const { lfos } = setup();
+    const [shape] = screen.getAllByRole('combobox');
+    const groups = within(shape).getAllByRole('group');
+    expect(groups.map((group) => group.getAttribute('label'))).toEqual([
+      'Basic',
+      'Sidechain',
+      'Rhythm',
+      'Steps',
+    ]);
+    fireEvent.change(shape, { target: { value: 'pump' } });
+    expect(lfos[0].$lfos.value.lfo1.points).toBeDefined();
+    expect(shapeOptionOf(lfos[0].$lfos.value.lfo1)).toBe('pump');
+    expect(shape).toHaveValue('pump');
+    fireEvent.change(shape, { target: { value: 'triangle' } });
+    expect(lfos[0].$lfos.value.lfo1).toMatchObject({ shape: 'triangle' });
+    expect(lfos[0].$lfos.value.lfo1).not.toHaveProperty('points');
+  });
+
+  it('shows points of its own that are none of the list as Custom, not chosen', () => {
+    const { lfos } = setup();
+    const [shape] = screen.getAllByRole('combobox');
+    expect(within(shape).queryByRole('option', { name: 'Custom' })).toBeNull();
+    act(() =>
+      lfos[1].setPoints('lfo1', [
+        [0, 0, 0],
+        [0.3, 1, 2],
+      ])
+    );
+    expect(shape).toHaveValue('custom');
+    expect(within(shape).getByRole('option', { name: 'Custom' })).toBeDisabled();
+  });
+
+  it('a point of the chart dragged makes the shape points of its own: Custom', () => {
+    const { lfos } = setup();
+    pointer('pointerdown', screen.getByRole('button', { name: 'Point 2' }), [75, 26]);
+    pointer('pointermove', document, [75, 13]);
+    pointer('pointerup', document, [75, 13]);
+    expect(lfos[0].$lfos.value.lfo1.points?.[1]).toEqual([0.25, 0.75, 1.7]);
+    expect(screen.getAllByRole('combobox')[0]).toHaveValue('custom');
+  });
+
+  it('the dot of a tab has the number of the routes of its LFO', () => {
+    const { modulation } = setup();
+    const count = (tab: string) => within(screen.getByRole('tab', { name: tab })).getByTestId('route-count');
+    expect(count('LFO 2')).toBeEmptyDOMElement();
+    act(() => {
+      modulation[1].addRoute('lfo2', 'osc1.wave');
+      modulation[1].addRoute('lfo2', 'filter.cutoff');
+    });
+    expect(count('LFO 2')).toHaveTextContent('2');
+    expect(count('LFO 1')).toBeEmptyDOMElement();
+    act(() => modulation[1].removeRoute('lfo2', 'osc1.wave'));
+    expect(count('LFO 2')).toHaveTextContent('1');
   });
 
   it('its knobs take the envelopes', () => {
