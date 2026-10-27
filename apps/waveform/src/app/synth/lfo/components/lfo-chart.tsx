@@ -16,13 +16,11 @@ import {
 } from '@waveform/ui-kit';
 import { useBehaviorSubject, useObservable } from '@waveform/rxjs-react';
 import { LfoId, LFOS, LfoPoint } from '@waveform/preset-schema';
-import { LfoContext } from '../../common/modules/lfos';
 import { ModRoute, ModulationContext } from '../../common/modules/modulation';
 import { SynthContext } from '../../common/modules/synth';
 import { SynthCoreContext } from '../../common/modules/synth-core';
 import { lfoTable } from '../../common/lfo/lfo-curve';
 import type { LfoParams } from '../../common/modules/lfos';
-import { noteLfosOf } from '../../modulation/note-lfos';
 import { shapePoints } from '../lfo-shapes';
 import { LfoPoints } from './lfo-points';
 
@@ -64,7 +62,6 @@ const Grid = () => {
 const NoteDot = ({ id }: { id: LfoId }) => {
   const { scaleX, scaleY } = useLineChartContext();
   const [canvas, begin] = useLiveCanvas('lfo-dot');
-  const lfo = React.useContext(LfoContext);
   const synth = React.useContext(SynthContext);
   const modulation = React.useContext(ModulationContext);
   const core = React.useContext(SynthCoreContext);
@@ -81,9 +78,9 @@ const NoteDot = ({ id }: { id: LfoId }) => {
   );
   const sounds = useObservable($sounds, $voices.value > 0);
   React.useEffect(() => {
-    if (!heard || !sounds || !lfo || !synth || !modulation || !core) return;
+    if (!heard || !sounds || !synth || !modulation || !core) return;
     const [{ audioCtx }] = core;
-    const lfos = noteLfosOf(audioCtx.sampleRate, lfo, synth, modulation);
+    const lfos = synth[0].noteLfos;
     const index = LFOS.indexOf(id);
     let [drawnX, drawnY] = [NaN, NaN];
     const draw = () => {
@@ -107,7 +104,7 @@ const NoteDot = ({ id }: { id: LfoId }) => {
       stop();
       begin();
     };
-  }, [id, heard, sounds, lfo, synth, modulation, core, scaleX, scaleY, begin]);
+  }, [id, heard, sounds, synth, modulation, core, scaleX, scaleY, begin]);
   return canvas;
 };
 

@@ -58,6 +58,7 @@ export const createSynth = (initialWavePath = ['default'], loadWavetable?: LoadW
       synthCore: synthCoreModule,
       inputController: inputControllerModule,
       envelopes: envelopesModule,
+      lfo: lfosModule,
       modulation: modulationModule,
       oscillator: [osc1, osc2],
       filter: filterModule,

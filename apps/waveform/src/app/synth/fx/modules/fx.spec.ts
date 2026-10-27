@@ -5,6 +5,7 @@ import { createFx, createLfos, createModulation, createSynthCore } from '../../.
 import { withoutAudioWorklet } from '../../../../test-utils/no-audio-worklet';
 import { workletLoads } from '../../../../test-utils/worklet-loads';
 import { DELAY_PRESETS } from '../effects/delay-presets';
+import { LFO_STATE_INTERVAL } from '../../common/lfo/lfo-curve';
 import { DISTORTION_LATENCY } from '../effects/distortion-params';
 import { REVERB_PRESETS } from '../effects/reverb-presets';
 import { findFxPreset, FxStatus } from '../effects';
@@ -824,6 +825,8 @@ describe('fx', () => {
       const { fx } = createFx(synthCore, createModulation(), lfosModule);
       FX_TYPES.forEach((type) => (fx[0].slots[type].setLfos = setLfos));
       lfosModule[1].setMode('lfo3', 'free');
+      // (a change within LFO_STATE_INTERVAL of the first state waits for it)
+      await new Promise((resolve) => setTimeout(resolve, LFO_STATE_INTERVAL * 1000 + 5));
       expect(setLfos).toHaveBeenCalledTimes(FX_TYPES.length);
       expect(setLfos.mock.lastCall?.[0].lfos[2].mode).toBe(1);
       await flush();

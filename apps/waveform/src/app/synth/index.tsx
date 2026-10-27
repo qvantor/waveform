@@ -237,6 +237,7 @@ const VoicesInternal = ({ children }: React.PropsWithChildren) => {
   const synthCore = useSynthCore();
   const inputController = useInputController();
   const envelopes = useEnvelopes();
+  const lfo = useLfos();
   const modulation = useModulation();
   const oscillator1 = useOscillator1();
   const oscillator2 = useOscillator2();
@@ -246,6 +247,7 @@ const VoicesInternal = ({ children }: React.PropsWithChildren) => {
       initial={{}}
       inputController={inputController}
       envelopes={envelopes}
+      lfo={lfo}
       modulation={modulation}
       oscillator={[oscillator1, oscillator2]}
       filter={filter}

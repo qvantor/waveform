@@ -132,16 +132,23 @@ pub struct LfoState {
     pub table: bool,
 }
 
-/// createLfoGlobal: an LFO the voices of a scope share
+/// createLfoGlobal: an LFO the voices of a scope share: its clock, its knobs and its shape (`table`, crossfaded in
+/// from `previous`, the shape it played at `fade_at`, in GLIDE; until `pending_at` the crossfade before goes on, so
+/// a shape to come waits in `pending_table` with the mix it starts from; a third one meanwhile takes the one
+/// waiting as played from now on)
 pub struct LfoGlobal {
     clock: Clock,
     current: Knobs,
     next: Option<Knobs>,
     table: Vec<f32>,
     previous: Vec<f32>,
+    fade_at: f64,
+    pending_table: Vec<f32>,
+    pending_previous: Vec<f32>,
+    pending_at: Option<f64>,
     /// the levels of a new shape (TABLE + 1), until a state takes them
     pub incoming: Vec<f32>,
-    fade_at: f64,
+    /// every level of the newest shape is the same
     pub flat: bool,
 }
 
@@ -165,8 +172,11 @@ impl Default for LfoGlobal {
             next: None,
             table: sine_table(),
             previous: sine_table(),
-            incoming: sine_table(),
             fade_at: f64::NEG_INFINITY,
+            pending_table: sine_table(),
+            pending_previous: sine_table(),
+            pending_at: None,
+            incoming: sine_table(),
             flat: false,
         }
     }
@@ -189,41 +199,61 @@ impl LfoGlobal {
         self.clock.anchor(t).period
     }
 
-    fn weight(&self, t: f64) -> f64 {
-        if t >= self.fade_at + GLIDE {
+    fn weight(fade_at: f64, t: f64) -> f64 {
+        if t >= fade_at + GLIDE {
             1.0
-        } else if t <= self.fade_at {
+        } else if t <= fade_at {
             0.0
         } else {
-            (t - self.fade_at) / GLIDE
+            (t - fade_at) / GLIDE
+        }
+    }
+
+    // the crossfade playing at t: the shape it goes from, the one it goes into, the time it starts
+    fn fade(&self, t: f64) -> (&[f32], &[f32], f64) {
+        match self.pending_at {
+            Some(at) if t >= at => (&self.pending_previous, &self.pending_table, at),
+            _ => (&self.previous, &self.table, self.fade_at),
         }
     }
 
     /// the level of its shape at the share x of the cycle at t
     pub fn shape(&self, x: f64, t: f64) -> f64 {
-        let w = self.weight(t);
+        let (previous, table, fade_at) = self.fade(t);
+        let w = Self::weight(fade_at, t);
         if w == 1.0 {
-            return table_level(&self.table, x);
+            return table_level(table, x);
         }
-        let a = table_level(&self.previous, x);
-        a + (table_level(&self.table, x) - a) * w
+        let a = table_level(previous, x);
+        a + (table_level(table, x) - a) * w
+    }
+
+    // the time the newest shape crossfades in from
+    fn newest_fade_at(&self) -> f64 {
+        self.pending_at.unwrap_or(self.fade_at)
     }
 
     /// every level of the shape it plays at t is the same (`flat` is the one of the newest shape, which plays only
     /// once its crossfade is over)
     pub fn flat_at(&self, t: f64) -> bool {
-        self.flat && t >= self.fade_at + GLIDE
+        self.flat && t >= self.newest_fade_at() + GLIDE
     }
 
     /// the time from which on nothing it gives changes (a state or a shape still to take over: before them), from t;
     /// -Infinity: its shape crossfades from t on
     pub fn still_until(&self, t: f64) -> f64 {
-        if t < self.fade_at + GLIDE && t >= self.fade_at {
+        let (_, _, fade_at) = self.fade(t);
+        if t < fade_at + GLIDE && t >= fade_at {
             return f64::NEG_INFINITY;
         }
         let mut until = f64::INFINITY;
-        if self.fade_at > t {
-            until = self.fade_at;
+        if fade_at > t {
+            until = fade_at;
+        }
+        if let Some(pending_at) = self.pending_at {
+            if pending_at > t {
+                until = min(until, pending_at);
+            }
         }
         if let Some(next) = &self.next {
             if next.at > t {
@@ -267,17 +297,39 @@ impl LfoGlobal {
         if state.table {
             if instantly {
                 self.previous.copy_from_slice(&self.incoming);
+                core::mem::swap(&mut self.table, &mut self.incoming);
                 self.fade_at = f64::NEG_INFINITY;
+                self.pending_at = None;
             } else {
-                let w = self.weight(at);
-                for (previous, table) in self.previous.iter_mut().zip(self.table.iter()) {
-                    *previous = (*previous as f64 + (*table as f64 - *previous as f64) * w) as f32;
+                if let Some(pending_at) = self.pending_at.take() {
+                    core::mem::swap(&mut self.table, &mut self.pending_table);
+                    core::mem::swap(&mut self.previous, &mut self.pending_previous);
+                    self.fade_at = pending_at;
                 }
-                self.fade_at = at;
+                // the shape at `at`: the mix of the crossfade playing then (the TS: mixAt)
+                let w = Self::weight(self.fade_at, at);
+                if w == 1.0 {
+                    self.pending_previous.copy_from_slice(&self.table);
+                } else {
+                    for ((mix, previous), table) in self
+                        .pending_previous
+                        .iter_mut()
+                        .zip(self.previous.iter())
+                        .zip(self.table.iter())
+                    {
+                        *mix = (*previous as f64 + (*table as f64 - *previous as f64) * w) as f32;
+                    }
+                }
+                core::mem::swap(&mut self.pending_table, &mut self.incoming);
+                self.pending_at = Some(at);
             }
-            core::mem::swap(&mut self.table, &mut self.incoming);
-            let first = self.table[0];
-            self.flat = self.table.iter().all(|value| *value == first);
+            let newest = if self.pending_at.is_some() {
+                &self.pending_table
+            } else {
+                &self.table
+            };
+            let first = newest[0];
+            self.flat = newest.iter().all(|value| *value == first);
         }
     }
 }
@@ -860,6 +912,34 @@ mod tests {
         assert_eq!(lfo.still_until(1.5), 2.0);
         // (from the time it starts: a block that ends there is flat only until then)
         assert_eq!(lfo.still_until(2.0), f64::NEG_INFINITY);
+    }
+
+    #[test]
+    fn a_shape_set_while_one_crossfades_waits_for_its_time_the_one_before_going_on() {
+        let mut lfo = LfoGlobal::default();
+        lfo.incoming.fill(1.0);
+        lfo.set(1.0, &state(|s| s.table = true), false);
+        let sine = lfo.shape(0.25, 0.5);
+        // a second shape at 1.008 (as a state of LFO_LEAD after 0.998, while the first one still fades): until
+        // then the first crossfade goes on, from then the second one from the mix there
+        lfo.incoming.fill(0.0);
+        lfo.set(1.008, &state(|s| s.table = true), false);
+        assert!((lfo.shape(0.25, 1.004) - (sine + (1.0 - sine) * 0.4)).abs() < 1e-6);
+        let mix = sine + (1.0 - sine) * 0.8;
+        assert!((lfo.shape(0.25, 1.008) - mix).abs() < 1e-6);
+        assert!((lfo.shape(0.25, 1.013) - mix / 2.0).abs() < 1e-6);
+        assert_eq!(lfo.shape(0.25, 1.018), 0.0);
+        assert!(lfo.flat && !lfo.flat_at(1.017) && lfo.flat_at(1.018));
+        assert_eq!(lfo.still_until(1.004), f64::NEG_INFINITY);
+        assert_eq!(lfo.still_until(0.5), 1.0);
+        assert_eq!(lfo.still_until(1.018), f64::INFINITY);
+        // a third one while the second waits: the second plays from now on, the third from the mix at its time
+        lfo.incoming.fill(0.5);
+        lfo.set(1.012, &state(|s| s.table = true), false);
+        assert!((lfo.shape(0.25, 1.006) - mix).abs() < 1e-6);
+        let mix = mix + (0.0 - mix) * 0.4;
+        assert!((lfo.shape(0.25, 1.012) - mix).abs() < 1e-6);
+        assert!((lfo.shape(0.25, 1.022) - 0.5).abs() < 1e-6);
     }
 
     #[test]

@@ -3,16 +3,20 @@ import { LFO_DEFAULTS } from '@waveform/preset-schema';
 import { applySnapshot, getSnapshot } from '../../../app';
 import { createLfos, createSynthCore } from '../../../../test-utils/models';
 import { voiceEvents } from '../../../../test-utils/voice-events';
-import { FREE, LFO_LEAD, lfoTable, phaseAt, RETRIG } from '../lfo/lfo-curve';
+import { FREE, LFO_LEAD, LFO_STATE_INTERVAL, lfoTable, phaseAt, RETRIG } from '../lfo/lfo-curve';
 
 // the wavetable oscillator loads its module asynchronously
 const flush = () => new Promise((resolve) => setTimeout(resolve));
+// a second change within LFO_STATE_INTERVAL goes out after it
+const interval = () => new Promise((resolve) => setTimeout(resolve, LFO_STATE_INTERVAL * 1000 + 5));
 
 const setup = async () => {
   const synthCore = createSynthCore();
   const [{ audioCtx, wavetables }] = synthCore;
   const [model, actions] = createLfos(synthCore);
   await flush();
+  // (the first state went at once: a change within LFO_STATE_INTERVAL of it would wait)
+  await interval();
   const events = voiceEvents(audioCtx, wavetables);
   const travel = (seconds: number) => registrar.getDeLorean(audioCtx as never)?.travel(seconds);
   return { model, actions, audioCtx, lfos: events.lfos, travel };
@@ -91,6 +95,7 @@ describe('lfos', () => {
     const sent = lfos().length;
     actions.setMode('lfo1', 'free');
     actions.setShape('lfo2', 'saw-down');
+    await interval();
     const [mode, shape] = lfos().slice(sent);
     expect(mode.at).toBe(audioCtx.currentTime + LFO_LEAD);
     expect(mode.instantly).toBeUndefined();
@@ -120,6 +125,7 @@ describe('lfos', () => {
     // and again: from where the clock is then
     travel(0.05);
     actions.setLfoValue('lfo1', 'rate', 1);
+    await interval();
     const [next] = lfos().slice(sent + 1);
     expect(next.lfos[0].anchor.phase).toBeCloseTo(0.62 + 0.05 / 0.2, 12);
   });

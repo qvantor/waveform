@@ -6,7 +6,7 @@ import { SynthCoreModule } from '../../common/modules/synth-core';
 import type { SynthModule } from '../../common/modules/synth';
 import type { ModRoute, ModulationModule } from '../../common/modules/modulation';
 import type { LfoModule } from '../../common/modules/lfos';
-import { amountInUnits, MOD_TARGETS, ModScale } from '../../common/modulation/modulation-targets';
+import { fxRoute, lfoKnobRoutes, MOD_TARGETS } from '../../common/modulation/modulation-targets';
 import { urlSnapshotPlugin } from '../../../app';
 import { createFxSlot, FX_REGISTRY, FxSlot, FxStatus, isFxUsable } from '../effects';
 import { FxModulation, FxNote, FxRoute, isLfoSource } from '../effects/fx-modulation';
@@ -42,31 +42,6 @@ const defaultFxState = (type: FxType): FxState => ({
 
 const defaultEffects = () =>
   Object.fromEntries(FX_TYPES.map((type) => [type, defaultFxState(type)])) as Record<FxType, FxState>;
-
-// a route of the modulation in the units of the knob it moves: the scale only when it isn't linear, bipolar only
-// when it is
-const fxRoute = (
-  param: string,
-  { source, amount, bipolar }: ModRoute,
-  scale: ModScale,
-  range: [number, number]
-): FxRoute => ({
-  param,
-  source: MOD_SOURCES.indexOf(source),
-  amount: amountInUnits(amount, scale, range),
-  min: range[0],
-  max: range[1],
-  ...(scale !== 'linear' && { scale }),
-  ...(bipolar && { bipolar }),
-});
-
-// the routes of the note to the knobs of the LFOs (lfo2.rate…: of the envelopes and VELO), in the units of each
-export const lfoKnobRoutes = (routes: ModRoute[]): FxRoute[] =>
-  routes.flatMap((route) => {
-    const definition = MOD_TARGETS[route.target];
-    if (definition?.kind !== 'lfo' || route.amount === 0) return [];
-    return [fxRoute(route.target, route, definition.scale, definition.range)];
-  });
 
 // the routes to the knobs of an effect, in the units of its params; an amount of 0 is left out. With a route of an
 // LFO those of the note to the knobs of the LFOs too

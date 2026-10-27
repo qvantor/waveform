@@ -18,6 +18,10 @@ export const LFO_TABLE_SIZE = 2048;
 export const LFO_GLIDE = 0.01;
 // seconds: a change of the knobs takes over this long after now (its message reaches the audio thread before)
 export const LFO_LEAD = 0.01;
+// seconds: the states of the LFOs go out at most this often (the first change at once, the last one after the
+// pause): a shape dragged on the chart posts its table (8 KB) to five threads 50 times a second at most, and a new
+// shape comes once the one before has crossfaded in (LFO_LEAD + LFO_GLIDE: none waits for it)
+export const LFO_STATE_INTERVAL = LFO_LEAD + LFO_GLIDE;
 // samples between the points an LFO is worked out at (the voice interpolates its routes between them)
 export const LFO_SEGMENT = 32;
 // the points a runner steps through to a later frame at most (0.34 s at 48 kHz): a tab hidden for minutes asks once
@@ -201,25 +205,49 @@ const knobsPhase = ({ from, to, arc, at }: Knobs, t: number) => {
 
 const sineTable = () => lfoTable('sine');
 
+// a shape of an LFO crossfaded in: from `at` on, `previous` (the shape it played at `at`) goes into `table` in
+// LFO_GLIDE
+interface Fade {
+  previous: Float32Array;
+  table: Float32Array;
+  at: number;
+}
+
+const weightOf = ({ at }: Fade, t: number) => (t >= at + LFO_GLIDE ? 1 : t <= at ? 0 : (t - at) / LFO_GLIDE);
+
 // an LFO the voices of a node (or an fx worklet, or the main thread) share: its clock, its knobs (those of a
 // state from its `at` on, the ones before until then) and its shape (crossfaded into a new one in LFO_GLIDE from
-// `at`: the shape at `at` and the new one; a third one meanwhile starts from where the crossfade is then)
+// `at`: the shape at `at` and the new one; until `at` the crossfade before goes on, so a shape to come waits
+// (`pending`); a third one meanwhile takes the one waiting as played from now on). The tables come from the
+// states (never written), the mixes a crossfade starts from are baked into two buffers of its own: nothing is
+// allocated by a state (the audio threads take them)
 export const createLfoGlobal = () => {
   const anchors: LfoAnchor[] = [FIRST_ANCHOR];
   let current: Knobs = { mode: RETRIG, delay: 0, rise: 0, smooth: 0, from: 0, to: 0, arc: 0, at: -Infinity };
   let next: Knobs | null = null;
-  let table = sineTable();
-  let previous = sineTable();
-  let fadeAt = -Infinity;
+  const sine = sineTable();
+  let fade: Fade = { previous: sine, table: sine, at: -Infinity };
+  let pending: Fade | null = null;
+  const buffers = [new Float32Array(LFO_TABLE_SIZE + 1), new Float32Array(LFO_TABLE_SIZE + 1)];
   let flat = false;
 
   const knobs = (t: number) => (next && t >= next.at ? next : current);
-  const weight = (t: number) => (t >= fadeAt + LFO_GLIDE ? 1 : t <= fadeAt ? 0 : (t - fadeAt) / LFO_GLIDE);
+  // the crossfade playing at t
+  const fadeAt = (t: number) => (pending && t >= pending.at ? pending : fade);
   const shape = (x: number, t: number) => {
-    const w = weight(t);
-    if (w === 1) return tableLevel(table, x);
-    const a = tableLevel(previous, x);
-    return a + (tableLevel(table, x) - a) * w;
+    const playing = fadeAt(t);
+    const w = weightOf(playing, t);
+    if (w === 1) return tableLevel(playing.table, x);
+    const a = tableLevel(playing.previous, x);
+    return a + (tableLevel(playing.table, x) - a) * w;
+  };
+  // the shape at `at` (the mix of the crossfade playing then), into a buffer no crossfade reads
+  const mixAt = (at: number): Float32Array => {
+    const w = weightOf(fade, at);
+    if (w === 1) return fade.table;
+    const mix = buffers[0] === fade.previous ? buffers[1] : buffers[0];
+    for (let i = 0; i < mix.length; i++) mix[i] = fade.previous[i] + (fade.table[i] - fade.previous[i]) * w;
+    return mix;
   };
 
   return {
@@ -249,18 +277,15 @@ export const createLfoGlobal = () => {
         if (next && next.at <= at) current = next;
         next = set;
       }
-      if (wire.table) {
+      const { table } = wire;
+      if (table) {
         if (instantly) {
-          previous = Float32Array.from(wire.table);
-          fadeAt = -Infinity;
+          fade = { previous: table, table, at: -Infinity };
+          pending = null;
         } else {
-          const w = weight(at);
-          const baked = new Float32Array(previous.length);
-          for (let i = 0; i < baked.length; i++) baked[i] = previous[i] + (table[i] - previous[i]) * w;
-          previous = baked;
-          fadeAt = at;
+          if (pending) fade = pending;
+          pending = { previous: mixAt(at), table, at };
         }
-        table = Float32Array.from(wire.table);
         flat = table.every((value) => value === table[0]);
       }
     },
@@ -271,16 +296,17 @@ export const createLfoGlobal = () => {
     period: (t: number) => periodAt(anchors, t),
     shape,
     // a new shape crossfades in at t, or will after it
-    fading: (t: number) => t < fadeAt + LFO_GLIDE,
-    // every level of its shape is the same
+    fading: (t: number) => t < fade.at + LFO_GLIDE || (pending !== null && t < pending.at + LFO_GLIDE),
+    // every level of its newest shape is the same
     get flat() {
       return flat;
     },
     get pending() {
       return next;
     },
+    // the time the newest shape crossfades in from
     get fadeAt() {
-      return fadeAt;
+      return pending ? pending.at : fade.at;
     },
     get anchors(): readonly LfoAnchor[] {
       return anchors;

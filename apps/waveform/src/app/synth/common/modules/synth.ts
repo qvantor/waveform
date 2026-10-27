@@ -39,9 +39,11 @@ import {
   releaseStart,
   VoiceParam,
 } from '../wavetable/wavetable-osc-params';
+import { noteLfosOf } from '../../modulation/note-lfos';
 import { Glide, glideFrom, scheduleGlide, steady } from './glide';
 import { DEFAULT_VELOCITY, InputControllerModule } from './input-controller';
 import { Envelopes, EnvelopesModule, VelocityKnobs } from './envelopes';
+import type { LfoModule } from './lfos';
 import { ModRoute, ModulationModule } from './modulation';
 import { OscillatorModel, OscillatorModule } from './oscillator';
 import { SynthCoreModule } from './synth-core';
@@ -50,6 +52,7 @@ interface Deps {
   synthCore: SynthCoreModule;
   inputController: InputControllerModule;
   envelopes: EnvelopesModule;
+  lfo: LfoModule;
   modulation: ModulationModule;
   oscillator: [OscillatorModule, OscillatorModule];
   filter: FilterModule;
@@ -839,6 +842,7 @@ export const synth = ({
   synthCore: [{ audioCtx, wavetables }],
   inputController: [{ $onPress, $onRelease, $bend }],
   envelopes: [{ $envelopes, $velocity }],
+  lfo,
   modulation: [{ $routes }],
   oscillator: oscillators,
   filter: [{ voiceFilter, $voiceFilter }],
@@ -875,6 +879,8 @@ export const synth = ({
       onCount: () => $voicesCount.next(voicing.voicesCount),
     };
     const voicing = new Voicing(voicingContext);
+    // the LFOs of the last note on the main thread (the marks of the knobs, the chart of an LFO)
+    const noteLfos = noteLfosOf(audioCtx.sampleRate, lfo, $fxNote, $routes);
 
     return {
       $maxVoices,
@@ -886,6 +892,8 @@ export const synth = ({
       $fxNote,
       $voiceStarts,
       voicing,
+      noteLfos: noteLfos.lfos,
+      followNoteLfos: noteLfos.follow,
     };
   })
     .actions(({ $maxVoices, $portamento, $legato, $bendDown, $bendUp, $voicesCount, voicing }) => ({
@@ -899,7 +907,8 @@ export const synth = ({
       pause: () => voicing.pause(),
       resume: () => voicing.resume(),
     }))
-    .subscriptions(({ voicing, $maxVoices, $bendDown, $bendUp }, { setVoicesCount }) => [
+    .subscriptions(({ voicing, $maxVoices, $bendDown, $bendUp, followNoteLfos }, { setVoicesCount }) => [
+      ...followNoteLfos(),
       $onRelease.subscribe((note) => {
         voicing.onRelease(note);
 

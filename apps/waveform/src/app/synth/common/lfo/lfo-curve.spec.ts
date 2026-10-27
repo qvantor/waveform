@@ -197,6 +197,22 @@ describe('the clock', () => {
     expect(lfo.shape(0.25, 1 + LFO_GLIDE * 1.5)).toBeCloseTo(0.25, 6);
     expect(lfo.fading(1 + LFO_GLIDE * 1.5)).toBe(false);
   });
+
+  it('a shape set while one crossfades waits for its time, the one before going on until then', () => {
+    const lfo = lfoOf();
+    lfo.set(1, { ...wire(), table: lfoTable('square') });
+    // a state of LFO_LEAD after 0.998: the first crossfade goes on until 1.008, the second starts from its mix there
+    lfo.set(1.008, { ...wire(), table: lfoTable('saw-up') });
+    const s = sine(0.25);
+    expect(lfo.shape(0.25, 1.004)).toBeCloseTo(s + (1 - s) * 0.4, 6);
+    const mix = s + (1 - s) * 0.8;
+    expect(lfo.shape(0.25, 1.008)).toBeCloseTo(mix, 6);
+    expect(lfo.shape(0.25, 1.013)).toBeCloseTo(mix + (0.25 - mix) / 2, 6);
+    expect(lfo.shape(0.25, 1.018)).toBeCloseTo(0.25, 6);
+    expect(lfo.fading(1.017)).toBe(true);
+    expect(lfo.fading(1.018)).toBe(false);
+    expect(lfo.fadeAt).toBe(1.008);
+  });
 });
 
 describe('createLfoRunner', () => {

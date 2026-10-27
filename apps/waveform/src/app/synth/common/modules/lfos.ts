@@ -1,4 +1,4 @@
-import { BehaviorSubject, Subject } from 'rxjs';
+import { asyncScheduler, BehaviorSubject, Subject, throttleTime } from 'rxjs';
 import { ObjectBS, rxModel, rxModelReact } from '@waveform/rxjs-react';
 import {
   ENVELOPE_CURVE_MAX,
@@ -24,6 +24,7 @@ import {
   createLfoGlobal,
   FREE,
   LFO_LEAD,
+  LFO_STATE_INTERVAL,
   LfoGlobal,
   LfosState,
   lfoTable,
@@ -105,9 +106,11 @@ const sameShape = (a: LfoParams, b: LfoParams) =>
 // the LFOs LFO 1–4, sources of the routes: the voices node runs one per note of each (the oscillators and the
 // filter), the fx worklets and the main thread one for the last note (the fx, the marks of the knobs). Every
 // change goes to them as a state from now + LFO_LEAD on (LfosState): the knobs, the newest anchor of each clock (a
-// new period: an anchor there, the phase goes on) and the tables of the shapes that changed. `globals` are the
-// LFOs as they run on the main thread, `$state` the last state with every table (an fx worklet made later starts
-// with it). The tab of the section (`$selected`) is the state of the UI, not in the preset
+// new period: an anchor there, the phase goes on) and the tables of the shapes that changed, at most every
+// LFO_STATE_INTERVAL (the first change at once, the last one after it: a drag of a point or a knob posts 50 states
+// a second at most, to five threads, each a table of 8 KB when it is a shape). `globals` are the LFOs as they run
+// on the main thread, `$state` the last state with every table (an fx worklet made later starts with it). The tab
+// of the section (`$selected`) is the state of the UI, not in the preset
 export const lfos = ({ synthCore: [{ audioCtx, wavetables }] }: Deps) =>
   rxModel(() => {
     const $lfos = new ObjectBS<Lfos>(lfosFrom({}));
@@ -142,35 +145,37 @@ export const lfos = ({ synthCore: [{ audioCtx, wavetables }] }: Deps) =>
       let previous: Lfos | null = null;
       const tables = {} as Record<LfoId, Float32Array>;
       return [
-        $lfos.subscribe((next) => {
-          const at = audioCtx.currentTime + LFO_LEAD;
-          const before = previous;
-          previous = next;
-          const wires = LFOS.map((id): LfoWire => {
-            const lfo = next[id];
-            const global = globals[id];
-            const { anchors } = global;
-            const newest = anchors[anchors.length - 1];
-            const anchor = lfo.rate === newest.period ? newest : nextAnchor(anchors, at, lfo.rate);
-            const changed = !before || !sameShape(before[id], lfo);
-            if (changed) tables[id] = tableOf(lfo);
-            const wire: LfoWire = {
-              mode: lfo.mode === 'free' ? FREE : RETRIG,
-              delay: lfo.delay,
-              rise: lfo.rise,
-              smooth: lfo.smooth,
-              phase: lfo.phase,
-              anchor,
-              ...(changed && { table: tables[id] }),
-            };
-            // the first state is there at once
-            global.set(at, wire, !before);
-            return wire;
-          });
-          wavetables.setLfos({ at, lfos: wires });
-          $state.next({ at, lfos: wires.map((wire, i) => ({ ...wire, table: tables[LFOS[i]] })) });
-          $changes.next({ at, lfos: wires });
-        }),
+        $lfos
+          .pipe(throttleTime(LFO_STATE_INTERVAL * 1000, asyncScheduler, { leading: true, trailing: true }))
+          .subscribe((next) => {
+            const at = audioCtx.currentTime + LFO_LEAD;
+            const before = previous;
+            previous = next;
+            const wires = LFOS.map((id): LfoWire => {
+              const lfo = next[id];
+              const global = globals[id];
+              const { anchors } = global;
+              const newest = anchors[anchors.length - 1];
+              const anchor = lfo.rate === newest.period ? newest : nextAnchor(anchors, at, lfo.rate);
+              const changed = !before || !sameShape(before[id], lfo);
+              if (changed) tables[id] = tableOf(lfo);
+              const wire: LfoWire = {
+                mode: lfo.mode === 'free' ? FREE : RETRIG,
+                delay: lfo.delay,
+                rise: lfo.rise,
+                smooth: lfo.smooth,
+                phase: lfo.phase,
+                anchor,
+                ...(changed && { table: tables[id] }),
+              };
+              // the first state is there at once
+              global.set(at, wire, !before);
+              return wire;
+            });
+            wavetables.setLfos({ at, lfos: wires });
+            $state.next({ at, lfos: wires.map((wire, i) => ({ ...wire, table: tables[LFOS[i]] })) });
+            $changes.next({ at, lfos: wires });
+          }),
       ];
     })
     .plugins(

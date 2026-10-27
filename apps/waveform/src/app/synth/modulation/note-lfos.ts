@@ -1,30 +1,26 @@
+import { Observable } from 'rxjs';
 import { LFOS } from '@waveform/preset-schema';
 import type { LfoModule } from '../common/modules/lfos';
-import type { ModulationModule } from '../common/modules/modulation';
-import type { SynthModule } from '../common/modules/synth';
-import { createNoteLfos, NoteLfos } from '../fx/effects/fx-modulation';
-import { lfoKnobRoutes } from '../fx/modules/fx';
+import type { ModRoute } from '../common/modules/modulation';
+import { lfoKnobRoutes } from '../common/modulation/modulation-targets';
+import { createNoteLfos, FxNote, NoteLfos } from '../fx/effects/fx-modulation';
 
-// the LFOs of the last note on the main thread (the marks of the knobs, the dot of the chart of an LFO), one per
-// synth: on the LFOs of the lfo model, from the start of the last note ($fxNote), their knobs moved by the routes of
-// the note to them
-const cache = new WeakMap<object, NoteLfos>();
-
+// the LFOs of the last note on the main thread (the marks of the knobs, the dot of the chart of an LFO): on the
+// LFOs of the lfo model, from the start of the last note ($fxNote), their knobs moved by the routes of the note to
+// them. The synth model holds them: they follow it and the routes while it lives (its subscriptions)
 export const noteLfosOf = (
   sampleRate: number,
   [{ globals }]: LfoModule,
-  [{ $fxNote }]: SynthModule,
-  [{ $routes }]: ModulationModule
+  $fxNote: Observable<FxNote | null>,
+  $routes: Observable<ModRoute[]>
 ) => {
-  const known = cache.get($fxNote);
-  if (known) return known;
-  const lfos = createNoteLfos(
+  const lfos: NoteLfos = createNoteLfos(
     sampleRate,
     LFOS.map((id) => globals[id])
   );
-  // (the models live as long as the synth: so do these)
-  $fxNote.subscribe((note) => lfos.follow(note));
-  $routes.subscribe((routes) => lfos.setRoutes(lfoKnobRoutes(routes)));
-  cache.set($fxNote, lfos);
-  return lfos;
+  const follow = () => [
+    $fxNote.subscribe((note) => lfos.follow(note)),
+    $routes.subscribe((routes) => lfos.setRoutes(lfoKnobRoutes(routes))),
+  ];
+  return { lfos, follow };
 };

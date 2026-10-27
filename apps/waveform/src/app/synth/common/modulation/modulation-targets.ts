@@ -8,10 +8,13 @@ import {
   LFO_SMOOTH_MAX,
   LFOS,
   LfoKnob,
+  MOD_SOURCES,
 } from '@waveform/preset-schema';
 import { rangesOf } from '../../filter/constants';
 import { FX_REGISTRY, MIX_PARAM } from '../../fx/effects';
 import { OscParam } from '../wavetable/wavetable-osc-params';
+import type { ModRoute } from '../modules/modulation';
+import type { FxRoute } from '../../fx/effects/fx-modulation';
 
 // the knobs a source (ENV 1–3, VELO, LFO 1–4) can be assigned to, by id (`osc1.wave`): the drop targets of the
 // tabs and the keys of the routes in the preset. An amount is a share of the range of the knob in its scale: in
@@ -141,3 +144,28 @@ export const centered = (id: string) => {
 // the amount of a route in the units of the param (octaves for a log one, a share of the travel of a pow one)
 export const amountInUnits = (amount: number, scale: ModScale, [min, max]: [number, number]) =>
   scale === 'log' ? amount * Math.log2(max / min) : scale === 'pow' ? amount : amount * (max - min);
+
+// a route of the modulation in the units of the knob it moves: the scale only when it isn't linear, bipolar only
+// when it is
+export const fxRoute = (
+  param: string,
+  { source, amount, bipolar }: ModRoute,
+  scale: ModScale,
+  range: [number, number]
+): FxRoute => ({
+  param,
+  source: MOD_SOURCES.indexOf(source),
+  amount: amountInUnits(amount, scale, range),
+  min: range[0],
+  max: range[1],
+  ...(scale !== 'linear' && { scale }),
+  ...(bipolar && { bipolar }),
+});
+
+// the routes of the note to the knobs of the LFOs (lfo2.rate…: of the envelopes and VELO), in the units of each
+export const lfoKnobRoutes = (routes: ModRoute[]): FxRoute[] =>
+  routes.flatMap((route) => {
+    const definition = MOD_TARGETS[route.target];
+    if (definition?.kind !== 'lfo' || route.amount === 0) return [];
+    return [fxRoute(route.target, route, definition.scale, definition.range)];
+  });

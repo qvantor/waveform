@@ -6,14 +6,12 @@ import { number } from '@waveform/math';
 import { ENVELOPES, isLfo, MOD_SOURCES, ModSource } from '@waveform/preset-schema';
 import { knobFull, ModRoute, ModulationContext, routesFull } from '../common/modules/modulation';
 import { EnvelopesContext } from '../common/modules/envelopes';
-import { LfoContext } from '../common/modules/lfos';
 import { SynthContext } from '../common/modules/synth';
 import { SynthCoreContext } from '../common/modules/synth-core';
 import { FxContext } from '../fx/modules/fx';
 import { amountInUnits, MOD_TARGETS, ModScale } from '../common/modulation/modulation-targets';
 import { LFO_SOURCE, noteLevel } from '../fx/effects/fx-modulation';
 import { SOURCE_COLORS, SOURCE_LABELS } from '../envelope/envelope-colors';
-import { noteLfosOf } from './note-lfos';
 
 const NO_ROUTES = new BehaviorSubject<ModRoute[]>([]);
 const NOT_LIVE = new BehaviorSubject(false);
@@ -58,7 +56,6 @@ export const useKnobModulation = (target: string, knob?: KnobScale): KnobModulat
   // section, always)
   const synth = React.useContext(SynthContext);
   const core = React.useContext(SynthCoreContext);
-  const lfo = React.useContext(LfoContext);
   const fx = React.useContext(FxContext)?.[0];
   const $voices = synth?.[0].$voicesCount;
   const own = routes.filter((route) => route.target === target);
@@ -94,17 +91,13 @@ export const useKnobModulation = (target: string, knob?: KnobScale): KnobModulat
       const { audioCtx } = core[0];
       const index = MOD_SOURCES.indexOf(source);
       if (index >= LFO_SOURCE) {
-        if (!lfo || !module) return null;
-        return noteLfosOf(audioCtx.sampleRate, lfo, synth, module).level(
-          index - LFO_SOURCE,
-          audioCtx.currentTime * audioCtx.sampleRate
-        );
+        return synth[0].noteLfos.level(index - LFO_SOURCE, audioCtx.currentTime * audioCtx.sampleRate);
       }
       const note = synth[0].$fxNote.value;
       if (!note) return null;
       return noteLevel(note, index, audioCtx.currentTime - note.start);
     },
-    [synth, core, lfo, module]
+    [synth, core]
   );
   const scale = knob?.scale;
   const [min, max] = knob?.range ?? [];

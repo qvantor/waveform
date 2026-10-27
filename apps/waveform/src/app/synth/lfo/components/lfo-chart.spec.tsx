@@ -9,6 +9,7 @@ import { ModulationContext } from '../../common/modules/modulation';
 import { SynthContext, SynthModule } from '../../common/modules/synth';
 import { SynthCoreContext } from '../../common/modules/synth-core';
 import type { FxNote } from '../../fx/effects/fx-modulation';
+import { noteLfosOf } from '../../modulation/note-lfos';
 import { LfoChart } from './lfo-chart';
 
 const RATE = 48000;
@@ -22,7 +23,9 @@ const setup = () => {
   const lfos = createLfos(createSynthCore());
   const $fxNote = new BehaviorSubject<FxNote | null>(null);
   const $voicesCount = new BehaviorSubject(0);
-  const synth = [{ $fxNote, $voicesCount }, {}] as unknown as SynthModule;
+  const noteLfos = noteLfosOf(RATE, lfos, $fxNote, modulation[0].$routes);
+  noteLfos.follow();
+  const synth = [{ $fxNote, $voicesCount, noteLfos: noteLfos.lfos }, {}] as unknown as SynthModule;
   const audioCtx = { currentTime: 0, sampleRate: RATE };
   const core = [{ audioCtx }, {}] as never;
   const onPointsChange = jest.fn();
