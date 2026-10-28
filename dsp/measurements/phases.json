@@ -1,0 +1,468 @@
+{
+ "about": "Osc A and B of the init patch of the Audio Unit on a sine (a table of ours) at C5, each its unison at Detune 1 (linear: voice j of n at 200 · (2j / (n - 1) - 1) cents, from the lowest), its Rand Phase (`rand`) and Phase (`phase`, shares of a period; 1 and 0.5 unless named), the same Level: on each of 12 notes (0.5 s long; the 4 before them of the render left out, they start at about the Phase whatever the Rand Phase) each pair of voices of A (`a`) and B (`b`) at one pitch, the amplitude of the pair in L + R over the sum of those of its two voices alone (1: in phase; two of one level cancel at 0); scripts/renders/run.mjs --only=phases",
+ "cases": {
+  "u1": {
+   "a": {
+    "unison": 1,
+    "rand": 1,
+    "phase": 0.5
+   },
+   "b": {
+    "unison": 1,
+    "rand": 1,
+    "phase": 0.5
+   },
+   "pairs": [
+    {
+     "a": 0,
+     "b": 0,
+     "cents": 0,
+     "levels": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+     ]
+    }
+   ]
+  },
+  "u2": {
+   "a": {
+    "unison": 2,
+    "rand": 1,
+    "phase": 0.5
+   },
+   "b": {
+    "unison": 2,
+    "rand": 1,
+    "phase": 0.5
+   },
+   "pairs": [
+    {
+     "a": 0,
+     "b": 0,
+     "cents": -200,
+     "levels": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+     ]
+    },
+    {
+     "a": 1,
+     "b": 1,
+     "cents": 200,
+     "levels": [
+      0.931,
+      0.223,
+      0.037,
+      0.438,
+      0.914,
+      0.887,
+      0.895,
+      0.656,
+      0.434,
+      0.565,
+      0.626,
+      0.958
+     ]
+    }
+   ]
+  },
+  "u3": {
+   "a": {
+    "unison": 3,
+    "rand": 1,
+    "phase": 0.5
+   },
+   "b": {
+    "unison": 3,
+    "rand": 1,
+    "phase": 0.5
+   },
+   "pairs": [
+    {
+     "a": 0,
+     "b": 0,
+     "cents": -200,
+     "levels": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+     ]
+    },
+    {
+     "a": 1,
+     "b": 1,
+     "cents": 0,
+     "levels": [
+      0.931,
+      0.223,
+      0.037,
+      0.438,
+      0.914,
+      0.887,
+      0.895,
+      0.656,
+      0.434,
+      0.565,
+      0.626,
+      0.957
+     ]
+    },
+    {
+     "a": 2,
+     "b": 2,
+     "cents": 200,
+     "levels": [
+      0.431,
+      0.485,
+      0.401,
+      0.509,
+      0.025,
+      0.518,
+      0.813,
+      0.733,
+      0.515,
+      0.375,
+      0.587,
+      0.705
+     ]
+    }
+   ]
+  },
+  "u4": {
+   "a": {
+    "unison": 4,
+    "rand": 1,
+    "phase": 0.5
+   },
+   "b": {
+    "unison": 4,
+    "rand": 1,
+    "phase": 0.5
+   },
+   "pairs": [
+    {
+     "a": 0,
+     "b": 0,
+     "cents": -200,
+     "levels": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+     ]
+    },
+    {
+     "a": 1,
+     "b": 1,
+     "cents": -66.7,
+     "levels": [
+      0.931,
+      0.223,
+      0.037,
+      0.438,
+      0.914,
+      0.887,
+      0.895,
+      0.656,
+      0.434,
+      0.565,
+      0.626,
+      0.957
+     ]
+    },
+    {
+     "a": 2,
+     "b": 2,
+     "cents": 66.7,
+     "levels": [
+      0.431,
+      0.485,
+      0.401,
+      0.509,
+      0.026,
+      0.518,
+      0.813,
+      0.733,
+      0.515,
+      0.375,
+      0.587,
+      0.705
+     ]
+    },
+    {
+     "a": 3,
+     "b": 3,
+     "cents": 200,
+     "levels": [
+      0.603,
+      0.849,
+      0.132,
+      0.48,
+      0.925,
+      0.585,
+      0.379,
+      0.82,
+      0.622,
+      0.565,
+      0.058,
+      0.889
+     ]
+    }
+   ]
+  },
+  "u3 + u2": {
+   "a": {
+    "unison": 3,
+    "rand": 1,
+    "phase": 0.5
+   },
+   "b": {
+    "unison": 2,
+    "rand": 1,
+    "phase": 0.5
+   },
+   "pairs": [
+    {
+     "a": 0,
+     "b": 0,
+     "cents": -200,
+     "levels": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+     ]
+    },
+    {
+     "a": 2,
+     "b": 1,
+     "cents": 200,
+     "levels": [
+      0.577,
+      0.958,
+      0.936,
+      0.46,
+      0.58,
+      0.463,
+      0.998,
+      0.852,
+      0.924,
+      0.792,
+      0.919,
+      0.189
+     ]
+    }
+   ]
+  },
+  "u1 + u3": {
+   "a": {
+    "unison": 1,
+    "rand": 1,
+    "phase": 0.5
+   },
+   "b": {
+    "unison": 3,
+    "rand": 1,
+    "phase": 0.5
+   },
+   "pairs": [
+    {
+     "a": 0,
+     "b": 1,
+     "cents": 0,
+     "levels": [
+      0.873,
+      0.7,
+      0.986,
+      0.55,
+      0.992,
+      0.839,
+      0.942,
+      0.724,
+      0.937,
+      0.999,
+      0.572,
+      0.763
+     ]
+    }
+   ]
+  },
+  "u1, B Rand Phase 0": {
+   "a": {
+    "unison": 1,
+    "rand": 1,
+    "phase": 0.5
+   },
+   "b": {
+    "unison": 1,
+    "rand": 0,
+    "phase": 0.5
+   },
+   "pairs": [
+    {
+     "a": 0,
+     "b": 0,
+     "cents": 0,
+     "levels": [
+      0.775,
+      0.624,
+      0.781,
+      0.8,
+      0.942,
+      0.306,
+      0.721,
+      0.039,
+      0.959,
+      0.957,
+      0.572,
+      0.945
+     ]
+    }
+   ]
+  },
+  "u1, B Rand Phase 0.5": {
+   "a": {
+    "unison": 1,
+    "rand": 1,
+    "phase": 0.5
+   },
+   "b": {
+    "unison": 1,
+    "rand": 0.5,
+    "phase": 0.5
+   },
+   "pairs": [
+    {
+     "a": 0,
+     "b": 0,
+     "cents": 0,
+     "levels": [
+      0.269,
+      0.112,
+      0.276,
+      0.298,
+      0.505,
+      0.586,
+      0.21,
+      0.409,
+      0.54,
+      0.535,
+      0.064,
+      0.969
+     ]
+    }
+   ]
+  },
+  "u1, Rand Phase 0.5": {
+   "a": {
+    "unison": 1,
+    "rand": 0.5,
+    "phase": 0.5
+   },
+   "b": {
+    "unison": 1,
+    "rand": 0.5,
+    "phase": 0.5
+   },
+   "pairs": [
+    {
+     "a": 0,
+     "b": 0,
+     "cents": 0,
+     "levels": [
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1,
+      1
+     ]
+    }
+   ]
+  },
+  "u1, B Phase 0.25": {
+   "a": {
+    "unison": 1,
+    "rand": 1,
+    "phase": 0.5
+   },
+   "b": {
+    "unison": 1,
+    "rand": 1,
+    "phase": 0.25
+   },
+   "pairs": [
+    {
+     "a": 0,
+     "b": 0,
+     "cents": 0,
+     "levels": [
+      0.707,
+      0.707,
+      0.707,
+      0.707,
+      0.707,
+      0.707,
+      0.707,
+      0.707,
+      0.707,
+      0.707,
+      0.707,
+      0.707
+     ]
+    }
+   ]
+  }
+ }
+}

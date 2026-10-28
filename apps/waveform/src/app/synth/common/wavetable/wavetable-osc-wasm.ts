@@ -435,7 +435,8 @@ const writeEnvelopes = (command: Float64Array, at: number, envelopes: EnvelopePa
 
 // the options of a voice into the command buffer of the core (its reader, read_voice_options): random() draws
 // the start phases of the unison voices of each oscillator on, in their order, as the TS voice drew them, then
-// the shares of a random detune; where they end
+// the shares of a random detune; the lowest voice of both starts at the first share of the note, as the renders
+// (dsp/measurements/phases.json: two oscillators on one pitch sound the same on every note); where they end
 const writeVoiceOptions = (
   scope: OscScope,
   command: Float64Array,
@@ -443,6 +444,7 @@ const writeVoiceOptions = (
   random: () => number
 ) => {
   let at = 0;
+  let noteShare: number | undefined;
   command[at++] = options.start;
   command[at++] = options.envStart;
   command[at++] = options.phrase;
@@ -453,7 +455,13 @@ const writeVoiceOptions = (
     command[at++] = osc?.unison ?? 0;
     command[at++] = osc?.phase ?? 0;
     command[at++] = osc?.phaseRand ?? 0;
+    const first = at;
     for (let v = 0; v < MAX_UNISON; v++) command[at++] = osc ? random() : 0;
+    // (osc 2 draws its own all the same: the draws after it stay those of before)
+    if (osc) {
+      noteShare ??= command[first];
+      command[first] = noteShare;
+    }
     const shape = osc?.unisonShape ?? UNISON_SHAPE;
     command[at++] = shape.blend;
     command[at++] = shape.width;
@@ -471,7 +479,7 @@ const writeVoiceOptions = (
 };
 
 // createVoiceDsp in the core: random() draws the start phases of the unison voices of each oscillator on, in
-// their order, as the TS voice drew them, then the shares of a random detune
+// their order, as the TS voice drew them (the lowest of both at the first one), then the shares of a random detune
 export const createVoiceWasm = (
   scope: OscScope,
   sampleRate: number,

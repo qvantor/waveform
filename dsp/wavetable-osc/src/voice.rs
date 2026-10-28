@@ -48,6 +48,8 @@ pub struct OscOptions {
     pub unison: f64,
     pub phase: f64,
     pub phase_rand: f64,
+    /// the start phase of unison voice v is phase + random[v] · phase_rand; random[0] of every oscillator on
+    /// is the share of the note (the facade writes the first draw into both), their lowest voices in phase
     pub random: [f64; MAX_UNISON],
     pub shape: UnisonShape,
 }
