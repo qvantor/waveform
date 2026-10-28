@@ -1266,9 +1266,8 @@ describe('the wavetable voice', () => {
         const play = (oscs: VoiceOscOptions[]) =>
           render({ store, oscs, params: { frequency: 220 }, frames: 2048, random: seeded(seed) }).left;
         const one = play([osc({ phaseRand: 1 })]);
-        play([osc({ phaseRand: 1 }), osc({ phaseRand: 1 })]).forEach((value, i) =>
-          expect(value).toBeCloseTo(2 * one[i], 5)
-        );
+        const two = play([osc({ phaseRand: 1 }), osc({ phaseRand: 1 })]);
+        expect(Math.max(...two.map((value, i) => Math.abs(value - 2 * one[i])))).toBeLessThan(5e-6);
       }
     });
 
@@ -1300,20 +1299,26 @@ describe('the wavetable voice', () => {
         return left.subarray(FROM).map((value, i) => value + right[FROM + i]);
       };
       const amplitude = (signal: Float32Array, c: number) => toneAmplitude(signal, C5 * 2 ** (c / 1200));
+      // each voice of an oscillator alone, by its unison (osc 2 plays as osc 1; the same on every store)
+      const aloneOf = new Map<number, number[]>();
+      const alone = (store: CoreStore, n: number) => {
+        const cached = aloneOf.get(n);
+        if (cached) return cached;
+        const signal = note(store, 1, { unison: n, rand: 1, phase: 0.5 });
+        const levels = Array.from({ length: n }, (_, j) => amplitude(signal, cents(j, n)));
+        aloneOf.set(n, levels);
+        return levels;
+      };
 
       it.each(Object.entries(MEASURED_PHASES.cases))('%s', (_, { a, b, pairs }) => {
         const { store } = core.storeWith({ a: [sine] });
-        // each voice of an oscillator alone (osc 2 plays as osc 1)
-        const alone = (n: number) => {
-          const signal = note(store, 1, { unison: n, rand: 1, phase: 0.5 });
-          return Array.from({ length: n }, (_, j) => amplitude(signal, cents(j, n)));
-        };
-        const [inA, inB] = [alone(a.unison), alone(b.unison)];
+        const inA = alone(store, a.unison);
+        const inB = alone(store, b.unison);
         const notes = Array.from({ length: 12 }, (_, k) => note(store, k + 1, a, b));
         pairs.forEach((pair) => {
           const levels = notes.map((signal) => amplitude(signal, pair.cents) / (inA[pair.a] + inB[pair.b]));
-          if (Math.max(...pair.levels) - Math.min(...pair.levels) < 0.01)
-            levels.forEach((level) => expect(level).toBeCloseTo(pair.levels[0], 2));
+          const steady = Math.max(...pair.levels) - Math.min(...pair.levels) < 0.01;
+          if (steady) levels.forEach((level) => expect(level).toBeCloseTo(pair.levels[0], 2));
           else {
             expect(Math.min(...pair.levels)).toBeLessThan(0.9);
             expect(Math.min(...levels)).toBeLessThan(0.9);

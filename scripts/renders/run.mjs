@@ -81,17 +81,21 @@ execFileSync(host, ['state', init]);
 // osc A of the init patch at the phase 0 of every voice, ENV 1 open
 const FLAT = { 'A Rand Phase': 0, 'A Phase': 0, 'Env 1 Attack': 0, 'Env 1 Sustain': 1 };
 // a table of ours (frames of 2048 samples, its mark) written into User of the tables of the Audio Unit, and the
-// init state with the oscillators of `oscs` on it (osc A alone by default; the plain params of each, state.mjs);
-// `removeTables` removes them
+// init state with its first `oscs` oscillators on it (A alone by default); `removeTables` removes them
 const written = [];
-const tableState = (name, frames, flags = '00000000', oscs = [{}]) => {
+const tableState = (name, frames, flags = '00000000', oscs = 1) => {
   const file = join(tables(), 'User', `waveform-test-${name}.wav`);
   writeTable(file, frames, flags);
   written.push(file);
   const state = join(work, `state-${name}.bin`);
   const path = `User/waveform-test-${name}.wav`;
-  const played = oscs.map((osc) => ({ path, frames: frames.length, ...osc }));
-  writeFileSync(state, editedState(init, played));
+  writeFileSync(
+    state,
+    editedState(
+      init,
+      Array.from({ length: oscs }, () => ({ path, frames: frames.length }))
+    )
+  );
   return state;
 };
 const removeTables = () => written.splice(0).forEach((file) => rmSync(file, { force: true }));
@@ -410,7 +414,8 @@ if (runs('phases')) {
     'u1, Rand Phase 0.5': [{ rand: 0.5 }, { rand: 0.5 }],
     'u1, B Phase 0.25': [{}, { phase: 0.25 }],
   }).map(([name, oscs]) => [name, oscs.map(osc)]);
-  const state = tableState('phases', [sine()], '00000000', [{}, {}]);
+  const UNISONS = [...new Set(CASES.flatMap(([, oscs]) => oscs.map(({ unison }) => unison)))];
+  const state = tableState('phases', [sine()], '00000000', 2);
   // the notes in L + R
   const notes = async (name, params) => {
     const [l, r] = await hostRender(name, {
@@ -421,51 +426,48 @@ if (runs('phases')) {
     });
     return Float64Array.from(l, (value, i) => value + r[i]);
   };
-  let alone;
-  let rendered;
-  try {
-    [alone, rendered] = await Promise.all([
-      // osc A alone at each unison (B plays as A)
-      Promise.all(
-        [1, 2, 3, 4].map((n) =>
-          notes(`phases-alone-u${n}`, { 'B Enable': 0, ...oscParams('A', osc({ unison: n })) })
-        )
+  const [alone, rendered] = await Promise.all([
+    // osc A alone at each unison (B plays as A)
+    Promise.all(
+      UNISONS.map((n) =>
+        notes(`phases-alone-u${n}`, { 'B Enable': 0, ...oscParams('A', osc({ unison: n })) })
+      )
+    ),
+    Promise.all(
+      CASES.map(([name, [a, b]]) =>
+        notes(`phases-${name.replace(/\W+/g, '-')}`, {
+          'B Enable': 1,
+          ...oscParams('A', a),
+          ...oscParams('B', b),
+        })
+      )
+    ),
+  ]).finally(removeTables);
+  // the amplitude of each voice of a unison alone (by the unison): the median over the notes
+  const aloneOf = Object.fromEntries(
+    UNISONS.map((n, i) => [
+      n,
+      Array.from({ length: n }, (_, j) =>
+        median(MEASURED.map(({ on }) => amplitude(alone[i], cents(j, n), on)))
       ),
-      Promise.all(
-        CASES.map(([name, [a, b]]) =>
-          notes(`phases-${name.replace(/\W+/g, '-')}`, {
-            'B Enable': 1,
-            ...oscParams('A', a),
-            ...oscParams('B', b),
-          })
-        )
-      ),
-    ]);
-  } finally {
-    removeTables();
-  }
-  // the amplitude of each voice of a unison alone: the median over the notes
-  const aloneOf = alone.map((x, i) =>
-    Array.from({ length: i + 1 }, (_, j) =>
-      median(MEASURED.map(({ on }) => amplitude(x, cents(j, i + 1), on)))
-    )
+    ])
   );
   const cases = CASES.map(([name, [a, b]], c) => {
     const [m, n] = [a.unison, b.unison];
     const pairs = [];
     for (let j = 0; j < m; j++)
-      for (let k = 0; k < n; k++)
-        if (Math.abs(cents(j, m) - cents(k, n)) < 1) {
-          const sum = aloneOf[m - 1][j] + aloneOf[n - 1][k];
+      for (let k = 0; k < n; k++) {
+        const pitch = cents(j, m);
+        if (Math.abs(pitch - cents(k, n)) < 1) {
+          const sum = aloneOf[m][j] + aloneOf[n][k];
           pairs.push({
             a: j,
             b: k,
-            cents: Number(cents(j, m).toFixed(1)),
-            levels: MEASURED.map(({ on }) =>
-              Number((amplitude(rendered[c], cents(j, m), on) / sum).toFixed(3))
-            ),
+            cents: Number(pitch.toFixed(1)),
+            levels: MEASURED.map(({ on }) => Number((amplitude(rendered[c], pitch, on) / sum).toFixed(3))),
           });
         }
+      }
     return [name, { a, b, pairs }];
   });
   writeFileSync(

@@ -20,7 +20,7 @@ export const tables = () => {
 
 // the init state (`host state`) with oscillator i of `oscs` (A, B: `Oscillator<i>`) on `Tables/<path>` (a table of
 // `frames` frames of 2048 samples) and with its plain params `params`; one not listed keeps the init's
-export const editedState = (initFile, oscs = []) => {
+export const editedState = (initFile, oscs) => {
   const init = readFileSync(initFile);
   const length = Number(init.readBigUInt64LE(9));
   const header = JSON.parse(init.subarray(17, 17 + length).toString());
