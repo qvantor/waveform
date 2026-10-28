@@ -1,6 +1,7 @@
 import React from 'react';
 import { act, render, screen } from '@testing-library/react';
-import { withElementSize } from '@waveform/ui-kit/test-utils';
+import { theme } from '@waveform/ui-kit';
+import { drawn, svgPath, withElementSize } from '@waveform/ui-kit/test-utils';
 import { createOscillator } from '../../../../../test-utils/models';
 import { OscillatorContext } from '../../hooks';
 import { Chart } from './chart';
@@ -8,6 +9,10 @@ import { PHASE_FADE } from './phase-overlay';
 
 // the chart pads x by -1 and y by 2: the wave spans 400 × 100
 const [WIDTH, HEIGHT] = [400, 100];
+
+// the wave on the canvas of the chart (its stroke)
+const waveLine = () =>
+  svgPath(drawn(screen.getByTestId('wave-line')).find(({ op }) => op === 'stroke') ?? { points: [] });
 
 const setup = (phaseVisible = true) => {
   const oscillator = createOscillator();
@@ -24,6 +29,12 @@ const setup = (phaseVisible = true) => {
       actions.setOscValue('phaseRand', phaseRand);
     });
   const attr = (testId: string, name: string) => Number(screen.getByTestId(testId).getAttribute(name));
+  // the point on the wave: the dot painted on the canvas of the overlay
+  const dot = () => {
+    const [{ x, y }] =
+      drawn(screen.getByTestId('phase-wave')).find(({ arcs }) => arcs.length > 0)?.arcs ?? [];
+    return { x, y };
+  };
   const bands = () =>
     screen
       .queryAllByTestId('phase-band')
@@ -32,6 +43,7 @@ const setup = (phaseVisible = true) => {
     ...result,
     set,
     attr,
+    dot,
     bands,
     rerender: (visible: boolean) => result.rerender(chart(visible)),
   };
@@ -48,9 +60,8 @@ describe('Chart of the wave', () => {
   });
 
   it('draws one period of the placeholder from edge to edge, its first sample again at the end', () => {
-    const { container } = setup(false);
-    const line = container.querySelector('path')?.getAttribute('d');
-    expect(line).toContain('L0,50L100,0L200,50L300,100L400,50');
+    setup(false);
+    expect(waveLine()).toContain('L0,50L100,0L200,50L300,100L400,50');
   });
 
   it('shows nothing over the wave while Phase and Phase rand are not dragged', () => {
@@ -59,21 +70,20 @@ describe('Chart of the wave', () => {
   });
 
   it('marks the phase on the wave: a line at its share of the width, a point on the wave', () => {
-    const { set, attr } = setup();
+    const { set, attr, dot } = setup();
     set(0.25, 0);
     expect(attr('phase-marker', 'x1')).toBe(WIDTH / 4);
-    expect(attr('phase-dot', 'cx')).toBe(WIDTH / 4);
-    // the crest of the placeholder sine [0, 1, 0, -1]
-    expect(attr('phase-dot', 'cy')).toBe(0);
+    // at the crest of the placeholder sine [0, 1, 0, -1]
+    expect(dot()).toEqual({ x: WIDTH / 4, y: 0 });
   });
 
   it('puts the point between two samples on the line between them, past the last one towards the first', () => {
-    const { set, attr } = setup();
+    const { set, dot } = setup();
     set(0.125, 0);
-    expect(attr('phase-dot', 'cy')).toBe(HEIGHT / 4);
+    expect(dot().y).toBe(HEIGHT / 4);
     set(0.9, 0);
-    expect(attr('phase-dot', 'cx')).toBeCloseTo(WIDTH * 0.9, 10);
-    expect(attr('phase-dot', 'cy')).toBeCloseTo(HEIGHT * 0.7, 10);
+    expect(dot().x).toBeCloseTo(WIDTH * 0.9, 10);
+    expect(dot().y).toBeCloseTo(HEIGHT * 0.7, 10);
   });
 
   it('has no band at Phase rand 0: every voice starts at the phase', () => {
@@ -102,17 +112,20 @@ describe('Chart of the wave', () => {
   });
 
   it('highlights the wave inside the band: the line clipped by its rects', () => {
-    const { set, container } = setup();
+    const { set } = setup();
     set(0.75, 0.5);
-    const overlay = screen.getByTestId('phase-overlay');
-    const highlight = overlay.querySelector('g[clip-path]');
-    const clip = highlight?.getAttribute('clip-path')?.match(/^url\(#(.+)\)$/)?.[1];
-    // the path of the wave itself: it follows the wave drawn
-    const line = highlight?.querySelector('use')?.getAttribute('href') ?? '';
-    expect(container.querySelector(`path${line}`)?.getAttribute('d')).toContain(
-      'L0,50L100,0L200,50L300,100L400,50'
-    );
-    expect(overlay.querySelector(`clipPath[id="${clip}"]`)?.querySelectorAll('rect')).toHaveLength(2);
+    const [highlight] = drawn(screen.getByTestId('phase-wave'));
+    // the wave drawn
+    expect([highlight.op, highlight.style, highlight.lineWidth]).toEqual([
+      'stroke',
+      theme.colors.secondAccent,
+      2,
+    ]);
+    expect(svgPath(highlight)).toContain('L0,50L100,0L200,50L300,100L400,50');
+    expect(highlight.clip?.map(([x, , width]) => [x, width])).toEqual([
+      [(WIDTH * 3) / 4, WIDTH / 4],
+      [0, WIDTH / 4],
+    ]);
   });
 
   it('covers the whole wave at Phase rand 100%: any phase', () => {
@@ -165,16 +178,16 @@ describe('Chart of the wave', () => {
         <Chart phaseVisible modulations={modulations} />
       </OscillatorContext.Provider>
     );
-    const line = (container: HTMLElement) => container.querySelector('path')?.getAttribute('d');
     act(() => actions.setOscValue('phase', 0.25));
     // half the travel of 3 frames: from frame 0 to frame 1 (one frame, never a mix), the crest at 0.5
     const live = render(chart([route]));
-    const moved = line(live.container);
+    const moved = waveLine();
     expect(moved).toContain('L0,50L100,25L200,50L300,75L400,50');
-    expect(Number(screen.getByTestId('phase-dot').getAttribute('cy'))).toBe(25);
+    const [dot] = drawn(screen.getByTestId('phase-wave')).flatMap(({ arcs }) => arcs);
+    expect(dot.y).toBe(25);
     live.unmount();
     act(() => $position.next(1));
-    const still = render(chart());
-    expect(line(still.container)).toBe(moved);
+    render(chart());
+    expect(waveLine()).toBe(moved);
   });
 });

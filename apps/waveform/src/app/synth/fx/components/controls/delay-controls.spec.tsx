@@ -1,6 +1,6 @@
 import { render, screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
-import { withElementSize } from '@waveform/ui-kit/test-utils';
+import { drawn, svgPath, withElementSize } from '@waveform/ui-kit/test-utils';
 import { createLiveRoutes } from '../../../../../test-utils/live-routes';
 import { DelayControls } from './delay-controls';
 
@@ -85,7 +85,8 @@ describe('DelayControls', () => {
         <DelayControls params={{ ...params, ...changes }} setParam={jest.fn()} on sampleRate={48000} />,
         { wrapper: Wrapper }
       );
-      const d = screen.getByTestId('filter-response').querySelector('path')?.getAttribute('d');
+      const [line] = drawn(screen.getByTestId('filter-line'));
+      const d = svgPath(line);
       unmount();
       return d;
     };

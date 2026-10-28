@@ -2,6 +2,7 @@
 // machine (Node's own Math differs in the last bits on arm64), so are the goldens
 import '../../../../test-utils/js-math';
 import { EnvelopeParams } from '../envelope/envelope-curve';
+import { FREE, LfoPoints, LfosState, lfoTable, LfoWire, nextAnchor, RETRIG } from '../lfo/lfo-curve';
 import { withCurves } from '../../../../test-utils/envelopes';
 import { pick, Random } from '../../../../test-utils/fuzz-signals';
 import {
@@ -71,6 +72,8 @@ interface Scenario {
   voices: ScenarioVoice[];
   // the pitch bend of the node (cents) from a block on
   bends?: Record<number, number>;
+  // the states of the LFOs before a block (the first one at once, with every table: as a node gets them)
+  lfos?: Record<number, LfosState>;
   seed: number;
 }
 
@@ -193,6 +196,8 @@ const run = (name: string, scenario: Scenario) => {
     before(block);
     const cents = scenario.bends?.[block];
     if (cents !== undefined) bend.set(cents);
+    const lfos = scenario.lfos?.[block];
+    if (lfos) shared.setLfos(lfos);
     const bendOfBlock = bend.block(n);
     voices.forEach((voice) => {
       if (voice.at === block)
@@ -243,6 +248,8 @@ const runScope = (name: string, scenario: Scenario, trap?: { block: number; voic
     before(block);
     const cents = scenario.bends?.[block];
     if (cents !== undefined) node.setBend(cents);
+    const lfos = scenario.lfos?.[block];
+    if (lfos) node.apply([{ kind: 'lfos', ...lfos }]);
     voices.forEach((voice, id) => {
       if (voice.at !== block) return;
       node.on(id, production(voice.options), {});
@@ -347,6 +354,176 @@ const gateAt =
   (stop: number, value = 0) =>
   (frame: number, n: number) =>
     frame + n <= stop ? 1 : (i: number) => (i < stop ? 1 : value);
+
+// --- LFOs ---
+
+// an LFO as the main thread sends it: a sine of 0.2 s, retrig, by default
+const lfo = (change: Partial<LfoWire> = {}): LfoWire => ({
+  mode: RETRIG,
+  delay: 0,
+  rise: 0,
+  smooth: 0,
+  phase: 0,
+  anchor: { time: 0, phase: 0, period: 0.2 },
+  ...change,
+});
+// the first state of a node: LFO 1–4 of `lfos`, at once, with their tables (sines by default)
+const lfosAtOnce = (lfos: Partial<LfoWire>[]): LfosState => ({
+  at: 0,
+  instantly: true,
+  lfos: [0, 1, 2, 3].map((i) => lfo({ table: lfoTable('sine'), ...lfos[i] })),
+});
+const lfosFrom = (at: number, lfos: Partial<LfoWire>[]): LfosState => ({
+  at,
+  lfos: [0, 1, 2, 3].map((i) => lfo(lfos[i])),
+});
+const POINTS: LfoPoints = [
+  [0, 0, 0],
+  [0.1, 1, 4],
+  [0.5, 0.6, -2],
+  [0.5, 0.2, 0],
+  [0.8, 0.9, 0],
+];
+const lfoRoute = (
+  source: number,
+  param: string,
+  amount: number,
+  change: Partial<VoiceRoute> = {}
+): VoiceRoute => ({
+  source,
+  param,
+  amount,
+  min: 0,
+  max: 1,
+  ...change,
+});
+
+const LFO_GOLDEN: [string, Scenario][] = [
+  [
+    'LFO 1 on the gain: a new period, a new Phase, a new shape on the way',
+    {
+      rate: RATE,
+      blocks: quanta(0.4),
+      tables: { a: [SAW] },
+      voices: [
+        {
+          at: 0,
+          options: note({ routes: [lfoRoute(4, 'gain1', 0.5)] }),
+          params: { frequency: constant(220), gain1: constant(0.25) },
+        },
+      ],
+      lfos: {
+        0: lfosAtOnce([]),
+        40: lfosFrom((40 * 128 + 50) / RATE, [
+          { anchor: nextAnchor([lfo().anchor], (40 * 128 + 50) / RATE, 0.05) },
+        ]),
+        80: lfosFrom((80 * 128 + 10) / RATE, [
+          {
+            anchor: nextAnchor([lfo().anchor], (40 * 128 + 50) / RATE, 0.05),
+            phase: 0.3,
+            table: lfoTable('triangle'),
+          },
+        ]),
+      },
+      seed: 21,
+    },
+  ],
+  [
+    'LFO 2 on the wave, ENV 2 on its Rate',
+    {
+      rate: RATE,
+      blocks: quanta(0.3),
+      tables: { a: [SINE, SAW, SQUARE] },
+      voices: [
+        {
+          at: 0,
+          options: note({
+            envelopes: [ENV, { attack: 0.1, hold: 0, decay: 0.1, sustain: 0.5, release: 0.1 }, FLAT],
+            routes: [
+              lfoRoute(5, 'position1', 1),
+              lfoRoute(1, 'lfo2.rate', 2, { min: 1 / 32, max: 100, scale: 'log' }),
+            ],
+          }),
+          params: { frequency: constant(110), gate: gateAt(10000, RELEASE_GATE + 0.2) },
+        },
+      ],
+      lfos: { 0: lfosAtOnce([{}, { anchor: { time: 0, phase: 0.25, period: 0.15 } }]) },
+      seed: 22,
+    },
+  ],
+  [
+    'a free LFO 3 on two notes, its Delay and Rise from each, on the spread',
+    {
+      rate: RATE,
+      blocks: quanta(0.3),
+      tables: { a: [SAW] },
+      voices: [0, 30].map(
+        (at): ScenarioVoice => ({
+          at,
+          options: note({
+            osc: [osc({ unison: 3 }), null],
+            start: (at * 128) / RATE,
+            envStart: (at * 128) / RATE,
+            phrase: at,
+            routes: [lfoRoute(6, 'spread1', 60, { max: 100 })],
+          }),
+          params: { frequency: constant(at === 0 ? 220 : 330) },
+        })
+      ),
+      lfos: {
+        0: lfosAtOnce([
+          {},
+          {},
+          { mode: FREE, delay: 0.03, rise: 0.05, anchor: { time: 0, phase: 0.6, period: 0.1 } },
+        ]),
+      },
+      seed: 23,
+    },
+  ],
+  [
+    'a bipolar LFO 4 on the cutoff, smoothed, a shape of its own',
+    {
+      rate: RATE,
+      blocks: quanta(0.3),
+      tables: { a: [SAW] },
+      voices: [
+        {
+          at: 0,
+          options: note({
+            filter: { type: 'lowpass', cutoff: 1200, resonance: 8, gain: 0 },
+            routes: [lfoRoute(7, 'cutoff', 3, { min: 20, max: 20000, scale: 'log', bipolar: true })],
+          }),
+          params: { frequency: constant(110) },
+        },
+      ],
+      lfos: { 0: lfosAtOnce([{}, {}, {}, { smooth: 0.01, table: lfoTable('sine', POINTS) }]) },
+      seed: 24,
+    },
+  ],
+  [
+    'an LFO started again with the envelopes (mono), the velocity on its Delay',
+    {
+      rate: RATE,
+      blocks: quanta(0.3),
+      tables: { a: [SAW] },
+      voices: [
+        {
+          at: 0,
+          options: note({
+            envelopes: [ENV, FLAT, FLAT],
+            routes: [lfoRoute(4, 'gain1', -0.4), lfoRoute(3, 'lfo1.delay', 0.3, { max: 32, scale: 'pow' })],
+            velocity: { level: 0.5, amp: 1 },
+          }),
+          params: {
+            gate: (frame, n) => (frame + n <= 5000 ? 1 : (i) => (i < 5000 ? 1 : HELD_AGAIN_GATE)),
+          },
+        },
+      ],
+      lfos: { 0: lfosAtOnce([{ delay: 0.02, anchor: { time: 0, phase: 0, period: 0.05 } }]) },
+      seed: 25,
+    },
+  ],
+];
 
 const GOLDEN: [string, Scenario][] = [
   ...[1, 2, 5, 8].flatMap((unison) =>
@@ -477,7 +654,7 @@ const GOLDEN: [string, Scenario][] = [
           options: note({
             envelopes: [FLAT, { attack: 0.03, hold: 0, decay: 0.05, sustain: 0.3, release: 0.1 }, FLAT],
             filter: { type, cutoff: 800, resonance: 6, gain: 6 },
-            routes: [{ env: 1, param: 'cutoff', amount: 3, min: 20, max: 20000, log: true }],
+            routes: [{ source: 1, param: 'cutoff', amount: 3, min: 20, max: 20000, scale: 'log' }],
           }),
           params: { frequency: constant(110) },
           filters: { 20: { type, cutoff: 3000, resonance: 3, gain: -6 } },
@@ -499,13 +676,13 @@ const GOLDEN: [string, Scenario][] = [
             osc: [osc({ unison: 4 }), osc({ unison: 2, phase: 0.3 })],
             envelopes: [ENV, { attack: 0.05, hold: 0, decay: 0.1, sustain: 0.2, release: 0.2 }, ENV],
             routes: [
-              { env: 1, param: 'position1', amount: 1, min: 0, max: 1 },
-              { env: 2, param: 'gain2', amount: -0.5, min: 0, max: 1 },
-              { env: 1, param: 'spread1', amount: 40, min: 0, max: 100 },
+              { source: 1, param: 'position1', amount: 1, min: 0, max: 1 },
+              { source: 2, param: 'gain2', amount: -0.5, min: 0, max: 1 },
+              { source: 1, param: 'spread1', amount: 40, min: 0, max: 100 },
             ],
           }),
           params: { spread1: constant(10), detune2: constant(-1200) },
-          routes: { 30: [{ env: 2, param: 'position1', amount: -0.5, min: 0, max: 1 }] },
+          routes: { 30: [{ source: 2, param: 'position1', amount: -0.5, min: 0, max: 1 }] },
         },
       ],
       seed: 2,
@@ -681,10 +858,10 @@ const GOLDEN: [string, Scenario][] = [
             envelopes: [ENV, ENV, FLAT],
             filter: { type: 'lowpass', cutoff: 400, resonance: 6, gain: 0 },
             routes: [
-              { env: 3, param: 'cutoff', amount: 4, min: 20, max: 20000, log: true },
-              { env: 3, param: 'position1', amount: 0.5, min: 0, max: 1 },
-              { env: 1, param: 'gain1', amount: -0.3, min: 0, max: 1 },
-              { env: 3, param: 'gain1', amount: 0.2, min: 0, max: 1 },
+              { source: 3, param: 'cutoff', amount: 4, min: 20, max: 20000, scale: 'log' },
+              { source: 3, param: 'position1', amount: 0.5, min: 0, max: 1 },
+              { source: 1, param: 'gain1', amount: -0.3, min: 0, max: 1 },
+              { source: 3, param: 'gain1', amount: 0.2, min: 0, max: 1 },
             ],
             velocity: { level: 0.7, amp: 0.85 },
           }),
@@ -706,7 +883,7 @@ const GOLDEN: [string, Scenario][] = [
           options: note({
             osc: [osc({ unison: 4, phaseRand: 1 }), null],
             envelopes: [ENV, FLAT, FLAT],
-            routes: [{ env: 3, param: 'position1', amount: 0.8, min: 0, max: 1 }],
+            routes: [{ source: 3, param: 'position1', amount: 0.8, min: 0, max: 1 }],
             velocity: { level: 0.2, amp: 0.4 },
           }),
           params: {
@@ -746,17 +923,22 @@ const GOLDEN: [string, Scenario][] = [
 // --- random scenarios ---
 
 const between = (random: Random, min: number, max: number) => min + random() * (max - min);
-const KNOBS: [string, number, number, boolean?][] = [
+const KNOBS: [string, number, number, ('log' | 'pow')?][] = [
   ['position1', 0, 1],
   ['spread1', 0, 100],
   ['gain1', 0, 1],
   ['position2', 0, 1],
   ['spread2', 0, 100],
   ['gain2', 0, 1],
-  ['cutoff', 20, 20000, true],
+  ['cutoff', 20, 20000, 'log'],
   ['resonance', -12, 24],
   ['gain', -24, 24],
   ['detune1', -2400, 2400],
+  ['lfo1.rate', 1 / 32, 100, 'log'],
+  ['lfo2.delay', 0, 32, 'pow'],
+  ['lfo3.rise', 0, 32, 'pow'],
+  ['lfo4.smooth', 0, 0.5, 'pow'],
+  ['lfo1.phase', 0, 1],
 ];
 const FILTERS = [
   'lowpass',
@@ -782,17 +964,51 @@ const randomEnvelope = (random: Random): EnvelopeParams => {
 };
 const randomRoutes = (random: Random): VoiceRoute[] =>
   Array.from({ length: Math.floor(random() * 4) }, () => {
-    const [param, min, max, log] = pick(random, KNOBS);
+    const [param, min, max, scale] = pick(random, KNOBS);
     return {
-      // ENV 1–3 or VELO
-      env: Math.floor(random() * 4),
+      // ENV 1–3, VELO or LFO 1–4 (an LFO on a knob of an LFO: left out)
+      source: Math.floor(random() * 8),
       param,
-      amount: (random() * 2 - 1) * (log ? 4 : max - min),
+      amount: (random() * 2 - 1) * (scale === 'log' ? 4 : scale === 'pow' ? 1 : max - min),
       min,
       max,
-      log,
+      ...(scale && { scale }),
+      ...(random() < 0.3 && { bipolar: true }),
     };
   });
+// random LFOs: their shapes, modes and knobs, periods of 10 ms to 2 s
+const randomLfo = (random: Random, at: number): LfoWire => ({
+  mode: random() < 0.5 ? RETRIG : FREE,
+  delay: random() < 0.6 ? 0 : between(random, 0, 0.1),
+  rise: random() < 0.6 ? 0 : between(random, 0, 0.2),
+  smooth: random() < 0.6 ? 0 : between(random, 0, 0.1),
+  phase: random() < 0.5 ? 0 : random(),
+  anchor: { time: at, phase: random(), period: 0.01 * 200 ** random() },
+  ...(random() < 0.7 && {
+    table:
+      random() < 0.8
+        ? lfoTable(pick(random, ['sine', 'triangle', 'saw-up', 'saw-down', 'square'] as const))
+        : lfoTable('sine', [
+            [0, random(), between(random, -10, 10)],
+            [random(), random(), 0],
+          ]),
+  }),
+});
+const randomLfos = (random: Random, blocks: number[], rate: number): Record<number, LfosState> => {
+  const lfos: Record<number, LfosState> = {
+    0: {
+      at: 0,
+      instantly: true,
+      lfos: [0, 1, 2, 3].map(() => ({ table: lfoTable('sine'), ...randomLfo(random, 0) })),
+    },
+  };
+  if (random() < 0.5) {
+    const block = Math.floor(random() * blocks.length);
+    const at = (blocks.slice(0, block).reduce((a, b) => a + b, 0) + random() * 200) / rate;
+    lfos[block] = { at, lfos: [0, 1, 2, 3].map(() => randomLfo(random, at)) };
+  }
+  return lfos;
+};
 const randomFilter = (random: Random): VoiceFilterOptions | null =>
   random() < 0.4
     ? null
@@ -927,11 +1143,11 @@ const randomScenario = (random: Random, seed: number): Scenario => {
       velocities,
     };
   });
-  return { rate, blocks, tables, versions, voices, bends, seed };
+  return { rate, blocks, tables, versions, voices, bends, lfos: randomLfos(random, blocks, rate), seed };
 };
 
 describe('wavetable oscillator wasm core', () => {
-  it.each(GOLDEN)('%s: its golden', (name, scenario) => {
+  it.each([...GOLDEN, ...LFO_GOLDEN])('%s: its golden', (name, scenario) => {
     const golden = run(name, scenario);
     goldens.check(name, golden);
     // the voices of one node: the same bits, and the golden of their sum

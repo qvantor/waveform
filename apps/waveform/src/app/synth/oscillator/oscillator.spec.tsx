@@ -2,7 +2,7 @@ import React from 'react';
 import { act, render, screen } from '@testing-library/react';
 import { Handle, HandleProps } from '@waveform/ui-kit';
 import { BehaviorSubject } from 'rxjs';
-import { MOD_SOURCES, ModSource } from '@waveform/preset-schema';
+import { MOD_SOURCES } from '@waveform/preset-schema';
 import { withElementSize } from '@waveform/ui-kit/test-utils';
 import { createEnvelopes, createModulation, createOscillator } from '../../../test-utils/models';
 import { ModulationContext } from '../common/modules/modulation';
@@ -86,11 +86,12 @@ describe('Oscillator', () => {
     it('with 64 routes the knobs take no envelope, their routes stay', () => {
       const { knob, modulation } = setup();
       const [{ $routes }, { addRoute }] = modulation;
-      act(() =>
+      act(() => {
+        (['env1', 'env2', 'env3'] as const).forEach((source) => addRoute(source, 'osc1.detune'));
         MOD_SOURCES.forEach((source) =>
           Object.keys(MOD_TARGETS).forEach((target) => addRoute(source, target))
-        )
-      );
+        );
+      });
       expect($routes.value).toHaveLength(64);
       ['Gain', 'Wave', 'Detune'].forEach((label) => expect(knob(label).modTarget).toBeUndefined());
       expect(knob('Detune').modulations).toHaveLength(3);
@@ -98,16 +99,9 @@ describe('Oscillator', () => {
 
     it('a knob with 4 sources takes no other one, the others still do', () => {
       const { knob, modulation } = setup();
-      const [{ $routes }] = modulation;
-      // 4 sources there are not yet (the LFOs to come)
+      const [, { addRoute }] = modulation;
       act(() =>
-        $routes.next(
-          ['lfo1', 'lfo2', 'lfo3', 'lfo4'].map((source) => ({
-            source: source as ModSource,
-            target: 'osc1.detune',
-            amount: 0.5,
-          }))
-        )
+        (['lfo1', 'lfo2', 'lfo3', 'lfo4'] as const).forEach((source) => addRoute(source, 'osc1.detune'))
       );
       expect(knob('Detune').modTarget).toBeUndefined();
       expect(knob('Detune').modulations).toHaveLength(4);
@@ -123,7 +117,7 @@ describe('Oscillator', () => {
         addRoute('env2', 'osc1.gain');
       });
       const [env2, env3] = knob('Detune').modulations ?? [];
-      expect(env2).toMatchObject({ id: 'env2', amount: 0.5, color: '#4796d3', label: 'ENV 2' });
+      expect(env2).toMatchObject({ id: 'env2', amount: 0.5, color: '#1663c7', label: 'ENV 2' });
       expect(env3).toMatchObject({ id: 'env3', amount: -0.25, label: 'ENV 3' });
       expect(env3.formatAmount?.(-0.25)).toBe('-25%');
 

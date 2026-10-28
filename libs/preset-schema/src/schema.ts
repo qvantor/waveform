@@ -256,27 +256,103 @@ const envSchema = z
   })
   .default({});
 
+// the LFOs LFO 1–4: sources of the routes after the velocity, each a cycle of its shape repeated every `rate`
+// seconds (its period), per note: from the end of its Delay (retrig) or on a clock of its own all notes share
+// (free); its knobs are targets of the envelopes (lfo1.rate…), not of the LFOs
+export const LFOS = ['lfo1', 'lfo2', 'lfo3', 'lfo4'] as const;
+export type LfoId = typeof LFOS[number];
+// the key of each one in the preset: lfo: { l1, l2, l3, l4 }
+export const LFO_KEYS: Record<LfoId, string> = { lfo1: 'l1', lfo2: 'l2', lfo3: 'l3', lfo4: 'l4' };
+// the shapes a cycle of an LFO takes (levels 0..1, the left point is the level at its start), or points of its own
+export const LFO_SHAPES = ['sine', 'triangle', 'saw-up', 'saw-down', 'square'] as const;
+export type LfoShape = typeof LFO_SHAPES[number];
+// retrig: its phase starts with every note (at the end of its Delay), free: one phase of every note
+export const LFO_MODES = ['retrig', 'free'] as const;
+export type LfoMode = typeof LFO_MODES[number];
+// seconds of the period: 10 ms (100 Hz) to 32 s; the knob goes by the frequency, right faster
+export const LFO_RATE_MIN = 0.01;
+export const LFO_RATE_MAX = 32;
+// seconds of the lag of Smooth at most
+export const LFO_SMOOTH_MAX = 0.5;
+// the points of a shape of its own at most
+export const LFO_POINTS_MAX = 64;
+export type LfoKnob = 'rate' | 'delay' | 'rise' | 'smooth' | 'phase';
+export const LFO_DEFAULTS: Record<LfoKnob, number> & { shape: LfoShape; mode: LfoMode } = {
+  rate: 0.5,
+  delay: 0,
+  rise: 0,
+  smooth: 0,
+  phase: 0,
+  shape: 'sine',
+  mode: 'retrig',
+};
+
+// a point of a shape of its own: x (the share of the cycle), y (the level), k (the curve of the segment to the
+// next point: curveShape of the app, as the stages of the envelopes)
+export type LfoPoint = [number, number, number];
+// the points start at 0 and go up (two at the same x: a step); the last segment goes to the first point over the
+// end of the cycle
+const startsAtZeroAscending = (points: LfoPoint[]) =>
+  points[0][0] === 0 && points.every((point, i) => i === 0 || point[0] >= points[i - 1][0]);
+
+const lfoSchema = z
+  .object({
+    rate: range(LFO_RATE_MIN, LFO_RATE_MAX).default(LFO_DEFAULTS.rate),
+    delay: range(0, ENVELOPE_TIME_MAX).default(LFO_DEFAULTS.delay),
+    rise: range(0, ENVELOPE_TIME_MAX).default(LFO_DEFAULTS.rise),
+    smooth: range(0, LFO_SMOOTH_MAX).default(LFO_DEFAULTS.smooth),
+    phase: range(0, 1).default(LFO_DEFAULTS.phase),
+    shape: z.enum(LFO_SHAPES).default(LFO_DEFAULTS.shape),
+    mode: z.enum(LFO_MODES).default(LFO_DEFAULTS.mode),
+    // a shape of its own (before shape; drawn and edited on the chart of the LFO section)
+    points: z
+      .array(
+        z.tuple([
+          range(0, 1),
+          range(0, 1),
+          range(-ENVELOPE_CURVE_MAX, ENVELOPE_CURVE_MAX).transform(envelopeCurve),
+        ])
+      )
+      .min(2)
+      .max(LFO_POINTS_MAX)
+      .refine(startsAtZeroAscending)
+      .optional(),
+  })
+  .default({});
+
+const lfoSectionSchema = z.object({ l1: lfoSchema, l2: lfoSchema, l3: lfoSchema, l4: lfoSchema }).default({});
+
 // the modulation: a route moves a knob (a target of the app: osc1.wave, filter.cutoff, delay.time…) by its
 // source × amount, a share of the range of the knob in its scale (-1..1, a log knob in octaves: +0.5 on
-// Cutoff is about +5.5 octaves). Saved as { 'env2:osc1.wave': 0.5 }: one route per source and knob. The sources:
-// the envelopes, then the velocity (VELO); an index into MOD_SOURCES is the index of the source in the voice
-export type ModSource = EnvelopeId | 'velo';
-export const MOD_SOURCES: readonly ModSource[] = [...ENVELOPES, 'velo'];
+// Cutoff is about +5.5 octaves). Saved as { 'env2:osc1.wave': 0.5 }: one route per source and knob; a bipolar one
+// (around the knob, amount × (level - ½)) as { 'lfo1:filter.gain': { a: 0.5, bi: true } }. The sources: the
+// envelopes, the velocity (VELO), then the LFOs; an index into MOD_SOURCES is the index of the source in the
+// voice. The knobs of the LFOs take no LFO
+export type ModSource = EnvelopeId | 'velo' | LfoId;
+export const MOD_SOURCES: readonly ModSource[] = [...ENVELOPES, 'velo', ...LFOS];
+export const isLfo = (source: string): source is LfoId => (LFOS as readonly string[]).includes(source);
+// the target of a route moves a knob of an LFO (lfo2.rate): no LFO goes there
+export const isLfoKnob = (target: string) => /^lfo[1-4]\./.test(target);
 // the most routes of a preset (once there are as many, a dragged ENV tab adds none) and of the sources on one
 // knob (a full one takes none)
 export const MOD_ROUTES_MAX = 64;
 export const MOD_KNOB_SOURCES_MAX = 4;
-const modKeySchema = z.string().regex(/^(env[1-3]|velo):[a-z][a-z0-9]*\.[a-z][a-z0-9]*$/);
-const knobSources = (routes: Record<string, number>) =>
+const modKeySchema = z.string().regex(/^(env[1-3]|velo|lfo[1-4]):[a-z][a-z0-9]*\.[a-z][a-z0-9]*$/);
+const modValueSchema = z.union([range(-1, 1), z.object({ a: range(-1, 1), bi: z.literal(true) })]);
+export type ModValue = z.infer<typeof modValueSchema>;
+const knobSources = (routes: Record<string, unknown>) =>
   Object.keys(routes).reduce<Record<string, number>>((counts, key) => {
     const target = key.slice(key.indexOf(':') + 1);
     counts[target] = (counts[target] ?? 0) + 1;
     return counts;
   }, {});
+const lfoOnLfo = (key: string) =>
+  isLfo(key.slice(0, key.indexOf(':'))) && isLfoKnob(key.slice(key.indexOf(':') + 1));
 const modSchema = z
-  .record(modKeySchema, range(-1, 1))
+  .record(modKeySchema, modValueSchema)
   .refine((routes) => Object.keys(routes).length <= MOD_ROUTES_MAX)
   .refine((routes) => Object.values(knobSources(routes)).every((count) => count <= MOD_KNOB_SOURCES_MAX))
+  .refine((routes) => !Object.keys(routes).some(lfoOnLfo))
   .default({});
 
 // semitones the pitch bend moves the notes by at most, down and up (each 0..PITCH_BEND_MAX)
@@ -359,6 +435,7 @@ export const presetDataSchema = z.object({
   osc2: oscillatorSchema(false),
   filter: filterSchema,
   env: envSchema,
+  lfo: lfoSectionSchema,
   mod: modSchema,
   v: voicingSchema,
   fx: fxSchema,

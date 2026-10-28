@@ -2,13 +2,14 @@ import { mapValues, omit } from 'lodash';
 import { FX_PARAMS } from '@waveform/preset-schema';
 import { number } from '@waveform/math';
 import { REVERB_PROCESSOR } from '../../common/processors';
+import { createLfoFeed } from '../../common/lfo/lfo-curve';
 import { FxDefinition } from './types';
 import { ReverbParam, REVERB_PRESETS } from './reverb-presets';
 import { formatHz, formatMs, formatSeconds } from './format';
 import { eraIndex, REVERB_ERAS } from './reverb-era';
 import { ReverbDspParams, ReverbMessage, ReverbOptions } from './reverb-params';
 import { createWorkletFx, STEREO_WORKLET_OPTIONS } from './worklet-fx';
-import type { FxModMessage } from './fx-modulation';
+import { FxModMessage, isLfoSource } from './fx-modulation';
 
 const { lowcut, pre, size, decay, damp, bass, depth, sep, er, era } = FX_PARAMS.reverb;
 
@@ -88,13 +89,23 @@ export const reverb: FxDefinition<ReverbParam> = {
     // the node starts with the params and the active flag kept until the module has loaded
     const worklet = createWorkletFx(audioCtx, 'reverb', () => {
       const params: ReverbDspParams = { ...omit(values, 'era'), ...eraParams(values.era) };
-      const processorOptions: ReverbOptions = { params, active };
+      const lfos = feed.initial();
+      const processorOptions: ReverbOptions = {
+        params,
+        active,
+        ...(lfos && { lfos }),
+      };
       return new AudioWorkletNode(audioCtx, REVERB_PROCESSOR, {
         ...STEREO_WORKLET_OPTIONS,
         processorOptions,
       });
     });
     const post = (message: ReverbMessage) => worklet.post(message);
+    // the LFOs, only while a route of one moves a knob
+    const feed = createLfoFeed((state) => {
+      const message: FxModMessage = { lfos: state };
+      worklet.post(message);
+    });
 
     return {
       input: worklet.input,
@@ -113,11 +124,14 @@ export const reverb: FxDefinition<ReverbParam> = {
         post({ active });
       },
       clear: worklet.clear,
-      // the worklet moves the knobs once per block, the lines are worked out again only while they move
+      // the worklet moves the knobs once per block, the lines are worked out again only while they move (the
+      // LFOs as they are first, once a route reads one)
       setModulation: (mod) => {
+        feed.use(!!mod && mod.routes.some(({ source }) => isLfoSource(source)));
         const message: FxModMessage = { mod };
         worklet.post(message);
       },
+      setLfos: feed.take,
       destroy: worklet.destroy,
     };
   },

@@ -2,6 +2,7 @@ import { mapValues, omit } from 'lodash';
 import { FX_PARAMS } from '@waveform/preset-schema';
 import { withoutAudioWorklet } from '../../../../test-utils/no-audio-worklet';
 import { REVERB_PROCESSOR } from '../../common/processors';
+import { LfoWire, RETRIG } from '../../common/lfo/lfo-curve';
 import { reverb } from './reverb';
 import { REVERB_ERAS } from './reverb-era';
 import { WORKLETS_PATH } from './load-worklet';
@@ -32,6 +33,34 @@ const setup = () => {
 };
 
 describe('reverb', () => {
+  it('posts the LFOs while a route of one moves a knob, as they are first; a node made later starts with them', async () => {
+    const { core, node, messages } = setup();
+    const wire = (change: Partial<LfoWire> = {}): LfoWire => ({
+      mode: RETRIG,
+      delay: 0,
+      rise: 0,
+      smooth: 0,
+      phase: 0,
+      anchor: { time: 0, phase: 0, period: 0.5 },
+      ...change,
+    });
+    core.setLfos?.({ at: 0, instantly: true, lfos: [wire(), wire({ delay: 1 }), wire(), wire()] });
+    await flush();
+    const merged = [wire(), wire({ delay: 1 }), wire(), wire()];
+    expect(node()?.options.processorOptions.lfos).toEqual({ at: 0, instantly: true, lfos: merged });
+    core.setLfos?.({ at: 2, lfos: [wire({ phase: 0.5 }), wire(), wire(), wire()] });
+    expect(messages()).toEqual([]);
+    const lfo = { param: 'size', source: 5, amount: 0.5, min: 0, max: 1 };
+    core.setModulation?.({ note: null, routes: [lfo] });
+    const next = { at: 3, lfos: [wire({ phase: 0.25 }), wire(), wire(), wire()] };
+    core.setLfos?.(next);
+    expect(messages()).toEqual([
+      { lfos: { at: 0, instantly: true, lfos: [wire({ phase: 0.5 }), wire(), wire(), wire()] } },
+      { mod: { note: null, routes: [lfo] } },
+      { lfos: next },
+    ]);
+  });
+
   it('passes input and output gains at once, the worklet node joins them after the module loads', async () => {
     const { audioCtx, core, input, output, node } = setup();
     expect(core.input).toBe(input);
@@ -212,7 +241,7 @@ describe('reverb', () => {
     await flush();
     const mod = {
       note: { envelopes: [ENV, ENV, ENV], start: 1, release: null },
-      routes: [{ param: 'decay', env: 1, amount: 2, min: 0.1, max: 20, log: true }],
+      routes: [{ param: 'decay', source: 1, amount: 2, min: 0.1, max: 20, scale: 'log' as const }],
     };
     core.setModulation(mod);
     core.setModulation(null);

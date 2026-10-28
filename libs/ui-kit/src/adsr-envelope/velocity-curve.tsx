@@ -1,7 +1,6 @@
 import React from 'react';
 import styled from 'styled-components';
-import { line } from 'd3-shape';
-import { Vector2D, vector2d } from '@waveform/math';
+import { vector2d } from '@waveform/math';
 import { LineChart, useLineChartContext, Line, XAxis, YAxis } from '../line-chart';
 import { Handle } from '../handle';
 import { theme } from '../common/constants';
@@ -10,8 +9,6 @@ import { curveShape } from './envelope-line';
 import { CurvePoint } from './curve-handles';
 import { NOTE_DOT_COLOR, NOTE_DOT_RADIUS } from './note-dot';
 
-// the most a MIDI velocity is: the axis shows velocities
-const MAX_VELOCITY = 127;
 // the points of the curve
 const POINTS = 64;
 
@@ -45,22 +42,12 @@ const Dot = styled.circle`
 
 // the curve of the velocity over its share, filled as the line of an envelope
 const Curve = ({ k }: { k: number }) => {
-  const { scaleX, scaleY } = useLineChartContext();
-  const lineFn = line<Vector2D>()
-    .x((d) => scaleX(d[0]))
-    .y((d) => scaleY(d[1]));
   const data = Array.from({ length: POINTS + 1 }, (_, i) =>
     vector2d.fromValues(i / POINTS, curveShape(k, i / POINTS))
   );
   // closed along the bottom: the fill under the curve
   data.push(vector2d.fromValues(1, 0));
-  return (
-    <Line
-      customLineFn={lineFn}
-      data={data}
-      style={{ strokeWidth: 1, fill: theme.colors.accent, fillOpacity: 0.1 }}
-    />
-  );
+  return <Line data={data} style={{ strokeWidth: 1, fill: theme.colors.accent, fillOpacity: 0.1 }} />;
 };
 
 // the dot of a note on the curve of k: its share of the velocity, a child of VelocityCurve
@@ -94,7 +81,7 @@ export const VelocityCurve = ({ k, curveMax, onCurveChange, amp, onAmpChange, ch
   <Root>
     <Chart domainX={[0, 1]} domainY={[1, 0]} padding={[10, 5]}>
       <YAxis ticks={2} />
-      <XAxis ticks={4} formatText={(share) => Math.round(share * MAX_VELOCITY)} />
+      <XAxis ticks={4} />
       <Curve k={k} />
       {/* under the point of the curve: the dot of a note in the middle doesn't hide it */}
       {children}

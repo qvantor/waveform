@@ -4,17 +4,15 @@ import { scaleLog } from 'd3-scale';
 import { number, Vector2D } from '@waveform/math';
 import {
   affine,
-  areaPath,
   Deactivated,
   HandleModulation,
   LineChart,
-  linePath,
   LiveKnob,
   liveKnob,
   theme,
   useLineChartContext,
   useLiveDraw,
-  useLivePath,
+  useLiveLine,
 } from '@waveform/ui-kit';
 import { reverb } from '../../effects/reverb';
 import { DECAY_CHART_FREQS, DecayParams, decayCurve } from './reverb-decay-curve';
@@ -41,12 +39,14 @@ const Chart = styled(LineChart)`
 
 const toY = (seconds: number) => Math.log10(number.thresholds(seconds, MIN_SECONDS, MAX_SECONDS));
 
-// the curve at Size, Decay, Hi damp and Bass, also where their routes move them (every frame, without a render:
-// useLiveDraw)
+// the curve and the area under it
+const CURVE = { stroke: theme.colors.accent, width: 1, fill: 'area', fillOpacity: 0.15 } as const;
+
+// the curve at Size, Decay, Hi damp and Bass on a canvas over the chart, also where their routes move them (every
+// frame, without a render: useLiveDraw)
 const Curve = ({ knobs, sampleRate, active }: { knobs: LiveKnob[]; sampleRate: number; active: boolean }) => {
   const { width, height, padding, scaleY } = useLineChartContext();
-  const [line, writeLine] = useLivePath();
-  const [fill, writeFill] = useLivePath();
+  const [canvas, drawLine] = useLiveLine(CURVE, 'reverb-line');
   const [seconds, ys] = React.useMemo(() => [new Float64Array(POINTS), new Float64Array(POINTS)], []);
   // the x of each frequency of the chart, the scale of y and the bottom of the fill
   const layout = React.useMemo(() => {
@@ -60,20 +60,13 @@ const Curve = ({ knobs, sampleRate, active }: { knobs: LiveKnob[]; sampleRate: n
     ([size, decay, damp, bass]: number[]) => {
       const { xs, y, y0 } = layout;
       decayCurve({ size, decay, damp, bass }, sampleRate, seconds);
-      for (let i = 0; i < POINTS; i++) ys[i] = y.k * toY(seconds[i]) + y.b;
-      const d = linePath(POINTS, xs, ys);
-      writeLine(d);
-      writeFill(areaPath(d, xs[0], xs[POINTS - 1], y0));
+      for (let i = 0; i < POINTS; i++) ys[i] = toY(seconds[i]);
+      drawLine(POINTS, xs, ys, undefined, y, y0);
     },
-    [sampleRate, seconds, ys, layout, writeLine, writeFill]
+    [sampleRate, seconds, ys, layout, drawLine]
   );
   useLiveDraw(knobs, draw, active);
-  return (
-    <>
-      <path ref={fill} style={{ fill: theme.colors.accent, opacity: 0.15 }} />
-      <path ref={line} style={{ stroke: theme.colors.accent, strokeWidth: 1, fill: 'transparent' }} />
-    </>
-  );
+  return canvas;
 };
 
 type Props = DecayParams & {
@@ -105,9 +98,11 @@ export const ReverbDecayChart = ({
   return (
     <Root className={className} data-testid='reverb-decay'>
       {!active && <Deactivated data-testid='reverb-decay-deactivated' />}
-      <Chart domainY={DOMAIN_Y} padding={CHART_PADDING}>
-        <Curve knobs={knobs} sampleRate={sampleRate} active={active} />
-      </Chart>
+      <Chart
+        domainY={DOMAIN_Y}
+        padding={CHART_PADDING}
+        overlay={<Curve knobs={knobs} sampleRate={sampleRate} active={active} />}
+      />
     </Root>
   );
 };

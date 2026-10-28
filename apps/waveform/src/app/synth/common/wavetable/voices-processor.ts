@@ -17,7 +17,8 @@ declare function registerProcessor(
 
 // what a core gives the voices of a node (createVoiceScopeWasm)
 export interface VoicesDsp {
-  apply: (events: VoiceEvent[]) => void;
+  // `now`: the frame of the next block (a state of the LFOs that comes after its time takes over then)
+  apply: (events: VoiceEvent[], now?: number) => void;
   process: (frame: number, outL: Float32Array, outR: Float32Array) => void;
   reports: () => VoicesReportMessage | null;
   tap: (on: boolean) => void;
@@ -50,6 +51,8 @@ export const registerVoicesProcessor = (
     private dsp: VoicesDsp | null;
     // the pair of channels of each voice (tap)
     private pairs: Map<number, number> | null = null;
+    // the frame of the next block (none before the first one)
+    private next = -Infinity;
 
     constructor(options: AudioWorkletNodeOptions) {
       super();
@@ -75,7 +78,7 @@ export const registerVoicesProcessor = (
           return;
         }
         try {
-          dsp.apply(data.events);
+          dsp.apply(data.events, this.next);
         } catch (error) {
           // (a message it can't read; a call of the core that traps loses only its own events: apply)
           onError(error);
@@ -87,6 +90,7 @@ export const registerVoicesProcessor = (
       const { dsp, pairs } = this;
       if (!dsp) return false;
       const n = output[0].length;
+      this.next = currentFrame + n;
       if (scratch.length !== n) {
         scratch = new Float32Array(n);
         sum = [new Float32Array(n), new Float32Array(n)];

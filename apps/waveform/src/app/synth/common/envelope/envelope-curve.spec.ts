@@ -1,14 +1,6 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import {
-  curvedAt,
-  curveShape,
-  EnvelopeParams,
-  envelopeLevel,
-  envelopeStage,
-  envelopeValue,
-  envelopeValueBefore,
-} from './envelope-curve';
+import { curveShape, EnvelopeParams, envelopeLevel, envelopeStage, envelopeValue } from './envelope-curve';
 
 const env: EnvelopeParams = { attack: 0.1, hold: 0.2, decay: 0.4, sustain: 0.5, release: 1 };
 
@@ -60,9 +52,6 @@ describe('envelope curve', () => {
     expect(envelopeLevel(env, 0.5, 0.6)).toBeCloseTo(0.75);
     // released in the attack: from the level it has
     expect(envelopeValue(env, 0.55, 0.05, 0.6)).toBeCloseTo(0.4);
-    // just before its start, its level
-    expect(envelopeValueBefore(env, 0, Infinity, 0.6)).toBe(0.6);
-    expect(envelopeValueBefore(env, 0.05, Infinity, 0.6)).toBeCloseTo(0.8);
     // no attack: a step to 1
     expect(envelopeLevel({ ...env, attack: 0 }, 0, 0.6)).toBe(1);
   });
@@ -134,23 +123,6 @@ describe('envelope curve', () => {
       expect(envelopeValue(curved, 1.5, 0.5)).toBe(0);
       // the attack again from a level (mono): from it to 1 in the attack, curved
       expect(envelopeLevel(curved, 0.05, 0.4)).toBeCloseTo(0.4 + 0.6 * curveShape(-2, 0.5), 12);
-    });
-
-    it('is the same before a corner as at it, but where it steps', () => {
-      [0.05, 0.3, 0.5].forEach((t) => expect(envelopeValueBefore(curved, t)).toBe(envelopeValue(curved, t)));
-      expect(envelopeValueBefore(curved, 0.8, 0.5)).toBe(envelopeValue(curved, 0.8, 0.5));
-    });
-
-    it('tells a curved stage (the automation of a knob cuts it into lines)', () => {
-      expect(curvedAt(env, 0.5)).toBe(false);
-      expect(curvedAt(curved, -0.1)).toBe(false);
-      expect(curvedAt(curved, 0.05)).toBe(true);
-      expect(curvedAt(curved, 0.2)).toBe(false);
-      expect(curvedAt(curved, 0.5)).toBe(true);
-      expect(curvedAt(curved, 0.8)).toBe(false);
-      expect(curvedAt(curved, 0.8, 0.5)).toBe(true);
-      expect(curvedAt(curved, 1.6, 0.5)).toBe(false);
-      expect(curvedAt({ ...curved, curves: { attack: 0, decay: 0, release: 3 } }, 0.5)).toBe(false);
     });
 
     it('works a linear stage out as without curves, to the bit (the linear voices)', () => {

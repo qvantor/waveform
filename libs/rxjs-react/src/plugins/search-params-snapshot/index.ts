@@ -3,7 +3,7 @@ import { Plugin } from '../../types';
 import { isSnapshotable } from '../snapshot';
 
 // values are JSON: in the url every model key is a separate search param with a JSON value
-type SnapValue = string | number | boolean | string[] | { [key: string]: SnapValue };
+type SnapValue = string | number | boolean | null | SnapValue[] | { [key: string]: SnapValue };
 type Snap = Record<string, SnapValue>;
 
 interface PluginConfig<M, S> {

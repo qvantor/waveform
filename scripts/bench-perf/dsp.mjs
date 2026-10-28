@@ -54,6 +54,8 @@ const WASM_CORES = [
 ];
 
 const WASM_CORE = 'apps/waveform/src/app/synth/common/wasm/wasm-core';
+// the tables of the shapes of the LFOs (a tree that has them)
+const LFO_CURVE = 'apps/waveform/src/app/synth/common/lfo/lfo-curve';
 
 // as in production: the counters of the perf build out. A tree with wasm cores bundles their facades too and
 // instantiates them (one instance per core, as one AudioWorkletGlobalScope)
@@ -76,6 +78,7 @@ const loadDsp = async (source = root, name) => {
         : create,
     ]),
     ...(instantiate ? [[WASM_CORE, 'instantiateCore']] : []),
+    ...(fs.existsSync(path.join(source, `${LFO_CURVE}.ts`)) ? [[LFO_CURVE, 'lfoTable']] : []),
   ]
     .map(([module, create]) => `export { ${create} } from './${module}';\n`)
     .join('')}`;
@@ -318,6 +321,75 @@ const createCases = (dsp) => {
     };
   };
   const held = constant(BASE);
+  // the LFOs of a shared or a node: sines of `period` seconds, retrig, at once with their tables (a tree before
+  // them: none)
+  const lfoState = (period) => ({
+    at: 0,
+    instantly: true,
+    lfos: [0, 1, 2, 3].map(() => ({
+      mode: 0,
+      delay: 0,
+      rise: 0,
+      smooth: 0,
+      phase: 0,
+      anchor: { time: 0, phase: 0, period },
+      table: dsp.lfoTable('sine'),
+    })),
+  });
+  // a u8 voice LFO 1 moves a param of (a sine of 0.5 s on its position: the direct path, a frame at a time; on its
+  // gain: the gain per sample, the voice on its mix tables)
+  const lfoVoiceOf = (param, amount) => () => {
+    const flat = { attack: 0, hold: 0, decay: 0, sustain: 1, release: 0 };
+    const shared = createShared.wasm();
+    shared.setLfos(lfoState(0.5));
+    const voiceDsp = createVoice.wasm(
+      {
+        osc: [{ table: 'a', unison: 8, phase: 0, phaseRand: 1 }, null],
+        start: 0,
+        envelopes: [flat, flat, flat],
+        envStart: 0,
+        phrase: 0,
+        routes: [{ source: 4, param, amount, min: 0, max: 1 }],
+        filter: null,
+      },
+      shared
+    );
+    let frameAt = 0;
+    return () => {
+      voiceDsp.process(frameAt, held, outL, outR);
+      frameAt += BLOCK;
+    };
+  };
+  // the chord of `scope chord attack` with a lowpass LFO 1 moves around its cutoff (bipolar, ±1 octave, 4 Hz),
+  // the coefficients of every voice worked out again every 32 samples
+  const scopeChordLfo = () => {
+    const shared = createShared.wasm();
+    let voices = null;
+    let block = 0;
+    const options = {
+      ...scopeOptions,
+      filter: { type: 'lowpass', cutoff: 1200, resonance: 3, gain: 0 },
+      routes: [{ source: 4, param: 'cutoff', amount: 2, min: 20, max: 20000, scale: 'log', bipolar: true }],
+    };
+    return () => {
+      if (block % ATTACK === 0) {
+        voices?.free();
+        voices = dsp.createVoiceScopeWasm(oscScope, RATE, wasmStore, shared);
+        voices.apply([{ kind: 'lfos', ...lfoState(0.25) }]);
+        voices.apply(
+          chord.map((params, voice) => ({
+            kind: 'on',
+            voice,
+            options,
+            params: Object.fromEntries(Object.entries(params).map(([k, [v]]) => [k, v])),
+          }))
+        );
+      }
+      voices.process(block * BLOCK, outL, outR);
+      voices.reports();
+      block++;
+    };
+  };
   // a voice whose routes move all the time: ENV 2 and 3 (a decay of 0.2 s, started again every 64 blocks by the
   // gate held at its other value) on the gain, the cutoff and the resonance of the filter, worked out at the points
   // of every 32 samples (the hot loop of the routes; u1: the oscillator costs little next to them). No velocity: a
@@ -333,10 +405,11 @@ const createCases = (dsp) => {
       envelopes: [flat, decay, decay],
       envStart: 0,
       phrase: 0,
+      // (in the fields of every tree: `env` and `log` before the LFOs, `source` and `scale` since)
       routes: [
-        { env: 1, param: 'gain1', amount: -0.5, min: 0, max: 1 },
-        { env: 1, param: 'cutoff', amount: 4, min: 20, max: 20000, log: true },
-        { env: 2, param: 'resonance', amount: 12, min: -12, max: 24 },
+        { env: 1, source: 1, param: 'gain1', amount: -0.5, min: 0, max: 1 },
+        { env: 1, source: 1, param: 'cutoff', amount: 4, min: 20, max: 20000, log: true, scale: 'log' },
+        { env: 2, source: 2, param: 'resonance', amount: 12, min: -12, max: 24 },
       ],
       filter: { type: 'lowpass', cutoff: 400, resonance: 3, gain: 0 },
     });
@@ -416,6 +489,13 @@ const createCases = (dsp) => {
     ...(dsp.createVoiceScopeWasm && { 'scope chord attack': scopeChord }),
     // (a tree before the pitch bend: none)
     ...(oscScope?.exports.osc_scope_bend && { 'scope chord bend': scopeChordBend }),
+    // (a tree before the LFOs: none)
+    ...(oscScope?.exports.osc_shared_lfos &&
+      dsp.lfoTable && {
+        'voice u8 lfo wave': lfoVoiceOf('position1', 1),
+        'voice u8 lfo gain': lfoVoiceOf('gain1', -0.5),
+        'scope chord lfo cutoff': scopeChordLfo,
+      }),
     'build 256 frames': {
       build: () => {
         const start = process.hrtime.bigint();

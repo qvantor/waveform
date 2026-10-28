@@ -592,8 +592,8 @@ describe('presets model', () => {
   });
 
   it('the start state of the synth is Init', () => {
-    const { synthCore, modulation } = createSynth(DEFAULT_WAVETABLE_PATH);
-    createFx(synthCore, modulation);
+    const { synthCore, modulation, lfos } = createSynth(DEFAULT_WAVETABLE_PATH);
+    createFx(synthCore, modulation, lfos);
 
     // every snapshot model is registered: nothing is filled in by the schema
     expect(getSnapshot()).toEqual(normalizePreset({}));

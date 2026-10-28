@@ -1,4 +1,5 @@
 import { installWorkletScope, WorkletProcessorStub } from '../../../../test-utils/worklet-scope';
+import { LfosState, lfoTable, lfoTableFrom, RETRIG } from '../lfo/lfo-curve';
 import { buildLevels } from './wavetable-mipmap';
 import { STORE_PROCESSOR, VOICES_PROCESSOR, VoiceParam } from './wavetable-osc-params';
 import { STORE_CHUNK } from './wavetable-osc-wasm';
@@ -198,7 +199,7 @@ describe('wavetable oscillator wasm worklet', () => {
     const held = stats(store).versions;
     // more routes than the command buffer holds: the core reads past it
     const routes = Array.from({ length: 1000 }, () => ({
-      env: 1,
+      source: 1,
       param: 'gain1',
       amount: 1,
       min: 0,
@@ -254,7 +255,7 @@ describe('wavetable oscillator wasm worklet', () => {
   it('takes the routes of a playing note from its port: the amounts glide', () => {
     const processor = track(voice('none'));
     expect(render(processor, 0).left[0]).toBeCloseTo(1, 4);
-    const routes = [{ env: 1, param: 'gain1', amount: -1, min: 0, max: 1 }];
+    const routes = [{ source: 1, param: 'gain1', amount: -1, min: 0, max: 1 }];
     processor.port.onmessage({ data: { events: [{ kind: 'routes', voices: [1], routes }] } });
     [128, 256, 384, 512].forEach((frame) => render(processor, frame));
     expect(render(processor, 640).left.every((value) => Math.abs(value) < 1e-6)).toBe(true);
@@ -341,6 +342,67 @@ describe('wavetable oscillator wasm worklet', () => {
       expect(next[2][0]).not.toBe(0);
     });
 
+    it('takes the LFOs of its options and of its port: a route of LFO 1 on the gain follows them', () => {
+      const lfos = (level: number): LfosState => ({
+        at: 0,
+        instantly: true,
+        lfos: [0, 1, 2, 3].map(() => ({
+          mode: RETRIG,
+          delay: 0,
+          rise: 0,
+          smooth: 0,
+          phase: 0,
+          anchor: { time: 0, phase: 0, period: 0.5 },
+          table: lfoTableFrom([level]),
+        })),
+      });
+      // the gain 1 - LFO 1: silent while it is at 1
+      const routes = [{ source: 4, param: 'gain1', amount: -1, min: 0, max: 1 }];
+      const node = new processors[VOICES_PROCESSOR]({
+        processorOptions: { events: [{ kind: 'lfos', ...lfos(1) }, on(1, 'none', { routes })] },
+      });
+      expect(renderNode(node, 0).channels[0].every((value) => value === 0)).toBe(true);
+      node.port.onmessage({ data: { events: [{ kind: 'lfos', ...lfos(0) }] } });
+      // the gain 1 from the state of the port on (past the glide of the shape)
+      renderNode(node, 128);
+      renderNode(node, 256);
+      renderNode(node, 384);
+      const { channels } = renderNode(node, 512);
+      expect(Math.max(...channels[0].map(Math.abs))).toBeGreaterThan(0.5);
+    });
+
+    it('takes a state of the LFOs that comes after its time from its next block: its Phase still glides', () => {
+      const state = (phase: number, at: number, instantly = false): LfosState => ({
+        at,
+        instantly,
+        lfos: [0, 1, 2, 3].map(() => ({
+          mode: RETRIG,
+          delay: 0,
+          rise: 0,
+          smooth: 0,
+          phase,
+          anchor: { time: 0, phase: 0, period: 0.5 },
+          ...(instantly && { table: lfoTable('sine') }),
+        })),
+      });
+      const routes = [{ source: 4, param: 'gain1', amount: -1, min: 0, max: 1 }];
+      // (one node at a time: the LFOs are those of the scope, its first event sets them)
+      const play = (next: LfosState) => {
+        const node = new processors[VOICES_PROCESSOR]({
+          processorOptions: { events: [{ kind: 'lfos', ...state(0, 0, true) }, on(1, 'none', { routes })] },
+        });
+        for (let frame = 0; frame < 512; frame += 128) renderNode(node, frame);
+        node.port.onmessage({ data: { events: [{ kind: 'lfos', ...next }] } });
+        const played = [512, 640, 768, 896, 1024, 1152].map((frame) => renderNode(node, frame).channels[0]);
+        node.port.onmessage({ data: { stop: true } });
+        return played;
+      };
+      // a state of a time long gone as one of the frame of the next block, not one there at once
+      const late = play(state(0.5, 0));
+      expect(late).toEqual(play(state(0.5, 512 / RATE)));
+      expect(late[0]).not.toEqual(play(state(0.5, 0, true))[0]);
+    });
+
     it('tells the starts later than scheduled and the ends of a block in one message', () => {
       const node = new processors[VOICES_PROCESSOR]({});
       renderNode(node, 0);
@@ -404,7 +466,7 @@ describe('wavetable oscillator wasm worklet', () => {
       node.port.onmessage({ data: { events: [on(1, 'none')] } });
       // more routes than the command buffer holds: the core reads past it
       const routes = Array.from({ length: 1000 }, () => ({
-        env: 1,
+        source: 1,
         param: 'gain1',
         amount: 1,
         min: 0,

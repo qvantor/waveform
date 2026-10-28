@@ -1,6 +1,7 @@
 import { BehaviorSubject } from 'rxjs';
 import { createFxSlot, FxSlot, mixGains } from './create-fx-slot';
 import { FxCore, FxStatus } from './types';
+import type { FxMod } from './fx-mod';
 
 const createCore = (audioCtx: AudioContext, latency?: number): FxCore => ({
   input: audioCtx.createGain(),
@@ -139,81 +140,67 @@ describe('createFxSlot', () => {
   describe('modulation', () => {
     const ENV = { attack: 0.1, hold: 0, decay: 0.1, sustain: 0.5, release: 0.2 };
     const note = { envelopes: [ENV, ENV, ENV], start: 1, release: null };
-    const mix = { param: 'mix', env: 1, amount: 0.4, min: 0, max: 1 };
-    const drive = { param: 'drive', env: 1, amount: 6, min: 0, max: 12 };
-    const calls = (param: AudioParam, method: keyof AudioParam) => (param[method] as jest.Mock).mock.calls;
-
-    it('moves a linear mix by ramps of both gains, gives the core the routes of its knobs', () => {
+    const mix = { param: 'mix', source: 1, amount: 0.4, min: 0, max: 1 };
+    const drive = { param: 'drive', source: 1, amount: 6, min: 0, max: 12 };
+    // a slot with the lines 6 and 7 of an fx-mod: the line and the params of each set
+    const setupLines = (linearMix = false) => {
       const audioCtx = new AudioContext();
-      const core = { ...createCore(audioCtx), linearMix: true };
-      const slot = createFxSlot(audioCtx, core);
+      const core = { ...createCore(audioCtx), linearMix };
+      const fxMod = { set: jest.fn() };
+      const slot = createFxSlot(audioCtx, core, { fxMod: fxMod as unknown as FxMod, dry: 6, wet: 7 });
+      const lineOf = (index: number) =>
+        fxMod.set.mock.calls
+          .filter(([line]) => line === index)
+          .at(-1)
+          ?.slice(1);
+      return { slot, core, fxMod, lineOf };
+    };
+
+    it('moves the mix by two lines on its gains, gives the core the routes of its knobs', () => {
+      const { slot, core, lineOf } = setupLines(true);
       slot.setMix(0.5, true);
       slot.setModulation({ note, routes: [mix, drive] });
       expect(core.setModulation).toHaveBeenLastCalledWith({ note, routes: [drive] });
-      // after the glide into it, at the top of the attack the mix is 0.9
-      expect(calls(slot.wet.gain, 'linearRampToValueAtTime')[1]).toEqual([
-        expect.closeTo(0.9, 9),
-        expect.closeTo(1.1, 9),
-      ]);
-      expect(calls(slot.dry.gain, 'linearRampToValueAtTime')[1]).toEqual([
-        expect.closeTo(0.1, 9),
-        expect.closeTo(1.1, 9),
-      ]);
+      expect(lineOf(6)).toEqual([{ routes: [mix], base: 0.5, map: 'dryLinear' }, [slot.dry.gain]]);
+      expect(lineOf(7)).toEqual([{ routes: [mix], base: 0.5, map: 'wetLinear' }, [slot.wet.gain]]);
     });
 
-    it('moves an equal power mix by linear segments of both gains', () => {
-      const audioCtx = new AudioContext();
-      const slot = createFxSlot(audioCtx, createCore(audioCtx));
-      slot.setMix(0.5, true);
+    it('an equal power mix maps by it; a knob turned gives the lines its value, the gains glide as ever', () => {
+      const { slot, lineOf } = setupLines();
       slot.setModulation({ note, routes: [mix] });
-      // the glide, the 15 segments of the attack, the mix at 0.9 at its top
-      expect(calls(slot.wet.gain, 'linearRampToValueAtTime')[15]).toEqual([
-        expect.closeTo(Math.sin((0.9 * Math.PI) / 2), 6),
-        expect.closeTo(1.1, 9),
-      ]);
-      expect(calls(slot.dry.gain, 'linearRampToValueAtTime')[15]).toEqual([
-        expect.closeTo(Math.cos((0.9 * Math.PI) / 2), 6),
-        expect.closeTo(1.1, 9),
-      ]);
-    });
-
-    it('a mix without routes glides from where it is: its ticks cancel nothing', () => {
-      const audioCtx = new AudioContext();
-      const slot = createFxSlot(audioCtx, createCore(audioCtx));
-      [0.2, 0.3, 0.4].forEach((value) => slot.setMix(value, true));
-      [slot.dry.gain, slot.wet.gain].forEach((gain) => {
-        expect(gain.cancelScheduledValues).not.toHaveBeenCalled();
-        expect(gain.cancelAndHoldAtTime).not.toHaveBeenCalled();
-      });
-      // the routes gone: their automation is left where it is once (at a point of its line now, what follows
-      // cancelled), then the ticks glide again
-      slot.setModulation({ note, routes: [mix] });
-      slot.setModulation(null);
-      const cancels = calls(slot.wet.gain, 'cancelScheduledValues').length;
-      expect(calls(slot.wet.gain, 'cancelScheduledValues').at(-1)).toEqual([
-        expect.closeTo(audioCtx.currentTime + 1e-4, 9),
-      ]);
-      slot.setMix(0.6, true);
-      slot.setMix(0.7, true);
-      expect(calls(slot.wet.gain, 'cancelScheduledValues')).toHaveLength(cancels);
+      slot.setMix(0.3, true);
+      expect(lineOf(7)?.[0]).toEqual({ routes: [mix], base: 0.3, map: 'wet' });
       expect((slot.wet.gain.setTargetAtTime as jest.Mock).mock.lastCall?.[0]).toBeCloseTo(
-        Math.sin((0.7 * Math.PI) / 2),
+        Math.sin((0.3 * Math.PI) / 2),
         9
       );
     });
 
-    it('a knob of the mix without routes, bypassed or not ready glides to its value; the core gets null', () => {
-      const audioCtx = new AudioContext();
-      const core = createCore(audioCtx);
-      const slot = createFxSlot(audioCtx, core);
+    it('bypassed or its routes gone: no line, the gains at the knob', () => {
+      const { slot, core, lineOf } = setupLines();
       slot.setMix(0.5, true);
       slot.setModulation({ note, routes: [mix] });
       slot.setMix(0.5, false);
+      expect(lineOf(7)?.[0]).toBeNull();
       expect((slot.wet.gain.setTargetAtTime as jest.Mock).mock.lastCall?.[0]).toBe(0);
       slot.setMix(0.5, true);
+      expect(lineOf(7)?.[0]).toEqual({ routes: [mix], base: 0.5, map: 'wet' });
       slot.setModulation(null);
+      expect(lineOf(7)?.[0]).toBeNull();
       expect(core.setModulation).toHaveBeenLastCalledWith(null);
-      expect((slot.wet.gain.setTargetAtTime as jest.Mock).mock.lastCall?.[0]).toBeCloseTo(Math.SQRT1_2, 9);
+    });
+
+    it('the routes of the note to the knobs of the LFOs alone move no knob of the core', () => {
+      const { slot, core } = setupLines();
+      const lfoRoute = { param: 'mix', source: 4, amount: 0.4, min: 0, max: 1 };
+      const knob = { param: 'lfo1.rate', source: 1, amount: 1, min: 1 / 32, max: 100, scale: 'log' as const };
+      slot.setModulation({ note: null, routes: [lfoRoute, knob] });
+      expect(core.setModulation).toHaveBeenLastCalledWith(null);
+      slot.setModulation({ note: null, routes: [{ ...drive, source: 4 }, knob] });
+      expect(core.setModulation).toHaveBeenLastCalledWith({
+        note: null,
+        routes: [{ ...drive, source: 4 }, knob],
+      });
     });
   });
 });

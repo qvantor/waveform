@@ -27,15 +27,30 @@ interface Props {
   width: number;
   // also shrink the content to fit the container height (otherwise the height follows the content)
   fitHeight?: boolean;
+  // px the content may take at most (the height follows it up to there, then it shrinks)
+  maxHeight?: number;
   className?: string;
 }
 
 // renders children at the given width and scales them down to fit the container
-export const Scaled = ({ width, fitHeight = true, className, children }: React.PropsWithChildren<Props>) => {
+export const Scaled = ({
+  width,
+  fitHeight = true,
+  maxHeight,
+  className,
+  children,
+}: React.PropsWithChildren<Props>) => {
   const [rootRef, [rootWidth, rootHeight]] = useElementSize<HTMLDivElement>();
   const [innerRef, [, innerHeight]] = useElementSize<HTMLDivElement>();
   const scale =
-    innerHeight > 0 ? Math.min(1, rootWidth / width, fitHeight ? rootHeight / innerHeight : Infinity) : 0;
+    innerHeight > 0
+      ? Math.min(
+          1,
+          rootWidth / width,
+          fitHeight ? rootHeight / innerHeight : Infinity,
+          maxHeight ? maxHeight / innerHeight : Infinity
+        )
+      : 0;
   return (
     <Root ref={rootRef} className={className}>
       <Frame style={{ width: width * scale, height: innerHeight * scale }}>

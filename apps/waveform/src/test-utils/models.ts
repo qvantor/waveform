@@ -1,5 +1,6 @@
 import { BehaviorSubject } from 'rxjs';
 import { envelopes } from '../app/synth/common/modules/envelopes';
+import { lfos } from '../app/synth/common/modules/lfos';
 import { modulation } from '../app/synth/common/modules/modulation';
 import { filter } from '../app/synth/filter/modules/filter';
 import { fx } from '../app/synth/fx/modules/fx';
@@ -38,12 +39,16 @@ export const createEnvelopes = () => initModel(envelopes(), 'env', undefined);
 
 export const createModulation = () => initModel(modulation(), 'mod', undefined);
 
-// the whole voice chain: synth core, input, envelopes, modulation, both oscillators and the filter (the loader
-// of their tables: never by default)
+export const createLfos = (synthCoreModule = createSynthCore()) =>
+  initModel(lfos({ synthCore: synthCoreModule }), 'lfo', undefined);
+
+// the whole voice chain: synth core, input, envelopes, the LFOs, modulation, both oscillators and the filter (the
+// loader of their tables: never by default)
 export const createSynth = (initialWavePath = ['default'], loadWavetable?: LoadWavetable) => {
   const synthCoreModule = createSynthCore();
   const inputControllerModule = createInputController();
   const envelopesModule = createEnvelopes();
+  const lfosModule = createLfos(synthCoreModule);
   const modulationModule = createModulation();
   const osc1 = createOscillator(synthCoreModule, 'osc1', { active: true, initialWavePath }, loadWavetable);
   const osc2 = createOscillator(synthCoreModule, 'osc2', { active: false, initialWavePath }, loadWavetable);
@@ -53,6 +58,7 @@ export const createSynth = (initialWavePath = ['default'], loadWavetable?: LoadW
       synthCore: synthCoreModule,
       inputController: inputControllerModule,
       envelopes: envelopesModule,
+      lfo: lfosModule,
       modulation: modulationModule,
       oscillator: [osc1, osc2],
       filter: filterModule,
@@ -64,6 +70,7 @@ export const createSynth = (initialWavePath = ['default'], loadWavetable?: LoadW
     synthCore: synthCoreModule,
     inputController: inputControllerModule,
     envelopes: envelopesModule,
+    lfos: lfosModule,
     modulation: modulationModule,
     filter: filterModule,
     osc1,
@@ -85,14 +92,19 @@ export const createSpiedInputController = () => {
   return { module, onPress, onRelease };
 };
 
-// the fx model with the routes of a modulation model and the last note of the synth: a subject the spec drives
-export const createFx = (synthCoreModule = createSynthCore(), modulationModule = createModulation()) => {
+// the fx model with the routes of a modulation model, the LFOs and the last note of the synth: a subject the spec
+// drives
+export const createFx = (
+  synthCoreModule = createSynthCore(),
+  modulationModule = createModulation(),
+  lfosModule = createLfos(synthCoreModule)
+) => {
   const $fxNote = new BehaviorSubject<FxNote | null>(null);
   const synthModule = [{ $fxNote }, {}] as unknown as SynthModule;
   const fxModule = initModel(
-    fx({ synthCore: synthCoreModule, synth: synthModule, modulation: modulationModule }),
+    fx({ synthCore: synthCoreModule, synth: synthModule, lfo: lfosModule, modulation: modulationModule }),
     'fx',
     undefined
   );
-  return { fx: fxModule, modulation: modulationModule, $fxNote };
+  return { fx: fxModule, modulation: modulationModule, lfos: lfosModule, $fxNote };
 };

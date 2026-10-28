@@ -1,24 +1,37 @@
 import { ArrayBS, rxModel, rxModelReact } from '@waveform/rxjs-react';
-import { MOD_KNOB_SOURCES_MAX, MOD_ROUTES_MAX, MOD_SOURCES, ModSource } from '@waveform/preset-schema';
+import {
+  isLfo,
+  isLfoKnob,
+  MOD_KNOB_SOURCES_MAX,
+  MOD_ROUTES_MAX,
+  MOD_SOURCES,
+  ModSource,
+  ModValue,
+} from '@waveform/preset-schema';
 import { urlSnapshotPlugin } from '../../../app';
-import { isModTarget } from '../modulation/modulation-targets';
+import { centered, isModTarget } from '../modulation/modulation-targets';
 
-// a source (ENV 1–3) moves a knob (a target of modulation-targets.ts) by amount × its level: amount is a share
-// of the range of the knob in its scale, -1..1
+// a source (ENV 1–3, VELO, LFO 1–4) moves a knob (a target of modulation-targets.ts) by amount × its level: amount
+// is a share of the range of the knob in its scale, -1..1; a bipolar route moves it around its value, amount ×
+// (level - ½)
 export interface ModRoute {
   source: ModSource;
   target: string;
   amount: number;
+  bipolar?: boolean;
 }
 
 // a route dropped on a knob: half its range, audible at once
 export const DEFAULT_AMOUNT = 0.5;
 
-// no route can be added (MOD_ROUTES_MAX): the knobs take no ENV tab
+// no route can be added (MOD_ROUTES_MAX): the knobs take no tab
 export const routesFull = (routes: ModRoute[]) => routes.length >= MOD_ROUTES_MAX;
 // the knob takes no other source (MOD_KNOB_SOURCES_MAX)
 export const knobFull = (routes: ModRoute[], target: string) =>
   routes.filter((route) => route.target === target).length >= MOD_KNOB_SOURCES_MAX;
+// a source can move the knob: a knob of the app, no LFO on a knob of an LFO
+export const takesSource = (source: ModSource, target: string) =>
+  isModTarget(target) && !(isLfo(source) && isLfoKnob(target));
 // the first routes within the limits: of all of them and of each knob
 const withinLimits = (routes: ModRoute[]) =>
   routes.reduce<ModRoute[]>(
@@ -29,8 +42,18 @@ const withinLimits = (routes: ModRoute[]) =>
 const clampAmount = (amount: number) => Math.min(1, Math.max(-1, amount));
 const routeKey = ({ source, target }: Pick<ModRoute, 'source' | 'target'>) => `${source}:${target}`;
 const isSource = (value: string): value is ModSource => (MOD_SOURCES as readonly string[]).includes(value);
+// a route of the snapshot: a uni one is its amount, a bipolar one { a, bi: true }
+const routeValue = ({ amount, bipolar }: ModRoute): ModValue => (bipolar ? { a: amount, bi: true } : amount);
+const fromValue = (value: unknown): Pick<ModRoute, 'amount' | 'bipolar'> | null => {
+  if (typeof value === 'number') return { amount: clampAmount(value) };
+  if (typeof value !== 'object' || value === null) return null;
+  const { a, bi } = value as { a?: unknown; bi?: unknown };
+  if (typeof a !== 'number') return null;
+  return bi === true ? { amount: clampAmount(a), bipolar: true } : { amount: clampAmount(a) };
+};
 
-// the routes of the modulation, one per source and knob; saved as { 'env2:osc1.wave': 0.5 } (snapshot mod)
+// the routes of the modulation, one per source and knob; saved as { 'env2:osc1.wave': 0.5 }, a bipolar one as
+// { 'lfo1:filter.gain': { a: 0.5, bi: true } } (snapshot mod)
 export const modulation = () =>
   rxModel(() => {
     const $routes = new ArrayBS<ModRoute[]>([]);
@@ -39,22 +62,35 @@ export const modulation = () =>
     .actions(({ $routes }) => {
       const find = (source: ModSource, target: string) =>
         $routes.value.find((route) => route.source === source && route.target === target);
+      const update = (source: ModSource, target: string, change: (route: ModRoute) => ModRoute) =>
+        $routes.next(
+          $routes.value.map((route) =>
+            route.source === source && route.target === target ? change(route) : route
+          )
+        );
       return {
-        // a source already on the knob keeps its amount, none is added past the limits
-        addRoute: (source: ModSource, target: string, amount = DEFAULT_AMOUNT) => {
-          if (find(source, target) || !isModTarget(target)) return;
+        // a source already on the knob keeps its amount, none is added past the limits; bipolar by default on a
+        // knob centered on 0
+        addRoute: (
+          source: ModSource,
+          target: string,
+          amount = DEFAULT_AMOUNT,
+          bipolar = centered(target)
+        ) => {
+          if (find(source, target) || !takesSource(source, target)) return;
           if (routesFull($routes.value) || knobFull($routes.value, target)) return;
-          $routes.next([...$routes.value, { source, target, amount: clampAmount(amount) }]);
+          const route: ModRoute = { source, target, amount: clampAmount(amount) };
+          $routes.next([...$routes.value, bipolar ? { ...route, bipolar } : route]);
         },
         setAmount: (source: ModSource, target: string, amount: number) => {
           if (!find(source, target)) return;
-          $routes.next(
-            $routes.value.map((route) =>
-              route.source === source && route.target === target
-                ? { ...route, amount: clampAmount(amount) }
-                : route
-            )
-          );
+          update(source, target, (route) => ({ ...route, amount: clampAmount(amount) }));
+        },
+        // uni (up from the knob) or bipolar (around it)
+        setPolarity: (source: ModSource, target: string, bipolar: boolean) => {
+          const route = find(source, target);
+          if (!route || !!route.bipolar === bipolar) return;
+          update(source, target, ({ bipolar: _, ...rest }) => (bipolar ? { ...rest, bipolar } : rest));
         },
         removeRoute: (source: ModSource, target: string) =>
           $routes.next($routes.value.filter((route) => route.source !== source || route.target !== target)),
@@ -63,20 +99,21 @@ export const modulation = () =>
     .plugins(
       urlSnapshotPlugin({
         modelToSnap: ({ $routes }) =>
-          Object.fromEntries($routes.value.map((route) => [routeKey(route), route.amount])) as Record<
+          Object.fromEntries($routes.value.map((route) => [routeKey(route), routeValue(route)])) as Record<
             string,
-            number
+            ModValue
           >,
-        // a missing key is no route; an unknown source or knob (a newer preset) is left out, the routes past
-        // the limits too (an edited url: the state stays one a preset can save)
+        // a missing key is no route; an unknown source or knob (a newer preset), an LFO on a knob of an LFO and a
+        // value that is neither an amount nor a bipolar one are left out, the routes past the limits too (an
+        // edited url: the state stays one a preset can save)
         applySnap: (snap, { $routes }) =>
           $routes.next(
             withinLimits(
-              Object.entries(snap).flatMap(([key, amount]): ModRoute[] => {
+              Object.entries(snap).flatMap(([key, value]): ModRoute[] => {
                 const [source, target] = key.split(':');
-                if (typeof amount !== 'number' || !isSource(source) || !target || !isModTarget(target))
-                  return [];
-                return [{ source, target, amount: clampAmount(amount) }];
+                const route = fromValue(value);
+                if (!route || !isSource(source) || !target || !takesSource(source, target)) return [];
+                return [{ source, target, ...route }];
               })
             )
           ),

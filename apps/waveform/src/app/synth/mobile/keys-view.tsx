@@ -1,7 +1,7 @@
 import React from 'react';
 import styled, { css } from 'styled-components';
 import cls from 'classnames';
-import { theme } from '@waveform/ui-kit';
+import { theme, useElementSize } from '@waveform/ui-kit';
 import { FxScreen } from '../fx';
 import { PitchBend } from '../pitch-bend';
 import { SynthScreen } from '../screens';
@@ -24,9 +24,12 @@ const miniPanel = css`
   }
 `;
 
+// the share of the view the mini synth takes in portrait at most
+const MINI_SHARE = 0.4;
+
 const MiniSynth = styled(Scaled)`
   flex: 0 0 auto;
-  max-height: 40%;
+  max-height: ${MINI_SHARE * 100}%;
   ${miniPanel}
 `;
 
@@ -88,15 +91,22 @@ export const KeysView = ({ portrait, screen }: { portrait: boolean; screen: Synt
     onOctaveChange: setTierOctave(tier),
   }));
   const panelClassName = cls({ landscape: !portrait });
+  const [rootRef, [, height]] = useElementSize<HTMLDivElement>();
 
   return (
-    <Root>
+    <Root ref={rootRef}>
       {screen === 'fx' ? (
         <MiniFx className={panelClassName} width={portrait ? 760 : 1400}>
           <FxScreen layout={portrait ? 'column' : 'row'} />
         </MiniFx>
       ) : (
-        <MiniSynth className={panelClassName} width={portrait ? 900 : 1600} fitHeight={!portrait}>
+        <MiniSynth
+          className={panelClassName}
+          width={portrait ? 900 : 1850}
+          fitHeight={!portrait}
+          // (in portrait its rows follow its width, at most the share of the view of its max-height)
+          maxHeight={portrait ? MINI_SHARE * height : undefined}
+        >
           <SynthSections layout={portrait ? 'grid' : 'row'} />
         </MiniSynth>
       )}

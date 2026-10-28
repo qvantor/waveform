@@ -1,14 +1,27 @@
 import type { FilterNumerics } from '@waveform/ui-kit';
-import { FX_TYPES, FxType } from '@waveform/preset-schema';
+import {
+  ENVELOPE_TIME_MAX,
+  FX_TYPES,
+  FxType,
+  LFO_RATE_MAX,
+  LFO_RATE_MIN,
+  LFO_SMOOTH_MAX,
+  LFOS,
+  LfoKnob,
+  MOD_SOURCES,
+} from '@waveform/preset-schema';
 import { rangesOf } from '../../filter/constants';
 import { FX_REGISTRY, MIX_PARAM } from '../../fx/effects';
 import { OscParam } from '../wavetable/wavetable-osc-params';
+import type { ModRoute } from '../modules/modulation';
+import type { FxRoute } from '../../fx/effects/fx-modulation';
 
-// the knobs a source (ENV 1–3) can be assigned to, by id (`osc1.wave`): the drop targets of the ENV tabs and
-// the keys of the routes in the preset. An amount is a share of the range of the knob in its scale: in the
-// units of the param it moves that is amount × (max - min), for a log knob amount × log2(max / min) octaves
+// the knobs a source (ENV 1–3, VELO, LFO 1–4) can be assigned to, by id (`osc1.wave`): the drop targets of the
+// tabs and the keys of the routes in the preset. An amount is a share of the range of the knob in its scale: in
+// the units of the param it moves that is amount × (max - min), for a log knob amount × log2(max / min) octaves,
+// for a pow one (the times of the LFOs) a share of its travel
 
-export type ModScale = 'linear' | 'log';
+export type ModScale = 'linear' | 'log' | 'pow';
 
 // a param of the voice node of each note (wavetable-osc-params.ts), moved by the envelopes of the note;
 // range: of the knob, in the units of the param (the Wave knob shows frames, its param is a share of the
@@ -41,7 +54,18 @@ interface FxTarget {
   range: [number, number];
 }
 
-export type ModTarget = OscTarget | FilterTarget | FxTarget;
+// a knob of an LFO, moved per note by the envelopes and the velocity (no LFO): Rate by the frequency (log, +
+// faster), the times by the share of their travel (pow, as the knobs show them), Phase around the cycle
+interface LfoTarget {
+  kind: 'lfo';
+  lfo: number;
+  param: LfoKnob;
+  label: string;
+  scale: ModScale;
+  range: [number, number];
+}
+
+export type ModTarget = OscTarget | FilterTarget | FxTarget | LfoTarget;
 
 const fxTargets = Object.fromEntries(
   FX_TYPES.flatMap((fx) =>
@@ -70,11 +94,29 @@ const filterTargets: Record<string, FilterTarget> = {
   'filter.gain': { kind: 'filter', param: 'gain', label: 'Gain' },
 };
 
+// the knobs of each LFO: Rate in Hz (the knob shows its period)
+const LFO_KNOBS: Record<LfoKnob, Pick<LfoTarget, 'label' | 'scale' | 'range'>> = {
+  rate: { label: 'Rate', scale: 'log', range: [1 / LFO_RATE_MAX, 1 / LFO_RATE_MIN] },
+  delay: { label: 'Delay', scale: 'pow', range: [0, ENVELOPE_TIME_MAX] },
+  rise: { label: 'Rise', scale: 'pow', range: [0, ENVELOPE_TIME_MAX] },
+  smooth: { label: 'Smooth', scale: 'pow', range: [0, LFO_SMOOTH_MAX] },
+  phase: { label: 'Phase', scale: 'linear', range: [0, 1] },
+};
+const lfoTargets = Object.fromEntries(
+  LFOS.flatMap((id, lfo) =>
+    (Object.keys(LFO_KNOBS) as LfoKnob[]).map((param): [string, LfoTarget] => [
+      `${id}.${param}`,
+      { kind: 'lfo', lfo, param, ...LFO_KNOBS[param] },
+    ])
+  )
+);
+
 export const MOD_TARGETS: Record<string, ModTarget> = {
   ...oscTargets(0),
   ...oscTargets(1),
   ...filterTargets,
   ...fxTargets,
+  ...lfoTargets,
 };
 
 // the scale and the range of a knob of the filter for its type; disabled: the type doesn't use it (a route
@@ -90,6 +132,40 @@ export const filterTargetScale = (type: BiquadFilterType, param: FilterNumerics)
 
 export const isModTarget = (id: string) => id in MOD_TARGETS;
 
-// the amount of a route in the units of the param (octaves for a log one)
+// a knob whose range is centered on 0 (min = -max: a side, a boost or a cut; the gain of the filter is the boost
+// or the cut of its shelves): a route dropped on it moves it around its value (bipolar), on the others up from it
+export const centered = (id: string) => {
+  const definition = MOD_TARGETS[id];
+  if (!definition) return false;
+  if (definition.kind === 'filter') return definition.param === 'gain';
+  return definition.range[0] === -definition.range[1];
+};
+
+// the amount of a route in the units of the param (octaves for a log one, a share of the travel of a pow one)
 export const amountInUnits = (amount: number, scale: ModScale, [min, max]: [number, number]) =>
-  scale === 'log' ? amount * Math.log2(max / min) : amount * (max - min);
+  scale === 'log' ? amount * Math.log2(max / min) : scale === 'pow' ? amount : amount * (max - min);
+
+// a route of the modulation in the units of the knob it moves: the scale only when it isn't linear, bipolar only
+// when it is
+export const fxRoute = (
+  param: string,
+  { source, amount, bipolar }: ModRoute,
+  scale: ModScale,
+  range: [number, number]
+): FxRoute => ({
+  param,
+  source: MOD_SOURCES.indexOf(source),
+  amount: amountInUnits(amount, scale, range),
+  min: range[0],
+  max: range[1],
+  ...(scale !== 'linear' && { scale }),
+  ...(bipolar && { bipolar }),
+});
+
+// the routes of the note to the knobs of the LFOs (lfo2.rate…: of the envelopes and VELO), in the units of each
+export const lfoKnobRoutes = (routes: ModRoute[]): FxRoute[] =>
+  routes.flatMap((route) => {
+    const definition = MOD_TARGETS[route.target];
+    if (definition?.kind !== 'lfo' || route.amount === 0) return [];
+    return [fxRoute(route.target, route, definition.scale, definition.range)];
+  });

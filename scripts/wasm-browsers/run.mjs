@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
 import { loadPlaywright, parseArgs, root } from '../bench-common.mjs';
-import { nodeRender, SCENES, sceneLevels } from './scenes.mjs';
+import { nodeRender, SCENES, sceneLevels, sceneLfos } from './scenes.mjs';
 
 const args = parseArgs(process.argv.slice(2));
 const browsers = (args.browsers ?? 'chromium,webkit,firefox').split(',');
@@ -74,9 +74,9 @@ const renderInPage = (page, { bundle, processor, options, rate, input }) =>
 // renders an oscillator scene in the page: the store node gets the tables (the page waits for their acks), the
 // voices node every voice of the scene from the events of its options (each voice, its params at the note on, the
 // steps of its gate), each voice into a pair of channels of its own (a tap) split into the destination
-const renderOscInPage = (page, { bundle, rate, frames, tables, voices }) =>
+const renderOscInPage = (page, { bundle, rate, frames, tables, voices, lfos }) =>
   page.evaluate(
-    async ({ bundle, rate, frames, tables, voices }) => {
+    async ({ bundle, rate, frames, tables, voices, lfos }) => {
       const decode = (text) => {
         const binary = atob(text);
         const bytes = new Uint8Array(binary.length);
@@ -116,10 +116,22 @@ const renderOscInPage = (page, { bundle, rate, frames, tables, voices }) =>
           })
         );
       });
-      const events = voices.flatMap(({ options, params, gate }, voice) => [
-        { kind: 'on', voice, options, params },
-        ...gate.map(([frame, value]) => ({ kind: 'set', voice, param: 'gate', value, time: frame / rate })),
-      ]);
+      const events = [
+        // the LFOs first, their tables Float32Arrays
+        ...(lfos
+          ? [
+              {
+                kind: 'lfos',
+                ...lfos,
+                lfos: lfos.lfos.map((wire) => ({ ...wire, table: Float32Array.from(wire.table) })),
+              },
+            ]
+          : []),
+        ...voices.flatMap(({ options, params, gate }, voice) => [
+          { kind: 'on', voice, options, params },
+          ...gate.map(([frame, value]) => ({ kind: 'set', voice, param: 'gate', value, time: frame / rate })),
+        ]),
+      ];
       const node = new AudioWorkletNode(context, 'waveform-wavetable-voices', {
         numberOfInputs: 0,
         numberOfOutputs: 1,
@@ -136,7 +148,7 @@ const renderOscInPage = (page, { bundle, rate, frames, tables, voices }) =>
         encode(rendered.getChannelData(channel))
       );
     },
-    { bundle, rate, frames, tables, voices }
+    { bundle, rate, frames, tables, voices, lfos }
   );
 
 const differences = (a, b) => {
@@ -181,7 +193,7 @@ try {
         let result;
         try {
           const rendered = await (scene.kind === 'osc'
-            ? renderOscInPage(page, { ...scene, bundle, tables })
+            ? renderOscInPage(page, { ...scene, bundle, tables, lfos: await sceneLfos(scene) })
             : renderInPage(page, { ...scene, bundle, input: encoded }));
           const channels = rendered.map(fromBase64);
           const found = channels.map((data, channel) => differences(data, output[channel]));

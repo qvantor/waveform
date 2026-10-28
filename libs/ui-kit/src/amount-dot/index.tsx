@@ -19,8 +19,11 @@ export interface AmountDotProps {
   onChange?: (amount: number) => void;
   // a double click or a long press
   onRemove?: () => void;
-  // the tooltip while it is held: the amount in the units of the knob (+2.4 oct, +35%)
+  // the tooltip while it is held: the amount in the units of the knob (+2.4 oct, +35%; ±35% of a bipolar one)
   formatAmount?: (amount: number) => React.ReactNode;
+  // the route moves the control around its value; Shift+click or B switches it (onPolarity)
+  bipolar?: boolean;
+  onPolarity?: (bipolar: boolean) => void;
   // the name of the source (the sources without an amount), for screen readers
   label?: string;
   className?: string;
@@ -114,11 +117,17 @@ const Sections = ({ colors }: { colors: string[] }) => {
 };
 
 // the dot with the route of the selected source: a slider of its amount
+// the amount of a bipolar route: around the value, ± its half on each side
+const bipolarAmount = (text: React.ReactNode) =>
+  typeof text === 'string' ? `±${text.replace(/^[+-]/, '')}` : text;
+
 const AmountSlider = ({
   amount,
   onChange,
   onRemove,
   formatAmount = (value) => number.percent(value),
+  bipolar = false,
+  onPolarity,
   label,
   className,
   style,
@@ -136,6 +145,10 @@ const AmountSlider = ({
   const onPointerDown = (e: React.PointerEvent) => {
     // the knob under it doesn't turn
     e.stopPropagation();
+    if (e.shiftKey && onPolarity) {
+      onPolarity(!bipolar);
+      return;
+    }
     last.current = amount;
     const { clientX, clientY } = e;
     let still = true;
@@ -155,6 +168,7 @@ const AmountSlider = ({
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Delete' || e.key === 'Backspace') onRemove?.();
+    else if ((e.key === 'b' || e.key === 'B') && onPolarity) onPolarity(!bipolar);
     else if (e.key === 'ArrowUp' || e.key === 'ArrowRight') emit(amount + KEY_STEP);
     else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') emit(amount - KEY_STEP);
     else return;
@@ -163,7 +177,13 @@ const AmountSlider = ({
   };
 
   return (
-    <Tooltip content={<ValueTooltipContent>{formatAmount(amount)}</ValueTooltipContent>}>
+    <Tooltip
+      content={
+        <ValueTooltipContent>
+          {bipolar ? bipolarAmount(formatAmount(amount)) : formatAmount(amount)}
+        </ValueTooltipContent>
+      }
+    >
       <Root
         className={className}
         style={style}
@@ -234,6 +254,8 @@ export const RoutesDot = ({
       onChange={shown?.onChange}
       onRemove={shown?.onRemove}
       formatAmount={shown?.formatAmount}
+      bipolar={shown?.bipolar}
+      onPolarity={shown?.onPolarity}
       className={className}
       style={style}
     />

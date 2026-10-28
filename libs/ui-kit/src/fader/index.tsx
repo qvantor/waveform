@@ -6,13 +6,13 @@ import { number } from '@waveform/math';
 import { theme } from '../common/constants';
 import { scaleTicks, TickKind } from '../common/constants/scale-ticks';
 import { singlePointerTracker, valueScale } from '../common/utils';
-import { useModulations } from '../common/utils/use-mod-mark';
+import { MarkCanvas, useModulations } from '../common/utils/use-mod-mark';
 import { Tooltip } from '../tooltip';
 import { ValueTooltip } from '../tooltip/value-tooltip';
 import { Label } from '../label';
 import type { HandleProps } from '../handle';
 import { RoutesDot } from '../amount-dot';
-import { MOD_DRAGGING_CLASS, MOD_OVER_ATTR, MOD_TARGET_ATTR } from '../mod-drag';
+import { MOD_DRAGGING_CLASS, MOD_OVER_ATTR, MOD_REFUSED_ATTR, MOD_TARGET_ATTR } from '../mod-drag';
 
 // the props of a knob, fillFrom is e.g. the natural width of a stereo fader
 type FaderProps = Omit<HandleProps, 'step' | 'size' | 'plotSize'> & { className?: string };
@@ -146,16 +146,15 @@ const Cap = styled.div`
   }
 `;
 
-// where the fader moves with its modulations now: the value line of the cap there, half transparent
-const ModMark = styled.div`
-  ${capBox};
+// where the fader moves with its modulations now: a canvas over the body the value line of the cap is painted on
+// there (MARK_CANVAS)
+const ModMark = styled.canvas`
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: ${WIDTH}px;
+  height: ${HEIGHT}px;
   pointer-events: none;
-  visibility: hidden;
-
-  &::before {
-    ${valueLine};
-    opacity: 0.5;
-  }
 `;
 
 // the selected route: a bar of the color of its source on the edge of the slot, as wide as it, from the value
@@ -187,7 +186,7 @@ const ModHighlight = styled.div`
   pointer-events: none;
   display: none;
 
-  body.${MOD_DRAGGING_CLASS} [${MOD_TARGET_ATTR}] > * > & {
+  body.${MOD_DRAGGING_CLASS} [${MOD_TARGET_ATTR}]:not([${MOD_REFUSED_ATTR}]) > * > & {
     display: block;
     box-shadow: 0 0 0 2px var(--mod-drag-color);
   }
@@ -197,12 +196,26 @@ const ModHighlight = styled.div`
   }
 `;
 
-const placeMark = (element: HTMLElement, position: number) => {
-  element.style.bottom = `${position * FADER_TRAVEL}px`;
-};
-
 // y of a position (0: min at the bottom, 1: max at the top) in the body, at the middle of the cap
 const tickY = (position: number) => HEIGHT - CAP_HEIGHT / 2 - position * FADER_TRAVEL;
+
+// the value line of the cap (valueLine: 4 px in from its sides, 2 px high in its middle, round ends) at a position,
+// half transparent, on a canvas over the body
+const MARK_CANVAS: MarkCanvas = {
+  paint: (context, position) => {
+    const y = tickY(position);
+    context.globalAlpha = 0.5;
+    context.strokeStyle = theme.colors.primaryDarkMediumContrast;
+    context.lineWidth = 2;
+    context.lineCap = 'round';
+    context.beginPath();
+    context.moveTo((WIDTH - CAP_WIDTH) / 2 + 5, y);
+    context.lineTo((WIDTH + CAP_WIDTH) / 2 - 5, y);
+    context.stroke();
+  },
+  width: WIDTH,
+  height: HEIGHT,
+};
 
 // a vertical fader like on a hardware synth, the value grows from the bottom up; drag the cap or the label,
 // or press the track to jump there and drag on; arrows, page up/down, home and end when focused
@@ -240,9 +253,11 @@ export const Fader = ({
   const {
     modulations,
     mark: modMark,
+    live,
     shown,
-    end: modEnd,
-  } = useModulations(routes, disabled, position, placeMark);
+    spans,
+  } = useModulations(routes, disabled, position, MARK_CANVAS);
+  const [span] = spans;
 
   const bodyRef = React.useRef<HTMLDivElement>(null);
   const capRef = React.useRef<HTMLDivElement>(null);
@@ -257,6 +272,11 @@ export const Fader = ({
 
   const [trackPointer] = React.useState(singlePointerTracker);
   const onPointerDown = (e: React.PointerEvent) => {
+    // Shift+Alt+click: the selected route switches its polarity, the fader doesn't move
+    if (e.shiftKey && e.altKey && shown?.onPolarity) {
+      shown.onPolarity(!shown.bipolar);
+      return;
+    }
     lastValue.current = value;
     const target = e.target as Node;
     // the track beside the cap: the cap jumps under the pointer, then follows it; the cap, the dot of the routes
@@ -334,17 +354,17 @@ export const Fader = ({
             />
           )}
           <Cap ref={capRef} data-testid='fader-cap' style={{ bottom: position * FADER_TRAVEL }} />
-          {shown && modEnd !== undefined && (
+          {shown && span && (
             <ModBar
               data-testid='mod-bar'
               style={{
                 background: shown.color,
-                bottom: CAP_HEIGHT / 2 + Math.min(position, modEnd) * FADER_TRAVEL,
-                height: Math.abs(modEnd - position) * FADER_TRAVEL,
+                bottom: CAP_HEIGHT / 2 + span[0] * FADER_TRAVEL,
+                height: (span[1] - span[0]) * FADER_TRAVEL,
               }}
             />
           )}
-          <ModMark ref={modMark} data-testid='fader-mod-mark' />
+          {live && <ModMark {...modMark} data-testid='fader-mod-mark' />}
           {modulations.length > 0 && (
             <DotBox ref={dotRef}>
               <Dot modulations={modulations} />

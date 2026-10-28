@@ -70,7 +70,7 @@ describe('reverb wasm worklet', () => {
           release: null,
           envelopes: [0, 1, 2].map(() => ({ attack: 0, hold: 0, decay: 0, sustain: 1, release: 0 })),
         },
-        routes: [{ env: 1, param: 'er', amount: 1, min: 0, max: 1 }],
+        routes: [{ source: 1, param: 'er', amount: 1, min: 0, max: 1 }],
       },
     };
     const routed = new processors[REVERB_PROCESSOR]({

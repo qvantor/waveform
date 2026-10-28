@@ -7,15 +7,19 @@
 // are). Then the tables are switched under the notes (one of 256 frames no buffer of the store holds yet, one of 11
 // frames), traced as well. It checks that the oscillator, the master limiter and every effect are ready, that the
 // engine counts the voices (in the voices node) and their mix samples, that the output sounds and that the page
-// threw nothing. The tables come from the
+// threw nothing; then every LFO on over the notes (traced in Chromium too), the voices play their positions
+// directly, and in Chromium the page is not restyled, laid out nor painted while the LFOs move the marks and the
+// charts (the synth and the FX screen). The tables come from the
 // cache of bench-perf (S3 keys in .env otherwise). Exit 1 on a failed check
 import { loadPlaywright, parseArgs } from '../bench-common.mjs';
-import { launch, openPage } from '../bench-perf/browser.mjs';
+import { launch, openPage, traceEvents } from '../bench-perf/browser.mjs';
 import {
   analyzeMessages,
+  analyzePaints,
   analyzeQuanta,
   countGlitches,
   MESSAGE_CATEGORIES,
+  PAINT_CATEGORIES,
   QUANTA_CATEGORIES,
 } from '../bench-perf/chrome-trace.mjs';
 import { CPU_CASES, TABLES } from '../bench-perf/scenes.mjs';
@@ -35,6 +39,30 @@ const withTables = (osc1, osc2) => ({
   osc1: { ...heavy.snapshot.osc1, ...(osc1 && { p: tablePath(osc1) }) },
   osc2: { ...heavy.snapshot.osc2, p: tablePath(osc2) },
 });
+// the heavy patch with every LFO on: LFO 1 on the wave of both oscillators (ENV 2 on its Rate), LFO 2 free on the
+// cutoff (bipolar) and the drive of the distortion, LFO 3 on the size and the early reflections (a fader) of the
+// reverb (its worklet), LFO 4 on the time and the bandpass of the delay (the lines of fx-mod, its chart)
+const withLfos = {
+  ...heavy.snapshot,
+  lfo: {
+    l1: { rate: 0.25 },
+    l2: { rate: 0.5, mode: 'free' },
+    l3: { rate: 2 },
+    l4: { rate: 0.3, shape: 'triangle' },
+  },
+  mod: {
+    ...heavy.snapshot.mod,
+    'lfo1:osc1.wave': 0.5,
+    'lfo1:osc2.wave': -0.4,
+    'env2:lfo1.rate': 0.2,
+    'lfo2:filter.cutoff': { a: 0.3, bi: true },
+    'lfo3:reverb.size': 0.3,
+    'lfo4:delay.time': 0.1,
+    'lfo2:distortion.drive': 0.3,
+    'lfo3:reverb.er': 0.3,
+    'lfo4:delay.freq': 0.2,
+  },
+};
 const withoutEffects = {
   ...heavy.snapshot,
   fx: Object.fromEntries(
@@ -98,9 +126,12 @@ try {
           await play();
           return;
         }
-        await browser.startTracing(page, { categories: messages ? MESSAGE_CATEGORIES : QUANTA_CATEGORIES });
-        await play();
-        const events = JSON.parse(String(await browser.stopTracing())).traceEvents;
+        const events = await traceEvents(
+          browser,
+          page,
+          messages ? MESSAGE_CATEGORIES : QUANTA_CATEGORIES,
+          play
+        );
         const sampleRate = await page.evaluate(
           () => window.__waveformPerf.models.synthCore[0].audioCtx.sampleRate
         );
@@ -162,7 +193,7 @@ try {
         Object.values(statuses.fx).every((status) => status === 'ready'),
         JSON.stringify(statuses.fx)
       );
-      const wanted = ['limiter', 'wavetable-osc', 'distortion', 'reverb'];
+      const wanted = ['limiter', 'wavetable-osc', 'distortion', 'reverb', 'fx-mod'];
       check(
         'the bundles load',
         wanted.every((bundle) => loaded.includes(bundle)),
@@ -181,6 +212,41 @@ try {
       );
       check('the tables are in the store', after?.worklet.tables >= 2, `${after?.worklet.tables} tables`);
       check('the output sounds', rms > 0.01, `RMS ${rms.toFixed(3)}`);
+      // every LFO on over the notes: their positions move (the voices play directly), the filters and the effects
+      // follow them
+      await dropsNothing('the LFOs added over the notes drop nothing', async () => {
+        await call('apply', withLfos, 60000);
+        await sleep(1500);
+      });
+      const moving = (await call('stats')).engine;
+      await sleep(500);
+      const moved = (await call('stats')).engine;
+      check(
+        'the LFOs move the voices: they play their moving positions directly',
+        moving && moved && moved.worklet.directSamples > moving.worklet.directSamples,
+        `${moved?.worklet.directSamples - moving?.worklet.directSamples} samples in 0.5 s`
+      );
+      // in Chromium the LFOs move the marks of the knobs and the faders and the charts without restyling, laying
+      // out or painting the page (they draw on canvases), on the synth and on the FX screen
+      if (name === 'chromium') {
+        const paintsNothing = async (title) => {
+          const painted = analyzePaints(
+            await traceEvents(browser, page, PAINT_CATEGORIES, () => sleep(1000))
+          );
+          check(
+            title,
+            painted.frames > 0 && painted.UpdateLayoutTree + painted.Layout + painted.Paint === 0,
+            `${painted.frames} animation frames: ${painted.UpdateLayoutTree} style, ${painted.Layout} layout, ` +
+              `${painted.Paint} paint`
+          );
+        };
+        await paintsNothing('the LFOs move the marks and the charts without painting the page');
+        await page.getByRole('button', { name: 'FX', exact: true }).first().click();
+        await sleep(500);
+        await paintsNothing(
+          'the LFOs move the marks and the charts of the effects without painting the page'
+        );
+      }
       check('the page threw nothing', errors.length === 0, errors.join('; '));
     } catch (error) {
       check('the page runs', false, error.message.split('\n')[0]);

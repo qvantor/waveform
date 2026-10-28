@@ -1,5 +1,6 @@
 import React from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react';
+import { drawn } from '../common/test-utils/canvas';
 import { valueScale } from '../common/utils';
 import { Handle } from './index';
 
@@ -72,19 +73,29 @@ describe('Handle', () => {
   });
 
   it.each([
-    ['m', '2px'],
-    ['l', '3px'],
-  ] as const)('of size %s has a round mark of %s at its edge, so has its live mark', (size, diameter) => {
-    const { container } = render(<Handle min={-1} max={1} value={0} size={size} modulations={[]} />);
-    const marks = [
-      container.querySelector('[style*="rotate"] > div > div'),
-      screen.getByTestId('mod-mark').firstElementChild?.firstElementChild,
-    ];
-    marks.forEach((mark) => {
-      const style = window.getComputedStyle(mark as HTMLElement);
-      expect([style.width, style.height, style.borderRadius]).toEqual([diameter, diameter, '100%']);
-    });
-  });
+    ['m', 2, 34, 13],
+    ['l', 3, 44, 17.5],
+  ] as const)(
+    'of size %s has a round mark of %s px at its edge, so has its live mark (on a canvas of the knob)',
+    (size, diameter, box, radius) => {
+      const live = { id: 'env2', color: '#fff', amount: 0, level: () => 1, live: true };
+      const { container } = render(<Handle min={-1} max={1} value={0} size={size} modulations={[live]} />);
+      const style = window.getComputedStyle(
+        container.querySelector('[style*="rotate"] > div > div') as Element
+      );
+      expect([style.width, style.height, style.borderRadius]).toEqual([
+        `${diameter}px`,
+        `${diameter}px`,
+        '100%',
+      ]);
+      const mark = screen.getByTestId('mod-mark') as HTMLCanvasElement;
+      expect([mark.width, mark.height]).toEqual([box, box]);
+      const [dot] = drawn(mark);
+      // at the top: the knob at its middle, the routes don't move it
+      expect(dot.arcs).toEqual([{ x: box / 2, y: box / 2 - radius, radius: diameter / 2 }]);
+      expect([dot.op, dot.alpha]).toEqual(['fill', 0.5]);
+    }
+  );
 
   it('while held shows the full name of what it changes before the value, a string label by default', () => {
     const format = (value: number) => `${value}%`;
@@ -235,6 +246,38 @@ describe('Handle modulation', () => {
     expect(screen.queryByTestId('amount-dot')).toBeNull();
   });
 
+  it('draws the arc of a bipolar route around the value: ±amount / 2', () => {
+    const { container } = render(
+      <Handle min={0} max={1} value={0.5} modulations={[{ ...modulation(0.5), bipolar: true }]} />
+    );
+    const [path] = modArcs(container);
+    // from a quarter of the travel down to a quarter up
+    expect(angleOf(startPoint(path.getAttribute('d') ?? ''))).toBeCloseTo(-MAX_ANGLE / 2);
+  });
+
+  it('switches the polarity of the selected route on Shift+Alt+click, turns nothing then', () => {
+    const onPolarity = jest.fn();
+    const onChange = jest.fn();
+    render(
+      <Handle
+        min={0}
+        max={1}
+        value={0.5}
+        label='Wave'
+        onChange={onChange}
+        modulations={[{ ...modulation(0.5), onPolarity }]}
+      />
+    );
+    const knob = screen.getByText('Wave').parentElement as HTMLElement;
+    const event = new MouseEvent('pointerdown', { bubbles: true, shiftKey: true, altKey: true, button: 0 });
+    Object.defineProperty(event, 'pointerId', { value: 1 });
+    act(() => {
+      knob.dispatchEvent(event);
+    });
+    expect(onPolarity).toHaveBeenCalledWith(true);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
   it('clamps the arc to the travel, none at 0 or past it; the dot stays', () => {
     const { container, rerender } = render(
       <Handle min={0} max={1} value={1} modulations={[modulation(0.5)]} />
@@ -279,9 +322,15 @@ describe('Handle modulation', () => {
       level: () => level,
       live: true,
     });
-    const mark = () => screen.getByTestId('mod-mark');
-    // hidden by its style until it is drawn
-    const visibility = () => window.getComputedStyle(mark()).visibility;
+    const mark = () => screen.queryByTestId('mod-mark');
+    // the angle of the dot painted on the canvas of the mark, clockwise from the top (none: NaN)
+    const markAngle = () => {
+      const [dot] = drawn(mark());
+      const [{ x, y }] = dot?.arcs ?? [{ x: NaN, y: NaN }];
+      // the canvas of a knob of size m: 34 px
+      return Math.atan2(x - 17, 17 - y);
+    };
+    const painted = () => drawn(mark()).length > 0;
     const tick = () =>
       act(() => {
         jest.advanceTimersByTime(20);
@@ -291,9 +340,8 @@ describe('Handle modulation', () => {
       jest.useFakeTimers();
       level = 1;
       const { rerender } = render(<Handle min={0} max={1} value={0.5} modulations={[live(0.25)]} />);
-      expect(mark().style.visibility).toBe('visible');
       // from the top a quarter of the travel clockwise
-      expect(rotation(mark())).toBeCloseTo(MAX_ANGLE / 2);
+      expect(markAngle()).toBeCloseTo(MAX_ANGLE / 2);
       rerender(
         <Handle
           min={0}
@@ -305,27 +353,82 @@ describe('Handle modulation', () => {
       level = 0.5;
       tick();
       // 0.25 * 0.5 - 0.5 * 0.5
-      expect(rotation(mark())).toBeCloseTo(-MAX_ANGLE / 4);
+      expect(markAngle()).toBeCloseTo(-MAX_ANGLE / 4);
       rerender(<Handle min={0} max={1} value={0.5} modulations={[live(1)]} />);
       level = 1;
       tick();
-      expect(rotation(mark())).toBeCloseTo(MAX_ANGLE);
+      expect(markAngle()).toBeCloseTo(MAX_ANGLE);
     });
 
-    it('is hidden without a level, while not live and on a disabled knob', () => {
+    it('a bipolar route moves it around the value: amount × (level - ½)', () => {
+      jest.useFakeTimers();
+      level = 1;
+      render(<Handle min={0} max={1} value={0.5} modulations={[{ ...live(0.5), bipolar: true }]} />);
+      // 0.5 + 0.5 × ½
+      expect(markAngle()).toBeCloseTo(MAX_ANGLE / 2);
+      level = 0;
+      tick();
+      expect(markAngle()).toBeCloseTo(-MAX_ANGLE / 2);
+    });
+
+    it('goes around the travel on a knob around a cycle (wrap), else stops at its end', () => {
+      jest.useFakeTimers();
+      level = 1;
+      const { rerender } = render(<Handle min={0} max={1} value={0.9} wrap modulations={[live(0.3)]} />);
+      // 0.9 + 0.3: 0.2 of the travel from its start
+      expect(markAngle()).toBeCloseTo(-0.6 * MAX_ANGLE);
+      rerender(<Handle min={0} max={1} value={0.9} modulations={[live(0.3)]} />);
+      expect(markAngle()).toBeCloseTo(MAX_ANGLE);
+    });
+
+    it('is cleared without a level, not rendered while not live and on a disabled knob', () => {
       jest.useFakeTimers();
       level = null;
       const { rerender } = render(<Handle min={0} max={1} value={0.5} modulations={[live(0.25)]} />);
-      expect(visibility()).toBe('hidden');
+      expect(painted()).toBe(false);
       level = 0.5;
       tick();
-      expect(visibility()).toBe('visible');
+      expect(painted()).toBe(true);
+      level = null;
+      tick();
+      expect(painted()).toBe(false);
       rerender(<Handle min={0} max={1} value={0.5} modulations={[{ ...live(0.25), live: false }]} />);
-      expect(visibility()).toBe('hidden');
+      expect(mark()).toBeNull();
       rerender(<Handle min={0} max={1} value={0.5} disabled modulations={[live(0.25)]} />);
       tick();
-      expect(visibility()).toBe('hidden');
+      expect(mark()).toBeNull();
     });
+
+    it('paints again only when the sum of the routes moved it by a step of the travel', () => {
+      jest.useFakeTimers();
+      level = 0.5;
+      render(<Handle min={0} max={1} value={0.5} modulations={[live(0.25)]} />);
+      const canvas = mark() as HTMLCanvasElement;
+      const fill = jest.spyOn(canvas.getContext('2d') as CanvasRenderingContext2D, 'fill');
+      tick();
+      tick();
+      expect(fill).not.toHaveBeenCalled();
+      level = 0.5001;
+      tick();
+      expect(fill).not.toHaveBeenCalled();
+      level = 0.6;
+      tick();
+      expect(fill).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('around a cycle (wrap) draws the arc over its end as two, from the other end on', () => {
+    const { container, rerender } = render(
+      <Handle min={0} max={1} value={0.9} wrap modulations={[modulation(0.3)]} />
+    );
+    const [path] = modArcs(container);
+    const [, first, second] = (path.getAttribute('d') ?? '').split('M');
+    // 0.9 to the end of the travel, then from its start to 0.2
+    expect(angleOf(startPoint(`M${first}`))).toBeCloseTo(0.8 * MAX_ANGLE);
+    expect(angleOf(startPoint(`M${second}`))).toBeCloseTo(-MAX_ANGLE);
+    // clamped: one arc to the end
+    rerender(<Handle min={0} max={1} value={0.9} modulations={[modulation(0.3)]} />);
+    expect(modArcs(container)[0].getAttribute('d')?.split('M')).toHaveLength(2);
   });
 
   it('a disabled knob takes no source and hides its routes', () => {

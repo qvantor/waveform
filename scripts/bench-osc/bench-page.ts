@@ -677,9 +677,9 @@ const cpu = async ({
           : { attack: 0, hold: 0, decay: 0, sustain: 0.5, release: 0 };
       const routed = modulation === 'env-sustain' || modulation === 'env-moving';
       const routes = [1, 2].flatMap((osc) => [
-        { env: 1, param: `position${osc}`, amount: 0.5, min: 0, max: 1 },
-        { env: 1, param: `spread${osc}`, amount: 50, min: 0, max: 100 },
-        { env: 1, param: `gain${osc}`, amount: -0.05, min: 0, max: 1 },
+        { source: 1, param: `position${osc}`, amount: 0.5, min: 0, max: 1 },
+        { source: 1, param: `spread${osc}`, amount: 50, min: 0, max: 100 },
+        { source: 1, param: `gain${osc}`, amount: -0.05, min: 0, max: 1 },
       ]);
       setups.push([
         {

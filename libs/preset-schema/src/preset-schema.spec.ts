@@ -4,6 +4,7 @@ import { isProfane } from './profanity';
 import {
   ENVELOPE_CURVES,
   fxSnapSchema,
+  LFO_DEFAULTS,
   listPresetsQuerySchema,
   nameKey,
   presetDataSchema,
@@ -120,7 +121,7 @@ describe('normalizePreset', () => {
   it('rounds numbers and sorts keys', () => {
     const normalized = normalizePreset({ ...preset, filter: { ...preset.filter, cut: 1234.5678 } });
     expect(normalized.filter.cut).toBe(1235);
-    expect(Object.keys(normalized)).toEqual(['env', 'filter', 'fx', 'mod', 'osc1', 'osc2', 'v']);
+    expect(Object.keys(normalized)).toEqual(['env', 'filter', 'fx', 'lfo', 'mod', 'osc1', 'osc2', 'v']);
     expect(Object.keys(normalized.osc1)).toEqual(['a', 'd', 'g', 'o', 'p', 'ph', 'pr', 'u', 'w']);
   });
 
@@ -172,6 +173,50 @@ describe('normalizePreset', () => {
 
   it('takes routes of the velocity (VELO) as those of an envelope', () => {
     const mod = { 'velo:filter.cutoff': 0.5, 'env2:filter.cutoff': -0.25, 'velo:delay.mix': 1 };
+    expect(normalizePreset({ mod }).mod).toEqual(mod);
+  });
+
+  it('fills the four LFOs with their defaults: a sine of 0.5 s, retrig, no delay, rise, smooth or phase', () => {
+    const { lfo } = normalizePreset({});
+    expect(Object.keys(lfo)).toEqual(['l1', 'l2', 'l3', 'l4']);
+    expect(lfo.l3).toEqual(LFO_DEFAULTS);
+    expect(lfo.l1).toEqual({
+      rate: 0.5,
+      delay: 0,
+      rise: 0,
+      smooth: 0,
+      phase: 0,
+      shape: 'sine',
+      mode: 'retrig',
+    });
+  });
+
+  it('keeps the knobs of an LFO within their ranges: a period of 10 ms to 32 s, times up to 32 s, Smooth 0.5 s', () => {
+    const l2 = { rate: 0.01, delay: 32, rise: 1.5, smooth: 0.5, phase: 1, shape: 'square', mode: 'free' };
+    expect(normalizePreset({ lfo: { l2, l4: { rate: 32 } } }).lfo).toMatchObject({
+      l2,
+      l4: { ...LFO_DEFAULTS, rate: 32 },
+    });
+  });
+
+  it('keeps the points of a shape of its own, from 0 up (a step: two at one x), their curves on the grid', () => {
+    const points = [
+      [0, 0, 0],
+      [0.5, 1, 3.456],
+      [0.5, 0.25, -10],
+      [1, 0, 0],
+    ];
+    expect(normalizePreset({ lfo: { l1: { points } } }).lfo.l1.points).toEqual([
+      [0, 0, 0],
+      [0.5, 1, 3.46],
+      [0.5, 0.25, -10],
+      [1, 0, 0],
+    ]);
+    expect(normalizePreset({}).lfo.l1).not.toHaveProperty('points');
+  });
+
+  it('keeps a bipolar route as an object, a uni one as its amount', () => {
+    const mod = { 'lfo1:filter.gain': { a: 0.5, bi: true }, 'lfo2:osc1.wave': -0.25, 'env2:lfo1.rate': 1 };
     expect(normalizePreset({ mod }).mod).toEqual(mod);
   });
 
@@ -327,7 +372,63 @@ describe('normalizePreset', () => {
     ['pitch bend range over 24', { ...preset, v: { ...preset.v, bu: 25 } }],
     ['pitch bend range not integer', { ...preset, v: { ...preset.v, bd: 1.5 } }],
     ['mod amount over 1', { ...preset, mod: { 'env2:osc1.wave': 1.5 } }],
-    ['mod source unknown', { ...preset, mod: { 'lfo1:osc1.wave': 0.5 } }],
+    ['mod source unknown', { ...preset, mod: { 'lfo5:osc1.wave': 0.5 } }],
+    ['an LFO on a knob of an LFO', { ...preset, mod: { 'lfo1:lfo2.rate': 0.5 } }],
+    ['a bipolar route without its flag', { ...preset, mod: { 'lfo1:osc1.wave': { a: 0.5 } } }],
+    ['a bipolar amount over 1', { ...preset, mod: { 'lfo1:osc1.wave': { a: 1.5, bi: true } } }],
+    ['an LFO period under 10 ms', { ...preset, lfo: { l1: { rate: 0.005 } } }],
+    ['an LFO smooth over 0.5 s', { ...preset, lfo: { l2: { smooth: 0.6 } } }],
+    ['an LFO phase over 1', { ...preset, lfo: { l2: { phase: 1.1 } } }],
+    ['an unknown LFO shape', { ...preset, lfo: { l3: { shape: 'noise' } } }],
+    ['an unknown LFO mode', { ...preset, lfo: { l3: { mode: 'env' } } }],
+    [
+      'LFO points not from 0',
+      {
+        ...preset,
+        lfo: {
+          l1: {
+            points: [
+              [0.1, 0, 0],
+              [1, 1, 0],
+            ],
+          },
+        },
+      },
+    ],
+    [
+      'LFO points going down',
+      {
+        ...preset,
+        lfo: {
+          l1: {
+            points: [
+              [0, 0, 0],
+              [0.5, 1, 0],
+              [0.4, 0, 0],
+            ],
+          },
+        },
+      },
+    ],
+    ['one LFO point', { ...preset, lfo: { l1: { points: [[0, 0, 0]] } } }],
+    [
+      'more than 64 LFO points',
+      { ...preset, lfo: { l1: { points: Array.from({ length: 65 }, (_, i) => [i / 64, 0, 0]) } } },
+    ],
+    [
+      'an LFO point over 1',
+      {
+        ...preset,
+        lfo: {
+          l1: {
+            points: [
+              [0, 0, 0],
+              [0.5, 1.5, 0],
+            ],
+          },
+        },
+      },
+    ],
     ['velocity amp over 1', { ...preset, env: { ...preset.env, vel: { amp: 1.5 } } }],
     ['velocity curve over 10', { ...preset, env: { ...preset.env, vel: { k: -11 } } }],
     ['mod key without a target', { ...preset, mod: { env2: 0.5 } }],

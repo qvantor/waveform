@@ -1,2 +1,2 @@
 export { useLineChartContext } from './use-line-chart-context';
-export { useLivePath } from './use-live-path';
+export { strokePath, tracePath, useLiveCanvas, useLiveLine } from './use-live-line';

@@ -9,7 +9,7 @@
 // alternate in one session; only its regressions fail (a baseline of another session only warns of drift)
 import fs from 'fs';
 import path from 'path';
-import { launch, openPage } from './browser.mjs';
+import { launch, openPage, traceEvents } from './browser.mjs';
 import {
   analyzeQuanta,
   countGlitches,
@@ -90,11 +90,7 @@ const recordRun = async ({ launched, origin, kase, side, index, previous }) => {
   const { context, page, call, errors } = await openPage(launched.browser, origin);
   const chromium = launched.name === 'chromium';
   const quanta = chromium && index === 0;
-  const trace = async (categories, during) => {
-    await launched.browser.startTracing(page, { categories });
-    await during();
-    return JSON.parse(String(await launched.browser.stopTracing())).traceEvents;
-  };
+  const trace = (categories, during) => traceEvents(launched.browser, page, categories, during);
   try {
     await call('apply', kase.snapshot, 60000);
     await call(

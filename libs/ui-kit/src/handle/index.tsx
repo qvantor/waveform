@@ -9,9 +9,9 @@ import { ScaleMode, singlePointerTracker, valueScale } from '../common/utils';
 import { Tooltip } from '../tooltip';
 import { ValueTooltip } from '../tooltip/value-tooltip';
 import { Label } from '../label';
-import { useModulations } from '../common/utils/use-mod-mark';
+import { MarkCanvas, useModulations } from '../common/utils/use-mod-mark';
 import { AMOUNT_DOT_SIZE, RoutesDot } from '../amount-dot';
-import { MOD_DRAGGING_CLASS, MOD_OVER_ATTR, MOD_TARGET_ATTR } from '../mod-drag';
+import { MOD_DRAGGING_CLASS, MOD_OVER_ATTR, MOD_REFUSED_ATTR, MOD_TARGET_ATTR } from '../mod-drag';
 
 // a modulation of the knob: a source (an envelope) moves it by amount, a share of its range in its scale
 // (-1..1); a dot at the top left has a section of the color of each route, the route of the selected source
@@ -32,6 +32,10 @@ export interface HandleModulation {
   // its source is the selected one (the ENV tab): its arc shows and the dot changes it, the others only move the
   // mark
   selected?: boolean;
+  // it moves the knob around its value (amount × (level - ½): its arc ±amount / 2), else up from it; onPolarity
+  // switches it (Shift+Alt+click on the knob, Shift+click or B on its dot)
+  bipolar?: boolean;
+  onPolarity?: (bipolar: boolean) => void;
 }
 
 type Size = 'm' | 'l';
@@ -61,6 +65,8 @@ export interface HandleProps {
   modulations?: HandleModulation[];
   // the id a dragged source is dropped onto (MOD_TARGET_ATTR): a disabled knob takes none
   modTarget?: string;
+  // a knob around a cycle (the Phase of an LFO): the routes move it around, not clamped (its mark, the arc)
+  wrap?: boolean;
 }
 
 interface StyledProps {
@@ -162,7 +168,7 @@ const ModHighlight = styled.div<StyledProps>`
   z-index: 3;
   display: none;
 
-  body.${MOD_DRAGGING_CLASS} [${MOD_TARGET_ATTR}] > * > & {
+  body.${MOD_DRAGGING_CLASS} [${MOD_TARGET_ATTR}]:not([${MOD_REFUSED_ATTR}]) > * > & {
     display: block;
     box-shadow: 0 0 0 2px var(--mod-drag-color);
   }
@@ -172,25 +178,15 @@ const ModHighlight = styled.div<StyledProps>`
   }
 `;
 
-// where the knob moves with its modulations now: over the knob, its mark in the same place, half transparent
-const ModMark = styled.div<StyledProps>`
+// where the knob moves with its modulations now: over the knob, a canvas its mark is painted on (markCanvasOf)
+const ModMark = styled.canvas<StyledProps>`
   position: absolute;
   inset: 0;
   margin: auto;
   width: ${(props) => sizes[props.size].handleOuter}px;
   height: ${(props) => sizes[props.size].handleOuter}px;
-  display: flex;
   pointer-events: none;
-  visibility: hidden;
   z-index: 3;
-`;
-
-const ModMarkInner = styled.div<StyledProps>`
-  margin: auto;
-  width: ${(props) => sizes[props.size].handleInner}px;
-  height: ${(props) => sizes[props.size].handleInner}px;
-  position: relative;
-  opacity: 0.5;
 `;
 
 const Dot = styled(RoutesDot)`
@@ -248,9 +244,29 @@ const shapesOf = (size: Size) => {
 };
 const shapes: Record<Size, ReturnType<typeof shapesOf>> = { m: shapesOf('m'), l: shapesOf('l') };
 
-const placeMark = (element: HTMLElement, share: number) => {
-  element.style.transform = `rotate(${fromShare(share)}rad)`;
+// the mark of the knob at a share of its travel, half transparent, on the canvas of its box (ModMark): the dot of
+// HandleMark, 2 px into the face of the knob, turned with it from the top
+const markCanvasOf = (size: Size): MarkCanvas => {
+  const { handleOuter, handleInner, mark } = sizes[size];
+  const center = handleOuter / 2;
+  const radius = handleInner / 2 - 2 - mark / 2;
+  const paint: MarkCanvas['paint'] = (context, share) => {
+    const angle = fromShare(share);
+    context.globalAlpha = 0.5;
+    context.fillStyle = theme.colors.primaryDarkMediumContrast;
+    context.beginPath();
+    context.arc(
+      center + radius * Math.sin(angle),
+      center - radius * Math.cos(angle),
+      mark / 2,
+      0,
+      2 * Math.PI
+    );
+    context.fill();
+  };
+  return { paint, width: handleOuter, height: handleOuter };
 };
+const markCanvases: Record<Size, MarkCanvas> = { m: markCanvasOf('m'), l: markCanvasOf('l') };
 
 export const Handle = ({
   min = 0,
@@ -269,6 +285,7 @@ export const Handle = ({
   fillFrom,
   modulations: routes,
   modTarget,
+  wrap = false,
 }: HandleProps) => {
   const { svg, arc: travelRadii } = sizes[size];
   const { ring, track, travel, dot } = shapes[size];
@@ -293,9 +310,10 @@ export const Handle = ({
   const {
     modulations,
     mark: modMark,
+    live,
     shown,
-    end: modEnd,
-  } = useModulations(routes, disabled, share, placeMark);
+    spans,
+  } = useModulations(routes, disabled, share, markCanvases[size], wrap);
 
   // a knob that takes no modulations: on the arc of its travel the fill, from fillFrom (min by default) to the
   // value, none between them
@@ -305,16 +323,24 @@ export const Handle = ({
     return start === rotateRad ? undefined : ringPath(travelRadii, start, rotateRad);
   }, [routes, fillFrom, toAngle, rotateRad, travelRadii]);
 
-  // the selected route: from the value to the value + amount (a share of the travel), clamped to the travel
-  const modArc = React.useMemo(() => {
-    if (modEnd === undefined) return undefined;
-    const end = fromShare(modEnd);
-    return ringPath(ring, Math.min(rotateRad, end), Math.max(rotateRad, end));
-  }, [modEnd, rotateRad, ring]);
+  // the selected route: from the value to the value + amount (a share of the travel), a bipolar one around it,
+  // clamped to the travel or around it (two arcs over an end)
+  const modArc = React.useMemo(
+    () =>
+      spans.length === 0
+        ? undefined
+        : spans.map(([from, to]) => ringPath(ring, fromShare(from), fromShare(to))).join(''),
+    [spans, ring]
+  );
 
   const [trackPointer] = React.useState(singlePointerTracker);
   const onPointerDown = React.useCallback(
     (e: React.PointerEvent) => {
+      // Shift+Alt+click: the selected route switches its polarity, the knob doesn't turn
+      if (e.shiftKey && e.altKey && shown?.onPolarity) {
+        shown.onPolarity(!shown.bipolar);
+        return;
+      }
       const initialPosition = vector2d.fromMouseEvent(e);
       trackPointer(e, (e) => {
         const current = vector2d.fromMouseEvent(e);
@@ -333,7 +359,7 @@ export const Handle = ({
         onChange?.(step ? step[result] : result);
       });
     },
-    [trackPointer, step, scaleMouse, value, precision, plotSize, onChange, min, max]
+    [trackPointer, step, scaleMouse, value, precision, plotSize, onChange, min, max, shown]
   );
 
   return (
@@ -351,11 +377,7 @@ export const Handle = ({
             </HandleCircleInner>
           </HandleCircle>
           <HandleCircleShadow size={size} />
-          <ModMark ref={modMark} size={size} data-testid='mod-mark'>
-            <ModMarkInner size={size}>
-              <HandleMark size={size} />
-            </ModMarkInner>
-          </ModMark>
+          {live && <ModMark {...modMark} size={size} data-testid='mod-mark' />}
           <Svg size={size} className={cls({ scale: !routes })}>
             <g transform={`translate(${svg / 2},${svg / 2})`}>
               {routes ? (

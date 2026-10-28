@@ -8,7 +8,7 @@ const flush = () => new Promise((resolve) => setTimeout(resolve));
 const setup = async ({ running = true } = {}) => {
   const modules = createSynth();
   const [{ audioCtx, fxOut, wavetables, masterLimiter }] = modules.synthCore;
-  const fx = createFx(modules.synthCore).fx;
+  const fx = createFx(modules.synthCore, modules.modulation, modules.lfos).fx;
   await flush();
   jest.useFakeTimers();
   // the clock of the context, moved by the spec

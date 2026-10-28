@@ -3,8 +3,10 @@ import { BehaviorSubject } from 'rxjs';
 import { render } from '@testing-library/react';
 import { AppProvider } from '../app/app';
 import {
+  LfoProvider,
   ModulationProvider,
   SynthCoreProvider,
+  useLfos,
   useModulation,
   useSynthCore,
 } from '../app/synth/common/modules';
@@ -21,9 +23,21 @@ const Capture = ({ onModel }: { onModel: (module: FxModule) => void }) => {
 const synth = [{ $fxNote: new BehaviorSubject(null) }, {}] as unknown as SynthModule;
 
 const Fx = ({ children }: React.PropsWithChildren) => (
-  <FxProvider initial={{}} synthCore={useSynthCore()} synth={synth} modulation={useModulation()}>
+  <FxProvider
+    initial={{}}
+    synthCore={useSynthCore()}
+    synth={synth}
+    lfo={useLfos()}
+    modulation={useModulation()}
+  >
     {children}
   </FxProvider>
+);
+
+const Lfos = ({ children }: React.PropsWithChildren) => (
+  <LfoProvider initial={undefined} synthCore={useSynthCore()}>
+    {children}
+  </LfoProvider>
 );
 
 // renders the ui inside the providers the fx components need, returns the fx model to drive it
@@ -32,12 +46,14 @@ export const renderWithFx = (ui: React.ReactElement) => {
   const result = render(
     <AppProvider initial={{}}>
       <SynthCoreProvider initial={undefined}>
-        <ModulationProvider initial={undefined}>
-          <Fx>
-            <Capture onModel={(module) => (fx = module)} />
-            {ui}
-          </Fx>
-        </ModulationProvider>
+        <Lfos>
+          <ModulationProvider initial={undefined}>
+            <Fx>
+              <Capture onModel={(module) => (fx = module)} />
+              {ui}
+            </Fx>
+          </ModulationProvider>
+        </Lfos>
       </SynthCoreProvider>
     </AppProvider>
   );

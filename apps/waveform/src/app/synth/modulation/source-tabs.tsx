@@ -1,12 +1,14 @@
 import React from 'react';
 import styled from 'styled-components';
 import cls from 'classnames';
+import { distinctUntilChanged, map } from 'rxjs';
 import { MdDragIndicator } from 'react-icons/md';
 import { ModSource } from '@waveform/preset-schema';
 import { startModDrag, theme } from '@waveform/ui-kit';
-import { useBehaviorSubject } from '@waveform/rxjs-react';
-import { useEnvelopes, useModulation } from '../../common/modules';
-import { ENVELOPE_COLORS, ENVELOPE_LABELS } from '../envelope-colors';
+import { useBehaviorSubject, useObservable } from '@waveform/rxjs-react';
+import { ModRoute } from '../common/modules/modulation';
+import { useEnvelopes, useModulation } from '../common/modules';
+import { SOURCE_COLORS, SOURCE_LABELS } from '../envelope/envelope-colors';
 
 // the whole header (a plain one): a segmented control on its grey, as high as the other headers
 const Root = styled.div`
@@ -63,13 +65,19 @@ const Tab = styled.button`
   }
 `;
 
-// a white ring around it: the colors are about as dark as the grey of the header
+// a white ring around it (the colors are about as dark as the grey of the header), the number of the routes of
+// its source in it (none: empty)
 const Dot = styled.span`
   flex: none;
-  width: 11px;
-  height: 11px;
+  width: 13px;
+  height: 13px;
   border-radius: 50%;
   box-shadow: 0 0 0 2px ${theme.colors.white};
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 13px;
+  text-align: center;
+  color: ${theme.colors.white};
 `;
 
 // the grip of the selected tab, in its right corner: the label stays centered
@@ -82,26 +90,49 @@ const Grip = styled(MdDragIndicator)`
   color: ${theme.colors.primaryMediumContrast};
 `;
 
-interface Props {
+interface Props<S extends ModSource> {
   // the accessible name of the tabs
   label: string;
-  sources: readonly ModSource[];
-  // the tab of the envelope the section shows (the ENV section: the last one selected), a translucent key while
+  sources: readonly S[];
+  // the tab of the source the section shows (the ENV section: the last envelope selected), a translucent key while
   // another source is selected; without it the section shows each of its sources (VELO)
-  shown?: ModSource;
+  shown?: S;
+  // a tab was selected (or dropped on a knob): the section shows it
+  onSelect?: (id: S) => void;
+  // the knobs its sources go to (all by default): the others don't light up while one is dragged
+  accepts?: (target: string) => boolean;
 }
 
-// the tabs of sources in the header of a section, ENV 1 | ENV 2 | ENV 3 or VELO: the selected one (of every
-// source, the tabs of the other section too) is the source the knobs show the routes of. A tab dragged onto a knob
-// assigns its source to it at +50% and selects it, the knobs show the new route at once (a click selects it), the
-// grip of the selected one tells it
-export const EnvelopeTabs = ({ label, sources, shown }: Props) => {
-  const [{ $selected }, { select }] = useEnvelopes();
-  const [, { addRoute }] = useModulation();
+// the number of the routes of each source, in their order
+const routeCounts = (sources: readonly ModSource[], routes: ModRoute[]) =>
+  sources.map((id) => routes.filter(({ source }) => source === id).length);
+const sameCounts = (a: number[], b: number[]) => a.every((count, i) => count === b[i]);
+
+// the tabs of sources in the header of a section, ENV 1 | ENV 2 | ENV 3, VELO or LFO 1 | … | LFO 4: the selected one
+// (of every source, the tabs of the other sections too) is the source the knobs show the routes of. A tab dragged
+// onto a knob assigns its source to it at +50% (bipolar on a knob centered on 0) and selects it, the knobs show the
+// new route at once (a click selects it), the grip of the selected one tells it. The dot of a tab has the number
+// of the routes of its source: a route added or removed renders the tabs, not an amount
+export const SourceTabs = <S extends ModSource>({ label, sources, shown, onSelect, accepts }: Props<S>) => {
+  const [{ $selected }, { select: selectSource }] = useEnvelopes();
+  const [{ $routes }, { addRoute }] = useModulation();
   const selected = useBehaviorSubject($selected);
+  const $counts = React.useMemo(
+    () =>
+      $routes.pipe(
+        map((routes) => routeCounts(sources, routes)),
+        distinctUntilChanged(sameCounts)
+      ),
+    [$routes, sources]
+  );
+  const counts = useObservable($counts, routeCounts(sources, $routes.value));
+  const select = (id: S) => {
+    selectSource(id);
+    onSelect?.(id);
+  };
   return (
     <Root role='tablist' aria-label={label}>
-      {sources.map((id) => (
+      {sources.map((id, i) => (
         <Tab
           key={id}
           type='button'
@@ -112,8 +143,9 @@ export const EnvelopeTabs = ({ label, sources, shown }: Props) => {
           onClick={() => select(id)}
           onPointerDown={(e) =>
             startModDrag(e, {
-              label: ENVELOPE_LABELS[id],
-              color: ENVELOPE_COLORS[id],
+              label: SOURCE_LABELS[id],
+              color: SOURCE_COLORS[id],
+              accepts,
               onDrop: (target) => {
                 addRoute(id, target);
                 select(id);
@@ -121,8 +153,10 @@ export const EnvelopeTabs = ({ label, sources, shown }: Props) => {
             })
           }
         >
-          <Dot aria-hidden style={{ background: ENVELOPE_COLORS[id] }} />
-          {ENVELOPE_LABELS[id]}
+          <Dot aria-hidden data-testid='route-count' style={{ background: SOURCE_COLORS[id] }}>
+            {counts[i] || null}
+          </Dot>
+          {SOURCE_LABELS[id]}
           {id === selected && <Grip aria-hidden data-testid='env-grip' />}
         </Tab>
       ))}

@@ -1,13 +1,14 @@
 import { mapValues, noop } from 'lodash';
 import { FX_PARAMS } from '@waveform/preset-schema';
 import { DISTORTION_PROCESSOR } from '../../common/processors';
+import { createLfoFeed } from '../../common/lfo/lfo-curve';
 import { FxDefinition } from './types';
 import { DistortionParam, DISTORTION_PRESETS } from './distortion-presets';
 import { formatDb, formatHz } from './format';
 import { DISTORTION_MODES } from './distortion-modes';
 import { DISTORTION_LATENCY, DistortionMessage, DistortionOptions, TONE_OPEN } from './distortion-params';
 import { createWorkletFx, STEREO_WORKLET_OPTIONS } from './worklet-fx';
-import type { FxModMessage } from './fx-modulation';
+import { FxModMessage, isLfoSource } from './fx-modulation';
 
 const { mode, drive, tone, level } = FX_PARAMS.distortion;
 
@@ -41,15 +42,24 @@ export const distortion: FxDefinition<DistortionParam> = {
   create: (audioCtx) => {
     const values = mapValues(FX_PARAMS.distortion, (param) => param.default);
 
-    // the node starts with the params kept until the module has loaded
+    // the node starts with the params and the LFOs kept until the module has loaded
     const worklet = createWorkletFx(audioCtx, 'distortion', () => {
-      const processorOptions: DistortionOptions = { params: { ...values } };
+      const lfos = feed.initial();
+      const processorOptions: DistortionOptions = {
+        params: { ...values },
+        ...(lfos && { lfos }),
+      };
       return new AudioWorkletNode(audioCtx, DISTORTION_PROCESSOR, {
         ...STEREO_WORKLET_OPTIONS,
         processorOptions,
       });
     });
     const post = (message: DistortionMessage) => worklet.post(message);
+    // the LFOs, only while a route of one moves a knob
+    const feed = createLfoFeed((state) => {
+      const message: FxModMessage = { lfos: state };
+      worklet.post(message);
+    });
 
     return {
       input: worklet.input,
@@ -67,11 +77,13 @@ export const distortion: FxDefinition<DistortionParam> = {
       // no loops to drain: the closed send silences the input, and the worklet idles once it is silent
       setActive: noop,
       clear: worklet.clear,
-      // the worklet moves the knobs once per block
+      // the worklet moves the knobs once per block (the LFOs as they are first, once a route reads one)
       setModulation: (mod) => {
+        feed.use(!!mod && mod.routes.some(({ source }) => isLfoSource(source)));
         const message: FxModMessage = { mod };
         worklet.post(message);
       },
+      setLfos: feed.take,
       destroy: worklet.destroy,
     };
   },

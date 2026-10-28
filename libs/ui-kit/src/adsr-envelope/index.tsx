@@ -1,7 +1,6 @@
 import React from 'react';
 import styled from 'styled-components';
-import { line } from 'd3-shape';
-import { number, Vector2D, vector2d } from '@waveform/math';
+import { number, vector2d } from '@waveform/math';
 import { LineChart, useLineChartContext, Line, XAxis, YAxis } from '../line-chart';
 import { Handle } from '../handle';
 import { theme } from '../common/constants';
@@ -9,8 +8,9 @@ import { text12 } from '../common/styles';
 import { AdsrCurves, envelopeLine, LineProps } from './envelope-line';
 import { CurveHandles, CurveStage } from './curve-handles';
 
-export { NoteDot } from './note-dot';
+export { NoteDot, NOTE_DOT_COLOR, NOTE_DOT_RADIUS } from './note-dot';
 export { VelocityCurve, VelocityDot } from './velocity-curve';
+export { CurvePoint, POINT_HIT_RADIUS, POINT_RADIUS } from './curve-handles';
 export type { NotePath } from './note-dot';
 
 const Root = styled.div`
@@ -42,21 +42,13 @@ const HandleValue = styled.p`
 
 const CustomLine = ({ curves, ...stages }: LineProps & { curves?: AdsrCurves }) => {
   const { scaleX, scaleY } = useLineChartContext();
-  const customLineFn = line<Vector2D>()
-    .x((d) => scaleX(d[0]))
-    .y((d) => scaleY(d[1]));
-
   const { corners, points } = envelopeLine(stages, curves);
   const data = points.map(([x, y]) => vector2d.fromValues(x, y));
 
   const dotSize = 4;
   return (
     <>
-      <Line
-        customLineFn={customLineFn}
-        data={data}
-        style={{ strokeWidth: 1, fill: theme.colors.accent, fillOpacity: 0.1 }}
-      />
+      <Line data={data} style={{ strokeWidth: 1, fill: theme.colors.accent, fillOpacity: 0.1 }} />
       {corners.map((value, index) => (
         <rect
           key={index}

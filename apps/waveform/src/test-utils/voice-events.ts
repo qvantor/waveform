@@ -3,6 +3,7 @@ import type {
   VoiceEvent,
   VoiceEventsMessage,
   VoiceFilterOptions,
+  VoicesLfos,
   VoiceOptions,
   VoiceRoute,
   VoicesReportMessage,
@@ -17,8 +18,8 @@ import {
 // the voices of the voices node of a context as the main thread made them: each rebuilt from the events
 // the engine posted to the node (a voice from its `on`), its params AudioParam mocks the events of each are
 // played into (the calls and their order, the value at the current time), the routes and the filters sent to
-// it (and its velocities); bends() the pitch bends of the nodes; end() and started() answer for the node as its
-// processor tells them
+// it (and its velocities); bends() the pitch bends of the nodes, lfos() the states of their LFOs; end() and
+// started() answer for the node as its processor tells them
 
 export interface VoicesNodeStub extends AudioWorkletNode {
   name: string;
@@ -75,8 +76,9 @@ export const eventsOf = (node: VoicesNodeStub) =>
 // `engine.flush` sends the events of this task (a microtask would)
 export const voiceEvents = (context: BaseAudioContext, engine: { flush: () => void }) => {
   const views: VoiceView[] = [];
-  // the pitch bend of the voices (cents), every one sent in order
+  // the pitch bend of the voices (cents), every one sent in order, and the states of the LFOs
   const bends: number[] = [];
+  const lfos: VoicesLfos[] = [];
   const byId = new Map<number, VoiceView>();
   const read = new Map<VoicesNodeStub, number>();
 
@@ -102,6 +104,10 @@ export const voiceEvents = (context: BaseAudioContext, engine: { flush: () => vo
     }
     if (event.kind === 'bend') {
       bends.push(event.cents);
+      return;
+    }
+    if (event.kind === 'lfos') {
+      lfos.push(event);
       return;
     }
     if (event.kind === 'routes' || event.kind === 'filter' || event.kind === 'velocity') {
@@ -144,6 +150,10 @@ export const voiceEvents = (context: BaseAudioContext, engine: { flush: () => vo
       voices();
       return bends;
     },
+    lfos: () => {
+      voices();
+      return lfos;
+    },
     // the node tells that the voice has ended, that it started at frame `started` (scheduled at `scheduled`)
     end: (view: VoiceView) => report(view, { ended: [view.id] }),
     started: (view: VoiceView, started: number, scheduled: number) =>
@@ -153,7 +163,7 @@ export const voiceEvents = (context: BaseAudioContext, engine: { flush: () => vo
 
 // what the main thread sends the voices nodes of a context: its messages (one a task), the voices made, the
 // automation events of their params (set, target, ramp, cancel), the routes, filters and velocities of playing
-// voices and the pitch bends
+// voices, the pitch bends and the states of the LFOs
 export interface VoiceWork {
   messages: number;
   voices: number;
@@ -167,9 +177,10 @@ const countEvents = (context: BaseAudioContext): VoiceWork => {
   return {
     messages: events.length,
     voices: all.filter(({ kind }) => kind === 'on').length,
-    automation: all.filter(({ kind }) => !['on', 'routes', 'filter', 'velocity', 'bend'].includes(kind))
-      .length,
-    changes: all.filter(({ kind }) => ['routes', 'filter', 'velocity', 'bend'].includes(kind)).length,
+    automation: all.filter(
+      ({ kind }) => !['on', 'routes', 'filter', 'velocity', 'bend', 'lfos'].includes(kind)
+    ).length,
+    changes: all.filter(({ kind }) => ['routes', 'filter', 'velocity', 'bend', 'lfos'].includes(kind)).length,
   };
 };
 

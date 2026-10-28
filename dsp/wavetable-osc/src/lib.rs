@@ -15,6 +15,7 @@ use wasm_rt as _;
 pub mod envelope;
 pub mod filter;
 pub mod glided;
+pub mod lfo;
 pub mod modulation;
 pub mod scope;
 pub mod shared;
@@ -29,7 +30,7 @@ use envelope::EnvelopeParams;
 use filter::FilterOptions;
 use modulation::VoiceRoute;
 use scope::Scope;
-use shared::{Shared, PARAMS};
+use shared::{Shared, LFO_STATE, PARAMS};
 use store::Store;
 use velocity::VoiceVelocity;
 use voice::{OscOptions, Params, UnisonShape, Voice, VoiceOptions, MAX_UNISON};
@@ -63,17 +64,18 @@ impl Reader<'_> {
     }
 }
 
-// the routes: their count, then env, param, amount, min, max, log of each
+// the routes: their count, then source, param, amount, min, max, scale, bipolar of each
 fn read_routes(reader: &mut Reader) -> Vec<VoiceRoute> {
     let count = reader.next() as usize;
     (0..count)
         .map(|_| VoiceRoute {
-            env: reader.next(),
+            source: reader.next(),
             param: reader.next() as usize,
             amount: reader.next(),
             min: reader.next(),
             max: reader.next(),
-            log: reader.next() != 0.0,
+            scale: reader.next() as u32,
+            bipolar: reader.next() != 0.0,
         })
         .collect()
 }
@@ -561,6 +563,27 @@ pub unsafe extern "C" fn osc_store_freed(store: *mut Store) -> usize {
 #[no_mangle]
 pub unsafe extern "C" fn osc_store_freed_bytes(store: *mut Store) -> *mut f64 {
     core::ptr::addr_of_mut!((*store).freed_bytes)
+}
+
+/// the levels of a new shape of LFO `lfo` in the command buffer (2049 within 0..1): the next state that has a
+/// new shape for it takes them
+///
+/// # Safety
+/// `shared` comes from osc_shared_new and was not freed
+#[no_mangle]
+pub unsafe extern "C" fn osc_shared_lfo_table(shared: *mut Shared, lfo: usize) {
+    (*shared).lfo_table(lfo, &command()[..lfo::TABLE + 1]);
+}
+
+/// the LFOs of the voices from `at` (seconds of the context) on, in the command buffer: LFO_STATE values of each
+/// (mode, delay, rise, smooth, phase, the time, phase and period of the newest anchor of its clock, whether it has
+/// a new shape); `instantly` (not 0): there at once, no glide and no crossfade (a node made again)
+///
+/// # Safety
+/// `shared` comes from osc_shared_new and was not freed
+#[no_mangle]
+pub unsafe extern "C" fn osc_shared_lfos(shared: *mut Shared, at: f64, instantly: u32) {
+    (*shared).set_lfos(at, instantly != 0, &command()[..lfo::LFOS * LFO_STATE]);
 }
 
 /// VoiceStats into the command buffer (the peak cost starts again)

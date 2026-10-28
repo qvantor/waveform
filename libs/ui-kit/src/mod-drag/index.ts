@@ -1,12 +1,14 @@
 // dragging a modulation source (an ENV tab) onto a knob, on pointer events (HTML5 drag and drop doesn't work on
 // touch screens). The knobs that take it carry MOD_TARGET_ATTR (their target id) and light up while a source
-// is dragged (MOD_DRAGGING_CLASS on the body, the color of the source in --mod-drag-color); the one under the
-// pointer carries MOD_OVER_ATTR. An element with MOD_DWELL_ATTR (the osc/fx switch) is clicked once the label
+// is dragged (MOD_DRAGGING_CLASS on the body, the color of the source in --mod-drag-color), but for those the
+// source doesn't go to (`accepts`: MOD_REFUSED_ATTR while it is dragged); the one under the pointer carries
+// MOD_OVER_ATTR. An element with MOD_DWELL_ATTR (the osc/fx switch) is clicked once the label
 // has stayed on it for DWELL ms: the knobs of the other screen come up. Near the top or the bottom of a
 // scrolled container (the portrait column of a phone) it scrolls by itself
 
 export const MOD_TARGET_ATTR = 'data-mod-target';
 export const MOD_OVER_ATTR = 'data-mod-over';
+export const MOD_REFUSED_ATTR = 'data-mod-refused';
 export const MOD_DWELL_ATTR = 'data-mod-dwell';
 export const MOD_DRAGGING_CLASS = 'mod-dragging';
 
@@ -23,6 +25,8 @@ export interface ModDragOptions {
   color: string;
   // dropped on a knob: its target id
   onDrop: (target: string) => void;
+  // the targets it goes to (every one by default: an LFO goes to no knob of an LFO)
+  accepts?: (target: string) => boolean;
 }
 
 const isScrollable = (element: Element) => {
@@ -80,6 +84,18 @@ export const startModDrag = (
     over = target;
   };
 
+  // the targets it doesn't go to don't light up: marked as it starts and once the dwell brought up a screen (its
+  // targets: at once and in the next frame, a screen that renders later), not at every move
+  const { accepts } = options;
+  const refuse = () => {
+    if (!accepts || !label) return;
+    document.querySelectorAll(`[${MOD_TARGET_ATTR}]`).forEach((element) => {
+      const refused = !accepts(element.getAttribute(MOD_TARGET_ATTR) ?? '');
+      if (refused !== element.hasAttribute(MOD_REFUSED_ATTR))
+        element.toggleAttribute(MOD_REFUSED_ATTR, refused);
+    });
+  };
+
   const setDwell = (element: Element | null) => {
     if (element === (dwell?.element ?? null)) return;
     if (dwell) window.clearTimeout(dwell.timer);
@@ -89,6 +105,8 @@ export const startModDrag = (
           timer: window.setTimeout(() => {
             (element as HTMLElement).click();
             dwell = null;
+            refuse();
+            window.requestAnimationFrame(refuse);
           }, DWELL),
         }
       : null;
@@ -96,7 +114,7 @@ export const startModDrag = (
 
   const hover = () => {
     const element = document.elementFromPoint?.(position.x, position.y) ?? null;
-    setOver(element?.closest(`[${MOD_TARGET_ATTR}]`) ?? null);
+    setOver(element?.closest(`[${MOD_TARGET_ATTR}]:not([${MOD_REFUSED_ATTR}])`) ?? null);
     setDwell(element?.closest(`[${MOD_DWELL_ATTR}]`) ?? null);
   };
 
@@ -118,6 +136,7 @@ export const startModDrag = (
     label = createLabel(options);
     document.body.classList.add(MOD_DRAGGING_CLASS);
     document.body.style.setProperty('--mod-drag-color', options.color);
+    refuse();
   };
 
   const move = (e: PointerEvent) => {
@@ -152,7 +171,11 @@ export const startModDrag = (
     if (!label) return;
     const target = e.type === 'pointerup' ? over?.getAttribute(MOD_TARGET_ATTR) : null;
     setOver(null);
+    document
+      .querySelectorAll(`[${MOD_REFUSED_ATTR}]`)
+      .forEach((element) => element.removeAttribute(MOD_REFUSED_ATTR));
     label.remove();
+    label = null;
     document.body.classList.remove(MOD_DRAGGING_CLASS);
     document.body.style.removeProperty('--mod-drag-color');
     swallowClick();

@@ -160,14 +160,16 @@ describe('synth', () => {
     const { onPress, onRelease, voices, audioCtx, synthActions } = await setup();
     synthActions.setPortamento(100);
     const [node] = voicesNodes(audioCtx);
+    // (the LFOs as the node got ready)
+    const sent = eventsOf(node).length;
     onPress([4, 'C']);
     onPress([4, 'E']);
     onRelease([4, 'C']);
     // (a microtask sends them)
-    expect(eventsOf(node)).toEqual([]);
+    expect(eventsOf(node).slice(sent)).toEqual([]);
     await Promise.resolve();
-    const [{ events }] = eventsOf(node);
-    expect(eventsOf(node)).toHaveLength(1);
+    const [{ events }] = eventsOf(node).slice(sent);
+    expect(eventsOf(node).slice(sent)).toHaveLength(1);
     const [c, e] = voices();
     expect(events.map(({ kind }) => kind)).toEqual([
       'on',
@@ -1306,8 +1308,30 @@ describe('synth', () => {
       onPress([4, 'C']);
 
       expect(options(voices()[0]).routes).toEqual([
-        { env: 1, param: 'position1', amount: 0.5, min: 0, max: 1 },
-        { env: 0, param: 'spread1', amount: -25, min: 0, max: 100 },
+        { source: 1, param: 'position1', amount: 0.5, min: 0, max: 1 },
+        { source: 0, param: 'spread1', amount: -25, min: 0, max: 100 },
+      ]);
+    });
+
+    it('gives a note the routes of the LFOs (sources 4–7, bipolar ones so) and to the knobs of the LFOs', async () => {
+      const { onPress, voices, options, modulation } = await setup();
+      const [, { addRoute, setPolarity }] = modulation;
+      addRoute('lfo1', 'osc1.wave', 0.5);
+      addRoute('lfo4', 'osc1.gain', -0.5);
+      setPolarity('lfo4', 'osc1.gain', true);
+      // Rate by its frequency in octaves, the times by the share of their travel, Phase in a share of the cycle
+      addRoute('env2', 'lfo1.rate', 0.5);
+      addRoute('velo', 'lfo3.delay', 0.25);
+      addRoute('env3', 'lfo2.phase', -0.5);
+
+      onPress([4, 'C']);
+
+      expect(options(voices()[0]).routes).toEqual([
+        { source: 4, param: 'position1', amount: 0.5, min: 0, max: 1 },
+        { source: 7, param: 'gain1', amount: -0.5, min: 0, max: 1, bipolar: true },
+        { source: 1, param: 'lfo1.rate', amount: 0.5 * Math.log2(3200), min: 1 / 32, max: 100, scale: 'log' },
+        { source: 3, param: 'lfo3.delay', amount: 0.25, min: 0, max: 32, scale: 'pow' },
+        { source: 2, param: 'lfo2.phase', amount: -0.5, min: 0, max: 1 },
       ]);
     });
 
@@ -1328,7 +1352,7 @@ describe('synth', () => {
       end(e);
       removeRoute('env2', 'osc1.gain');
 
-      const route = { env: 1, param: 'gain1', min: 0, max: 1 };
+      const route = { source: 1, param: 'gain1', min: 0, max: 1 };
       expect(posted(c)).toEqual([
         { routes: [{ ...route, amount: 0.5 }] },
         { routes: [{ ...route, amount: -1 }] },
@@ -1399,14 +1423,14 @@ describe('synth', () => {
       expect(options(off).routes).toEqual([]);
       expect(options(on).routes).toEqual([
         {
-          env: 1,
+          source: 1,
           param: 'cutoff',
           amount: expect.closeTo(0.5 * Math.log2(22050 / 10), 9),
           min: 10,
           max: 22050,
-          log: true,
+          scale: 'log',
         },
-        { env: 2, param: 'resonance', amount: -20, min: 0, max: 20 },
+        { source: 2, param: 'resonance', amount: -20, min: 0, max: 20 },
       ]);
     });
 
@@ -1414,13 +1438,14 @@ describe('synth', () => {
       const { onPress, voices, filter, modulation } = await setup();
       const [, { toggleActive, setType }] = filter;
       toggleActive();
+      // (bipolar: the gain is centered on 0)
       modulation[1].addRoute('env2', 'filter.gain', 0.5);
       onPress([4, 'C']);
       setType('lowshelf');
 
       const [voice] = voices();
       expect(posted(voice).at(-1)).toEqual({
-        routes: [{ env: 1, param: 'gain', amount: 40, min: -40, max: 40 }],
+        routes: [{ source: 1, param: 'gain', amount: 40, min: -40, max: 40, bipolar: true }],
       });
     });
   });
@@ -1557,7 +1582,7 @@ describe('synth', () => {
       const [voice] = voices();
       expect(velocityOf(voice)).toEqual({ level: 10 / 127, amp: 1 });
       // the source after the envelopes
-      expect(voice.options.routes).toEqual([expect.objectContaining({ env: 3, param: 'position1' })]);
+      expect(voice.options.routes).toEqual([expect.objectContaining({ source: 3, param: 'position1' })]);
     });
 
     it('the notes of a legato phrase each have their own, the fx follow the last one', async () => {

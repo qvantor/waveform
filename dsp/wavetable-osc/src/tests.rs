@@ -809,3 +809,95 @@ fn a_silent_table_keeps_the_frame_of_the_position_for_the_version_after_it() {
         );
     }
 }
+
+// --- the LFOs of the shared ---
+
+#[test]
+fn the_gain_of_a_voice_follows_an_lfo_of_the_shared_from_its_note_on() {
+    use crate::modulation::{VoiceRoute, GAIN1};
+    use crate::shared::LFO_STATE;
+    let mut store = Store::default();
+    constant_frames(&mut store, 1.0, &[0.5]);
+    let mut shared = Shared::default();
+    // LFO 1 a square of 0.25 s, the others sines of 0.5 s
+    let mut square = vec![0.0f64; 2049];
+    square[..1024].fill(1.0);
+    square[2048] = 1.0;
+    shared.lfo_table(0, &square);
+    let mut state = [0.0; 4 * LFO_STATE];
+    for lfo in 0..4 {
+        state[lfo * LFO_STATE + 7] = if lfo == 0 { 0.25 } else { 0.5 };
+    }
+    state[8] = 1.0;
+    shared.set_lfos(0.0, true, &state);
+    let osc = OscOptions {
+        table: 1,
+        unison: 1.0,
+        phase: 0.0,
+        phase_rand: 0.0,
+        random: [0.0; 8],
+        shape: UnisonShape::default(),
+    };
+    let route = VoiceRoute {
+        source: 4.0,
+        param: GAIN1,
+        amount: 0.5,
+        min: 0.0,
+        max: 1.0,
+        scale: 0,
+        bipolar: false,
+    };
+    // the note on 0.05 s in: the square from there
+    let start = 2400;
+    let mut voice = Voice::new(
+        RATE,
+        VoiceOptions {
+            osc: [Some(osc), None],
+            start: start as f64 / RATE,
+            env_start: start as f64 / RATE,
+            routes: vec![route],
+            ..note()
+        },
+        &mut shared,
+    );
+    voice.attach(&mut store, &mut shared);
+    let frames = 24064;
+    let mut out = vec![0.0f32; frames];
+    let mut right = vec![0.0f32; frames];
+    for frame in (0..frames).step_by(128) {
+        let params: [&[f32]; PARAMS] = [
+            &[100.0],
+            &[1.0],
+            &[0.0],
+            &[0.0],
+            &[0.0],
+            &[0.5],
+            &[0.0],
+            &[0.0],
+            &[0.0],
+            &[1.0],
+        ];
+        voice.process(
+            frame as f64,
+            &params,
+            &mut out[frame..frame + 128],
+            &mut right[frame..frame + 128],
+            &mut store,
+            &mut shared,
+        );
+    }
+    voice.end(&mut store, &mut shared);
+    // a frame of 0.5 at a gain of 0.5 + 0.5 × the square: 0.5 for an eighth of a second from the note on, then 0.25
+    for (i, value) in out.iter().enumerate().skip(start) {
+        let t = (i - start) as f64 / RATE;
+        let phase = (t / 0.25) % 1.0;
+        let expected = if phase < 0.5 { 0.5 } else { 0.25 };
+        // (the points every 32 samples interpolate across a step of the square)
+        if (phase - 0.5).abs() > 0.003 && phase > 0.003 && phase < 0.997 {
+            assert!(
+                (*value as f64 - expected).abs() < 1e-6,
+                "{i}: {value}, not {expected}"
+            );
+        }
+    }
+}

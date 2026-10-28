@@ -9,7 +9,7 @@ import {
   EnvelopeId,
 } from '@waveform/preset-schema';
 import { useEnvelopes } from '../../common/modules';
-import { EnvelopeTabs } from './envelope-tabs';
+import { SourceTabs } from '../../modulation/source-tabs';
 import { EnvelopeDot } from './envelope-dot';
 
 // the envelope of a tab: its stages and their curves, the shape the voices play
@@ -36,7 +36,7 @@ export const EnvelopeSection = () => {
   const [{ $envelope }] = useEnvelopes();
   const envelope = useBehaviorSubject($envelope);
   return (
-    <Section plain name={<EnvelopeTabs label='Envelopes' sources={ENVELOPES} shown={envelope} />}>
+    <Section plain name={<SourceTabs label='Envelopes' sources={ENVELOPES} shown={envelope} />}>
       <EnvelopeChart id={envelope} />
     </Section>
   );

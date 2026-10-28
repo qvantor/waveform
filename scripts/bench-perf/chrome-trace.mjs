@@ -100,6 +100,21 @@ export const countGlitches = (events) => {
   ).length;
 };
 
+// the rendering of the page on the main thread of its renderer: its animation frames, its style, layout and paint
+export const PAINT_CATEGORIES = ['devtools.timeline', 'disabled-by-default-devtools.timeline'];
+
+// the animation frames of the page (its requestAnimationFrame callbacks) and how many times it was restyled, laid
+// out and painted meanwhile (what moves every frame draws on canvases: none of them)
+export const analyzePaints = (events) => {
+  const counts = { frames: 0, UpdateLayoutTree: 0, Layout: 0, Paint: 0 };
+  for (const { thread, name, durations: each } of durations(events)) {
+    if (thread !== 'CrRendererMain') continue;
+    if (name === 'FireAnimationFrame') counts.frames = each.length;
+    else if (name in counts) counts[name] = each.length;
+  }
+  return counts;
+};
+
 // every event of a trace by thread and name (--dump-trace): to pin the names after a Chromium update
 export const histogram = (events) => {
   const lines = [

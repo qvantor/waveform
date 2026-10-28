@@ -2,6 +2,7 @@ import { mapValues } from 'lodash';
 import { FX_PARAMS } from '@waveform/preset-schema';
 import { withoutAudioWorklet } from '../../../../test-utils/no-audio-worklet';
 import { DISTORTION_PROCESSOR } from '../../common/processors';
+import { lfoTable, LfoWire, RETRIG } from '../../common/lfo/lfo-curve';
 import { distortion } from './distortion';
 import { DISTORTION_LATENCY } from './distortion-params';
 import { DISTORTION_MODES } from './distortion-modes';
@@ -93,6 +94,51 @@ describe('distortion', () => {
       params: { ...DEFAULTS, drive: 0, mode: 1, level: -3 },
     });
     expect(node()?.port.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('posts the LFOs while a route of one moves a knob, as they are first; a node made later starts with them, the tables of the states before kept', async () => {
+    const { core, node, messages } = setup();
+    const wire = (change: Partial<LfoWire> = {}): LfoWire => ({
+      mode: RETRIG,
+      delay: 0,
+      rise: 0,
+      smooth: 0,
+      phase: 0,
+      anchor: { time: 0, phase: 0, period: 0.5 },
+      ...change,
+    });
+    const table = lfoTable('square');
+    core.setLfos?.({ at: 0, instantly: true, lfos: [wire({ table }), wire(), wire(), wire()] });
+    core.setLfos?.({ at: 1, lfos: [wire({ delay: 1 }), wire(), wire(), wire()] });
+    await flush();
+    const merged = [wire({ delay: 1, table }), wire(), wire(), wire()];
+    expect(node()?.options.processorOptions.lfos).toEqual({ at: 0, instantly: true, lfos: merged });
+    // no route of an LFO: a state is kept, not posted
+    const state = { at: 2, lfos: [wire({ phase: 0.5 }), wire(), wire(), wire()] };
+    core.setLfos?.(state);
+    const envelope = { param: 'drive', source: 1, amount: 3, min: 0, max: 12 };
+    core.setModulation?.({ note: null, routes: [envelope] });
+    expect(messages()).toEqual([{ mod: { note: null, routes: [envelope] } }]);
+    // a route of an LFO: the LFOs as they are before it, then every state
+    const lfo = { ...envelope, source: 4 };
+    core.setModulation?.({ note: null, routes: [lfo] });
+    const next = { at: 3, lfos: [wire({ phase: 0.25 }), wire(), wire(), wire()] };
+    core.setLfos?.(next);
+    expect(messages()?.slice(1)).toEqual([
+      {
+        lfos: {
+          at: 0,
+          instantly: true,
+          lfos: [wire({ phase: 0.5, table }), wire(), wire(), wire()],
+        },
+      },
+      { mod: { note: null, routes: [lfo] } },
+      { lfos: next },
+    ]);
+    // none again (inactive, or no route): kept again
+    core.setModulation?.(null);
+    core.setLfos?.({ at: 4, lfos: [wire({ phase: 0.75 }), wire(), wire(), wire()] });
+    expect(messages()?.slice(4)).toEqual([{ mod: null }]);
   });
 
   it('posts every changed param', async () => {
@@ -190,7 +236,7 @@ describe('distortion', () => {
     await flush();
     const mod = {
       note: { envelopes: [ENV, ENV, ENV], start: 1, release: null },
-      routes: [{ param: 'drive', env: 1, amount: 6, min: 0, max: 12 }],
+      routes: [{ param: 'drive', source: 1, amount: 6, min: 0, max: 12 }],
     };
     core.setModulation(mod);
     core.setModulation(null);
