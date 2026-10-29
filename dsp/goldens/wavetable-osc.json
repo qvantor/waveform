@@ -447,6 +447,34 @@
       0.010905478149652481
     ]
   },
+  "pitch env: ENV 2 on the detune of osc 1, 36 semitones down to the note in 80 ms; osc 2 a fifth up, -7 cents": {
+    "sha256": "4ecc8376a7f9380f2c7ec4b4c923df35097d3e3d5a3962f6849596ef8a184ac4",
+    "at": 1,
+    "head": [
+      0.00007582321268273517,
+      0.00030266924295574427,
+      0.0006790113402530551,
+      0.001202547224238515,
+      0.001870218780823052,
+      0.002678241580724716,
+      0.003622120013460517,
+      0.004696694668382406
+    ]
+  },
+  "pitch env: ENV 2 on the detune of osc 1, 36 semitones down to the note in 80 ms; osc 2 a fifth up, -7 cents: the sum of one node": {
+    "sha256": "9e5b202851c49428df15a4fbe60a79d2e5d303c9de9e8126b2975245c812ae83",
+    "at": 1,
+    "head": [
+      0.00007582321268273517,
+      0.00030266924295574427,
+      0.0006790113402530551,
+      0.001202547224238515,
+      0.001870218780823052,
+      0.002678241580724716,
+      0.003622120013460517,
+      0.004696694668382406
+    ]
+  },
   "released, its envelope to 0": {
     "sha256": "6cfb6f37ed2ad3f19ffd60fb2b44f8e0c41d78b48cf1190f4dd8cabeadcfb871",
     "at": 1,

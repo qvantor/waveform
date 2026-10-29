@@ -1143,6 +1143,29 @@ describe('synth', () => {
       expect(calls(param(voice, 'detune1'), 'setValueAtTime').at(-1)).toEqual([1200, now]);
     });
 
+    it('Semi and Fine are set at once, on top of the octave, released notes too', async () => {
+      const { onPress, onRelease, voices, param, osc1, osc2, audioCtx } = await setup();
+      osc2[1].toggleActive();
+      onPress([4, 'C']);
+      onRelease([4, 'C']);
+      onPress([4, 'E']);
+      const now = audioCtx.currentTime;
+
+      osc2[1].setOscValue('semi', 7);
+      osc2[1].setOscValue('fine', -7);
+      osc1[1].setOscValue('octave', -1);
+      osc1[1].setOscValue('fine', 12);
+
+      voices().forEach((voice) => {
+        expect(calls(param(voice, 'detune2'), 'setTargetAtTime')).toEqual([]);
+        expect(calls(param(voice, 'detune2'), 'setValueAtTime')).toEqual([
+          [700, now],
+          [693, now],
+        ]);
+        expect(calls(param(voice, 'detune1'), 'setValueAtTime').at(-1)).toEqual([-1188, now]);
+      });
+    });
+
     it('a glide settles exactly within about 20 ms, a newer value cancels it', async () => {
       const { onPress, voices, param, osc1, travel } = await setup();
       onPress([4, 'C']);
@@ -1311,6 +1334,61 @@ describe('synth', () => {
         { source: 1, param: 'position1', amount: 0.5, min: 0, max: 1 },
         { source: 0, param: 'spread1', amount: -25, min: 0, max: 100 },
       ]);
+    });
+
+    it('gives a note the routes of the pitch in cents on the detune, within ±12000; none of an oscillator off', async () => {
+      const { onPress, voices, options, modulation, osc2 } = await setup();
+      const [, { addRoute }] = modulation;
+      // Pitch ±48 semitones at ±1, Fine ±100 cents
+      addRoute('env2', 'osc1.pitch', 0.75);
+      addRoute('velo', 'osc1.fine', -0.25);
+      addRoute('env3', 'osc2.pitch', 1);
+      expect(osc2[0].$active.value).toBe(false);
+
+      onPress([4, 'C']);
+
+      expect(options(voices()[0]).routes).toEqual([
+        { source: 1, param: 'detune1', amount: 3600, min: -12000, max: 12000 },
+        { source: 3, param: 'detune1', amount: -25, min: -12000, max: 12000 },
+      ]);
+    });
+
+    it('gives a source on Pitch and Fine as one route of their cents, of another polarity as two', async () => {
+      const { onPress, voices, options, modulation, osc2 } = await setup();
+      const [, { addRoute, setPolarity, setAmount }] = modulation;
+      osc2[1].toggleActive();
+      addRoute('env2', 'osc1.pitch', 0.25);
+      addRoute('env2', 'osc1.fine', 0.5);
+      addRoute('lfo1', 'osc2.pitch', 0.5);
+      addRoute('lfo1', 'osc2.fine', 0.1);
+      setPolarity('lfo1', 'osc2.fine', false);
+      // cancelled out: no route
+      addRoute('env3', 'osc2.pitch', 1 / 48);
+      addRoute('env3', 'osc2.fine', -1);
+
+      onPress([4, 'C']);
+
+      const range = { min: -12000, max: 12000 };
+      expect(options(voices()[0]).routes).toEqual([
+        { source: 1, param: 'detune1', amount: 1250, ...range },
+        { source: 4, param: 'detune2', amount: 2400, ...range, bipolar: true },
+        { source: 4, param: 'detune2', amount: 10, ...range },
+      ]);
+
+      // one of them changed on the note: the route of their sum
+      const [voice] = voices();
+      setAmount('env2', 'osc1.fine', 0);
+      expect(
+        voices()
+          .find(({ id }) => id === voice.id)
+          ?.messages.at(-1)
+      ).toEqual({
+        routes: [
+          { source: 1, param: 'detune1', amount: 1200, ...range },
+          { source: 4, param: 'detune2', amount: 2400, ...range, bipolar: true },
+          { source: 4, param: 'detune2', amount: 10, ...range },
+        ],
+      });
     });
 
     it('gives a note the routes of the LFOs (sources 4–7, bipolar ones so) and to the knobs of the LFOs', async () => {

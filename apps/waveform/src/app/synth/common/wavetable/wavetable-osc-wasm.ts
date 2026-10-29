@@ -117,9 +117,11 @@ export const VOICE_PARAM_ORDER: readonly VoiceParam[] = [
 const LFO_KNOBS = ['rate', 'delay', 'rise', 'smooth', 'phase'];
 const ROUTE_PARAMS = [
   'position1',
+  'detune1',
   'spread1',
   'gain1',
   'position2',
+  'detune2',
   'spread2',
   'gain2',
   'cutoff',

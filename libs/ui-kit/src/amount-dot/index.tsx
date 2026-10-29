@@ -21,6 +21,8 @@ export interface AmountDotProps {
   onRemove?: () => void;
   // the tooltip while it is held: the amount in the units of the knob (+2.4 oct, +35%; ±35% of a bipolar one)
   formatAmount?: (amount: number) => React.ReactNode;
+  // the steps of the amount from 0 to 1 it is dragged and stepped by (100 by default: 1%)
+  amountSteps?: number;
   // the route moves the control around its value; Shift+click or B switches it (onPolarity)
   bipolar?: boolean;
   onPolarity?: (bipolar: boolean) => void;
@@ -39,7 +41,7 @@ const TRAVEL = 200;
 // ms a press held still takes to remove the route, px it may move meanwhile
 const LONG_PRESS = 500;
 const STILL = 3;
-const KEY_STEP = 0.01;
+const AMOUNT_STEPS = 100;
 
 const Root = styled.div`
   position: absolute;
@@ -126,6 +128,7 @@ const AmountSlider = ({
   onChange,
   onRemove,
   formatAmount = (value) => number.percent(value),
+  amountSteps = AMOUNT_STEPS,
   bipolar = false,
   onPolarity,
   label,
@@ -136,7 +139,7 @@ const AmountSlider = ({
   const [trackPointer] = React.useState(singlePointerTracker);
   const last = React.useRef(amount);
   const emit = (next: number) => {
-    const value = number.thresholds(number.round(next, 100), -1, 1);
+    const value = number.thresholds(number.round(next, amountSteps), -1, 1);
     if (value === last.current) return;
     last.current = value;
     onChange?.(value);
@@ -169,8 +172,8 @@ const AmountSlider = ({
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Delete' || e.key === 'Backspace') onRemove?.();
     else if ((e.key === 'b' || e.key === 'B') && onPolarity) onPolarity(!bipolar);
-    else if (e.key === 'ArrowUp' || e.key === 'ArrowRight') emit(amount + KEY_STEP);
-    else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') emit(amount - KEY_STEP);
+    else if (e.key === 'ArrowUp' || e.key === 'ArrowRight') emit(amount + 1 / amountSteps);
+    else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') emit(amount - 1 / amountSteps);
     else return;
     e.preventDefault();
     e.stopPropagation();
@@ -254,6 +257,7 @@ export const RoutesDot = ({
       onChange={shown?.onChange}
       onRemove={shown?.onRemove}
       formatAmount={shown?.formatAmount}
+      amountSteps={shown?.amountSteps}
       bipolar={shown?.bipolar}
       onPolarity={shown?.onPolarity}
       className={className}

@@ -901,3 +901,117 @@ fn the_gain_of_a_voice_follows_an_lfo_of_the_shared_from_its_note_on() {
         }
     }
 }
+
+// --- a route on the pitch (Pitch, Fine) ---
+
+#[test]
+fn a_route_on_the_detune_plays_as_its_values_given_in_the_param() {
+    use crate::envelope::EnvelopeBlock;
+    use crate::modulation::{Modulation, Sources, VoiceRoute, DETUNE1, TARGET_PARAMS};
+    // ENV 2 a kick: +36 semitones at the note on, down to the note in 80 ms
+    let kick = EnvelopeParams {
+        attack: 0.0,
+        hold: 0.0,
+        decay: 0.08,
+        sustain: 0.0,
+        release: 0.0,
+        curves: [0.0, 3.49, 3.49],
+    };
+    let route = VoiceRoute {
+        source: 1.0,
+        param: DETUNE1,
+        amount: 3600.0,
+        min: -12000.0,
+        max: 12000.0,
+        scale: 0,
+        bipolar: false,
+    };
+    let mut envelopes = note().envelopes;
+    envelopes[1] = kick;
+    let blocks = 75;
+    // the values the route gives the detune of osc 1 from a base of -1200 cents, block by block
+    let mut accesses = [false; TARGET_PARAMS];
+    accesses[DETUNE1] = true;
+    let mut modulation = Modulation::new(RATE, 3, false, &[route], accesses);
+    let mut levels: Vec<EnvelopeBlock> = envelopes
+        .iter()
+        .map(|params| EnvelopeBlock::new(*params, RATE, 0.0))
+        .collect();
+    let velocity = Glided::new(0.0);
+    let base = [-1200.0f32];
+    let bases: [&[f32]; TARGET_PARAMS] = core::array::from_fn(|_| &base[..]);
+    let detunes: Vec<Vec<f32>> = (0..blocks)
+        .map(|block| {
+            let frame = (block * 128) as f64;
+            levels
+                .iter_mut()
+                .for_each(|envelope| envelope.render(frame, 0.0, 128.0));
+            let sources = Sources {
+                envelopes: &levels,
+                velocity: &velocity,
+                lfos: &[],
+            };
+            modulation.apply(&bases, &sources, frame, 0.0, 128.0, 128);
+            modulation.moved(DETUNE1).expect("moved").to_vec()
+        })
+        .collect();
+    // it moves down from 3 octaves over the note (its base), then stays there: one value
+    assert!(detunes[0].len() == 128 && detunes[0][0] > 2300.0);
+    assert_eq!(detunes[blocks - 1], vec![-1200.0]);
+
+    // a voice of 3 unison voices on the sine of the store, its detune moved by the route or given its values
+    let play = |routes: Vec<VoiceRoute>, detune: &dyn Fn(usize) -> Vec<f32>| {
+        let (mut store, mut shared) = (Store::default(), Shared::default());
+        let osc = OscOptions {
+            table: 9,
+            unison: 3.0,
+            phase: 0.0,
+            phase_rand: 0.0,
+            random: [0.0; 8],
+            shape: UnisonShape::default(),
+        };
+        let mut voice = Voice::new(
+            RATE,
+            VoiceOptions {
+                osc: [Some(osc), None],
+                envelopes: envelopes.clone(),
+                routes,
+                ..note()
+            },
+            &mut shared,
+        );
+        voice.attach(&mut store, &mut shared);
+        let (mut left, mut right) = (vec![0.0f32; blocks * 128], vec![0.0f32; blocks * 128]);
+        for block in 0..blocks {
+            let frame = block * 128;
+            let d = detune(block);
+            let params: [&[f32]; PARAMS] = [
+                &[110.0],
+                &[1.0],
+                &[0.0],
+                d.as_slice(),
+                &[20.0],
+                &[0.5],
+                &[0.0],
+                &[0.0],
+                &[0.0],
+                &[0.5],
+            ];
+            voice.process(
+                frame as f64,
+                &params,
+                &mut left[frame..frame + 128],
+                &mut right[frame..frame + 128],
+                &mut store,
+                &mut shared,
+            );
+        }
+        voice.end(&mut store, &mut shared);
+        (left, right)
+    };
+    let routed = play(vec![route], &|_| vec![-1200.0]);
+    let given = play(Vec::new(), &|block| detunes[block].clone());
+    assert_eq!(routed, given);
+    // (not the note alone)
+    assert_ne!(routed, play(Vec::new(), &|_| vec![-1200.0]));
+}

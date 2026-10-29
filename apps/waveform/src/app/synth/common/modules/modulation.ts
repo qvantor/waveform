@@ -9,7 +9,7 @@ import {
   ModValue,
 } from '@waveform/preset-schema';
 import { urlSnapshotPlugin } from '../../../app';
-import { centered, isModTarget } from '../modulation/modulation-targets';
+import { bipolarByDefault, isModTarget } from '../modulation/modulation-targets';
 
 // a source (ENV 1–3, VELO, LFO 1–4) moves a knob (a target of modulation-targets.ts) by amount × its level: amount
 // is a share of the range of the knob in its scale, -1..1; a bipolar route moves it around its value, amount ×
@@ -70,12 +70,12 @@ export const modulation = () =>
         );
       return {
         // a source already on the knob keeps its amount, none is added past the limits; bipolar by default on a
-        // knob centered on 0
+        // knob centered on 0, and an LFO on the pitch (a vibrato)
         addRoute: (
           source: ModSource,
           target: string,
           amount = DEFAULT_AMOUNT,
-          bipolar = centered(target)
+          bipolar = bipolarByDefault(source, target)
         ) => {
           if (find(source, target) || !takesSource(source, target)) return;
           if (routesFull($routes.value) || knobFull($routes.value, target)) return;

@@ -129,31 +129,46 @@ const voiceRoute = (
   ...(bipolar && { bipolar }),
 });
 
+// cents the detune of a voice is clamped to (Oct, Semi, Fine, the bend and the routes of the pitch): never in
+// effect, the voice keeps the pitch of each unison voice within 0..nyquist
+const DETUNE_LIMIT = 12000;
+
 // the routes of a note to its params: of the oscillators on for it (`osc`, null: off), of the filter while it is
 // on, in the range of its type (a knob its type doesn't use is left out), and to the knobs of the LFOs (Rate by its
-// frequency); an amount of 0 is left out (its source isn't rendered for it)
+// frequency); an amount of 0 is left out (its source isn't rendered for it). The core keeps a route per source,
+// param and polarity: a source on Pitch and on Fine of one polarity is one route, its cents added
 const voiceRoutes = (
   routes: ModRoute[],
   osc: (VoiceOscOptions | null)[],
   filter: VoiceFilterOptions | null
-): VoiceRoute[] =>
-  routes.flatMap(({ source: id, target, amount, bipolar }) => {
-    const definition = MOD_TARGETS[target];
-    if (!definition || amount === 0) return [];
-    const source = MOD_SOURCES.indexOf(id);
-    if (definition.kind === 'osc') {
-      if (!osc[definition.osc]) return [];
-      const param = oscParamName(definition.param, definition.osc);
-      return [voiceRoute(source, param, amount, definition.scale, definition.range, bipolar)];
-    }
-    if (definition.kind === 'lfo')
-      return [voiceRoute(source, target, amount, definition.scale, definition.range, bipolar)];
-    // the fx follow the last note (the fx model)
-    if (definition.kind === 'fx' || !filter) return [];
-    const { scale, range, disabled } = filterTargetScale(filter.type, definition.param);
-    if (disabled) return [];
-    return [voiceRoute(source, definition.param, amount, scale, range, bipolar)];
-  });
+): VoiceRoute[] => {
+  const merged = new Map<string, VoiceRoute>();
+  routes
+    .flatMap(({ source: id, target, amount, bipolar }) => {
+      const definition = MOD_TARGETS[target];
+      if (!definition || amount === 0) return [];
+      const source = MOD_SOURCES.indexOf(id);
+      if (definition.kind === 'osc') {
+        if (!osc[definition.osc]) return [];
+        const param = oscParamName(definition.param, definition.osc);
+        const route = voiceRoute(source, param, amount, definition.scale, definition.range, bipolar);
+        return [definition.unit ? { ...route, min: -DETUNE_LIMIT, max: DETUNE_LIMIT } : route];
+      }
+      if (definition.kind === 'lfo')
+        return [voiceRoute(source, target, amount, definition.scale, definition.range, bipolar)];
+      // the fx follow the last note (the fx model)
+      if (definition.kind === 'fx' || !filter) return [];
+      const { scale, range, disabled } = filterTargetScale(filter.type, definition.param);
+      if (disabled) return [];
+      return [voiceRoute(source, definition.param, amount, scale, range, bipolar)];
+    })
+    .forEach((route) => {
+      const key = `${route.source}:${route.param}:${!!route.bipolar}`;
+      const other = merged.get(key);
+      merged.set(key, other ? { ...other, amount: other.amount + route.amount } : route);
+    });
+  return [...merged.values()].filter(({ amount }) => amount !== 0);
+};
 
 // the envelopes of a note, in legato of its phrase (its notes share them): its number (the processors find
 // the phrase by it: two of them may be scheduled at the same time), ENV 1–3 (read at the note on, in legato

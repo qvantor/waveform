@@ -157,6 +157,33 @@ const OSC_SCENES = [
       ),
     ],
   }),
+  // a kick and a pluck: ENV 2 on the pitch of osc 1 (36 semitones down to the note in 80 ms), ENV 3 on osc 2 (an
+  // octave down in 0.2 s, a fifth up and -7 cents)
+  oscScene('wavetable, pitch envelopes', {
+    frames: OSC_RATE / 2,
+    tables: { a: [saw(2048, 200), saw(1024, 300, 0.7)] },
+    voices: [
+      note(
+        [
+          { table: 'a', unison: 1, phase: 0, phaseRand: 0 },
+          { table: 'a', unison: 3, phase: 0.25, phaseRand: 0 },
+        ],
+        { frequency: 55, spread2: 12, detune2: 693, position2: 1, gain2: 0.3 },
+        [],
+        {
+          envelopes: [
+            FLAT,
+            { attack: 0, hold: 0, decay: 0.08, sustain: 0, release: 0 },
+            { attack: 0, hold: 0, decay: 0.2, sustain: 0, release: 0 },
+          ],
+          routes: [
+            { source: 1, param: 'detune1', amount: 3600, min: -12000, max: 12000 },
+            { source: 2, param: 'detune2', amount: 1200, min: -12000, max: 12000 },
+          ],
+        }
+      ),
+    ],
+  }),
   oscScene('wavetable, LFOs on the wave, the gain and the cutoff, ENV 2 on a Rate', {
     frames: OSC_RATE / 2,
     tables: { a: [saw(2048, 200), saw(1024, 300, 0.7), saw(2048, 50)] },

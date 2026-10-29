@@ -154,7 +154,11 @@ const oscillatorSchema = (active: boolean) =>
           p: z.array(z.string().min(1).max(256)).min(1).max(5).default(DEFAULT_WAVETABLE_PATH),
           // the Wave knob: the position in frames, between two of them a morph
           w: range(0, 1023).default(0),
+          // the pitch of the oscillator over the note: octaves, semitones and cents (1200·o + 100·s + f); d is the
+          // unison detune (its spread)
           o: intRange(-3, 3).default(0),
+          s: intRange(-12, 12).default(0),
+          f: intRange(-100, 100).default(0),
           d: range(0, 100).default(5),
           u: intRange(1, 8).default(2),
           // the start phase of every unison voice and the most of its random shift (0: all in phase, 1: any

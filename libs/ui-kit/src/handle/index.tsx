@@ -26,6 +26,8 @@ export interface HandleModulation {
   onRemove?: () => void;
   // the amount in the units of the knob (+2.4 oct, +35%)
   formatAmount?: (amount: number) => React.ReactNode;
+  // the steps of the amount from 0 to 1 it is dragged by (100: 1%; 48: a semitone of ±48)
+  amountSteps?: number;
   // the level of the source now and whether it sounds: a mark like the knob's follows the sum of the routes
   level?: () => number | null;
   live?: boolean;

@@ -87,6 +87,32 @@ describe('modulation', () => {
     ]);
   });
 
+  it('drops a route on the pitch (Pitch, Fine) up from the note, of an LFO around it (a vibrato)', () => {
+    const [{ $routes }, { addRoute }] = createModulation();
+    addRoute('env2', 'osc1.pitch', 0.75);
+    addRoute('velo', 'osc2.fine');
+    addRoute('lfo1', 'osc1.pitch');
+    addRoute('lfo2', 'osc2.fine', 0.1);
+    addRoute('lfo3', 'osc1.fine', 0.5, false);
+    expect($routes.value).toEqual([
+      { source: 'env2', target: 'osc1.pitch', amount: 0.75 },
+      { source: 'velo', target: 'osc2.fine', amount: 0.5 },
+      { source: 'lfo1', target: 'osc1.pitch', amount: 0.5, bipolar: true },
+      { source: 'lfo2', target: 'osc2.fine', amount: 0.1, bipolar: true },
+      { source: 'lfo3', target: 'osc1.fine', amount: 0.5 },
+    ]);
+  });
+
+  it('puts at most 4 sources on Pitch and on Fine each, of the same oscillator', () => {
+    const [{ $routes }, { addRoute }] = createModulation();
+    (['env1', 'env2', 'env3', 'velo', 'lfo1'] as const).forEach((source) => {
+      addRoute(source, 'osc1.pitch');
+      addRoute(source, 'osc1.fine');
+    });
+    expect($routes.value.filter(({ target }) => target === 'osc1.pitch')).toHaveLength(4);
+    expect($routes.value.filter(({ target }) => target === 'osc1.fine')).toHaveLength(4);
+  });
+
   it('switches a route between uni and bipolar, keeps its amount', () => {
     const [{ $routes }, { addRoute, setPolarity, setAmount }] = createModulation();
     addRoute('lfo1', 'osc1.wave');
@@ -130,11 +156,15 @@ describe('modulation', () => {
     addRoute('env3', 'osc2.detune');
     setAmount('env3', 'osc2.detune', 0);
     addRoute('lfo4', 'filter.gain');
+    addRoute('env2', 'osc1.pitch', 0.75);
+    addRoute('velo', 'osc2.fine', -0.25);
     const snapshot = getSnapshot();
     expect(snapshot['mod']).toEqual({
       'env2:osc1.wave': 0.5,
       'env3:osc2.detune': 0,
       'lfo4:filter.gain': { a: 0.5, bi: true },
+      'env2:osc1.pitch': 0.75,
+      'velo:osc2.fine': -0.25,
     });
     const routes = $routes.value;
     applySnapshot({});

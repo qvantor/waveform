@@ -6,8 +6,8 @@ use crate::envelope::{EnvelopeBlock, EnvelopeParams};
 use crate::filter::{FilterOptions, VoiceFilter};
 use crate::lfo::{LfoBlock, LfoGlobal, DELAY, KNOBS, LFOS, RATE, RISE, SMOOTH};
 use crate::modulation::{
-    lfo_target, Modulation, Sources, VoiceRoute, CUTOFF, FILTER_GAIN, GAIN1, LFO, POSITION1, RESONANCE,
-    SPREAD1, TARGET_PARAMS, VOICE_TARGETS,
+    lfo_target, Modulation, Sources, VoiceRoute, CUTOFF, DETUNE1, FILTER_GAIN, GAIN1, LFO, POSITION1,
+    RESONANCE, SPREAD1, TARGET_PARAMS, VOICE_TARGETS,
 };
 use crate::shared::{Scratch, Shared, DIRECT_SAMPLES, MIX_SAMPLES, PARAMS, UNISON, VOICES};
 use crate::store::{EntryRef, Levels, Store, FRAME_GUARD};
@@ -36,6 +36,14 @@ const OSC_PARAM_POSITION: usize = 0;
 const OSC_PARAM_DETUNE: usize = 1;
 const OSC_PARAM_SPREAD: usize = 2;
 const OSC_PARAM_GAIN: usize = 3;
+// the params of an oscillator a route moves: all four, its ids from POSITION1 + OSC_TARGETS · its index
+const OSC_TARGETS: usize = 4;
+const _: () = assert!(
+    DETUNE1 == POSITION1 + OSC_PARAM_DETUNE
+        && SPREAD1 == POSITION1 + OSC_PARAM_SPREAD
+        && GAIN1 == POSITION1 + OSC_PARAM_GAIN
+        && CUTOFF == POSITION1 + 2 * OSC_TARGETS
+);
 /// the detune of each oscillator among the params of a block (detune1, detune2)
 pub const DETUNES: [usize; 2] = [2 + OSC_PARAM_DETUNE, 6 + OSC_PARAM_DETUNE];
 
@@ -827,14 +835,10 @@ impl Osc {
     fn param(&self, kind: usize) -> usize {
         2 + 4 * self.index + kind
     }
-    // the param a route moves of this oscillator (position1, spread1, gain1 or those of osc 2)
+    // the param a route moves of this oscillator (position1, detune1, spread1, gain1 or those of osc 2: the ids
+    // of the routes in the order of the params of a block)
     fn target(&self, kind: usize) -> usize {
-        3 * self.index
-            + match kind {
-                OSC_PARAM_POSITION => POSITION1,
-                OSC_PARAM_SPREAD => SPREAD1,
-                _ => GAIN1,
-            }
+        POSITION1 + OSC_TARGETS * self.index + kind
     }
 }
 
@@ -982,7 +986,12 @@ impl Voice {
         // the params the routes move: those of the oscillators on, the knobs of the filter
         let mut accesses = [false; TARGET_PARAMS];
         for osc in &oscs {
-            for kind in [OSC_PARAM_POSITION, OSC_PARAM_SPREAD, OSC_PARAM_GAIN] {
+            for kind in [
+                OSC_PARAM_POSITION,
+                OSC_PARAM_DETUNE,
+                OSC_PARAM_SPREAD,
+                OSC_PARAM_GAIN,
+            ] {
                 accesses[osc.target(kind)] = true;
             }
         }
@@ -1335,11 +1344,14 @@ impl Voice {
         }
         if self.modulation.active {
             let filter = &self.filter;
+            // the params of both oscillators (from params[2]), then the knobs of the filter
             let voice = [
                 params[2],
+                params[3],
                 params[4],
                 params[5],
                 params[6],
+                params[7],
                 params[8],
                 params[9],
                 filter.base(0),
@@ -2109,9 +2121,11 @@ fn render_osc(
             }
         }
     }
-    // the browser's params, those the routes move replaced
+    // the browser's params, those the routes move replaced (the detune with the pitch bend on it: the base)
     let frequency = params[FREQUENCY];
-    let detune = params[osc.param(OSC_PARAM_DETUNE)];
+    let detune = modulation
+        .moved(osc.target(OSC_PARAM_DETUNE))
+        .unwrap_or(params[osc.param(OSC_PARAM_DETUNE)]);
     let spread = modulation
         .moved(osc.target(OSC_PARAM_SPREAD))
         .unwrap_or(params[osc.param(OSC_PARAM_SPREAD)]);

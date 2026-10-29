@@ -122,7 +122,7 @@ describe('normalizePreset', () => {
     const normalized = normalizePreset({ ...preset, filter: { ...preset.filter, cut: 1234.5678 } });
     expect(normalized.filter.cut).toBe(1235);
     expect(Object.keys(normalized)).toEqual(['env', 'filter', 'fx', 'lfo', 'mod', 'osc1', 'osc2', 'v']);
-    expect(Object.keys(normalized.osc1)).toEqual(['a', 'd', 'g', 'o', 'p', 'ph', 'pr', 'u', 'w']);
+    expect(Object.keys(normalized.osc1)).toEqual(['a', 'd', 'f', 'g', 'o', 'p', 'ph', 'pr', 's', 'u', 'w']);
   });
 
   it('fills each envelope with its own defaults, takes stages up to 32 s and drops the old adsr', () => {
@@ -223,6 +223,17 @@ describe('normalizePreset', () => {
   it('fills the range of the pitch bend with 2 semitones down and up, keeps 0..24', () => {
     expect(normalizePreset({}).v).toMatchObject({ bd: 2, bu: 2 });
     expect(normalizePreset({ v: { bd: 0, bu: 24 } }).v).toMatchObject({ bd: 0, bu: 24 });
+  });
+
+  it('fills Semi and Fine with 0 (a preset saved before them plays as it did), whole within ±12 and ±100', () => {
+    expect(normalizePreset(preset).osc1).toMatchObject({ o: -1, s: 0, f: 0 });
+    expect(normalizePreset({ osc2: { s: 7, f: -7 } }).osc2).toMatchObject({ s: 7, f: -7 });
+    expect(normalizePreset({ osc1: { s: -12, f: 100 } }).osc1).toMatchObject({ s: -12, f: 100 });
+    const osc = (value: object) => presetDataSchema.safeParse({ osc1: { ...preset.osc1, ...value } }).success;
+    expect([osc({ s: 13 }), osc({ s: -13 }), osc({ s: 0.5 })]).toEqual([false, false, false]);
+    expect([osc({ f: 101 }), osc({ f: -101 }), osc({ f: 2.5 })]).toEqual([false, false, false]);
+    expect(presetHash({ ...preset, osc1: { ...preset.osc1, s: 0, f: 0 } })).toBe(presetHash(preset));
+    expect(presetHash({ ...preset, osc1: { ...preset.osc1, s: 7 } })).not.toBe(presetHash(preset));
   });
 
   it('keeps small values', () => {

@@ -236,6 +236,52 @@ describe('Oscillator', () => {
     expect(useWavetables).toHaveBeenCalled();
   });
 
+  it('has Oct, Semi and Fine over the wave: dragged up by whole octaves, semitones and cents (2 px each)', () => {
+    const { model } = setup();
+    const field = (label: string) => screen.getByText(label).parentElement as HTMLElement;
+    drag(field('Semi'), [0, -70]);
+    drag(field('Fine'), [0, -14]);
+    expect(model.$osc.value).toMatchObject({ octave: 0, semi: 7, fine: 7 });
+    expect(model.$params.value.detune).toBe(707);
+    drag(field('Fine'), [0, 28]);
+    drag(field('Oct'), [0, -10]);
+    drag(field('Semi'), [0, 500]);
+    expect(model.$osc.value).toMatchObject({ octave: 1, semi: -12, fine: -7 });
+    expect(field('Semi').textContent).toContain('-12');
+  });
+
+  it('Semi takes the routes of Pitch, Fine those of Fine; Oct none', () => {
+    const { modulation } = setup({ target: 'osc2' });
+    const targets = () =>
+      Array.from(document.querySelectorAll('[data-mod-target]')).map((element) =>
+        element.getAttribute('data-mod-target')
+      );
+    expect(targets()).toEqual(expect.arrayContaining(['osc2.pitch', 'osc2.fine']));
+    expect(screen.getByText('Oct').parentElement?.hasAttribute('data-mod-target')).toBe(false);
+    act(() => modulation[1].addRoute('env1', 'osc2.pitch', 7 / 48));
+    // the dot of the selected tab (ENV 1 without the envelopes model): its amount in semitones
+    const dot = screen.getByRole('slider', { name: 'ENV 1' });
+    expect(screen.getByText('Semi').parentElement?.contains(dot)).toBe(true);
+    act(() => modulation[1].addRoute('env1', 'osc2.fine', 0.25));
+    expect(screen.getAllByTestId('mod-bar')).toHaveLength(2);
+  });
+
+  it.each([
+    [300, true],
+    [620, false],
+  ])('in a row of %s px has Oct, Semi and Fine compact, without carets: %s', (width, compact) => {
+    const restore = withElementSize(width, 22);
+    try {
+      setup();
+      const field = screen.getByText('Semi').parentElement as HTMLElement;
+      expect(field.parentElement?.classList.contains('compact')).toBe(compact);
+      expect(field.classList.contains('compact')).toBe(compact);
+      expect(field.querySelectorAll('.anticon')).toHaveLength(compact ? 0 : 2);
+    } finally {
+      restore();
+    }
+  });
+
   it('shows Unison under the wave with the arrows of Oct, 2 voices by default, dragged by whole voices from 1 to 8', () => {
     const { model } = setup();
     const unison = screen.getByRole('slider', { name: 'Unison' });

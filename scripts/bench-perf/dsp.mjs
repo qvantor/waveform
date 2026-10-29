@@ -419,6 +419,27 @@ const createCases = (dsp) => {
       block++;
     };
   };
+  // a kick of u8: ENV 2 from 36 semitones over the note down to it in 80 ms, the envelopes started again every AGAIN
+  // blocks (as `voice u1 routed`): the direct path while the pitch moves, then its mix tables again; its cost over
+  // `voice u8 held` (a tree before the pitch as a target leaves the route out)
+  const pitchEnv = () => {
+    const flat = { attack: 0, hold: 0, decay: 0, sustain: 1, release: 0 };
+    const kick = { attack: 0, hold: 0, decay: 0.08, sustain: 0, release: 0 };
+    const voiceDsp = createVoice.wasm({
+      osc: [{ table: 'a', unison: 8, phase: 0, phaseRand: 1 }, null],
+      start: 0,
+      envelopes: [flat, kick, flat],
+      envStart: 0,
+      phrase: 0,
+      routes: [{ source: 1, param: 'detune1', amount: 3600, min: -12000, max: 12000 }],
+      filter: null,
+    });
+    let block = 0;
+    return () => {
+      voiceDsp.process(block * BLOCK, Math.floor(block / AGAIN) % 2 ? heldAgain : held, outL, outR);
+      block++;
+    };
+  };
   // a position that moves in every block: the direct path. Its blocks over a period of the LFO (2 s) are worked
   // out once, not in the call: making them there (Float32Array.from, 128 sines) cost 34 ns/sample, more than the
   // core itself
@@ -476,6 +497,7 @@ const createCases = (dsp) => {
       oscScope && voiceOf('wasm', undefined, { level: 0.787, amp: 0.787 }),
       null
     ),
+    ...withTs({ 'voice u8 pitch env': [] }, oscScope && (() => pitchEnv), null),
     ...withTs(
       { 'voice u1 routed': [] },
       oscScope && (() => routedOf('wasm')),

@@ -1,6 +1,7 @@
 import React from 'react';
 import styled from 'styled-components';
-import { Handle, DraggableNumber } from '@waveform/ui-kit';
+import cls from 'classnames';
+import { Handle, DraggableNumber, useElementSize } from '@waveform/ui-kit';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
 import { number } from '@waveform/math';
 import { OscillatorActions, OscillatorModel, useOscillator1 } from '../common/modules';
@@ -18,10 +19,28 @@ const Root = styled.div`
   gap: 5px;
 `;
 
+// Oct, Semi, Fine and the table: as wide as the oscillator whatever they hold (the name of the table is cut)
 const TopControls = styled.div`
   display: flex;
   gap: 5px;
+  contain: inline-size;
+
+  & > :not(:last-child) {
+    flex: none;
+  }
+
+  & > :last-child {
+    min-width: 0;
+  }
+
+  &.compact {
+    gap: 3px;
+  }
 `;
+
+// the row at full size takes about 380 px (the name of a table included): a narrower one (a phone, two
+// oscillators side by side) has its fields smaller, without their carets
+const COMPACT_WIDTH = 380;
 
 const Handles = styled.div`
   display: flex;
@@ -62,16 +81,39 @@ export const Oscillator = ({
   const gainModulation = useKnobModulation(`${target}.gain`);
   const waveModulation = useKnobModulation(`${target}.wave`);
   const detuneModulation = useKnobModulation(`${target}.detune`);
+  // Pitch on Semi (smoothly, ±48 semitones), Fine in cents
+  const pitchModulation = useKnobModulation(`${target}.pitch`);
+  const fineModulation = useKnobModulation(`${target}.fine`);
+  const [topRef, [topWidth]] = useElementSize<HTMLDivElement>();
+  const compact = topWidth > 0 && topWidth < COMPACT_WIDTH;
 
   return (
     <OscillatorContext.Provider value={oscillator}>
       <Root>
-        <TopControls>
+        <TopControls ref={topRef} className={cls({ compact })}>
           <DraggableNumber
             value={osc.octave}
             label='Oct'
             range={ranges.octave}
+            compact={compact}
             onChange={(value) => setOscValue('octave', value)}
+          />
+          <DraggableNumber
+            value={osc.semi}
+            label='Semi'
+            range={ranges.semi}
+            compact={compact}
+            onChange={(value) => setOscValue('semi', value)}
+            {...pitchModulation}
+          />
+          <DraggableNumber
+            value={osc.fine}
+            label='Fine'
+            range={ranges.fine}
+            pxPerStep={2}
+            compact={compact}
+            onChange={(value) => setOscValue('fine', value)}
+            {...fineModulation}
           />
           <WaveSelector />
         </TopControls>

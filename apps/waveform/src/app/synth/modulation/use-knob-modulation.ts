@@ -9,7 +9,14 @@ import { EnvelopesContext } from '../common/modules/envelopes';
 import { SynthContext } from '../common/modules/synth';
 import { SynthCoreContext } from '../common/modules/synth-core';
 import { FxContext } from '../fx/modules/fx';
-import { amountInUnits, MOD_TARGETS, ModScale } from '../common/modulation/modulation-targets';
+import {
+  amountInUnits,
+  MOD_TARGETS,
+  ModScale,
+  pitchAmount,
+  pitchAmountSteps,
+  PitchUnit,
+} from '../common/modulation/modulation-targets';
 import { LFO_SOURCE, noteLevel } from '../fx/effects/fx-modulation';
 import { SOURCE_COLORS, SOURCE_LABELS } from '../envelope/envelope-colors';
 
@@ -22,16 +29,22 @@ const FIRST_TAB = new BehaviorSubject<ModSource>(ENVELOPES[0]);
 const sign = (value: number) => (value > 0 ? '+' : value < 0 ? '-' : '');
 
 // the amount of a route in the units of its knob: octaves for a log one (+2.4 oct), a share of the range of a
-// linear one or of the travel of a pow one (+35%)
-export const formatAmount = (amount: number, scale: ModScale, range: [number, number]) =>
-  scale === 'log'
+// linear one or of the travel of a pow one (+35%); of the pitch semitones (+12 st, +0.5 st) or cents (+25 ct)
+export const formatAmount = (amount: number, scale: ModScale, range: [number, number], unit?: PitchUnit) => {
+  if (unit) {
+    const value = Math.abs(number.round(pitchAmount(amount, unit, range), unit === 'semitones' ? 10 : 1));
+    return `${sign(amount)}${value} ${unit === 'semitones' ? 'st' : 'ct'}`;
+  }
+  return scale === 'log'
     ? `${sign(amount)}${Math.abs(number.round(amountInUnits(amount, scale, range), 10))} oct`
     : `${sign(amount)}${Math.round(Math.abs(amount) * 100)}%`;
+};
 
 // the scale and the range of a knob whose amounts depend on its state (the knobs of the filter: the type)
 interface KnobScale {
   scale: ModScale;
   range: [number, number];
+  unit?: PitchUnit;
 }
 
 // the modulation props of the knob of a target (modulation-targets.ts): the drop target of the tabs (none once
@@ -122,7 +135,8 @@ export const useKnobModulation = (target: string, knob?: KnobScale): KnobModulat
           label: SOURCE_LABELS[source],
           onChange: (value) => actions?.setAmount(source, target, value),
           onRemove: () => actions?.removeRoute(source, target),
-          formatAmount: units && ((value) => formatAmount(value, units.scale, units.range)),
+          formatAmount: units && ((value) => formatAmount(value, units.scale, units.range, units.unit)),
+          ...(units?.unit && { amountSteps: pitchAmountSteps(units.unit, units.range) }),
           level: level(source),
           live,
           selected: source === selected,

@@ -1915,6 +1915,50 @@ describe('the wavetable voice', () => {
       expect(maxStep(left)).toBeLessThan(0.003);
     });
 
+    describe('the pitch (Pitch and Fine: the detune)', () => {
+      // a kick: ENV 2 from 36 semitones over the note down to it in 80 ms
+      const kick = decay(0);
+      const KICK_FRAMES = 0.08 * RATE;
+      const pitched = (frames: number, shared = core.createVoiceShared()) => {
+        const { store } = core.storeWith({ a: [sine] });
+        const { left } = render({
+          store,
+          shared,
+          params: { frequency: 55, detune1: -1200 },
+          frames,
+          envelopes: [{ ...kick, decay: 0.08 }, FLAT],
+          routes: [route('detune1', 3600, -12000, 12000)],
+        });
+        return { left, stats: shared.stats() };
+      };
+
+      it('follows the pitch of the route on the detune from its base, sample by sample: no step', () => {
+        const frames = 0.2 * RATE;
+        const { left } = pitched(frames);
+        // the phase of a sine at 55 Hz × 2^((-1200 + 3600 × ENV 2) / 1200)
+        let phase = 0;
+        let maxError = 0;
+        for (let i = 0; i < frames; i++) {
+          maxError = Math.max(maxError, Math.abs(left[i] - Math.sin(2 * Math.PI * phase)));
+          const cents = -1200 + 3600 * level({ ...kick, decay: 0.08 }, i);
+          phase += (55 * 2 ** (cents / 1200)) / RATE;
+          phase -= Math.floor(phase);
+        }
+        // (the points every 32 samples of a pitch falling 3 octaves in 80 ms: within 0.001 of a period)
+        expect(maxError).toBeLessThan(5e-3);
+        // no step: a sample moves at most as far as a sine of the highest pitch, 220 Hz
+        const most = (2 * Math.PI * 220) / RATE;
+        for (let i = 1; i < frames; i++) expect(Math.abs(left[i] - left[i - 1])).toBeLessThan(most * 1.01);
+        // then at its base: an octave under the note
+        expect(measureFrequency(left.subarray(0.1 * RATE))).toBeCloseTo(27.5, 2);
+      });
+
+      it('plays directly while the pitch moves, on its mix tables again once it is flat', () => {
+        expect(pitched(KICK_FRAMES).stats.mixSamples).toBe(0);
+        expect(pitched(0.3 * RATE).stats.mixSamples).toBeGreaterThan(0);
+      });
+    });
+
     describe('the velocity', () => {
       const VELO = 3;
 

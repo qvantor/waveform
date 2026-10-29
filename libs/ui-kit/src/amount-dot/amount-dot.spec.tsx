@@ -97,6 +97,19 @@ describe('AmountDot', () => {
     pointer('pointerup', document, [10, 300]);
   });
 
+  it('steps the amount by its steps: whole semitones of ±48 (48 steps of 0..1)', () => {
+    const { dot, onChange } = setup({ amount: 0.25, amountSteps: 48 });
+    // 15 px up: +0.15, to the nearest semitone
+    pointer('pointerdown', dot, [10, 100]);
+    pointer('pointermove', document, [10, 85]);
+    expect(onChange).toHaveBeenLastCalledWith(Math.round((0.25 + 0.15) * 48) / 48);
+    pointer('pointerup', document, [10, 85]);
+    fireEvent.keyDown(dot, { key: 'ArrowUp' });
+    expect(onChange).toHaveBeenLastCalledWith(13 / 48);
+    fireEvent.keyDown(dot, { key: 'ArrowDown' });
+    expect(onChange).toHaveBeenLastCalledWith(11 / 48);
+  });
+
   it('a double click removes the route', () => {
     const { dot, onRemove } = setup();
     fireEvent.doubleClick(dot);
