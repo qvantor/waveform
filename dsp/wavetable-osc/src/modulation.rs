@@ -303,16 +303,16 @@ impl Modulation {
             let offset = if route.bipolar { 0.5 } else { 0.0 };
             // the route of the source of that polarity (another one of it in the message replaces it), else the
             // one of the other polarity not taken by a route before it in the message (its polarity glides there)
-            let position = match target
-                .routes
+            let routes = &target.routes;
+            let found = routes
                 .iter()
                 .position(|item| item.source == source && item.offset_target == offset)
                 .or_else(|| {
-                    target
-                        .routes
+                    routes
                         .iter()
                         .position(|item| item.source == source && item.removed)
-                }) {
+                });
+            let position = match found {
                 Some(position) => position,
                 None => {
                     target.routes.push(Route {

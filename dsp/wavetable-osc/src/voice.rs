@@ -32,20 +32,26 @@ const RELEASE_LEAD: f64 = 0.05;
 // each oscillator
 const FREQUENCY: usize = 0;
 const GATE: usize = 1;
+// the params of the oscillators, OSC_PARAMS each, from OSC_PARAMS_AT
+const OSC_PARAMS_AT: usize = GATE + 1;
+const OSC_PARAMS: usize = 4;
 const OSC_PARAM_POSITION: usize = 0;
 const OSC_PARAM_DETUNE: usize = 1;
 const OSC_PARAM_SPREAD: usize = 2;
 const OSC_PARAM_GAIN: usize = 3;
-// the params of an oscillator a route moves: all four, its ids from POSITION1 + OSC_TARGETS · its index
-const OSC_TARGETS: usize = 4;
+// the ids of the routes are the params of the oscillators in the order of a block, then the knobs of the filter
 const _: () = assert!(
-    DETUNE1 == POSITION1 + OSC_PARAM_DETUNE
-        && SPREAD1 == POSITION1 + OSC_PARAM_SPREAD
-        && GAIN1 == POSITION1 + OSC_PARAM_GAIN
-        && CUTOFF == POSITION1 + 2 * OSC_TARGETS
+    POSITION1 == OSC_PARAM_POSITION
+        && DETUNE1 == OSC_PARAM_DETUNE
+        && SPREAD1 == OSC_PARAM_SPREAD
+        && GAIN1 == OSC_PARAM_GAIN
+        && CUTOFF == 2 * OSC_PARAMS
 );
 /// the detune of each oscillator among the params of a block (detune1, detune2)
-pub const DETUNES: [usize; 2] = [2 + OSC_PARAM_DETUNE, 6 + OSC_PARAM_DETUNE];
+pub const DETUNES: [usize; 2] = [
+    OSC_PARAMS_AT + OSC_PARAM_DETUNE,
+    OSC_PARAMS_AT + OSC_PARAMS + OSC_PARAM_DETUNE,
+];
 
 pub type Params<'a> = [&'a [f32]; PARAMS];
 
@@ -833,12 +839,11 @@ struct Osc {
 
 impl Osc {
     fn param(&self, kind: usize) -> usize {
-        2 + 4 * self.index + kind
+        OSC_PARAMS_AT + OSC_PARAMS * self.index + kind
     }
-    // the param a route moves of this oscillator (position1, detune1, spread1, gain1 or those of osc 2: the ids
-    // of the routes in the order of the params of a block)
+    // the param a route moves of this oscillator (position1, detune1, spread1, gain1 or those of osc 2)
     fn target(&self, kind: usize) -> usize {
-        POSITION1 + OSC_TARGETS * self.index + kind
+        self.param(kind) - OSC_PARAMS_AT
     }
 }
 
@@ -986,12 +991,7 @@ impl Voice {
         // the params the routes move: those of the oscillators on, the knobs of the filter
         let mut accesses = [false; TARGET_PARAMS];
         for osc in &oscs {
-            for kind in [
-                OSC_PARAM_POSITION,
-                OSC_PARAM_DETUNE,
-                OSC_PARAM_SPREAD,
-                OSC_PARAM_GAIN,
-            ] {
+            for kind in 0..OSC_PARAMS {
                 accesses[osc.target(kind)] = true;
             }
         }
@@ -1344,23 +1344,12 @@ impl Voice {
         }
         if self.modulation.active {
             let filter = &self.filter;
-            // the params of both oscillators (from params[2]), then the knobs of the filter
-            let voice = [
-                params[2],
-                params[3],
-                params[4],
-                params[5],
-                params[6],
-                params[7],
-                params[8],
-                params[9],
-                filter.base(0),
-                filter.base(1),
-                filter.base(2),
-            ];
+            // the params of both oscillators, then the knobs of the filter
             let bases: [&[f32]; TARGET_PARAMS] = core::array::from_fn(|param| {
-                if param < VOICE_TARGETS {
-                    voice[param]
+                if param < CUTOFF {
+                    params[OSC_PARAMS_AT + param]
+                } else if param < VOICE_TARGETS {
+                    filter.base(param - CUTOFF)
                 } else {
                     &[][..]
                 }

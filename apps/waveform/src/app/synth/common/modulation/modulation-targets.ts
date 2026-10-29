@@ -40,8 +40,11 @@ interface OscTarget {
 }
 
 export type PitchUnit = 'semitones' | 'cents';
-// cents of each
-const PITCH_UNITS: Record<PitchUnit, number> = { semitones: 100, cents: 1 };
+// each: its cents, its symbol and the steps it is shown in (semitones to 0.1)
+export const PITCH_UNITS: Record<PitchUnit, { cents: number; symbol: string; precision: number }> = {
+  semitones: { cents: 100, symbol: 'st', precision: 10 },
+  cents: { cents: 1, symbol: 'ct', precision: 1 },
+};
 
 // a knob of the filter in the voice node of each note (voice-filter.ts); its scale and range are those of the
 // type of the filter (filterTargetScale)
@@ -175,15 +178,13 @@ export const bipolarByDefault = (source: ModSource, target: string) => {
   return centered(target) || (isLfo(source) && definition?.kind === 'osc' && !!definition.unit);
 };
 
-// the amount of a target of the pitch in its units (semitones, cents) and the steps of an amount that are whole
-// ones: Pitch 48, Fine 100
-export const pitchAmount = (amount: number, unit: PitchUnit, [min, max]: [number, number]) =>
-  (amount * (max - min)) / PITCH_UNITS[unit];
-export const pitchAmountSteps = (unit: PitchUnit, range: [number, number]) => pitchAmount(1, unit, range);
-
 // the amount of a route in the units of the param (octaves for a log one, a share of the travel of a pow one)
 export const amountInUnits = (amount: number, scale: ModScale, [min, max]: [number, number]) =>
   scale === 'log' ? amount * Math.log2(max / min) : scale === 'pow' ? amount : amount * (max - min);
+
+// the whole units of the pitch (semitones, cents) in an amount of 1 of a target of the pitch: Pitch 48, Fine 100
+export const pitchSteps = (unit: PitchUnit, range: [number, number]) =>
+  amountInUnits(1, 'linear', range) / PITCH_UNITS[unit].cents;
 
 // a route of the modulation in the units of the knob it moves: the scale only when it isn't linear, bipolar only
 // when it is

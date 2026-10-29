@@ -133,18 +133,28 @@ const voiceRoute = (
 // effect, the voice keeps the pitch of each unison voice within 0..nyquist
 const DETUNE_LIMIT = 12000;
 
+// the core keeps a route per source, param and polarity: those of one (a source on Pitch and on Fine of an
+// oscillator) are one, their amounts added; a sum of 0 is left out
+const sumRoutes = (routes: VoiceRoute[]) => {
+  const summed = new Map<string, VoiceRoute>();
+  for (const route of routes) {
+    const key = `${route.source}:${route.param}:${!!route.bipolar}`;
+    const other = summed.get(key);
+    summed.set(key, other ? { ...other, amount: other.amount + route.amount } : route);
+  }
+  return [...summed.values()].filter(({ amount }) => amount !== 0);
+};
+
 // the routes of a note to its params: of the oscillators on for it (`osc`, null: off), of the filter while it is
 // on, in the range of its type (a knob its type doesn't use is left out), and to the knobs of the LFOs (Rate by its
-// frequency); an amount of 0 is left out (its source isn't rendered for it). The core keeps a route per source,
-// param and polarity: a source on Pitch and on Fine of one polarity is one route, its cents added
+// frequency); an amount of 0 is left out (its source isn't rendered for it)
 const voiceRoutes = (
   routes: ModRoute[],
   osc: (VoiceOscOptions | null)[],
   filter: VoiceFilterOptions | null
-): VoiceRoute[] => {
-  const merged = new Map<string, VoiceRoute>();
-  routes
-    .flatMap(({ source: id, target, amount, bipolar }) => {
+): VoiceRoute[] =>
+  sumRoutes(
+    routes.flatMap(({ source: id, target, amount, bipolar }) => {
       const definition = MOD_TARGETS[target];
       if (!definition || amount === 0) return [];
       const source = MOD_SOURCES.indexOf(id);
@@ -162,13 +172,7 @@ const voiceRoutes = (
       if (disabled) return [];
       return [voiceRoute(source, definition.param, amount, scale, range, bipolar)];
     })
-    .forEach((route) => {
-      const key = `${route.source}:${route.param}:${!!route.bipolar}`;
-      const other = merged.get(key);
-      merged.set(key, other ? { ...other, amount: other.amount + route.amount } : route);
-    });
-  return [...merged.values()].filter(({ amount }) => amount !== 0);
-};
+  );
 
 // the envelopes of a note, in legato of its phrase (its notes share them): its number (the processors find
 // the phrase by it: two of them may be scheduled at the same time), ENV 1–3 (read at the note on, in legato

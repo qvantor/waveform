@@ -1,14 +1,10 @@
 import React from 'react';
 import styled from 'styled-components';
 import cls from 'classnames';
-import { DragValue, theme, useElementSize } from '@waveform/ui-kit';
+import { DragValue, theme } from '@waveform/ui-kit';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
 import { number } from '@waveform/math';
-import { useOscillatorContext } from '../../hooks';
-
-// the four values at full size take up to 373 px (Wave 256/256): a narrower strip (a phone, two oscillators
-// side by side in landscape) has them smaller
-const COMPACT_WIDTH = 380;
+import { useCompact, useOscillatorContext } from '../../hooks';
 
 // the bottom of the block of the wave: a line over it and between its values; as wide as the block, whatever
 // its values (they never widen the oscillator)
@@ -55,9 +51,9 @@ export const WaveInfo = ({ onPhaseActiveChange }: Props) => {
   // the frames played, as the Wave knob: of a table with a morph mark its 256
   const frames = useBehaviorSubject($frames);
   const { phase, phaseRand, unison } = useBehaviorSubject($osc);
-  const [ref, [width]] = useElementSize<HTMLDivElement>();
+  const [ref, compact] = useCompact<HTMLDivElement>();
   return (
-    <Root ref={ref} className={cls({ compact: width > 0 && width < COMPACT_WIDTH })}>
+    <Root ref={ref} className={cls({ compact })}>
       <Cell label='Wave' value={position} formatValue={(value) => `${formatWavePosition(value)}/${frames}`} />
       <Cell
         label='Phase'

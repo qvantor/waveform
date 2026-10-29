@@ -10,7 +10,8 @@ import { singlePointerTracker } from '../common/utils';
 import { MarkCanvas, useModulations } from '../common/utils/use-mod-mark';
 import type { HandleModulation } from '../handle';
 import { RoutesDot } from '../amount-dot';
-import { MOD_DRAGGING_CLASS, MOD_OVER_ATTR, MOD_REFUSED_ATTR, MOD_TARGET_ATTR } from '../mod-drag';
+import { MOD_TARGET_ATTR } from '../mod-drag';
+import { modDragHighlight } from '../mod-drag/highlight';
 import { StepArrows } from './step-arrows';
 
 interface Props {
@@ -53,7 +54,6 @@ const Root = styled.div`
 
   &.compact {
     font-size: 10px;
-    line-height: 12px;
     gap: 4px;
     padding: 5px 4px;
   }
@@ -106,36 +106,14 @@ const ModMark = styled.canvas`
 `;
 
 // the dot of the routes, centered on the top left corner
-const DotBox = styled.div`
-  position: absolute;
-  left: 0;
-  top: 0;
-`;
+const DOT_AT_CORNER: React.CSSProperties = { left: 0, top: 0 };
 
-const Dot = styled(RoutesDot)`
-  left: 0;
-  top: 0;
-`;
-
-// lit while a source is dragged (mod-drag), brighter under the pointer
 const ModHighlight = styled.div`
   position: absolute;
   inset: 0;
   border-radius: 3px;
-  pointer-events: none;
-  display: none;
-
-  body.${MOD_DRAGGING_CLASS} [${MOD_TARGET_ATTR}]:not([${MOD_REFUSED_ATTR}]) > & {
-    display: block;
-    box-shadow: 0 0 0 2px var(--mod-drag-color);
-  }
-
-  body.${MOD_DRAGGING_CLASS} [${MOD_OVER_ATTR}] > & {
-    box-shadow: 0 0 0 3px var(--mod-drag-color), 0 0 12px 3px var(--mod-drag-color);
-  }
+  ${modDragHighlight('>')}
 `;
-
-const NO_ROUTES: HandleModulation[] = [];
 
 // the mark at a share of the line of `width` px: a tick across it, half transparent
 const markCanvas = (width: number): MarkCanvas => ({
@@ -162,9 +140,11 @@ export const DraggableNumber = ({
   const [active, setActive] = React.useState(false);
   const [trackPointer] = React.useState(singlePointerTracker);
   const [trackRef, [trackWidth]] = useElementSize<HTMLDivElement>();
-  const own = routes ?? NO_ROUTES;
   // the line is ±1 of an amount from its middle: a route moves the mark and its bar by half its amount
-  const halved = React.useMemo(() => own.map((route) => ({ ...route, amount: route.amount / 2 })), [own]);
+  const halved = React.useMemo(
+    () => routes?.map((route) => ({ ...route, amount: route.amount / 2 })),
+    [routes]
+  );
   const mark = React.useMemo(() => markCanvas(trackWidth), [trackWidth]);
   const { mark: modMark, live, shown, spans } = useModulations(halved, false, 0.5, mark);
   const [span] = spans;
@@ -175,11 +155,15 @@ export const DraggableNumber = ({
       return;
     }
     const initial = vector2d.fromMouseEvent(e);
+    let last = value;
     const tracked = trackPointer(
       e,
       (e) => {
         const [, diffY] = vector2d.invertY(vector2d.subtract(vector2d.fromMouseEvent(e), initial));
-        onChange?.(number.thresholds(value + Math.round(diffY / pxPerStep), ...range));
+        const next = number.thresholds(value + Math.round(diffY / pxPerStep), ...range);
+        if (next === last) return;
+        last = next;
+        onChange?.(next);
       },
       () => setActive(false)
     );
@@ -211,11 +195,7 @@ export const DraggableNumber = ({
         </Track>
       )}
       {live && <ModMark {...modMark} style={{ width: trackWidth }} data-testid='number-mod-mark' />}
-      {own.length > 0 && (
-        <DotBox>
-          <Dot modulations={own} />
-        </DotBox>
-      )}
+      {routes && routes.length > 0 && <RoutesDot modulations={routes} style={DOT_AT_CORNER} />}
       <ModHighlight />
     </Root>
   );

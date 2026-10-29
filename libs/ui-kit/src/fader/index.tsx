@@ -12,7 +12,8 @@ import { ValueTooltip } from '../tooltip/value-tooltip';
 import { Label } from '../label';
 import type { HandleProps } from '../handle';
 import { RoutesDot } from '../amount-dot';
-import { MOD_DRAGGING_CLASS, MOD_OVER_ATTR, MOD_REFUSED_ATTR, MOD_TARGET_ATTR } from '../mod-drag';
+import { MOD_TARGET_ATTR } from '../mod-drag';
+import { modDragHighlight } from '../mod-drag/highlight';
 
 // the props of a knob, fillFrom is e.g. the natural width of a stereo fader
 type FaderProps = Omit<HandleProps, 'step' | 'size' | 'plotSize'> & { className?: string };
@@ -183,17 +184,7 @@ const ModHighlight = styled.div`
   position: absolute;
   inset: 0;
   border-radius: ${theme.borderRadius.m};
-  pointer-events: none;
-  display: none;
-
-  body.${MOD_DRAGGING_CLASS} [${MOD_TARGET_ATTR}]:not([${MOD_REFUSED_ATTR}]) > * > & {
-    display: block;
-    box-shadow: 0 0 0 2px var(--mod-drag-color);
-  }
-
-  body.${MOD_DRAGGING_CLASS} [${MOD_OVER_ATTR}] > * > & {
-    box-shadow: 0 0 0 3px var(--mod-drag-color), 0 0 12px 3px var(--mod-drag-color);
-  }
+  ${modDragHighlight('> * >')}
 `;
 
 // y of a position (0: min at the bottom, 1: max at the top) in the body, at the middle of the cap

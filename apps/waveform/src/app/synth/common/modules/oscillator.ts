@@ -51,16 +51,17 @@ export const frameIndex = (position: number, count: number, morph: boolean) => {
 export const framePosition = (j: number, count: number, morph: boolean) =>
   playedFrames(count, morph) === count ? j : keyFrame(j, count);
 
-// the pitch of the oscillator over the note in cents: Oct, Semi and Fine
-const pitchCents = ({ octave, semi, fine }: { octave: number; semi: number; fine: number }) =>
-  1200 * octave + 100 * semi + fine;
-
 // the base of the params of the oscillator on a voice node (wavetable-osc-params.ts), from the knobs: the
-// position as a share of the table, its pitch in cents (the pitch of a voice is the note's), the unison detune
-// as its spread (cents), the gain
-const baseParams = (position: number, frames: number, pitch: number, detune: number, gain: number) => ({
+// position as a share of the table, its pitch over the note in cents (Oct, Semi and Fine; the pitch of a voice is
+// the note's), the unison detune as its spread (cents), the gain
+const baseParams = (
+  position: number,
+  frames: number,
+  { octave, semi, fine, detune }: { octave: number; semi: number; fine: number; detune: number },
+  gain: number
+) => ({
   position: frames > 1 ? Math.min(1, Math.max(0, position / (frames - 1))) : 0,
-  detune: pitch,
+  detune: 1200 * octave + 100 * semi + fine,
   spread: detune,
   gain,
 });
@@ -145,9 +146,7 @@ export const oscillator = ({
       map((tables) => tables[id] ?? null),
       distinctUntilChanged()
     );
-    const $params = new BehaviorSubject<Record<OscParam, number>>(
-      baseParams(0, 1, pitchCents($osc.value), $osc.value.detune, $gain.value)
-    );
+    const $params = new BehaviorSubject<Record<OscParam, number>>(baseParams(0, 1, $osc.value, $gain.value));
     // its notes play the table of its path: loaded and in the wavetable oscillator (stored, or refused or failed:
     // the version before plays); the table loaded goes to the oscillator before loading ends (setWaveTable sets
     // it sending), so no moment between them reads as played
@@ -222,11 +221,7 @@ export const oscillator = ({
     // the base of the params of the voices follows the knobs and the frames played
     .subscriptions(({ $position, $frames, $osc, $gain, $params }) =>
       combineLatest([$position, $frames, $osc, $gain])
-        .pipe(
-          map(([position, frames, osc, gain]) =>
-            baseParams(position, frames, pitchCents(osc), osc.detune, gain)
-          )
-        )
+        .pipe(map(([position, frames, osc, gain]) => baseParams(position, frames, osc, gain)))
         .subscribe($params)
     )
     // the table follows the path (also from presets) whatever screen is shown

@@ -13,8 +13,8 @@ import {
   amountInUnits,
   MOD_TARGETS,
   ModScale,
-  pitchAmount,
-  pitchAmountSteps,
+  PITCH_UNITS,
+  pitchSteps,
   PitchUnit,
 } from '../common/modulation/modulation-targets';
 import { LFO_SOURCE, noteLevel } from '../fx/effects/fx-modulation';
@@ -32,8 +32,8 @@ const sign = (value: number) => (value > 0 ? '+' : value < 0 ? '-' : '');
 // linear one or of the travel of a pow one (+35%); of the pitch semitones (+12 st, +0.5 st) or cents (+25 ct)
 export const formatAmount = (amount: number, scale: ModScale, range: [number, number], unit?: PitchUnit) => {
   if (unit) {
-    const value = Math.abs(number.round(pitchAmount(amount, unit, range), unit === 'semitones' ? 10 : 1));
-    return `${sign(amount)}${value} ${unit === 'semitones' ? 'st' : 'ct'}`;
+    const { symbol, precision } = PITCH_UNITS[unit];
+    return `${sign(amount)}${Math.abs(number.round(amount * pitchSteps(unit, range), precision))} ${symbol}`;
   }
   return scale === 'log'
     ? `${sign(amount)}${Math.abs(number.round(amountInUnits(amount, scale, range), 10))} oct`
@@ -44,7 +44,6 @@ export const formatAmount = (amount: number, scale: ModScale, range: [number, nu
 interface KnobScale {
   scale: ModScale;
   range: [number, number];
-  unit?: PitchUnit;
 }
 
 // the modulation props of the knob of a target (modulation-targets.ts): the drop target of the tabs (none once
@@ -123,6 +122,7 @@ export const useKnobModulation = (target: string, knob?: KnobScale): KnobModulat
         : definition.kind === 'osc' || definition.kind === 'lfo'
         ? definition
         : undefined;
+    const unit = definition.kind === 'osc' ? definition.unit : undefined;
     // in the order of the sources: each has its section of the dot in the same place
     const modulations = routes
       .filter((route) => route.target === target)
@@ -135,8 +135,8 @@ export const useKnobModulation = (target: string, knob?: KnobScale): KnobModulat
           label: SOURCE_LABELS[source],
           onChange: (value) => actions?.setAmount(source, target, value),
           onRemove: () => actions?.removeRoute(source, target),
-          formatAmount: units && ((value) => formatAmount(value, units.scale, units.range, units.unit)),
-          ...(units?.unit && { amountSteps: pitchAmountSteps(units.unit, units.range) }),
+          formatAmount: units && ((value) => formatAmount(value, units.scale, units.range, unit)),
+          ...(units && unit && { amountSteps: pitchSteps(unit, units.range) }),
           level: level(source),
           live,
           selected: source === selected,

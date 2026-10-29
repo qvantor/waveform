@@ -396,8 +396,16 @@ const createCases = (dsp) => {
   // tree before it has none
   const AGAIN = 64;
   const heldAgain = constant({ ...BASE, gate: 1.5 });
+  const flat = { attack: 0, hold: 0, decay: 0, sustain: 1, release: 0 };
+  // a call of a voice: a block, the gate at its other value every AGAIN blocks
+  const retriggered = (voiceDsp) => {
+    let block = 0;
+    return () => {
+      voiceDsp.process(block * BLOCK, Math.floor(block / AGAIN) % 2 ? heldAgain : held, outL, outR);
+      block++;
+    };
+  };
   const routedOf = (core) => () => {
-    const flat = { attack: 0, hold: 0, decay: 0, sustain: 1, release: 0 };
     const decay = { attack: 0, hold: 0, decay: 0.2, sustain: 0, release: 0 };
     const voiceDsp = createVoice[core]({
       osc: [{ table: 'a', unison: 1, phase: 0, phaseRand: 0 }, null],
@@ -413,17 +421,12 @@ const createCases = (dsp) => {
       ],
       filter: { type: 'lowpass', cutoff: 400, resonance: 3, gain: 0 },
     });
-    let block = 0;
-    return () => {
-      voiceDsp.process(block * BLOCK, Math.floor(block / AGAIN) % 2 ? heldAgain : held, outL, outR);
-      block++;
-    };
+    return retriggered(voiceDsp);
   };
   // a kick of u8: ENV 2 from 36 semitones over the note down to it in 80 ms, the envelopes started again every AGAIN
   // blocks (as `voice u1 routed`): the direct path while the pitch moves, then its mix tables again; its cost over
   // `voice u8 held` (a tree before the pitch as a target leaves the route out)
   const pitchEnv = () => {
-    const flat = { attack: 0, hold: 0, decay: 0, sustain: 1, release: 0 };
     const kick = { attack: 0, hold: 0, decay: 0.08, sustain: 0, release: 0 };
     const voiceDsp = createVoice.wasm({
       osc: [{ table: 'a', unison: 8, phase: 0, phaseRand: 1 }, null],
@@ -434,11 +437,7 @@ const createCases = (dsp) => {
       routes: [{ source: 1, param: 'detune1', amount: 3600, min: -12000, max: 12000 }],
       filter: null,
     });
-    let block = 0;
-    return () => {
-      voiceDsp.process(block * BLOCK, Math.floor(block / AGAIN) % 2 ? heldAgain : held, outL, outR);
-      block++;
-    };
+    return retriggered(voiceDsp);
   };
   // a position that moves in every block: the direct path. Its blocks over a period of the LFO (2 s) are worked
   // out once, not in the call: making them there (Float32Array.from, 128 sines) cost 34 ns/sample, more than the

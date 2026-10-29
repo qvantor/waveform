@@ -113,17 +113,11 @@ export const VOICE_PARAM_ORDER: readonly VoiceParam[] = [
   'gain2',
 ];
 // the params a route moves, by their id in the core (another name: none, the route is left out): those of the
-// voice, then the knobs of each LFO (lfo_target of modulation.rs)
+// oscillators in the order of a block, the knobs of the filter, then the knobs of each LFO (lfo_target of
+// modulation.rs)
 const LFO_KNOBS = ['rate', 'delay', 'rise', 'smooth', 'phase'];
 const ROUTE_PARAMS = [
-  'position1',
-  'detune1',
-  'spread1',
-  'gain1',
-  'position2',
-  'detune2',
-  'spread2',
-  'gain2',
+  ...VOICE_PARAM_ORDER.slice(2),
   'cutoff',
   'resonance',
   'gain',

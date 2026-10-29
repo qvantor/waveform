@@ -11,7 +11,8 @@ import { ValueTooltip } from '../tooltip/value-tooltip';
 import { Label } from '../label';
 import { MarkCanvas, useModulations } from '../common/utils/use-mod-mark';
 import { AMOUNT_DOT_SIZE, RoutesDot } from '../amount-dot';
-import { MOD_DRAGGING_CLASS, MOD_OVER_ATTR, MOD_REFUSED_ATTR, MOD_TARGET_ATTR } from '../mod-drag';
+import { MOD_TARGET_ATTR } from '../mod-drag';
+import { modDragHighlight } from '../mod-drag/highlight';
 
 // a modulation of the knob: a source (an envelope) moves it by amount, a share of its range in its scale
 // (-1..1); a dot at the top left has a section of the color of each route, the route of the selected source
@@ -166,18 +167,8 @@ const ModHighlight = styled.div<StyledProps>`
   width: ${(props) => sizes[props.size].handleOuter}px;
   height: ${(props) => sizes[props.size].handleOuter}px;
   border-radius: 100%;
-  pointer-events: none;
   z-index: 3;
-  display: none;
-
-  body.${MOD_DRAGGING_CLASS} [${MOD_TARGET_ATTR}]:not([${MOD_REFUSED_ATTR}]) > * > & {
-    display: block;
-    box-shadow: 0 0 0 2px var(--mod-drag-color);
-  }
-
-  body.${MOD_DRAGGING_CLASS} [${MOD_OVER_ATTR}] > * > & {
-    box-shadow: 0 0 0 3px var(--mod-drag-color), 0 0 12px 3px var(--mod-drag-color);
-  }
+  ${modDragHighlight('> * >')}
 `;
 
 // where the knob moves with its modulations now: over the knob, a canvas its mark is painted on (markCanvasOf)

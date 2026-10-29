@@ -1,13 +1,13 @@
 import React from 'react';
 import styled from 'styled-components';
 import cls from 'classnames';
-import { Handle, DraggableNumber, useElementSize } from '@waveform/ui-kit';
+import { Handle, DraggableNumber } from '@waveform/ui-kit';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
 import { number } from '@waveform/math';
 import { OscillatorActions, OscillatorModel, useOscillator1 } from '../common/modules';
 import { RxHandle } from '../../common/components';
 import { useKnobModulation } from '../modulation/use-knob-modulation';
-import { OscillatorContext, useOscillatorContext } from './hooks';
+import { OscillatorContext, useCompact, useOscillatorContext } from './hooks';
 import { formatWavePosition, Wave, WaveSelector } from './components';
 
 export { useOscillatorContext };
@@ -37,10 +37,6 @@ const TopControls = styled.div`
     gap: 3px;
   }
 `;
-
-// the row at full size takes about 380 px (the name of a table included): a narrower one (a phone, two
-// oscillators side by side) has its fields smaller, without their carets
-const COMPACT_WIDTH = 380;
 
 const Handles = styled.div`
   display: flex;
@@ -84,8 +80,8 @@ export const Oscillator = ({
   // Pitch on Semi (smoothly, ±48 semitones), Fine in cents
   const pitchModulation = useKnobModulation(`${target}.pitch`);
   const fineModulation = useKnobModulation(`${target}.fine`);
-  const [topRef, [topWidth]] = useElementSize<HTMLDivElement>();
-  const compact = topWidth > 0 && topWidth < COMPACT_WIDTH;
+  // narrow: the fields smaller, without their carets
+  const [topRef, compact] = useCompact<HTMLDivElement>();
 
   return (
     <OscillatorContext.Provider value={oscillator}>
