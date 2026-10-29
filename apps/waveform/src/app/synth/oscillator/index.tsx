@@ -1,13 +1,12 @@
 import React from 'react';
 import styled from 'styled-components';
-import cls from 'classnames';
-import { Handle, DraggableNumber } from '@waveform/ui-kit';
+import { Handle } from '@waveform/ui-kit';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
 import { number } from '@waveform/math';
 import { OscillatorActions, OscillatorModel, useOscillator1 } from '../common/modules';
 import { RxHandle } from '../../common/components';
 import { useKnobModulation } from '../modulation/use-knob-modulation';
-import { OscillatorContext, useCompact, useOscillatorContext } from './hooks';
+import { OscillatorContext, useOscillatorContext } from './hooks';
 import { formatWavePosition, Wave, WaveSelector } from './components';
 
 export { useOscillatorContext };
@@ -19,23 +18,9 @@ const Root = styled.div`
   gap: 5px;
 `;
 
-// Oct, Semi, Fine and the table: as wide as the oscillator whatever they hold (the name of the table is cut)
-const TopControls = styled.div`
-  display: flex;
-  gap: 5px;
+// the table: as wide as the oscillator whatever its name (cut with an ellipsis)
+const Table = styled.div`
   contain: inline-size;
-
-  & > :not(:last-child) {
-    flex: none;
-  }
-
-  & > :last-child {
-    min-width: 0;
-  }
-
-  &.compact {
-    gap: 3px;
-  }
 `;
 
 const Handles = styled.div`
@@ -68,8 +53,6 @@ export const Oscillator = ({
   setGain,
   target = 'osc1',
 }: Props) => {
-  // const wavetables = useWavetables();
-
   const oscillator = useOscillator();
   const osc = useBehaviorSubject($osc);
   // the frames played (of an expanded table 256)
@@ -77,43 +60,14 @@ export const Oscillator = ({
   const gainModulation = useKnobModulation(`${target}.gain`);
   const waveModulation = useKnobModulation(`${target}.wave`);
   const detuneModulation = useKnobModulation(`${target}.detune`);
-  // Pitch on Semi (smoothly, ±48 semitones), Fine in cents
-  const pitchModulation = useKnobModulation(`${target}.pitch`);
-  const fineModulation = useKnobModulation(`${target}.fine`);
-  // narrow: the fields smaller, without their carets
-  const [topRef, compact] = useCompact<HTMLDivElement>();
 
   return (
     <OscillatorContext.Provider value={oscillator}>
       <Root>
-        <TopControls ref={topRef} className={cls({ compact })}>
-          <DraggableNumber
-            value={osc.octave}
-            label='Oct'
-            range={ranges.octave}
-            compact={compact}
-            onChange={(value) => setOscValue('octave', value)}
-          />
-          <DraggableNumber
-            value={osc.semi}
-            label='Semi'
-            range={ranges.semi}
-            compact={compact}
-            onChange={(value) => setOscValue('semi', value)}
-            {...pitchModulation}
-          />
-          <DraggableNumber
-            value={osc.fine}
-            label='Fine'
-            range={ranges.fine}
-            pxPerStep={2}
-            compact={compact}
-            onChange={(value) => setOscValue('fine', value)}
-            {...fineModulation}
-          />
+        <Table>
           <WaveSelector />
-        </TopControls>
-        <Wave modulations={waveModulation.modulations} />
+        </Table>
+        <Wave modulations={waveModulation.modulations} target={target} />
         <Handles>
           <HandlesGroup>
             <RxHandle

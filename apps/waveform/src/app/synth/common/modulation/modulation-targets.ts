@@ -186,6 +186,16 @@ export const amountInUnits = (amount: number, scale: ModScale, [min, max]: [numb
 export const pitchSteps = (unit: PitchUnit, range: [number, number]) =>
   amountInUnits(1, 'linear', range) / PITCH_UNITS[unit].cents;
 
+// the share of the range of a control an amount of 1 of a route of `target` moves it over: of the pitch its whole
+// units over the range of the control in them (Pitch on Semi: 48 of its 24 semitones, 2; Fine on Fine: 100 of its
+// 200 cents, 0.5), else the whole range
+export const modSpan = (target: string, [min, max]: [number, number]) => {
+  const definition = MOD_TARGETS[target];
+  return definition?.kind === 'osc' && definition.unit
+    ? pitchSteps(definition.unit, definition.range) / (max - min)
+    : 1;
+};
+
 // a route of the modulation in the units of the knob it moves: the scale only when it isn't linear, bipolar only
 // when it is
 export const fxRoute = (

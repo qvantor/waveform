@@ -1,38 +1,9 @@
 import React from 'react';
-import styled from 'styled-components';
 import cls from 'classnames';
-import { DragValue, theme } from '@waveform/ui-kit';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
 import { number } from '@waveform/math';
-import { useCompact, useOscillatorContext } from '../../hooks';
-
-// the bottom of the block of the wave: a line over it and between its values; as wide as the block, whatever
-// its values (they never widen the oscillator)
-const Root = styled.div`
-  display: flex;
-  contain: inline-size;
-  border-top: 1px solid ${theme.colors.primaryDarkMediumContrast};
-  border-radius: 0 0 3px 3px;
-  overflow: hidden;
-`;
-
-// each value as wide as the others, the whole cell is dragged
-const Cell = styled(DragValue)`
-  flex: 1 1 0;
-  justify-content: center;
-  padding: 6px 7px;
-  border-radius: 0;
-
-  & + & {
-    border-left: 1px solid ${theme.colors.primaryDarkMediumContrast};
-  }
-
-  .compact > & {
-    padding: 6px 3px;
-    gap: 3px;
-    font-size: 10px;
-  }
-`;
+import { useOscillatorContext } from '../../hooks';
+import { Cell, Strip } from './value-strip';
 
 // the frame of a position from 1, a fractional one (of a preset or a modulation) with one decimal
 export const formatWavePosition = (position: number) =>
@@ -41,19 +12,20 @@ export const formatWavePosition = (position: number) =>
 interface Props {
   // Phase or Phase rand is held (true) or let go (false)
   onPhaseActiveChange: (active: boolean) => void;
+  // narrow: the values smaller
+  compact: boolean;
 }
 
 // under the wave, on its background: the frame it plays of the frames played, Phase, Phase rand and Unison
 // dragged to change them
-export const WaveInfo = ({ onPhaseActiveChange }: Props) => {
+export const WaveInfo = ({ onPhaseActiveChange, compact }: Props) => {
   const [{ $position, $frames, $osc, ranges }, { setOscValue }] = useOscillatorContext();
   const position = useBehaviorSubject($position);
   // the frames played, as the Wave knob: of a table with a morph mark its 256
   const frames = useBehaviorSubject($frames);
   const { phase, phaseRand, unison } = useBehaviorSubject($osc);
-  const [ref, compact] = useCompact<HTMLDivElement>();
   return (
-    <Root ref={ref} className={cls({ compact })}>
+    <Strip $edge='bottom' className={cls({ compact })}>
       <Cell label='Wave' value={position} formatValue={(value) => `${formatWavePosition(value)}/${frames}`} />
       <Cell
         label='Phase'
@@ -85,6 +57,6 @@ export const WaveInfo = ({ onPhaseActiveChange }: Props) => {
         arrows
         onChange={(value) => setOscValue('unison', value)}
       />
-    </Root>
+    </Strip>
   );
 };
