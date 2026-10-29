@@ -3,6 +3,7 @@ import styled from 'styled-components';
 import { Handle } from '@waveform/ui-kit';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
 import { number } from '@waveform/math';
+import { OSC_DEFAULTS } from '@waveform/preset-schema';
 import { OscillatorActions, OscillatorModel, useOscillator1 } from '../common/modules';
 import { RxHandle } from '../../common/components';
 import { useKnobModulation } from '../modulation/use-knob-modulation';
@@ -79,6 +80,7 @@ export const Oscillator = ({
               onChange={setGain}
               formatValue={(value) => number.percent(number.round(value, 100))}
               precision={100}
+              defaultValue={OSC_DEFAULTS.g}
               {...gainModulation}
             />
           </HandlesGroup>
@@ -93,6 +95,7 @@ export const Oscillator = ({
               onChange={setPosition}
               precision={1}
               formatValue={formatWavePosition}
+              defaultValue={OSC_DEFAULTS.w}
               {...waveModulation}
             />
           </HandlesGroup>
@@ -105,6 +108,7 @@ export const Oscillator = ({
               max={ranges.detune[1]}
               onChange={(value) => setOscValue('detune', Math.round(value * 100000) / 100000)}
               precision={1}
+              defaultValue={OSC_DEFAULTS.d}
               {...detuneModulation}
             />
           </HandlesGroup>

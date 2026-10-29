@@ -71,13 +71,23 @@ interface Props {
   // the share of the volume of a note the velocity takes
   amp: number;
   onAmpChange: (amp: number) => void;
+  // the Amp its menu sets
+  defaultAmp?: number;
   // in the chart, in its context: the VelocityDot of the last note (a note renders it alone, not the chart)
   children?: React.ReactNode;
 }
 
 // the velocity of a note: its level (VELO, a source of the modulation) over its share of 127, the point in the
 // middle of the curve bends it (a double click: a line), and Amp, the share of the volume of a note it takes
-export const VelocityCurve = ({ k, curveMax, onCurveChange, amp, onAmpChange, children }: Props) => (
+export const VelocityCurve = ({
+  k,
+  curveMax,
+  onCurveChange,
+  amp,
+  onAmpChange,
+  defaultAmp,
+  children,
+}: Props) => (
   <Root>
     <Chart domainX={[0, 1]} domainY={[1, 0]} padding={[10, 5]}>
       <YAxis ticks={2} />
@@ -105,6 +115,7 @@ export const VelocityCurve = ({ k, curveMax, onCurveChange, amp, onAmpChange, ch
           max={1}
           precision={100}
           value={amp}
+          defaultValue={defaultAmp}
           onChange={onAmpChange}
           formatValue={(value) => `${Math.round(value * 100)}%`}
         />

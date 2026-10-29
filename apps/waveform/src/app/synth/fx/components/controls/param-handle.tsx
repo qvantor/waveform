@@ -15,7 +15,7 @@ interface Props {
 }
 
 const Control = ({
-  def: { label, name, min, max, mode, precision, formatValue, fillFrom, control },
+  def: { label, name, min, max, mode, precision, formatValue, fillFrom, control, default: defaultValue },
   modulation,
   ...props
 }: Omit<Props, 'target'>) => {
@@ -30,6 +30,7 @@ const Control = ({
       precision={precision}
       formatValue={formatValue}
       fillFrom={fillFrom}
+      defaultValue={defaultValue}
       {...modulation}
       {...props}
     />

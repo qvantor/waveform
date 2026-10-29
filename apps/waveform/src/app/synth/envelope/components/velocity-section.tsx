@@ -2,7 +2,7 @@ import React from 'react';
 import { BehaviorSubject, distinctUntilChanged, map } from 'rxjs';
 import { Section, VelocityCurve, VelocityDot } from '@waveform/ui-kit';
 import { useBehaviorSubject, useObservable } from '@waveform/rxjs-react';
-import { ENVELOPE_CURVE_MAX } from '@waveform/preset-schema';
+import { ENVELOPE_CURVE_MAX, VELOCITY_DEFAULTS } from '@waveform/preset-schema';
 import { useEnvelopes } from '../../common/modules';
 import { SynthContext } from '../../common/modules/synth';
 import type { FxNote } from '../../fx/effects/fx-modulation';
@@ -43,6 +43,7 @@ export const VelocitySection = () => {
         onCurveChange={(value) => setVelocity('k', value)}
         amp={amp}
         onAmpChange={(value) => setVelocity('amp', value)}
+        defaultAmp={VELOCITY_DEFAULTS.amp}
       >
         <NoteVelocityDot k={k} />
       </VelocityCurve>

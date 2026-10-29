@@ -2,6 +2,7 @@ import React from 'react';
 import styled from 'styled-components';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
 import { DraggableNumber, Section, Checkbox, theme } from '@waveform/ui-kit';
+import { PRESET_DEFAULTS } from '@waveform/preset-schema';
 import { RxHandle } from '../../../common/components';
 import { useSynth } from '../../common/modules';
 
@@ -50,7 +51,14 @@ export const VoicingSection = () => {
       <Root>
         <ControlsContainer>
           <div />
-          <DraggableNumber value={maxVoices} range={[1, 12]} label='Poly' onChange={setMaxVoices} />
+          <DraggableNumber
+            value={maxVoices}
+            range={[1, 12]}
+            label='Poly'
+            name='Voices'
+            defaultValue={PRESET_DEFAULTS.v.max}
+            onChange={setMaxVoices}
+          />
           <Checkbox checked={legato} onChange={setLegato} label='Legato' />
           <Voices>
             <span>{voicesCount} /</span> {maxVoices}
@@ -63,6 +71,7 @@ export const VoicingSection = () => {
             max={400}
             label='Portamento'
             name='Glide time'
+            defaultValue={PRESET_DEFAULTS.v.port}
             onChange={setPortamento}
             plotSize={200}
             precision={1}

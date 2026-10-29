@@ -329,9 +329,9 @@ const lfoSectionSchema = z.object({ l1: lfoSchema, l2: lfoSchema, l3: lfoSchema,
 // the modulation: a route moves a knob (a target of the app: osc1.wave, filter.cutoff, delay.time…) by its
 // source × amount, a share of the range of the knob in its scale (-1..1, a log knob in octaves: +0.5 on
 // Cutoff is about +5.5 octaves). Saved as { 'env2:osc1.wave': 0.5 }: one route per source and knob; a bipolar one
-// (around the knob, amount × (level - ½)) as { 'lfo1:filter.gain': { a: 0.5, bi: true } }. The sources: the
-// envelopes, the velocity (VELO), then the LFOs; an index into MOD_SOURCES is the index of the source in the
-// voice. The knobs of the LFOs take no LFO
+// (around the knob, amount × (level - ½)) as { 'lfo1:filter.gain': { a: 0.5, bi: true } }, one switched off (kept,
+// moving nothing) with off: { a: 0.5, off: true }. The sources: the envelopes, the velocity (VELO), then the LFOs;
+// an index into MOD_SOURCES is the index of the source in the voice. The knobs of the LFOs take no LFO
 export type ModSource = EnvelopeId | 'velo' | LfoId;
 export const MOD_SOURCES: readonly ModSource[] = [...ENVELOPES, 'velo', ...LFOS];
 export const isLfo = (source: string): source is LfoId => (LFOS as readonly string[]).includes(source);
@@ -342,7 +342,13 @@ export const isLfoKnob = (target: string) => /^lfo[1-4]\./.test(target);
 export const MOD_ROUTES_MAX = 64;
 export const MOD_KNOB_SOURCES_MAX = 4;
 const modKeySchema = z.string().regex(/^(env[1-3]|velo|lfo[1-4]):[a-z][a-z0-9]*\.[a-z][a-z0-9]*$/);
-const modValueSchema = z.union([range(-1, 1), z.object({ a: range(-1, 1), bi: z.literal(true) })]);
+// an object has a flag: a route without one is its amount
+const modValueSchema = z.union([
+  range(-1, 1),
+  z
+    .object({ a: range(-1, 1), bi: z.literal(true).optional(), off: z.literal(true).optional() })
+    .refine(({ bi, off }) => bi || off),
+]);
 export type ModValue = z.infer<typeof modValueSchema>;
 const knobSources = (routes: Record<string, unknown>) =>
   Object.keys(routes).reduce<Record<string, number>>((counts, key) => {
@@ -446,6 +452,11 @@ export const presetDataSchema = z.object({
 });
 
 export type PresetData = z.infer<typeof presetDataSchema>;
+
+// the state of an empty preset (Init): the default of every knob
+export const PRESET_DEFAULTS: PresetData = presetDataSchema.parse({});
+// the knobs of an oscillator in it: those of osc 1 and osc 2 alike (only `a` differs)
+export const OSC_DEFAULTS: Omit<PresetData['osc1'], 'a'> = PRESET_DEFAULTS.osc1;
 
 export const PRESET_NAME_MAX_LENGTH = 40;
 

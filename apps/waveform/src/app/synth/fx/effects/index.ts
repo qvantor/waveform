@@ -1,4 +1,5 @@
-import { FX_MIX_PARAM, FxType } from '@waveform/preset-schema';
+import { mapValues } from 'lodash';
+import { FX_MIX_PARAMS, FxType } from '@waveform/preset-schema';
 import { number } from '@waveform/math';
 import { FxDefinition, FxParamDef, FxPreset } from './types';
 import { distortion } from './distortion';
@@ -7,14 +8,14 @@ import { reverb } from './reverb';
 
 export const FX_REGISTRY: Record<FxType, FxDefinition> = { distortion, delay, reverb };
 
-// common for every effect (the range, its default is the one of each effect), applied by createFxSlot
-export const MIX_PARAM: FxParamDef = {
-  ...FX_MIX_PARAM,
+// the mix of each effect, applied by createFxSlot: the same knob, the default of the effect (the distortion all wet)
+export const MIX_PARAMS: Record<FxType, FxParamDef> = mapValues(FX_MIX_PARAMS, (mix) => ({
+  ...mix,
   label: 'Mix',
   name: 'Dry/wet',
   precision: 100,
   formatValue: number.percent,
-};
+}));
 
 // the built-in preset the current mix and params match exactly, none: a custom sound
 export const findFxPreset = (type: FxType, { mix, params }: Pick<FxPreset, 'mix' | 'params'>) => {

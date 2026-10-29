@@ -6,13 +6,14 @@ import { number } from '@waveform/math';
 import { text12 } from '../common/styles';
 import { theme } from '../common/constants';
 import { useElementSize } from '../common/hooks';
-import { singlePointerTracker } from '../common/utils';
 import { MarkCanvas, useModulations } from '../common/utils/use-mod-mark';
+import { OFF_OPACITY } from '../common/utils/mod-routes';
 import type { HandleModulation } from '../handle';
 import { AMOUNT_DOT_SIZE, RoutesDot } from '../amount-dot';
 import { MOD_TARGET_ATTR } from '../mod-drag';
 import { modDragHighlight } from '../mod-drag/highlight';
 import { StepArrows } from '../draggable-number/step-arrows';
+import { useControlMenu } from '../control-menu';
 
 interface DragValueProps {
   label: string;
@@ -39,6 +40,10 @@ interface DragValueProps {
   modulations?: HandleModulation[];
   // the id a dragged source is dropped onto (MOD_TARGET_ATTR)
   modTarget?: string;
+  // the value of an empty preset: the menu (a right click, a long press on a touch screen) sets it
+  defaultValue?: number;
+  // removes every route at once (the menu)
+  onClearModulations?: () => void;
   className?: string;
 }
 
@@ -65,6 +70,7 @@ const Root = styled.div`
   &.editable {
     cursor: move;
     touch-action: none;
+    -webkit-touch-callout: none;
 
     &:hover,
     &.active {
@@ -179,10 +185,11 @@ export const DragValue = ({
   onActiveChange,
   modulations: routes,
   modTarget,
+  defaultValue,
+  onClearModulations,
   className,
 }: DragValueProps) => {
   const [active, setActive] = React.useState(false);
-  const [trackPointer] = React.useState(singlePointerTracker);
   const lastValue = React.useRef(value);
   const [trackRef, [trackWidth]] = useElementSize<HTMLDivElement>();
   const mark = React.useMemo(() => markCanvas(trackWidth), [trackWidth]);
@@ -206,15 +213,23 @@ export const DragValue = ({
     onActiveChange?.(held);
   };
 
+  // a right click or a long press: the routes, Default, Clear modulation
+  const menu = useControlMenu({
+    name: label,
+    value,
+    formatValue,
+    defaultValue,
+    min,
+    max,
+    onChange,
+    modulations: routes,
+    onClearModulations,
+  });
+
   const onPointerDown = (e: React.PointerEvent) => {
-    // Shift+Alt+click: the selected route switches its polarity, the value doesn't move
-    if (e.shiftKey && e.altKey && shown?.onPolarity) {
-      shown.onPolarity(!shown.bipolar);
-      return;
-    }
     lastValue.current = value;
     const [startX, startY] = [e.clientX, e.clientY];
-    const tracked = trackPointer(
+    const tracked = menu.track(
       e,
       (move) => {
         const diff = move.clientX - startX - (move.clientY - startY);
@@ -246,7 +261,9 @@ export const DragValue = ({
   const wholeNumber = !formatValue && precision === 1;
   return (
     <Root
+      ref={menu.anchorRef}
       className={cls(className, { editable, active })}
+      onContextMenu={menu.onContextMenu}
       {...(modTarget && { [MOD_TARGET_ATTR]: modTarget })}
       {...(editable && {
         role: 'slider',
@@ -267,7 +284,9 @@ export const DragValue = ({
       {arrows && <StepArrows active={active} />}
       {routes && (
         <DotSlot data-testid='mod-dot-slot'>
-          {routes.length > 0 && <RoutesDot modulations={routes} style={DOT_IN_SLOT} />}
+          {routes.length > 0 && (
+            <RoutesDot modulations={routes} onLongPress={menu.open} style={DOT_IN_SLOT} />
+          )}
         </DotSlot>
       )}
       {routes && (
@@ -277,6 +296,7 @@ export const DragValue = ({
               data-testid='mod-bar'
               style={{
                 background: shown.color,
+                opacity: shown.off ? OFF_OPACITY : undefined,
                 left: `${span[0] * 100}%`,
                 width: `${(span[1] - span[0]) * 100}%`,
               }}
@@ -286,6 +306,7 @@ export const DragValue = ({
       )}
       {live && <ModMark {...modMark} style={{ width: trackWidth }} data-testid='value-mod-mark' />}
       {modTarget && <ModHighlight />}
+      {menu.menu}
     </Root>
   );
 };

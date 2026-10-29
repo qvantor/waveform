@@ -11,7 +11,7 @@ import {
   MOD_SOURCES,
 } from '@waveform/preset-schema';
 import { rangesOf } from '../../filter/constants';
-import { FX_REGISTRY, MIX_PARAM } from '../../fx/effects';
+import { FX_REGISTRY, MIX_PARAMS } from '../../fx/effects';
 import type { ModRoute } from '../modules/modulation';
 import type { FxRoute } from '../../fx/effects/fx-modulation';
 
@@ -74,7 +74,7 @@ export type ModTarget = OscTarget | FilterTarget | FxTarget | LfoTarget;
 
 const fxTargets = Object.fromEntries(
   FX_TYPES.flatMap((fx) =>
-    [...Object.entries(FX_REGISTRY[fx].params), ['mix', MIX_PARAM] as const]
+    [...Object.entries(FX_REGISTRY[fx].params), ['mix', MIX_PARAMS[fx]] as const]
       .filter(([, definition]) => !definition.options)
       .map(([param, { label, min, max, mode }]): [string, FxTarget] => [
         `${fx}.${param}`,
@@ -187,10 +187,11 @@ export const fxRoute = (
   ...(bipolar && { bipolar }),
 });
 
-// the routes of the note to the knobs of the LFOs (lfo2.rate…: of the envelopes and VELO), in the units of each
+// the routes of the note to the knobs of the LFOs (lfo2.rate…: of the envelopes and VELO), in the units of each;
+// an amount of 0 and a route switched off are left out
 export const lfoKnobRoutes = (routes: ModRoute[]): FxRoute[] =>
   routes.flatMap((route) => {
     const definition = MOD_TARGETS[route.target];
-    if (definition?.kind !== 'lfo' || route.amount === 0) return [];
+    if (definition?.kind !== 'lfo' || route.amount === 0 || route.off) return [];
     return [fxRoute(route.target, route, definition.scale, definition.range)];
   });

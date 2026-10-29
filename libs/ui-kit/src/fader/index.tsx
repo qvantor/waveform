@@ -5,8 +5,9 @@ import hexToRgba from 'hex-to-rgba';
 import { number } from '@waveform/math';
 import { theme } from '../common/constants';
 import { scaleTicks, TickKind } from '../common/constants/scale-ticks';
-import { singlePointerTracker, valueScale } from '../common/utils';
+import { valueScale } from '../common/utils';
 import { MarkCanvas, useModulations } from '../common/utils/use-mod-mark';
+import { OFF_OPACITY } from '../common/utils/mod-routes';
 import { Tooltip } from '../tooltip';
 import { ValueTooltip } from '../tooltip/value-tooltip';
 import { Label } from '../label';
@@ -14,6 +15,7 @@ import type { HandleProps } from '../handle';
 import { RoutesDot } from '../amount-dot';
 import { MOD_TARGET_ATTR } from '../mod-drag';
 import { modDragHighlight } from '../mod-drag/highlight';
+import { useControlMenu } from '../control-menu';
 
 // the props of a knob, fillFrom is e.g. the natural width of a stereo fader
 type FaderProps = Omit<HandleProps, 'step' | 'size' | 'plotSize'> & { className?: string };
@@ -48,6 +50,7 @@ const Root = styled.div`
   align-items: center;
   gap: 4px;
   touch-action: none;
+  -webkit-touch-callout: none;
 
   &.disabled {
     pointer-events: none;
@@ -225,6 +228,8 @@ export const Fader = ({
   className,
   modulations: routes,
   modTarget,
+  defaultValue,
+  onClearModulations,
 }: FaderProps) => {
   const scale = React.useMemo(
     () => valueScale(mode).domain([min, max]).range([0, 1]).clamp(true),
@@ -250,7 +255,19 @@ export const Fader = ({
   } = useModulations(routes, disabled, position, MARK_CANVAS);
   const [span] = spans;
 
-  const bodyRef = React.useRef<HTMLDivElement>(null);
+  // a right click or a long press: the routes, Default, Clear modulation; under the body
+  const menu = useControlMenu({
+    name,
+    value,
+    formatValue,
+    defaultValue,
+    min,
+    max,
+    onChange,
+    modulations: disabled ? undefined : routes,
+    onClearModulations,
+  });
+  const bodyRef = menu.anchorRef;
   const capRef = React.useRef<HTMLDivElement>(null);
   const slotRef = React.useRef<HTMLDivElement>(null);
   const dotRef = React.useRef<HTMLDivElement>(null);
@@ -261,13 +278,7 @@ export const Fader = ({
     onChange?.(next);
   };
 
-  const [trackPointer] = React.useState(singlePointerTracker);
   const onPointerDown = (e: React.PointerEvent) => {
-    // Shift+Alt+click: the selected route switches its polarity, the fader doesn't move
-    if (e.shiftKey && e.altKey && shown?.onPolarity) {
-      shown.onPolarity(!shown.bipolar);
-      return;
-    }
     lastValue.current = value;
     const target = e.target as Node;
     // the track beside the cap: the cap jumps under the pointer, then follows it; the cap, the dot of the routes
@@ -279,8 +290,15 @@ export const Fader = ({
     const rect = slotRef.current?.getBoundingClientRect();
     const start = onTrack && rect?.height ? (rect.bottom - e.clientY) / rect.height : position;
     const startY = e.clientY;
-    const tracked = trackPointer(e, (move) => emit(toValue(start + (startY - move.clientY) / FADER_TRAVEL)));
-    if (tracked && onTrack) emit(toValue(start));
+    const tracked = menu.track(
+      e,
+      (move) => emit(toValue(start + (startY - move.clientY) / FADER_TRAVEL)),
+      (tapped) => {
+        // a finger on the track jumps there once it moves or is let go (held still it opens the menu)
+        if (onTrack && tapped) emit(toValue(start));
+      }
+    );
+    if (tracked && onTrack && !tracked.waits) emit(toValue(start));
   };
 
   const onKeyDown = (e: React.KeyboardEvent) => {
@@ -304,6 +322,7 @@ export const Fader = ({
       <Root
         className={cls(className, { disabled })}
         onPointerDown={onPointerDown}
+        onContextMenu={menu.onContextMenu}
         {...(modTarget && !disabled && { [MOD_TARGET_ATTR]: modTarget })}
       >
         <Body
@@ -350,6 +369,7 @@ export const Fader = ({
               data-testid='mod-bar'
               style={{
                 background: shown.color,
+                opacity: shown.off ? OFF_OPACITY : undefined,
                 bottom: CAP_HEIGHT / 2 + span[0] * FADER_TRAVEL,
                 height: (span[1] - span[0]) * FADER_TRAVEL,
               }}
@@ -358,12 +378,13 @@ export const Fader = ({
           {live && <ModMark {...modMark} data-testid='fader-mod-mark' />}
           {modulations.length > 0 && (
             <DotBox ref={dotRef}>
-              <Dot modulations={modulations} />
+              <Dot modulations={modulations} onLongPress={menu.open} />
             </DotBox>
           )}
           <ModHighlight />
         </Body>
         {label && <Label>{label}</Label>}
+        {menu.menu}
       </Root>
     </Tooltip>
   );

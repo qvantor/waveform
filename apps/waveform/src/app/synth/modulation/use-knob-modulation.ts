@@ -36,9 +36,10 @@ interface KnobScale {
 
 // the modulation props of the knob of a target (modulation-targets.ts): the drop target of the tabs (none once
 // the routes or the sources of the knob are full), the routes on it (a section of the amount dot each, the arc of
-// the one of the selected tab, the dot changes it, Shift+Alt+click on the knob switches its polarity). Without the
-// modulation model (a spec of a section) the knob has none
-export type KnobModulation = Pick<HandleProps, 'modTarget' | 'modulations'>;
+// the one of the selected tab, the dot changes it, Shift+Alt+click on the knob switches its polarity; the menu of
+// the knob switches each on or off, its polarity, removes it, or all of them at once). Without the modulation
+// model (a spec of a section) the knob has none
+export type KnobModulation = Pick<HandleProps, 'modTarget' | 'modulations' | 'onClearModulations'>;
 
 export const useKnobModulation = (target: string, knob?: KnobScale): KnobModulation => {
   const module = React.useContext(ModulationContext);
@@ -53,12 +54,12 @@ export const useKnobModulation = (target: string, knob?: KnobScale): KnobModulat
   // follow it), while voices sound: only a knob with routes renders, when the first voice starts and the last
   // one ends. The knob of an effect an LFO moves moves without a note too (the LFOs of the fx run on their
   // clocks), while the effect is in the chain and on (else nothing moves it: without the fx model, a spec of a
-  // section, always)
+  // section, always); a route switched off moves nothing
   const synth = React.useContext(SynthContext);
   const core = React.useContext(SynthCoreContext);
   const fx = React.useContext(FxContext)?.[0];
   const $voices = synth?.[0].$voicesCount;
-  const own = routes.filter((route) => route.target === target);
+  const own = routes.filter((route) => route.target === target && !route.off);
   const routed = own.length > 0;
   const knobTarget = MOD_TARGETS[target];
   const effect = knobTarget?.kind === 'fx' && own.some(({ source }) => isLfo(source)) ? knobTarget.fx : null;
@@ -115,7 +116,7 @@ export const useKnobModulation = (target: string, knob?: KnobScale): KnobModulat
       .filter((route) => route.target === target)
       .sort((a, b) => MOD_SOURCES.indexOf(a.source) - MOD_SOURCES.indexOf(b.source))
       .map(
-        ({ source, amount, bipolar }): HandleModulation => ({
+        ({ source, amount, bipolar, off }): HandleModulation => ({
           id: source,
           color: SOURCE_COLORS[source],
           amount,
@@ -128,9 +129,15 @@ export const useKnobModulation = (target: string, knob?: KnobScale): KnobModulat
           selected: source === selected,
           ...(bipolar && { bipolar }),
           onPolarity: (value) => actions?.setPolarity(source, target, value),
+          ...(off && { off }),
+          onOff: (value) => actions?.setOff(source, target, value),
         })
       );
     const full = routesFull(routes) || knobFull(routes, target);
-    return { modTarget: full ? undefined : target, modulations };
+    return {
+      modTarget: full ? undefined : target,
+      modulations,
+      onClearModulations: () => actions?.removeRoutes(target),
+    };
   }, [module, actions, routes, target, scale, min, max, level, live, selected]);
 };

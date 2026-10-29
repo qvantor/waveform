@@ -3,15 +3,15 @@ import { combineLatest, distinctUntilChanged, map } from 'rxjs';
 import { NoteDot } from '@waveform/ui-kit';
 import { useObservable } from '@waveform/rxjs-react';
 import { EnvelopeId, ENVELOPES } from '@waveform/preset-schema';
-import { ModRoute } from '../../common/modules/modulation';
+import { ModRoute, readsSource } from '../../common/modules/modulation';
 import { useModulation, useSynth, useSynthCore } from '../../common/modules';
 import type { EnvelopeParams } from '../../common/envelope/envelope-curve';
 import type { FxNote } from '../../fx/effects/fx-modulation';
 import { noteCorners, outputTime } from '../note-path';
 
-// an envelope is heard: ENV 1 always (the volume of the voices), ENV 2 and 3 while a route reads them
-const heard = (id: EnvelopeId, routes: ModRoute[]) =>
-  id === 'env1' || routes.some(({ source }) => source === id);
+// an envelope is heard: ENV 1 always (the volume of the voices), ENV 2 and 3 while a route reads them (one switched
+// off doesn't)
+const heard = (id: EnvelopeId, routes: ModRoute[]) => id === 'env1' || readsSource(routes, id);
 
 // the same envelopes of a note for its dot: another velocity (a note of a legato phrase) draws nothing again
 const samePath = (a: FxNote | null, b: FxNote | null) =>

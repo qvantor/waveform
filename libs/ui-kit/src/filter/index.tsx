@@ -47,6 +47,7 @@ export const Filter = ({
   resonance,
   gain,
   modulation = {},
+  defaults = {},
 }: CommonFilterProps) => {
   const setValueInternal = (key: FilterNumerics) => (value: number) => setNumericValue(key, value);
   return (
@@ -72,6 +73,7 @@ export const Filter = ({
           onChange={setValueInternal('cutoff')}
           label='Cutoff'
           name='Filter cutoff'
+          defaultValue={defaults.cutoff}
           {...ranges.cutoff}
           {...modulation.cutoff}
         />
@@ -80,6 +82,7 @@ export const Filter = ({
           onChange={setValueInternal('resonance')}
           label='Res'
           name='Resonance'
+          defaultValue={defaults.resonance}
           {...ranges.resonance}
           {...modulation.resonance}
         />
@@ -88,6 +91,7 @@ export const Filter = ({
           onChange={setValueInternal('gain')}
           label='Gain'
           name='Filter gain'
+          defaultValue={defaults.gain}
           {...ranges.gain}
           {...modulation.gain}
         />

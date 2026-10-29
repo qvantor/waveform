@@ -1,6 +1,7 @@
 import React from 'react';
 import cls from 'classnames';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
+import { OSC_DEFAULTS } from '@waveform/preset-schema';
 
 import { useKnobModulation } from '../../../modulation/use-knob-modulation';
 import { useOscillatorContext } from '../../hooks';
@@ -9,6 +10,7 @@ import { Cell, Strip } from './value-strip';
 // px of drag a step: an octave, a semitone; a cent 2 (±100 in 400 px)
 const PX_PER_STEP = 10;
 const PX_PER_CENT = 2;
+const DEFAULTS = { octave: OSC_DEFAULTS.o, semi: OSC_DEFAULTS.s, fine: OSC_DEFAULTS.f };
 
 interface Props {
   // the prefix of the modulation targets of the oscillator (osc1.pitch…)
@@ -31,6 +33,7 @@ export const PitchInfo = ({ target, compact }: Props) => {
     const [min, max] = ranges[key];
     return {
       value: osc[key],
+      defaultValue: DEFAULTS[key],
       min,
       max,
       precision: 1,

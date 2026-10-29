@@ -120,4 +120,17 @@ describe('LfoChart', () => {
     act(() => $voicesCount.next(0));
     expect(dot()).toEqual([]);
   });
+
+  it('paints no dot while the routes of the LFO are switched off', () => {
+    const { modulation, audioCtx, play, frame, dot } = setup();
+    act(() => modulation[1].addRoute('lfo1', 'osc1.wave'));
+    act(() => modulation[1].setOff('lfo1', 'osc1.wave', true));
+    play(1);
+    audioCtx.currentTime = 1.125;
+    frame();
+    expect(dot()).toEqual([]);
+    act(() => modulation[1].setOff('lfo1', 'osc1.wave', false));
+    frame();
+    expect(dot()[0].arcs).toEqual([{ x: WIDTH / 4, y: HEIGHT / 2, radius: 3 }]);
+  });
 });

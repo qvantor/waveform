@@ -246,6 +246,20 @@ describe('Handle modulation', () => {
     expect(screen.queryByTestId('amount-dot')).toBeNull();
   });
 
+  it('fades the arc and the section of the dot of a route switched off', () => {
+    const { container } = render(
+      <Handle
+        min={0}
+        max={1}
+        value={0.5}
+        modulations={[{ ...modulation(0.25), off: true }, modulation(0.5, 'env3', false)]}
+      />
+    );
+    expect(modArcs(container)[0].getAttribute('fill-opacity')).toBe('0.35');
+    const sections = Array.from(document.querySelectorAll('[data-testid="amount-dot-section"]'));
+    expect(sections.map((path) => path.getAttribute('fill-opacity'))).toEqual(['0.35', null]);
+  });
+
   it('draws the arc of a bipolar route around the value: ±amount / 2', () => {
     const { container } = render(
       <Handle min={0} max={1} value={0.5} modulations={[{ ...modulation(0.5), bipolar: true }]} />
@@ -292,7 +306,7 @@ describe('Handle modulation', () => {
     expect(angleOf(start)).toBeCloseTo(0);
   });
 
-  it('is a drop target with its id, its dots remove the routes', () => {
+  it('is a drop target with its id; a double click on its dot removes no route (its menu does)', () => {
     const onRemove = jest.fn();
     const { container } = render(
       <Handle
@@ -307,7 +321,7 @@ describe('Handle modulation', () => {
     const dot = screen.getByRole('slider', { name: 'env2' });
     expect(sectionColors()).toEqual(['#f1c40f']);
     fireEvent.doubleClick(dot);
-    expect(onRemove).toHaveBeenCalled();
+    expect(onRemove).not.toHaveBeenCalled();
   });
 
   describe('live mark', () => {
@@ -393,6 +407,22 @@ describe('Handle modulation', () => {
       expect(mark()).toBeNull();
       rerender(<Handle min={0} max={1} value={0.5} disabled modulations={[live(0.25)]} />);
       tick();
+      expect(mark()).toBeNull();
+    });
+
+    it('a route switched off moves nothing: the others move it, without them it is not rendered', () => {
+      jest.useFakeTimers();
+      level = 1;
+      const { rerender } = render(
+        <Handle
+          min={0}
+          max={1}
+          value={0.5}
+          modulations={[live(0.25), { ...live(-0.5, 'env3'), selected: false, off: true }]}
+        />
+      );
+      expect(markAngle()).toBeCloseTo(MAX_ANGLE / 2);
+      rerender(<Handle min={0} max={1} value={0.5} modulations={[{ ...live(0.25), off: true }]} />);
       expect(mark()).toBeNull();
     });
 

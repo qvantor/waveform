@@ -87,6 +87,8 @@ type Props = LineProps & {
   curveMax?: number;
   // the curves a double click on a point sets (lines without them)
   defaultCurves?: AdsrCurves;
+  // the value each knob's menu sets (none without them)
+  defaultValues?: LineProps;
   // HTML over the chart, in its context (the NoteDot of a playing note)
   children?: React.ReactNode;
 };
@@ -99,6 +101,7 @@ export const AdsrEnvelope = ({
   onCurveChange,
   curveMax,
   defaultCurves,
+  defaultValues,
   children,
   ...rest
 }: Props) => {
@@ -135,6 +138,7 @@ export const AdsrEnvelope = ({
               name='Attack time'
               {...handleProps}
               value={attack}
+              defaultValue={defaultValues?.attack}
               onChange={onChangeInternal('attack')}
             />
           </div>
@@ -145,6 +149,7 @@ export const AdsrEnvelope = ({
               name='Hold time'
               {...handleProps}
               value={hold}
+              defaultValue={defaultValues?.hold}
               onChange={onChangeInternal('hold')}
             />
           </div>
@@ -158,6 +163,7 @@ export const AdsrEnvelope = ({
               name='Decay time'
               {...handleProps}
               value={decay}
+              defaultValue={defaultValues?.decay}
               onChange={onChangeInternal('decay')}
             />
           </div>
@@ -169,6 +175,7 @@ export const AdsrEnvelope = ({
               min={0}
               max={1}
               value={sustain}
+              defaultValue={defaultValues?.sustain}
               onChange={onChangeInternal('sustain')}
               formatValue={(value) => Math.round(value * 100)}
             />
@@ -182,6 +189,7 @@ export const AdsrEnvelope = ({
             name='Release time'
             {...handleProps}
             value={release}
+            defaultValue={defaultValues?.release}
             onChange={onChangeInternal('release')}
           />
         </div>

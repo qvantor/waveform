@@ -818,6 +818,26 @@ describe('fx', () => {
       expect(setModulation.reverb).toHaveBeenLastCalledWith(null);
     });
 
+    it('leaves out a route switched off: an LFO switched off moves nothing without a note', async () => {
+      const { actions, modulation, $fxNote, setModulation } = setupModulated();
+      await flush();
+      actions.setAdded('reverb', true);
+      modulation[1].addRoute('lfo2', 'reverb.size', 0.5);
+      modulation[1].addRoute('env2', 'lfo2.rate', 0.25);
+      modulation[1].setOff('env2', 'lfo2.rate', true);
+      expect(setModulation.reverb).toHaveBeenLastCalledWith({
+        note: null,
+        routes: [{ param: 'size', source: 5, amount: 0.5, min: 0, max: 1 }],
+      });
+      modulation[1].setOff('lfo2', 'reverb.size', true);
+      expect(setModulation.reverb).toHaveBeenLastCalledWith(null);
+      // with a note too: no route on, nothing computed
+      $fxNote.next(note(1));
+      modulation[1].addRoute('env3', 'reverb.decay', 0.5);
+      modulation[1].setOff('env3', 'reverb.decay', true);
+      expect(setModulation.reverb).toHaveBeenLastCalledWith(null);
+    });
+
     it('gives every effect the LFOs: as they are at once, then every state', async () => {
       const synthCore = createSynthCore();
       const lfosModule = createLfos(synthCore);

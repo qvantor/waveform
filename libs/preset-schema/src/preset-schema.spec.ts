@@ -10,6 +10,7 @@ import {
   presetDataSchema,
   presetIdSchema,
   presetOpenedRequestSchema,
+  PRESET_DEFAULTS,
   savePresetRequestSchema,
   updatePresetRequestSchema,
   usageRequestSchema,
@@ -220,6 +221,21 @@ describe('normalizePreset', () => {
     expect(normalizePreset({ mod }).mod).toEqual(mod);
   });
 
+  it('keeps a route switched off with its flag, a bipolar one too', () => {
+    const mod = {
+      'lfo1:filter.gain': { a: 0.5, bi: true, off: true },
+      'env2:osc1.wave': { a: -0.25, off: true },
+    };
+    expect(normalizePreset({ mod }).mod).toEqual(mod);
+  });
+
+  it('gives the defaults of an empty preset', () => {
+    expect(PRESET_DEFAULTS).toEqual(normalizePreset({}));
+    expect(PRESET_DEFAULTS.osc1).toMatchObject({ g: 0.5, w: 0, d: 5, u: 2, o: 0, s: 0, f: 0 });
+    expect(PRESET_DEFAULTS.filter).toMatchObject({ cut: 440, res: 0, gain: 1 });
+    expect(PRESET_DEFAULTS.v).toMatchObject({ port: 0, max: 8 });
+  });
+
   it('fills the range of the pitch bend with 2 semitones down and up, keeps 0..24', () => {
     expect(normalizePreset({}).v).toMatchObject({ bd: 2, bu: 2 });
     expect(normalizePreset({ v: { bd: 0, bu: 24 } }).v).toMatchObject({ bd: 0, bu: 24 });
@@ -387,6 +403,7 @@ describe('normalizePreset', () => {
     ['an LFO on a knob of an LFO', { ...preset, mod: { 'lfo1:lfo2.rate': 0.5 } }],
     ['a bipolar route without its flag', { ...preset, mod: { 'lfo1:osc1.wave': { a: 0.5 } } }],
     ['a bipolar amount over 1', { ...preset, mod: { 'lfo1:osc1.wave': { a: 1.5, bi: true } } }],
+    ['a route on with its flag', { ...preset, mod: { 'lfo1:osc1.wave': { a: 0.5, off: false } } }],
     ['an LFO period under 10 ms', { ...preset, lfo: { l1: { rate: 0.005 } } }],
     ['an LFO smooth over 0.5 s', { ...preset, lfo: { l2: { smooth: 0.6 } } }],
     ['an LFO phase over 1', { ...preset, lfo: { l2: { phase: 1.1 } } }],

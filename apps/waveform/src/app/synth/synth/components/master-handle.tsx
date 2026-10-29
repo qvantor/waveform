@@ -33,6 +33,8 @@ export const MasterHandle = ({ label = 'Master' }: { label?: string | null }) =>
       label={label}
       name='Master volume'
       formatValue={formatDb}
+      // the volume the synth starts at: a gain of 1
+      defaultValue={0}
       precision={10}
     />
   );

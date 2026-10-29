@@ -143,16 +143,16 @@ const voiceRoute = (
 // the routes of a note to its params: of the oscillators on for it (`osc`, null: off; the pitch an offset of its
 // detune within the range of the knob from its value now, `pitches`), of the filter while it is on, in the range
 // of its type (a knob its type doesn't use is left out), and to the knobs of the LFOs (Rate by its frequency); an
-// amount of 0 is left out (its source isn't rendered for it)
+// amount of 0 and a route switched off are left out (its source isn't rendered for it)
 const voiceRoutes = (
   routes: ModRoute[],
   osc: (VoiceOscOptions | null)[],
   filter: VoiceFilterOptions | null,
   pitches: OscPitch[]
 ): VoiceRoute[] =>
-  routes.flatMap(({ source: id, target, amount, bipolar }) => {
+  routes.flatMap(({ source: id, target, amount, bipolar, off }) => {
     const definition = MOD_TARGETS[target];
-    if (!definition || amount === 0) return [];
+    if (!definition || amount === 0 || off) return [];
     const source = MOD_SOURCES.indexOf(id);
     if (definition.kind === 'osc') {
       if (!osc[definition.osc]) return [];

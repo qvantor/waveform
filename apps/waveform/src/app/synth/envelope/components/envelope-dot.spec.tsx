@@ -119,6 +119,12 @@ describe('EnvelopeDot', () => {
     act(() => modulation[1].setAmount('env2', 'osc1.wave', -0.25));
     expect(renders()).toBe(shown);
 
+    // a route switched off doesn't read it
+    act(() => modulation[1].setOff('env2', 'osc1.wave', true));
+    expect(props().path).toBeNull();
+    act(() => modulation[1].setOff('env2', 'osc1.wave', false));
+    expect(props().path?.corners[3]).toEqual([0.5, 0.5, 0.6]);
+
     act(() => modulation[1].removeRoute('env2', 'osc1.wave'));
     expect(props().path).toBeNull();
   });

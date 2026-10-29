@@ -5,6 +5,7 @@ import { useBehaviorSubject } from '@waveform/rxjs-react';
 import {
   ENVELOPE_TIME_MAX,
   isLfoKnob,
+  LFO_DEFAULTS,
   LFO_RATE_MAX,
   LFO_RATE_MIN,
   LFO_SMOOTH_MAX,
@@ -110,6 +111,7 @@ const LfoKnobHandle = React.memo(({ id, knob, value }: { id: LfoId; knob: LfoKno
     <Handle
       {...KNOBS[knob]}
       value={rate ? 1 / value : value}
+      defaultValue={rate ? 1 / LFO_DEFAULTS.rate : LFO_DEFAULTS[knob]}
       onChange={(next) =>
         setLfoValue(id, knob, rate ? Math.min(LFO_RATE_MAX, Math.max(LFO_RATE_MIN, 1 / next)) : next)
       }

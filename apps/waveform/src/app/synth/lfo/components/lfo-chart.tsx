@@ -16,7 +16,7 @@ import {
 } from '@waveform/ui-kit';
 import { useBehaviorSubject, useObservable } from '@waveform/rxjs-react';
 import { LfoId, LFOS, LfoPoint } from '@waveform/preset-schema';
-import { ModRoute, ModulationContext } from '../../common/modules/modulation';
+import { ModRoute, ModulationContext, readsSource } from '../../common/modules/modulation';
 import { SynthContext } from '../../common/modules/synth';
 import { SynthCoreContext } from '../../common/modules/synth-core';
 import { lfoTable } from '../../common/lfo/lfo-curve';
@@ -55,10 +55,10 @@ const Grid = () => {
   );
 };
 
-// the level and the share of the cycle of LFO `id` in the last note while it is heard (a route reads it) and voices
-// sound (in free on the clock of the LFO): the dot of a note on the chart of an envelope, on a canvas over the
-// chart, painted again every frame it moved, without a render; cleared otherwise (and without the synth: a spec of
-// the section)
+// the level and the share of the cycle of LFO `id` in the last note while it is heard (a route reads it, one
+// switched off doesn't) and voices sound (in free on the clock of the LFO): the dot of a note on the chart of an
+// envelope, on a canvas over the chart, painted again every frame it moved, without a render; cleared otherwise
+// (and without the synth: a spec of the section)
 const NoteDot = ({ id }: { id: LfoId }) => {
   const { scaleX, scaleY } = useLineChartContext();
   const [canvas, begin] = useLiveCanvas('lfo-dot');
@@ -66,7 +66,7 @@ const NoteDot = ({ id }: { id: LfoId }) => {
   const modulation = React.useContext(ModulationContext);
   const core = React.useContext(SynthCoreContext);
   const routes = useBehaviorSubject(modulation?.[0].$routes ?? NO_ROUTES);
-  const heard = routes.some(({ source }) => source === id);
+  const heard = readsSource(routes, id);
   const $voices = synth?.[0].$voicesCount ?? NO_VOICES;
   const $sounds = React.useMemo(
     () =>

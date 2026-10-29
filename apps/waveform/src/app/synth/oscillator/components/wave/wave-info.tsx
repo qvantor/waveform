@@ -2,6 +2,7 @@ import React from 'react';
 import cls from 'classnames';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
 import { number } from '@waveform/math';
+import { OSC_DEFAULTS } from '@waveform/preset-schema';
 import { useOscillatorContext } from '../../hooks';
 import { Cell, Strip } from './value-strip';
 
@@ -35,6 +36,7 @@ export const WaveInfo = ({ onPhaseActiveChange, compact }: Props) => {
         cyclic
         precision={360}
         formatValue={(value) => `${Math.round(value * 360)}°`}
+        defaultValue={OSC_DEFAULTS.ph}
         onChange={(value) => setOscValue('phase', value)}
         onActiveChange={onPhaseActiveChange}
       />
@@ -45,6 +47,7 @@ export const WaveInfo = ({ onPhaseActiveChange, compact }: Props) => {
         max={ranges.phaseRand[1]}
         precision={100}
         formatValue={number.percent}
+        defaultValue={OSC_DEFAULTS.pr}
         onChange={(value) => setOscValue('phaseRand', value)}
         onActiveChange={onPhaseActiveChange}
       />
@@ -55,6 +58,7 @@ export const WaveInfo = ({ onPhaseActiveChange, compact }: Props) => {
         max={ranges.unison[1]}
         precision={1}
         arrows
+        defaultValue={OSC_DEFAULTS.u}
         onChange={(value) => setOscValue('unison', value)}
       />
     </Strip>

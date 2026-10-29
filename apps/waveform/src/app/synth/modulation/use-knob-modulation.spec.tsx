@@ -103,6 +103,34 @@ describe('useKnobModulation of the LFOs', () => {
     expect(result.current.modulations?.[0].bipolar).toBeUndefined();
   });
 
+  it('switches a route off and on: off it moves nothing, the knob is live by the routes on', () => {
+    const { modulation, play, wrapper } = setup();
+    act(() => {
+      modulation[1].addRoute('lfo1', 'osc1.wave');
+      modulation[1].setOff('lfo1', 'osc1.wave', true);
+    });
+    const { result } = renderHook(() => useKnobModulation('osc1.wave'), { wrapper });
+    play(1);
+    expect(result.current.modulations?.[0]).toMatchObject({ id: 'lfo1', off: true, live: false });
+    act(() => result.current.modulations?.[0].onOff?.(false));
+    expect(modulation[0].$routes.value[0]).toEqual({ source: 'lfo1', target: 'osc1.wave', amount: 0.5 });
+    expect(result.current.modulations?.[0].off).toBeUndefined();
+    expect(result.current.modulations?.[0].live).toBe(true);
+  });
+
+  it('removes every route of the knob at once, those of others stay', () => {
+    const { modulation, wrapper } = setup();
+    act(() => {
+      modulation[1].addRoute('lfo1', 'osc1.wave');
+      modulation[1].addRoute('env2', 'osc1.wave');
+      modulation[1].addRoute('env2', 'osc1.gain');
+    });
+    const { result } = renderHook(() => useKnobModulation('osc1.wave'), { wrapper });
+    act(() => result.current.onClearModulations?.());
+    expect(result.current.modulations).toEqual([]);
+    expect(modulation[0].$routes.value).toEqual([{ source: 'env2', target: 'osc1.gain', amount: 0.5 }]);
+  });
+
   it('shows a route of an envelope on Rate in octaves of its frequency, on a time as a share of its travel', () => {
     const { modulation, wrapper } = setup();
     act(() => {

@@ -2,7 +2,7 @@ import { MOD_SOURCES } from '@waveform/preset-schema';
 import { applySnapshot, getSnapshot } from '../../../app';
 import { createModulation } from '../../../../test-utils/models';
 import { MOD_TARGETS } from '../modulation/modulation-targets';
-import { takesSource } from './modulation';
+import { readsSource, takesSource } from './modulation';
 
 // every route there can be: every source on every knob it takes (no LFO on a knob of an LFO)
 const ALL = MOD_SOURCES.flatMap((source) =>
@@ -148,21 +148,57 @@ describe('modulation', () => {
     expect($routes.value).toEqual([{ source: 'env2', target: 'osc2.gain', amount: 0.5 }]);
   });
 
-  it('round trips through the snapshot, an amount of 0 and a bipolar route too', () => {
-    const [{ $routes }, { addRoute, setAmount }] = createModulation();
+  it('switches a route off and on, keeps its amount and polarity; it still counts in the limits', () => {
+    const [{ $routes }, { addRoute, setOff }] = createModulation();
+    addRoute('lfo1', 'filter.gain');
+    setOff('lfo1', 'filter.gain', true);
+    expect($routes.value).toEqual([
+      { source: 'lfo1', target: 'filter.gain', amount: 0.5, bipolar: true, off: true },
+    ]);
+    expect(readsSource($routes.value, 'lfo1')).toBe(false);
+    setOff('lfo1', 'filter.gain', false);
+    expect($routes.value).toEqual([{ source: 'lfo1', target: 'filter.gain', amount: 0.5, bipolar: true }]);
+    setOff('lfo2', 'filter.gain', true);
+    expect($routes.value).toHaveLength(1);
+    (['env1', 'env2', 'env3'] as const).forEach((source) => addRoute(source, 'filter.gain'));
+    setOff('env1', 'filter.gain', true);
+    addRoute('velo', 'filter.gain');
+    expect($routes.value).toHaveLength(4);
+  });
+
+  it('removes every route of a knob at once', () => {
+    const [{ $routes }, { addRoute, removeRoutes }] = createModulation();
+    addRoute('env1', 'osc2.gain');
+    addRoute('lfo1', 'osc2.gain');
+    addRoute('env1', 'osc1.gain');
+    const changes: number[] = [];
+    const subscription = $routes.subscribe((routes) => changes.push(routes.length));
+    removeRoutes('osc2.gain');
+    removeRoutes('osc2.gain');
+    subscription.unsubscribe();
+    expect($routes.value).toEqual([{ source: 'env1', target: 'osc1.gain', amount: 0.5 }]);
+    expect(changes).toEqual([3, 1]);
+  });
+
+  it('round trips through the snapshot, an amount of 0, a bipolar route and those switched off too', () => {
+    const [{ $routes }, { addRoute, setAmount, setOff }] = createModulation();
     addRoute('env2', 'osc1.wave');
     addRoute('env3', 'osc2.detune');
     setAmount('env3', 'osc2.detune', 0);
     addRoute('lfo4', 'filter.gain');
     addRoute('env2', 'osc1.pitch', 0.75);
     addRoute('velo', 'osc2.fine', -0.25);
+    addRoute('lfo2', 'osc2.gain', 0.25);
+    setOff('lfo2', 'osc2.gain', true);
+    setOff('lfo4', 'filter.gain', true);
     const snapshot = getSnapshot();
     expect(snapshot['mod']).toEqual({
       'env2:osc1.wave': 0.5,
       'env3:osc2.detune': 0,
-      'lfo4:filter.gain': { a: 0.5, bi: true },
+      'lfo4:filter.gain': { a: 0.5, bi: true, off: true },
       'env2:osc1.pitch': { a: 0.75, bi: true },
       'velo:osc2.fine': { a: -0.25, bi: true },
+      'lfo2:osc2.gain': { a: 0.25, off: true },
     });
     const routes = $routes.value;
     applySnapshot({});
@@ -180,6 +216,7 @@ describe('modulation', () => {
         'lfo1:osc1.wave': 0.5,
         'lfo2:filter.cutoff': { a: 2, bi: true },
         'lfo3:osc1.gain': { a: 0.25, bi: false },
+        'lfo4:osc1.gain': { a: 0.25, off: 'yes' },
         'lfo1:lfo2.rate': 0.5,
         'lfo5:osc1.wave': 0.5,
         'env3:osc9.wave': 0.5,
@@ -192,6 +229,7 @@ describe('modulation', () => {
       { source: 'lfo1', target: 'osc1.wave', amount: 0.5 },
       { source: 'lfo2', target: 'filter.cutoff', amount: 1, bipolar: true },
       { source: 'lfo3', target: 'osc1.gain', amount: 0.25 },
+      { source: 'lfo4', target: 'osc1.gain', amount: 0.25 },
     ]);
   });
 

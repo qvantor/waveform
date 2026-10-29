@@ -9,7 +9,12 @@ export interface Route {
   selected?: boolean;
   // it moves the control around its value: amount × (level - ½) (else up from it, amount × level)
   bipolar?: boolean;
+  // switched off: it moves nothing, its section of the dot and its arc are faded (OFF_OPACITY)
+  off?: boolean;
 }
+
+// the opacity of a route switched off on a control: its section of the dot, its arc or its bar
+export const OFF_OPACITY = 0.35;
 
 // the step the routes move a control by, a share of its travel: the DOM is written only when it moves, a sustain
 // costs nothing
@@ -42,9 +47,9 @@ export const routeSpans = (
   return spans;
 };
 
-// the routes of a control that sound now (while voices play)
+// the routes of a control that sound now (while voices play), not those switched off
 export const liveRoutes = <R extends Route>(routes: R[]) =>
-  routes.filter((route) => route.live && route.level);
+  routes.filter((route) => route.live && route.level && !route.off);
 
 // where the routes move a control from `position` (a share of its travel): the sum of amount × level of each
 // (a bipolar one amount × (level - ½)), clamped to the travel or around it (`wrap`), in steps of QUANTUM; null

@@ -1336,6 +1336,28 @@ describe('synth', () => {
       ]);
     });
 
+    it('leaves out a route switched off, sends the playing notes their routes when one is switched off or on', async () => {
+      const { onPress, voices, options, modulation } = await setup();
+      const [, { addRoute, setOff }] = modulation;
+      addRoute('env2', 'osc1.wave', 0.5);
+      addRoute('lfo1', 'osc1.gain', 0.25);
+      addRoute('env3', 'lfo1.rate', 0.5);
+      setOff('lfo1', 'osc1.gain', true);
+      setOff('env3', 'lfo1.rate', true);
+
+      onPress([4, 'C']);
+
+      const wave = { source: 1, param: 'position1', amount: 0.5, min: 0, max: 1 };
+      const [voice] = voices();
+      expect(options(voice).routes).toEqual([wave]);
+      setOff('lfo1', 'osc1.gain', false);
+      setOff('env2', 'osc1.wave', true);
+      expect(voices()[0].messages).toEqual([
+        { routes: [wave, { source: 4, param: 'gain1', amount: 0.25, min: 0, max: 1 }] },
+        { routes: [{ source: 4, param: 'gain1', amount: 0.25, min: 0, max: 1 }] },
+      ]);
+    });
+
     it('gives a note the routes of the pitch in cents within the range of Semi and Fine from their values; none of an oscillator off', async () => {
       const { onPress, voices, options, modulation, osc1, osc2 } = await setup();
       const [, { addRoute }] = modulation;
