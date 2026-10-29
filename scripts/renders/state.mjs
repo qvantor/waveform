@@ -18,19 +18,22 @@ export const tables = () => {
   return process.env.RENDERS_TABLES;
 };
 
-// the init state (`host state`) with osc A on `Tables/<path>` (a table of `frames` frames of 2048 samples) and
-// with its plain params `params`
-export const editedState = (initFile, { path, frames, params } = {}) => {
+// the init state (`host state`) with oscillator i of `oscs` (A, B: `Oscillator<i>`) on `Tables/<path>` (a table of
+// `frames` frames of 2048 samples) and with its plain params `params`; one not listed keeps the init's
+export const editedState = (initFile, oscs) => {
   const init = readFileSync(initFile);
   const length = Number(init.readBigUInt64LE(9));
   const header = JSON.parse(init.subarray(17, 17 + length).toString());
   const doc = decode(zlib.zstdDecompressSync(init.subarray(17 + length + 8)));
-  const osc = get(doc, 'Oscillator0');
-  if (path) {
-    set(get(osc, 'WTOsc0'), 'relativePathToWT', path);
-    set(get(osc, 'WTOsc0'), 'numFrames', frames * 2048);
-  }
-  if (params) set(osc, 'plainParams', { map: Object.entries(params) });
+  oscs.forEach(({ path, frames, params }, i) => {
+    const osc = get(doc, `Oscillator${i}`);
+    if (path) {
+      const table = get(osc, `WTOsc${i}`);
+      set(table, 'relativePathToWT', path);
+      set(table, 'numFrames', frames * 2048);
+    }
+    if (params) set(osc, 'plainParams', { map: Object.entries(params) });
+  });
   const payload = encode(doc);
   const zstd = zlib.zstdCompressSync(payload);
   header.hash = crypto.createHash('md5').update(zstd).digest('hex');

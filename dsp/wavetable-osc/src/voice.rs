@@ -48,6 +48,8 @@ pub struct OscOptions {
     pub unison: f64,
     pub phase: f64,
     pub phase_rand: f64,
+    /// the start phase of unison voice v is phase + random[v] · phase_rand, but for v 0 of the second oscillator
+    /// on: its lowest voice starts at random[0] of the first one, the share of the note (both in phase)
     pub random: [f64; MAX_UNISON],
     pub shape: UnisonShape,
 }
@@ -1086,6 +1088,9 @@ impl Voice {
         }
         let fade_length = self.fade_length;
         let in_phrase = self.in_phrase;
+        // the share of the note: the lowest voice of every oscillator starts at it (dsp/measurements/phases.json:
+        // two oscillators on one pitch sound the same on every note)
+        let note_share = self.oscs.first().map_or(0.0, |osc| osc.random[0]);
         for osc in self.oscs.iter_mut() {
             let spread = params[osc.param(OSC_PARAM_SPREAD)];
             // (a stack or a position spread sound at no detune too)
@@ -1099,7 +1104,8 @@ impl Voice {
             osc.level = 1.0 / sqrt(ceil(osc.voices as f64 / 2.0));
             shape_unison(osc);
             for v in 0..osc.voices {
-                let phase = osc.phase + osc.random[v] * osc.phase_rand;
+                let share = if v == 0 { note_share } else { osc.random[v] };
+                let phase = osc.phase + share * osc.phase_rand;
                 osc.phases[v] = phase - floor(phase);
                 // a note at a random phase starts at once (its click on a fast attack is part of the sound;
                 // the TS core faded it in); a note of a legato phrase fades in, it would step to the level of the

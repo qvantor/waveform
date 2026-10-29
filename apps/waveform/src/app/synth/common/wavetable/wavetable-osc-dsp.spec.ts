@@ -107,6 +107,21 @@ const MEASURED_UNISON: {
   modes: Record<string, number[]>;
   stacks: Record<string, { step: number; detune: number; side: string }[]>;
 } = JSON.parse(readFileSync(join(__dirname, '../../../../../../../dsp/measurements/unison.json'), 'utf8'));
+interface MeasuredOsc {
+  unison: number;
+  rand: number;
+  phase: number;
+}
+const MEASURED_PHASES: {
+  cases: Record<
+    string,
+    {
+      a: MeasuredOsc;
+      b: MeasuredOsc;
+      pairs: { a: number; b: number; cents: number; levels: number[] }[];
+    }
+  >;
+} = JSON.parse(readFileSync(join(__dirname, '../../../../../../../dsp/measurements/phases.json'), 'utf8'));
 const MEASURED_FRAMES: {
   played: Record<'3' | '4', { edge: number; below: number; above: number }[]>;
 } = JSON.parse(readFileSync(join(__dirname, '../../../../../../../dsp/measurements/frames.json'), 'utf8'));
@@ -1243,6 +1258,73 @@ describe('the wavetable voice', () => {
       for (let frame = 0; frame < 4096; frame += BLOCK)
         dsp.process(frame, params, outL, new Float32Array(BLOCK));
       expect(random).toHaveBeenCalledTimes(calls);
+    });
+
+    it('starts two oscillators on one table and pitch in phase on every note at Phase rand 1', () => {
+      const { store } = core.storeWith({ a: [sine] });
+      for (let seed = 1; seed <= 12; seed++) {
+        const play = (oscs: VoiceOscOptions[]) =>
+          render({ store, oscs, params: { frequency: 220 }, frames: 2048, random: seeded(seed) }).left;
+        const one = play([osc({ phaseRand: 1 })]);
+        const two = play([osc({ phaseRand: 1 }), osc({ phaseRand: 1 })]);
+        expect(Math.max(...two.map((value, i) => Math.abs(value - 2 * one[i])))).toBeLessThan(5e-6);
+      }
+    });
+
+    // (two oscillators draw 16 shares, osc 2 its own 8 all the same: a random detune after them keeps its draws)
+    it('draws 8 shares per oscillator', () => {
+      const { store } = core.storeWith({ a: [sine] });
+      const random = jest.fn(seeded(3));
+      render({ store, oscs: [osc({ unison: 8 }), osc({ unison: 8 })], frames: 0, random });
+      expect(random).toHaveBeenCalledTimes(16);
+    });
+
+    // an Audio Unit (dsp/measurements/phases.json): the lowest voice of both oscillators at one share of the note,
+    // the others at shares of their own; each pair of voices at one pitch at one level on every note there (1: in
+    // phase; 0.707: another Phase) is at that level on 12 notes of ours, one that wasn't (below 0.9 on a note) isn't
+    describe('two oscillators, as the renders', () => {
+      const C5 = 440 * 2 ** (3 / 12);
+      const FROM = 0.05 * RATE;
+      const cents = (j: number, n: number) => (n === 1 ? 0 : 200 * ((2 * j) / (n - 1) - 1));
+      const oscOf = ({ unison, rand, phase }: MeasuredOsc) => osc({ unison, phase, phaseRand: rand });
+      // L + R of a note from 50 ms on, osc 2 off without `b`
+      const note = (store: CoreStore, seed: number, a: MeasuredOsc, b?: MeasuredOsc) => {
+        const { left, right } = render({
+          store,
+          oscs: [oscOf(a), b ? oscOf(b) : null],
+          params: { frequency: C5, spread1: 400, spread2: 400 },
+          frames: 0.45 * RATE,
+          random: seeded(seed),
+        });
+        return left.subarray(FROM).map((value, i) => value + right[FROM + i]);
+      };
+      const amplitude = (signal: Float32Array, c: number) => toneAmplitude(signal, C5 * 2 ** (c / 1200));
+      // each voice of an oscillator alone, by its unison (osc 2 plays as osc 1; the same on every store)
+      const aloneOf = new Map<number, number[]>();
+      const alone = (store: CoreStore, n: number) => {
+        const cached = aloneOf.get(n);
+        if (cached) return cached;
+        const signal = note(store, 1, { unison: n, rand: 1, phase: 0.5 });
+        const levels = Array.from({ length: n }, (_, j) => amplitude(signal, cents(j, n)));
+        aloneOf.set(n, levels);
+        return levels;
+      };
+
+      it.each(Object.entries(MEASURED_PHASES.cases))('%s', (_, { a, b, pairs }) => {
+        const { store } = core.storeWith({ a: [sine] });
+        const inA = alone(store, a.unison);
+        const inB = alone(store, b.unison);
+        const notes = Array.from({ length: 12 }, (_, k) => note(store, k + 1, a, b));
+        pairs.forEach((pair) => {
+          const levels = notes.map((signal) => amplitude(signal, pair.cents) / (inA[pair.a] + inB[pair.b]));
+          const steady = Math.max(...pair.levels) - Math.min(...pair.levels) < 0.01;
+          if (steady) levels.forEach((level) => expect(level).toBeCloseTo(pair.levels[0], 2));
+          else {
+            expect(Math.min(...pair.levels)).toBeLessThan(0.9);
+            expect(Math.min(...levels)).toBeLessThan(0.9);
+          }
+        });
+      });
     });
   });
 

@@ -7,13 +7,14 @@
 //   envelope at the same phase (Rand Phase 0), so the wave cancels out
 // - unison.json: the voices of a unison of C5 (their cents from the note, their level in each channel against one
 //   voice) at 2..7 voices, its Blend, Width and Detune
+// - phases.json: osc A and B on one sine, their unisons and Rand Phase: which of their voices start in phase
 // - frames.json: tables of ours (state.mjs: written into User of its tables, removed after), frame j a
 //   sine of harmonic j + 1: the frame a position plays, how a table with a morph mark is expanded to 256 frames
 //   (the shares of the source frames in each), the morph marks 1..4 on frames of other phases
 // - frame-fades.json: how a moving position (A WT Pos automated by host.swift) goes from one frame to another:
 //   the length of the fade by note and rate, sweeps, two unison voices, a pitch bend during a fade
 // Its knobs are 0..1: the times are 32 s · v⁵, the sustain v² (-12 dB at 0.5), the voices 1 + 15v.
-// `--only=envelopes,unison,unison-modes,frames,frame-fades` renders some of them
+// `--only=envelopes,unison,unison-modes,phases,frames,frame-fades` renders some of them
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -80,17 +81,31 @@ execFileSync(host, ['state', init]);
 // osc A of the init patch at the phase 0 of every voice, ENV 1 open
 const FLAT = { 'A Rand Phase': 0, 'A Phase': 0, 'Env 1 Attack': 0, 'Env 1 Sustain': 1 };
 // a table of ours (frames of 2048 samples, its mark) written into User of the tables of the Audio Unit, and the
-// init state on it; `removeTables` removes them
+// init state with its first `oscs` oscillators on it (A alone by default); `removeTables` removes them
 const written = [];
-const tableState = (name, frames, flags = '00000000') => {
+const tableState = (name, frames, flags = '00000000', oscs = 1) => {
   const file = join(tables(), 'User', `waveform-test-${name}.wav`);
   writeTable(file, frames, flags);
   written.push(file);
   const state = join(work, `state-${name}.bin`);
-  writeFileSync(state, editedState(init, { path: `User/waveform-test-${name}.wav`, frames: frames.length }));
+  const path = `User/waveform-test-${name}.wav`;
+  writeFileSync(
+    state,
+    editedState(
+      init,
+      Array.from({ length: oscs }, () => ({ path, frames: frames.length }))
+    )
+  );
   return state;
 };
 const removeTables = () => written.splice(0).forEach((file) => rmSync(file, { force: true }));
+// a frame of 2048 samples: a sine of harmonic h (-1: inverted)
+const sine = (h = 1) => Array.from({ length: 2048 }, (_, i) => Math.sin((2 * Math.PI * h * i) / 2048));
+// the middle value (the upper one of an even count)
+const median = (values) => {
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[sorted.length >> 1];
+};
 
 // the magnitude spectrum of 2^18 samples from 0.2 s (Hann), the amplitude of a sine at its peak
 const N = 1 << 18;
@@ -103,6 +118,21 @@ const spectrum = (x) => {
     Array.from({ length: N }, (_, i) => x[i + 9600] * hann[i])
   );
   return Float64Array.from({ length: N / 2 }, (_, k) => Math.hypot(bins[2 * k], bins[2 * k + 1]) / (N / 4));
+};
+// the complex amplitude of a tone of `frequency` in x over n samples from `from` (Hann): its amplitude and its
+// phase (degrees) against a sine from sample 0
+const tone = (x, frequency, from, n) => {
+  let re = 0;
+  let im = 0;
+  let sum = 0;
+  for (let i = 0; i < n; i++) {
+    const w = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (n - 1));
+    const phase = (2 * Math.PI * frequency * (from + i)) / RATE;
+    re += x[from + i] * w * Math.sin(phase);
+    im += x[from + i] * w * Math.cos(phase);
+    sum += w;
+  }
+  return { amplitude: (2 * Math.hypot(re, im)) / sum, phase: (Math.atan2(im, re) * 180) / Math.PI };
 };
 
 // --- envelopes ---
@@ -125,8 +155,7 @@ if (runs('envelopes')) {
       const ratios = [];
       for (let i = start; i < start + 480; i++)
         if (Math.abs(reference[i]) > 0.3 * loudest) ratios.push(left[i] / reference[i]);
-      ratios.sort((a, b) => a - b);
-      return Number(ratios[ratios.length >> 1].toFixed(5));
+      return Number(median(ratios).toFixed(5));
     });
   const curves = {};
   for (const curve of [0.25, 0.5, 0.666, 0.75]) {
@@ -239,11 +268,11 @@ if (runs('unison')) {
 // the stack, its cents of the detune and its side (stacks, Detune 0.5: ±35 cents)
 if (runs('unison-modes')) {
   const table = join(tables(), 'User', 'waveform-test-sine.wav');
-  writeTable(table, [Array.from({ length: 2048 }, (_, i) => Math.sin((2 * Math.PI * i) / 2048))], '00000000');
+  writeTable(table, [sine()], '00000000');
   const C4 = 440 * 2 ** ((60 - 69) / 12);
   const stateOf = (name, params) => {
     const file = join(work, `state-${name}.bin`);
-    writeFileSync(file, editedState(init, { path: 'User/waveform-test-sine.wav', frames: 1, params }));
+    writeFileSync(file, editedState(init, [{ path: 'User/waveform-test-sine.wav', frames: 1, params }]));
     return file;
   };
   // the peaks from `low` to `high` cents of C4, the cents refined by the parabola of their three bins
@@ -346,6 +375,116 @@ if (runs('unison-modes')) {
   );
 }
 
+// --- phases ---
+// the start phases of osc A and B on one sine (a table of ours) at C5, their unisons at Detune 1 (linear: voice j
+// of n at 200 · (2j / (n - 1) - 1) cents): each pair of voices of A and B at one pitch, on each of 12 notes, the
+// amplitude of the pair over the sum of those of its voices alone. The first 4 notes of a render are left out:
+// they start at about the Phase whatever the Rand Phase (the random draws of the AU start near 0)
+if (runs('phases')) {
+  const NOTE = 72;
+  const C5 = 440 * 2 ** ((NOTE - 69) / 12);
+  const SKIPPED = 4;
+  const NOTES = Array.from({ length: SKIPPED + 12 }, (_, k) => ({
+    note: NOTE,
+    on: 0.1 + 0.6 * k,
+    off: 0.6 + 0.6 * k,
+  }));
+  const MEASURED = NOTES.slice(SKIPPED);
+  const cents = (j, n) => (n === 1 ? 0 : 200 * ((2 * j) / (n - 1) - 1));
+  // the amplitude of a tone of `cents` from C5 in x over 0.05..0.45 s of a note
+  const amplitude = (x, c, on) =>
+    tone(x, C5 * 2 ** (c / 1200), Math.round((on + 0.05) * RATE), Math.round(0.4 * RATE)).amplitude;
+  // an oscillator of a case: its unison, Rand Phase and Phase (shares of a period)
+  const osc = ({ unison = 1, rand = 1, phase = 0.5 }) => ({ unison, rand, phase });
+  const oscParams = (side, { unison, rand, phase }) => ({
+    [`${side} Unison`]: (unison - 1) / 15,
+    [`${side} Uni Detune`]: 1,
+    [`${side} Rand Phase`]: rand,
+    [`${side} Phase`]: phase,
+  });
+  const CASES = Object.entries({
+    u1: [{}, {}],
+    u2: [{ unison: 2 }, { unison: 2 }],
+    u3: [{ unison: 3 }, { unison: 3 }],
+    u4: [{ unison: 4 }, { unison: 4 }],
+    'u3 + u2': [{ unison: 3 }, { unison: 2 }],
+    'u1 + u3': [{}, { unison: 3 }],
+    'u1, B Rand Phase 0': [{}, { rand: 0 }],
+    'u1, B Rand Phase 0.5': [{}, { rand: 0.5 }],
+    'u1, Rand Phase 0.5': [{ rand: 0.5 }, { rand: 0.5 }],
+    'u1, B Phase 0.25': [{}, { phase: 0.25 }],
+  }).map(([name, oscs]) => [name, oscs.map(osc)]);
+  const UNISONS = [...new Set(CASES.flatMap(([, oscs]) => oscs.map(({ unison }) => unison)))];
+  const state = tableState('phases', [sine()], '00000000', 2);
+  // the notes in L + R
+  const notes = async (name, params) => {
+    const [l, r] = await hostRender(name, {
+      seconds: 0.1 + 0.6 * NOTES.length,
+      state,
+      params: { 'Env 1 Attack': 0, 'Env 1 Sustain': 1, 'Env 1 Release': 0, ...params },
+      notes: NOTES,
+    });
+    return Float64Array.from(l, (value, i) => value + r[i]);
+  };
+  const [alone, rendered] = await Promise.all([
+    // osc A alone at each unison (B plays as A)
+    Promise.all(
+      UNISONS.map((n) =>
+        notes(`phases-alone-u${n}`, { 'B Enable': 0, ...oscParams('A', osc({ unison: n })) })
+      )
+    ),
+    Promise.all(
+      CASES.map(([name, [a, b]]) =>
+        notes(`phases-${name.replace(/\W+/g, '-')}`, {
+          'B Enable': 1,
+          ...oscParams('A', a),
+          ...oscParams('B', b),
+        })
+      )
+    ),
+  ]).finally(removeTables);
+  // the amplitude of each voice of a unison alone (by the unison): the median over the notes
+  const aloneOf = Object.fromEntries(
+    UNISONS.map((n, i) => [
+      n,
+      Array.from({ length: n }, (_, j) =>
+        median(MEASURED.map(({ on }) => amplitude(alone[i], cents(j, n), on)))
+      ),
+    ])
+  );
+  const cases = CASES.map(([name, [a, b]], c) => {
+    const [m, n] = [a.unison, b.unison];
+    const pairs = [];
+    for (let j = 0; j < m; j++)
+      for (let k = 0; k < n; k++) {
+        const pitch = cents(j, m);
+        if (Math.abs(pitch - cents(k, n)) < 1) {
+          const sum = aloneOf[m][j] + aloneOf[n][k];
+          pairs.push({
+            a: j,
+            b: k,
+            cents: Number(pitch.toFixed(1)),
+            levels: MEASURED.map(({ on }) => Number((amplitude(rendered[c], pitch, on) / sum).toFixed(3))),
+          });
+        }
+      }
+    return [name, { a, b, pairs }];
+  });
+  writeFileSync(
+    join(out, 'phases.json'),
+    `${JSON.stringify(
+      {
+        about:
+          'Osc A and B of the init patch of the Audio Unit on a sine (a table of ours) at C5, each its unison at Detune 1 (linear: voice j of n at 200 · (2j / (n - 1) - 1) cents, from the lowest), its Rand Phase (`rand`) and Phase (`phase`, shares of a period; 1 and 0.5 unless named), the same Level: on each of 12 notes (0.5 s long; the 4 before them of the render left out, they start at about the Phase whatever the Rand Phase) each pair of voices of A (`a`) and B (`b`) at one pitch, the amplitude of the pair in L + R over the sum of those of its two voices alone (1: in phase; two of one level cancel at 0); scripts/renders/run.mjs --only=phases',
+        cases: Object.fromEntries(cases),
+      },
+      null,
+      1
+    )}\n`
+  );
+  console.log(`dsp/measurements: phases of ${cases.length} pairs of oscillators`);
+}
+
 // --- frames ---
 if (runs('frames')) {
   const FRAMES_NOTE = 36;
@@ -360,23 +499,8 @@ if (runs('frames')) {
         notes: [{ note: FRAMES_NOTE, on: 0, off: 0.5 }],
       })
     )[0];
-  // the complex amplitude of harmonic h over 0.15..0.45 s (Hann), its phase against a sine from the note on
-  const harmonic = (x, h) => {
-    const from = Math.round(0.15 * RATE);
-    const n = Math.round(0.3 * RATE);
-    let re = 0;
-    let im = 0;
-    let sum = 0;
-    for (let i = 0; i < n; i++) {
-      const w = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (n - 1));
-      const phase = (2 * Math.PI * FRAMES_F0 * h * (from + i)) / RATE;
-      re += x[from + i] * w * Math.sin(phase);
-      im += x[from + i] * w * Math.cos(phase);
-      sum += w;
-    }
-    return { amplitude: (2 * Math.hypot(re, im)) / sum, phase: (Math.atan2(im, re) * 180) / Math.PI };
-  };
-  const sine = (h) => Array.from({ length: 2048 }, (_, i) => Math.sin((2 * Math.PI * h * i) / 2048));
+  // the complex amplitude of harmonic h over 0.15..0.45 s, its phase against a sine from the note on
+  const harmonic = (x, h) => tone(x, FRAMES_F0 * h, Math.round(0.15 * RATE), Math.round(0.3 * RATE));
   // `count` frames, frame j a sine of harmonic j + 1
   const sines = (count) => Array.from({ length: count }, (_, j) => sine(j + 1));
   // the shares of the source frames (the amplitudes of their harmonics, summing to 1) at a position
@@ -475,7 +599,6 @@ if (runs('frames')) {
 // tables of ours of sines of one phase and the other (frame j: (-1)^j · a sine), so the sign of the output tells
 // the frame, and between two frames x = (1 - 2m) · the sine, m the share of the new one
 if (runs('frame-fades')) {
-  const sine = (sign) => Array.from({ length: 2048 }, (_, i) => sign * Math.sin((2 * Math.PI * i) / 2048));
   const note = (name, job) => hostRender(name, { step: 16, ...job });
   // A WT Pos through its points [seconds, value]; a step from frame 0 to 1 of 2 frames at 0.5 s
   const wtPos = (...points) => ({ name: 'A WT Pos', points });

@@ -435,7 +435,8 @@ const writeEnvelopes = (command: Float64Array, at: number, envelopes: EnvelopePa
 
 // the options of a voice into the command buffer of the core (its reader, read_voice_options): random() draws
 // the start phases of the unison voices of each oscillator on, in their order, as the TS voice drew them, then
-// the shares of a random detune; where they end
+// the shares of a random detune (the core starts the lowest voice of both at the first share of the note, the
+// first draw of osc 2 is not read); where they end
 const writeVoiceOptions = (
   scope: OscScope,
   command: Float64Array,
