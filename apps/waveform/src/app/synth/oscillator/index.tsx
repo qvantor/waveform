@@ -1,7 +1,8 @@
 import React from 'react';
+import { distinctUntilChanged, map } from 'rxjs';
 import styled from 'styled-components';
 import { Handle } from '@waveform/ui-kit';
-import { useBehaviorSubject } from '@waveform/rxjs-react';
+import { useBehaviorSubject, useObservable } from '@waveform/rxjs-react';
 import { number } from '@waveform/math';
 import { OSC_DEFAULTS } from '@waveform/preset-schema';
 import { OscillatorActions, OscillatorModel, useOscillator1 } from '../common/modules';
@@ -55,7 +56,17 @@ export const Oscillator = ({
   target = 'osc1',
 }: Props) => {
   const oscillator = useOscillator();
-  const osc = useBehaviorSubject($osc);
+  // only the unison detune: Oct, Semi, Fine, the phases and the unison render their strips (a drag of one
+  // doesn't render the oscillator)
+  const $detune = React.useMemo(
+    () =>
+      $osc.pipe(
+        map(({ detune }) => detune),
+        distinctUntilChanged()
+      ),
+    [$osc]
+  );
+  const detune = useObservable($detune, $osc.value.detune);
   // the frames played (of an expanded table 256)
   const frames = useBehaviorSubject($frames);
   const gainModulation = useKnobModulation(`${target}.gain`);
@@ -103,7 +114,7 @@ export const Oscillator = ({
             <Handle
               label='Detune'
               name='Unison detune'
-              value={osc.detune}
+              value={detune}
               min={ranges.detune[0]}
               max={ranges.detune[1]}
               onChange={(value) => setOscValue('detune', Math.round(value * 100000) / 100000)}

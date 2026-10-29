@@ -143,17 +143,17 @@ describe('useKnobModulation of the LFOs', () => {
     expect(delay.current.modulations?.[0].formatAmount?.(0.25)).toBe('+25%');
   });
 
-  it('shows a route on Pitch and on Fine as a share of the range of the knob, around its value', () => {
+  it('shows a route on Pitch and on Fine as a share of the range of the knob, up from its value or around it', () => {
     const { modulation, wrapper } = setup();
     act(() => {
       modulation[1].addRoute('env2', 'osc1.pitch', 0.4);
-      modulation[1].addRoute('velo', 'osc2.fine', -0.25);
+      modulation[1].addRoute('lfo2', 'osc2.fine', -0.25);
     });
     const pitch = renderHook(() => useKnobModulation('osc1.pitch'), { wrapper }).result.current
       .modulations?.[0];
     const fine = renderHook(() => useKnobModulation('osc2.fine'), { wrapper }).result.current
       .modulations?.[0];
-    expect([pitch?.amount, pitch?.bipolar, pitch?.formatAmount?.(0.4)]).toEqual([0.4, true, '+40%']);
+    expect([pitch?.amount, pitch?.bipolar, pitch?.formatAmount?.(0.4)]).toEqual([0.4, undefined, '+40%']);
     expect([fine?.amount, fine?.bipolar, fine?.formatAmount?.(-0.25)]).toEqual([-0.25, true, '-25%']);
   });
 });

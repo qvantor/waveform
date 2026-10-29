@@ -158,7 +158,8 @@ export const filterTargetScale = (type: BiquadFilterType, param: FilterNumerics)
 export const isModTarget = (id: string) => id in MOD_TARGETS;
 
 // a knob whose range is centered on 0 (min = -max: a side, a boost or a cut; the gain of the filter is the boost
-// or the cut of its shelves): a route dropped on it moves it around its value (bipolar), on the others up from it
+// or the cut of its shelves): a route of an LFO dropped on it moves it around its value (bipolar), on the others
+// and of the other sources up from it
 export const centered = (id: string) => {
   const definition = MOD_TARGETS[id];
   if (!definition) return false;

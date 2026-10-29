@@ -283,8 +283,8 @@ describe('Oscillator', () => {
     const { modulation, actions } = setup();
     const bars = () => screen.getAllByTestId('mod-bar').map(({ style }) => [style.left, style.width]);
     act(() => {
-      modulation[1].addRoute('env1', 'osc1.pitch', 1);
-      modulation[1].addRoute('env1', 'osc1.fine', 0.5);
+      modulation[1].addRoute('env1', 'osc1.pitch', 1, true);
+      modulation[1].addRoute('env1', 'osc1.fine', 0.5, true);
     });
     // Semi 0 at 100%: from -12 to +12; Fine 0 at 50%: from -50 to +50
     expect(bars()).toEqual([

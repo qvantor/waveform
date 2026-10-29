@@ -62,30 +62,58 @@ fn base_param(kind: usize) -> Option<usize> {
 const ZERO: &[f32] = &[0.0];
 
 // the detune of an oscillator (with the pitch bend on it) plus the offsets of its pitch the routes give (Semi,
-// Fine): one value while all of them are, else n into `values`
-fn detune_into<'a>(
-    detune: &[f32],
-    offsets: [Option<&[f32]>; 2],
-    values: &'a mut Vec<f32>,
-    n: usize,
-) -> &'a [f32] {
-    let at = |values: &[f32], i: usize| values[if values.len() > 1 { i } else { 0 }] as f64;
-    let length = if detune.len() > 1 || offsets.iter().flatten().any(|offset| offset.len() > 1) {
-        n
-    } else {
-        1
-    };
-    if values.len() < length {
-        values.resize(length, 0.0);
+// Fine), worked out only where it is read: its first sample and the points of the pitch (without an offset the
+// detune as it is)
+struct Detune<'a> {
+    values: &'a [f32],
+    offsets: [Option<&'a [f32]>; 2],
+}
+
+impl Detune<'_> {
+    fn moved(&self) -> bool {
+        self.offsets.iter().any(Option::is_some)
     }
-    for (i, value) in values[..length].iter_mut().enumerate() {
-        let mut cents = at(detune, i);
-        for offset in offsets.iter().flatten() {
-            cents += at(offset, i);
+
+    // the cents at sample i: the sum in f64, rounded to f32 once
+    #[inline]
+    fn at(&self, i: usize) -> f32 {
+        if !self.moved() {
+            return read(self.values, i);
         }
-        *value = cents as f32;
+        let mut cents = read(self.values, i) as f64;
+        for offset in self.offsets.iter().flatten() {
+            cents += read(offset, i) as f64;
+        }
+        cents as f32
     }
-    &values[..length]
+
+    // one value in the block (is_constant of the sum of every sample): a sum at a point of the routes (from a every
+    // SEGMENT samples, then the last) other than the first is enough, else every sample is compared
+    fn constant(&self, a: usize, b: usize) -> bool {
+        if !self.moved() {
+            return is_constant(self.values);
+        }
+        let length = self
+            .offsets
+            .iter()
+            .flatten()
+            .fold(self.values.len(), |length, offset| length.max(offset.len()));
+        if length == 1 {
+            return true;
+        }
+        let first = self.at(0);
+        let mut s = a;
+        loop {
+            if self.at(s) != first {
+                return false;
+            }
+            if s == b - 1 {
+                break;
+            }
+            s = (s + SEGMENT).min(b - 1);
+        }
+        (1..length).all(|i| self.at(i) == first)
+    }
 }
 
 /// an oscillator of a voice (VoiceOscOptions) with the random shares of its unison voices
@@ -955,8 +983,6 @@ pub struct Voice {
     lfo_mod: Modulation,
     lfo_one: [f32; LFOS * KNOBS],
     lfo_epoch: u32,
-    // the detune of each oscillator with the offsets of its pitch, while a route moves them (detune_into)
-    detunes: [Vec<f32>; 2],
 }
 
 // the base of knob `knob` of an LFO at t: Rate its frequency, Phase as it glides
@@ -1078,7 +1104,6 @@ impl Voice {
             lfo_mod,
             lfo_one: [0.0; LFOS * KNOBS],
             lfo_epoch: shared.lfo_epoch,
-            detunes: [vec![0.0; BLOCK], vec![0.0; BLOCK]],
         }
     }
 
@@ -1417,14 +1442,7 @@ impl Voice {
                 frame_fade_limit: self.frame_fade_limit,
             };
             for osc in self.oscs.iter_mut() {
-                // its detune with the offsets of its pitch, while a route moves them
-                let offsets = [PITCH1, FINE1].map(|kind| self.modulation.moved(osc.target(kind)));
-                let mut own: Params = *params;
-                if offsets.iter().any(Option::is_some) {
-                    let detune = osc.param(OSC_PARAM_DETUNE);
-                    own[detune] = detune_into(params[detune], offsets, &mut self.detunes[osc.index], n);
-                }
-                render_osc(&ctx, osc, &self.modulation, &own, a, b, store, shared);
+                render_osc(&ctx, osc, &self.modulation, params, a, b, store, shared);
             }
         }
         out_l.fill(0.0);
@@ -1491,7 +1509,7 @@ fn pitch_points(
     ctx: &Ctx,
     osc: &mut Osc,
     frequency: &[f32],
-    detune: &[f32],
+    detune: &Detune,
     spread: &[f32],
     count: usize,
     points: &[i32],
@@ -1503,7 +1521,7 @@ fn pitch_points(
     for p in 0..count {
         let s = points[p] as usize;
         let f = read(frequency, s) as f64;
-        let d = read(detune, s) as f64;
+        let d = detune.at(s) as f64;
         let sp = max(0.0, read(spread, s) as f64);
         if p > 0 && last == [f, d, sp] {
             for v in 0..voices {
@@ -2154,10 +2172,13 @@ fn render_osc(
             }
         }
     }
-    // the browser's params, those the routes move replaced (the detune with the pitch bend and the offsets of the
-    // pitch on it: the voice gives it)
+    // the browser's params, those the routes move replaced (the detune with the pitch bend on it, the offsets of
+    // the pitch added where it is read)
     let frequency = params[FREQUENCY];
-    let detune = params[osc.param(OSC_PARAM_DETUNE)];
+    let detune = Detune {
+        values: params[osc.param(OSC_PARAM_DETUNE)],
+        offsets: [PITCH1, FINE1].map(|kind| modulation.moved(osc.target(kind))),
+    };
     let spread = modulation
         .moved(osc.target(SPREAD1))
         .unwrap_or(params[osc.param(OSC_PARAM_SPREAD)]);
@@ -2167,7 +2188,7 @@ fn render_osc(
     let gain = modulation
         .moved(osc.target(GAIN1))
         .unwrap_or(params[osc.param(OSC_PARAM_GAIN)]);
-    let constant_pitch = is_constant(frequency) && is_constant(detune) && is_constant(spread);
+    let constant_pitch = is_constant(frequency) && detune.constant(a, b) && is_constant(spread);
     // (a table of one frame is played at any position)
     let one_frame =
         store.levels(osc.entry).frames == 1 && osc.next.is_none_or(|next| store.levels(next).frames == 1);
@@ -2204,7 +2225,7 @@ fn render_osc(
     let steady = constant_pitch
         && still
         && osc.last[0] == frequency[0] as f64
-        && osc.last[1] == detune[0] as f64
+        && osc.last[1] == detune.at(0) as f64
         && osc.last[2] == spread[0] as f64;
     if !steady || !osc.stable {
         osc.stable_id = osc.stable_id.wrapping_add(1);
@@ -2212,7 +2233,7 @@ fn render_osc(
     osc.stable = steady;
     osc.last = [
         frequency[0] as f64,
-        detune[0] as f64,
+        detune.at(0) as f64,
         spread[0] as f64,
         position[0] as f64,
     ];
@@ -2224,7 +2245,7 @@ fn render_osc(
         let points = &mut shared.scratch.points;
         let last = points[count - 1];
         points[count - 1] = b as i32 - 1;
-        pitch_points(ctx, osc, frequency, detune, spread, count, points);
+        pitch_points(ctx, osc, frequency, &detune, spread, count, points);
         points[count - 1] = last;
     }
     osc.cached = constant_pitch && count == 2;

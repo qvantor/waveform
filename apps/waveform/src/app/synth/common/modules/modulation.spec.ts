@@ -71,33 +71,40 @@ describe('modulation', () => {
     ]);
   });
 
-  it('drops a route bipolar on a knob centered on 0 (the gain of the filter, the pan of the delay), uni elsewhere', () => {
+  it('drops an LFO bipolar on a knob centered on 0 (the gain of the filter, the pan of the delay), uni elsewhere', () => {
     const [{ $routes }, { addRoute }] = createModulation();
     addRoute('lfo1', 'filter.gain');
     addRoute('lfo1', 'delay.pan');
     addRoute('lfo1', 'filter.cutoff');
     addRoute('env2', 'distortion.level');
     addRoute('lfo2', 'osc1.wave', 0.5, true);
+    // an envelope and VELO uni there too: at rest the knob is its value
+    addRoute('env1', 'filter.gain');
+    addRoute('velo', 'delay.pan');
     expect($routes.value).toEqual([
       { source: 'lfo1', target: 'filter.gain', amount: 0.5, bipolar: true },
       { source: 'lfo1', target: 'delay.pan', amount: 0.5, bipolar: true },
       { source: 'lfo1', target: 'filter.cutoff', amount: 0.5 },
       { source: 'env2', target: 'distortion.level', amount: 0.5 },
       { source: 'lfo2', target: 'osc1.wave', amount: 0.5, bipolar: true },
+      { source: 'env1', target: 'filter.gain', amount: 0.5 },
+      { source: 'velo', target: 'delay.pan', amount: 0.5 },
     ]);
   });
 
-  it('drops a route of any source on the pitch (Pitch, Fine) around the value of its knob', () => {
+  it('drops an LFO on the pitch (Pitch, Fine) around the value of its knob, an envelope and VELO up from it', () => {
     const [{ $routes }, { addRoute }] = createModulation();
     addRoute('env2', 'osc1.pitch', 0.75);
     addRoute('velo', 'osc2.fine');
     addRoute('lfo1', 'osc1.pitch');
     addRoute('lfo3', 'osc1.fine', 0.5, false);
+    addRoute('env3', 'osc2.pitch', 0.5, true);
     expect($routes.value).toEqual([
-      { source: 'env2', target: 'osc1.pitch', amount: 0.75, bipolar: true },
-      { source: 'velo', target: 'osc2.fine', amount: 0.5, bipolar: true },
+      { source: 'env2', target: 'osc1.pitch', amount: 0.75 },
+      { source: 'velo', target: 'osc2.fine', amount: 0.5 },
       { source: 'lfo1', target: 'osc1.pitch', amount: 0.5, bipolar: true },
       { source: 'lfo3', target: 'osc1.fine', amount: 0.5 },
+      { source: 'env3', target: 'osc2.pitch', amount: 0.5, bipolar: true },
     ]);
   });
 
@@ -186,7 +193,7 @@ describe('modulation', () => {
     addRoute('env3', 'osc2.detune');
     setAmount('env3', 'osc2.detune', 0);
     addRoute('lfo4', 'filter.gain');
-    addRoute('env2', 'osc1.pitch', 0.75);
+    addRoute('env2', 'osc1.pitch', 0.75, true);
     addRoute('velo', 'osc2.fine', -0.25);
     addRoute('lfo2', 'osc2.gain', 0.25);
     setOff('lfo2', 'osc2.gain', true);
@@ -197,7 +204,7 @@ describe('modulation', () => {
       'env3:osc2.detune': 0,
       'lfo4:filter.gain': { a: 0.5, bi: true, off: true },
       'env2:osc1.pitch': { a: 0.75, bi: true },
-      'velo:osc2.fine': { a: -0.25, bi: true },
+      'velo:osc2.fine': -0.25,
       'lfo2:osc2.gain': { a: 0.25, off: true },
     });
     const routes = $routes.value;

@@ -85,13 +85,14 @@ export const modulation = () =>
         update(source, target, ({ [flag]: _, ...rest }) => (value ? { ...rest, [flag]: value } : rest));
       };
       return {
-        // a source already on the knob keeps its amount, none is added past the limits; bipolar by default on a
-        // knob centered on 0
+        // a source already on the knob keeps its amount, none is added past the limits; an LFO bipolar by
+        // default on a knob centered on 0 (around its value), an envelope and VELO uni (up from it: at rest the
+        // knob is its value)
         addRoute: (
           source: ModSource,
           target: string,
           amount = DEFAULT_AMOUNT,
-          bipolar = centered(target)
+          bipolar = isLfo(source) && centered(target)
         ) => {
           if (find(source, target) || !takesSource(source, target)) return;
           if (routesFull($routes.value) || knobFull($routes.value, target)) return;

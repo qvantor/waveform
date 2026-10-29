@@ -1363,7 +1363,8 @@ describe('synth', () => {
       const [, { addRoute }] = modulation;
       osc1[1].setOscValue('semi', -12);
       osc1[1].setOscValue('fine', 50);
-      // an amount of 1 the whole range of the knob (24 semitones, 200 cents), around its value
+      // an amount of 1 the whole range of the knob (24 semitones, 200 cents), an LFO around its value, VELO up
+      // from it
       addRoute('lfo1', 'osc1.pitch', 1);
       addRoute('velo', 'osc1.fine', -0.25);
       addRoute('env3', 'osc2.pitch', 1);
@@ -1374,7 +1375,7 @@ describe('synth', () => {
       // Semi -12 at 100%: from -12 up to 0; Fine 50 at -25%: within -100..100
       expect(options(voices()[0]).routes).toEqual([
         { source: 4, param: 'pitch1', amount: 2400, min: 0, max: 2400, bipolar: true },
-        { source: 3, param: 'fine1', amount: -50, min: -150, max: 50, bipolar: true },
+        { source: 3, param: 'fine1', amount: -50, min: -150, max: 50 },
       ]);
     });
 
@@ -1531,14 +1532,13 @@ describe('synth', () => {
       const { onPress, voices, filter, modulation } = await setup();
       const [, { toggleActive, setType }] = filter;
       toggleActive();
-      // (bipolar: the gain is centered on 0)
       modulation[1].addRoute('env2', 'filter.gain', 0.5);
       onPress([4, 'C']);
       setType('lowshelf');
 
       const [voice] = voices();
       expect(posted(voice).at(-1)).toEqual({
-        routes: [{ source: 1, param: 'gain', amount: 40, min: -40, max: 40, bipolar: true }],
+        routes: [{ source: 1, param: 'gain', amount: 40, min: -40, max: 40 }],
       });
     });
   });
