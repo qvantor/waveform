@@ -1336,59 +1336,52 @@ describe('synth', () => {
       ]);
     });
 
-    it('gives a note the routes of the pitch in cents on the detune, within ±12000; none of an oscillator off', async () => {
-      const { onPress, voices, options, modulation, osc2 } = await setup();
+    it('gives a note the routes of the pitch in cents within the range of Semi and Fine from their values; none of an oscillator off', async () => {
+      const { onPress, voices, options, modulation, osc1, osc2 } = await setup();
       const [, { addRoute }] = modulation;
-      // Pitch ±48 semitones at ±1, Fine ±100 cents
-      addRoute('env2', 'osc1.pitch', 0.75);
+      osc1[1].setOscValue('semi', -12);
+      osc1[1].setOscValue('fine', 50);
+      // an amount of 1 the whole range of the knob (24 semitones, 200 cents), around its value
+      addRoute('lfo1', 'osc1.pitch', 1);
       addRoute('velo', 'osc1.fine', -0.25);
       addRoute('env3', 'osc2.pitch', 1);
       expect(osc2[0].$active.value).toBe(false);
 
       onPress([4, 'C']);
 
+      // Semi -12 at 100%: from -12 up to 0; Fine 50 at -25%: within -100..100
       expect(options(voices()[0]).routes).toEqual([
-        { source: 1, param: 'detune1', amount: 3600, min: -12000, max: 12000 },
-        { source: 3, param: 'detune1', amount: -25, min: -12000, max: 12000 },
+        { source: 4, param: 'pitch1', amount: 2400, min: 0, max: 2400, bipolar: true },
+        { source: 3, param: 'fine1', amount: -50, min: -150, max: 50, bipolar: true },
       ]);
     });
 
-    it('gives a source on Pitch and Fine as one route of their cents, of another polarity as two', async () => {
-      const { onPress, voices, options, modulation, osc2 } = await setup();
-      const [, { addRoute, setPolarity, setAmount }] = modulation;
-      osc2[1].toggleActive();
-      addRoute('env2', 'osc1.pitch', 0.25);
-      addRoute('env2', 'osc1.fine', 0.5);
-      addRoute('lfo1', 'osc2.pitch', 0.5);
-      addRoute('lfo1', 'osc2.fine', 0.1);
-      setPolarity('lfo1', 'osc2.fine', false);
-      // cancelled out: no route
-      addRoute('env3', 'osc2.pitch', 1 / 48);
-      addRoute('env3', 'osc2.fine', -1);
-
+    it('gives the notes with a route of the pitch its bounds again when Semi or Fine changes, the others nothing', async () => {
+      const { onPress, voices, modulation, osc2 } = await setup();
+      const [, { addRoute }] = modulation;
+      addRoute('lfo1', 'osc2.pitch', 0.4);
+      addRoute('env2', 'osc2.fine', 0.5, false);
+      // osc 2 off: the first note has no route of it
       onPress([4, 'C']);
-
-      const range = { min: -12000, max: 12000 };
-      expect(options(voices()[0]).routes).toEqual([
-        { source: 1, param: 'detune1', amount: 1250, ...range },
-        { source: 4, param: 'detune2', amount: 2400, ...range, bipolar: true },
-        { source: 4, param: 'detune2', amount: 10, ...range },
-      ]);
-
-      // one of them changed on the note: the route of their sum
-      const [voice] = voices();
-      setAmount('env2', 'osc1.fine', 0);
-      expect(
-        voices()
-          .find(({ id }) => id === voice.id)
-          ?.messages.at(-1)
-      ).toEqual({
+      osc2[1].toggleActive();
+      onPress([4, 'E']);
+      const [plain, routed] = voices();
+      const routes = (min: number, max: number, fineMin = -100, fineMax = 100) => ({
         routes: [
-          { source: 1, param: 'detune1', amount: 1200, ...range },
-          { source: 4, param: 'detune2', amount: 2400, ...range, bipolar: true },
-          { source: 4, param: 'detune2', amount: 10, ...range },
+          { source: 4, param: 'pitch2', amount: 960, min, max, bipolar: true },
+          { source: 1, param: 'fine2', amount: 100, min: fineMin, max: fineMax },
         ],
       });
+      const sent = (voice: typeof routed) => voices().find(({ id }) => id === voice.id)?.messages ?? [];
+
+      osc2[1].setOscValue('semi', 5);
+      expect(sent(routed)).toEqual([routes(-1700, 700)]);
+      osc2[1].setOscValue('fine', -20);
+      expect(sent(routed).at(-1)).toEqual(routes(-1700, 700, -80, 120));
+      // the octave moves no bound
+      osc2[1].setOscValue('octave', 1);
+      expect(sent(routed)).toHaveLength(2);
+      expect(sent(plain)).toEqual([]);
     });
 
     it('gives a note the routes of the LFOs (sources 4–7, bipolar ones so) and to the knobs of the LFOs', async () => {

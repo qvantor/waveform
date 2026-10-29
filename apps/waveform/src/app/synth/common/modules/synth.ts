@@ -25,7 +25,14 @@ import type {
 import type { ParamAutomation, VoiceHandle } from '../wavetable/wavetable-engine';
 import { EnvelopeParams, envelopeValue } from '../envelope/envelope-curve';
 import { velocityAmp, velocityLevel, velocityShare } from '../envelope/velocity';
-import { amountInUnits, filterTargetScale, MOD_TARGETS, ModScale } from '../modulation/modulation-targets';
+import {
+  amountInUnits,
+  filterTargetScale,
+  MOD_TARGETS,
+  ModScale,
+  PITCH_KNOB_CENTS,
+  PitchKnob,
+} from '../modulation/modulation-targets';
 import type { FilterModule } from '../../filter/modules/filter';
 import type { FxNote } from '../../fx/effects/fx-modulation';
 import {
@@ -111,6 +118,10 @@ const oscOptions = ({ id, $active, $osc, $unisonShape }: VoiceOscillator): Voice
 // the options of an oscillator but the phases: they only start a voice (taken over, it goes on with them)
 const withoutPhases = (options: VoiceOscOptions | null) => options && { ...options, phase: 0, phaseRand: 0 };
 
+// the knobs of the pitch of each oscillator now (Semi, Fine): the routes on them move it within their range
+type OscPitch = Record<PitchKnob, number>;
+const pitchesOf = (oscillators: VoiceOscillator[]): OscPitch[] => oscillators.map(({ $osc }) => $osc.value);
+
 // a route of a voice: the scale in it only when not linear, bipolar only when it is
 const voiceRoute = (
   source: number,
@@ -129,50 +140,36 @@ const voiceRoute = (
   ...(bipolar && { bipolar }),
 });
 
-// cents the detune of a voice is clamped to (Oct, Semi, Fine, the bend and the routes of the pitch): never in
-// effect, the voice keeps the pitch of each unison voice within 0..nyquist
-const DETUNE_LIMIT = 12000;
-
-// the core keeps a route per source, param and polarity: those of one (a source on Pitch and on Fine of an
-// oscillator) are one, their amounts added; a sum of 0 is left out
-const sumRoutes = (routes: VoiceRoute[]) => {
-  const summed = new Map<string, VoiceRoute>();
-  for (const route of routes) {
-    const key = `${route.source}:${route.param}:${!!route.bipolar}`;
-    const other = summed.get(key);
-    summed.set(key, other ? { ...other, amount: other.amount + route.amount } : route);
-  }
-  return [...summed.values()].filter(({ amount }) => amount !== 0);
-};
-
-// the routes of a note to its params: of the oscillators on for it (`osc`, null: off), of the filter while it is
-// on, in the range of its type (a knob its type doesn't use is left out), and to the knobs of the LFOs (Rate by its
-// frequency); an amount of 0 is left out (its source isn't rendered for it)
+// the routes of a note to its params: of the oscillators on for it (`osc`, null: off; the pitch an offset of its
+// detune within the range of the knob from its value now, `pitches`), of the filter while it is on, in the range
+// of its type (a knob its type doesn't use is left out), and to the knobs of the LFOs (Rate by its frequency); an
+// amount of 0 is left out (its source isn't rendered for it)
 const voiceRoutes = (
   routes: ModRoute[],
   osc: (VoiceOscOptions | null)[],
-  filter: VoiceFilterOptions | null
+  filter: VoiceFilterOptions | null,
+  pitches: OscPitch[]
 ): VoiceRoute[] =>
-  sumRoutes(
-    routes.flatMap(({ source: id, target, amount, bipolar }) => {
-      const definition = MOD_TARGETS[target];
-      if (!definition || amount === 0) return [];
-      const source = MOD_SOURCES.indexOf(id);
-      if (definition.kind === 'osc') {
-        if (!osc[definition.osc]) return [];
-        const param = oscParamName(definition.param, definition.osc);
-        const route = voiceRoute(source, param, amount, definition.scale, definition.range, bipolar);
-        return [definition.unit ? { ...route, min: -DETUNE_LIMIT, max: DETUNE_LIMIT } : route];
-      }
-      if (definition.kind === 'lfo')
-        return [voiceRoute(source, target, amount, definition.scale, definition.range, bipolar)];
-      // the fx follow the last note (the fx model)
-      if (definition.kind === 'fx' || !filter) return [];
-      const { scale, range, disabled } = filterTargetScale(filter.type, definition.param);
-      if (disabled) return [];
-      return [voiceRoute(source, definition.param, amount, scale, range, bipolar)];
-    })
-  );
+  routes.flatMap(({ source: id, target, amount, bipolar }) => {
+    const definition = MOD_TARGETS[target];
+    if (!definition || amount === 0) return [];
+    const source = MOD_SOURCES.indexOf(id);
+    if (definition.kind === 'osc') {
+      if (!osc[definition.osc]) return [];
+      const param = `${definition.param}${definition.osc + 1}`;
+      const route = voiceRoute(source, param, amount, definition.scale, definition.range, bipolar);
+      if (!definition.knob) return [route];
+      const cents = PITCH_KNOB_CENTS[definition.knob] * pitches[definition.osc][definition.knob];
+      return [{ ...route, min: route.min - cents, max: route.max - cents }];
+    }
+    if (definition.kind === 'lfo')
+      return [voiceRoute(source, target, amount, definition.scale, definition.range, bipolar)];
+    // the fx follow the last note (the fx model)
+    if (definition.kind === 'fx' || !filter) return [];
+    const { scale, range, disabled } = filterTargetScale(filter.type, definition.param);
+    if (disabled) return [];
+    return [voiceRoute(source, definition.param, amount, scale, range, bipolar)];
+  });
 
 // the envelopes of a note, in legato of its phrase (its notes share them): its number (the processors find
 // the phrase by it: two of them may be scheduled at the same time), ENV 1–3 (read at the note on, in legato
@@ -286,7 +283,7 @@ const createVoiceHandle = ({
       envelopes,
       envStart,
       phrase,
-      routes: voiceRoutes(routes, osc, filter),
+      routes: voiceRoutes(routes, osc, filter, pitchesOf(oscillators)),
       filter,
       velocity: { level, amp },
       ...(onStarted && { trace: true }),
@@ -344,7 +341,9 @@ class Voice {
     this.current = config.phrase;
     this.osc = config.oscillators.map(oscOptions);
     this.velocity = config.velocity;
-    this.routes = JSON.stringify(voiceRoutes(config.routes, this.osc, config.filter));
+    this.routes = JSON.stringify(
+      voiceRoutes(config.routes, this.osc, config.filter, pitchesOf(config.oscillators))
+    );
     handle.onStarted = (started, scheduled) => {
       if (__PERF__) config.onStarted?.({ started, scheduled });
       if (started > scheduled) this.startLate(started / config.audioCtx.sampleRate);
@@ -463,10 +462,11 @@ class Voice {
     setParam(this.gate, -1, this.config.audioCtx.currentTime);
   }
 
-  // the routes of the modulation or the type of the filter changed: the routes of its params, null when its
-  // voice has them (a change of the routes of other knobs sends nothing); the voice glides into the new amounts
+  // the routes of the modulation, the type of the filter or a knob of the pitch changed: the routes of its params,
+  // null when its voice has them (a change of the routes of other knobs sends nothing); the voice glides into the
+  // new amounts, takes new bounds at once
   nextRoutes = (routes: ModRoute[], filter: VoiceFilterOptions | null) => {
-    const next = voiceRoutes(routes, this.osc, filter);
+    const next = voiceRoutes(routes, this.osc, filter, pitchesOf(this.config.oscillators));
     const json = JSON.stringify(next);
     if (json === this.routes) return null;
     this.routes = json;
@@ -969,6 +969,17 @@ export const synth = ({
             if (params[param] !== previous[param]) voicing.setParam(osc, param, params[param]);
           })
         )
+      ),
+      // the routes of the pitch keep Semi and Fine within their range from their values: the notes with such
+      // routes take their bounds again (in the message of their detune)
+      ...oscillators.map(([{ $osc }]) =>
+        $osc
+          .pipe(
+            map(({ semi, fine }) => [semi, fine]),
+            distinctUntilChanged(isEqual),
+            skip(1)
+          )
+          .subscribe(() => voicing.setRoutes($routes.value, voiceFilter()))
       ),
     ])
     .plugins(

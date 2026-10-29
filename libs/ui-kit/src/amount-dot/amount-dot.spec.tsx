@@ -97,19 +97,6 @@ describe('AmountDot', () => {
     pointer('pointerup', document, [10, 300]);
   });
 
-  it('steps the amount by its steps: whole semitones of ±48 (48 steps of 0..1)', () => {
-    const { dot, onChange } = setup({ amount: 0.25, amountSteps: 48 });
-    // 15 px up: +0.15, to the nearest semitone
-    pointer('pointerdown', dot, [10, 100]);
-    pointer('pointermove', document, [10, 85]);
-    expect(onChange).toHaveBeenLastCalledWith(Math.round((0.25 + 0.15) * 48) / 48);
-    pointer('pointerup', document, [10, 85]);
-    fireEvent.keyDown(dot, { key: 'ArrowUp' });
-    expect(onChange).toHaveBeenLastCalledWith(13 / 48);
-    fireEvent.keyDown(dot, { key: 'ArrowDown' });
-    expect(onChange).toHaveBeenLastCalledWith(11 / 48);
-  });
-
   it('a double click removes the route', () => {
     const { dot, onRemove } = setup();
     fireEvent.doubleClick(dot);
@@ -136,17 +123,18 @@ describe('AmountDot', () => {
     expect(onChange).toHaveBeenCalledWith(0.6);
   });
 
-  it('takes the arrows and removes on Delete', () => {
-    const { dot, onChange, onRemove } = setup({ amount: 0.5 });
-    fireEvent.keyDown(dot, { key: 'ArrowUp' });
-    expect(onChange).toHaveBeenLastCalledWith(0.51);
-    fireEvent.keyDown(dot, { key: 'ArrowDown' });
-    expect(onChange).toHaveBeenLastCalledWith(0.49);
-    fireEvent.keyDown(dot, { key: 'Delete' });
-    expect(onRemove).toHaveBeenCalled();
+  it('takes no focus nor keys: a press keeps the focus where it was', () => {
+    const onPolarity = jest.fn();
+    const { dot, onChange, onRemove } = setup({ amount: 0.5, onPolarity });
+    expect(dot.hasAttribute('tabindex')).toBe(false);
+    expect(fireEvent.mouseDown(dot)).toBe(false);
+    ['ArrowUp', 'Delete', 'b'].forEach((key) => fireEvent.keyDown(dot, { key }));
+    expect(onChange).not.toHaveBeenCalled();
+    expect(onRemove).not.toHaveBeenCalled();
+    expect(onPolarity).not.toHaveBeenCalled();
   });
 
-  it('switches the polarity on Shift+click or B, shows a bipolar amount as ±', () => {
+  it('switches the polarity on Shift+click, shows a bipolar amount as ±', () => {
     const onPolarity = jest.fn();
     const { dot, onChange } = setup({ amount: -0.35, bipolar: true, onPolarity });
     const event = new MouseEvent('pointerdown', {
@@ -160,8 +148,6 @@ describe('AmountDot', () => {
       dot.dispatchEvent(event);
     });
     expect(onPolarity).toHaveBeenLastCalledWith(false);
-    fireEvent.keyDown(dot, { key: 'b' });
-    expect(onPolarity).toHaveBeenCalledTimes(2);
     expect(onChange).not.toHaveBeenCalled();
     fireEvent.mouseEnter(dot);
     expect(document.getElementById('tooltip')?.textContent ?? '±35%').toContain('±35%');

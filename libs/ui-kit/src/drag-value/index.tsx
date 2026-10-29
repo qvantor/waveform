@@ -34,10 +34,9 @@ interface DragValueProps {
   onActiveChange?: (active: boolean) => void;
   // the routes moving what it sets (hidden while it has none), an array (maybe empty) if it takes them: a line
   // along its bottom, its range, holds the bar of the selected route from the value and the mark of the live
-  // ones, the dot right of the value changes the selected one; the value stays its own
+  // ones, the dot right of the value changes the selected one; the value stays its own. An amount is a share of
+  // its range, as of a knob
   modulations?: HandleModulation[];
-  // the share of its range an amount of 1 moves it over (Pitch on Semi: 48 of its 24 semitones, 2)
-  modSpan?: number;
   // the id a dragged source is dropped onto (MOD_TARGET_ATTR)
   modTarget?: string;
   className?: string;
@@ -179,7 +178,6 @@ export const DragValue = ({
   onChange,
   onActiveChange,
   modulations: routes,
-  modSpan = 1,
   modTarget,
   className,
 }: DragValueProps) => {
@@ -187,14 +185,9 @@ export const DragValue = ({
   const [trackPointer] = React.useState(singlePointerTracker);
   const lastValue = React.useRef(value);
   const [trackRef, [trackWidth]] = useElementSize<HTMLDivElement>();
-  // an amount in shares of its range
-  const spanned = React.useMemo(
-    () => routes?.map((route) => ({ ...route, amount: route.amount * modSpan })),
-    [routes, modSpan]
-  );
   const mark = React.useMemo(() => markCanvas(trackWidth), [trackWidth]);
   const position = max > min ? (value - min) / (max - min) : 0;
-  const { mark: modMark, live, shown, spans } = useModulations(spanned, false, position, mark);
+  const { mark: modMark, live, shown, spans } = useModulations(routes, false, position, mark);
   const [span] = spans;
   const toValue = (raw: number) => {
     if (!cyclic) return number.thresholds(number.round(raw, precision), min, max);

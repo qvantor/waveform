@@ -3,18 +3,15 @@ import {
   ENVELOPE_TIME_MAX,
   FX_TYPES,
   FxType,
-  isLfo,
   LFO_RATE_MAX,
   LFO_RATE_MIN,
   LFO_SMOOTH_MAX,
   LFOS,
   LfoKnob,
   MOD_SOURCES,
-  ModSource,
 } from '@waveform/preset-schema';
 import { rangesOf } from '../../filter/constants';
 import { FX_REGISTRY, MIX_PARAM } from '../../fx/effects';
-import { OscParam } from '../wavetable/wavetable-osc-params';
 import type { ModRoute } from '../modules/modulation';
 import type { FxRoute } from '../../fx/effects/fx-modulation';
 
@@ -27,24 +24,21 @@ export type ModScale = 'linear' | 'log' | 'pow';
 
 // a param of the voice node of each note (wavetable-osc-params.ts), moved by the envelopes of the note;
 // range: of the knob, in the units of the param (the Wave knob shows frames, its param is a share of the
-// table: an amount moves it by the same share whatever the table). The pitch (`unit`): Pitch and Fine both move
-// the detune, in cents (the amounts of a source on both add up), dragged by whole semitones and cents
+// table: an amount moves it by the same share whatever the table). The pitch (`knob`: Semi, Fine) is an offset of
+// the detune in cents, within the range of its knob from the value of the knob (the bounds of its routes)
 interface OscTarget {
   kind: 'osc';
   osc: number;
-  param: OscParam;
+  param: 'position' | 'spread' | 'gain' | 'pitch' | 'fine';
   label: string;
   scale: ModScale;
   range: [number, number];
-  unit?: PitchUnit;
+  knob?: PitchKnob;
 }
 
-export type PitchUnit = 'semitones' | 'cents';
-// each: its cents, its symbol and the steps it is shown in (semitones to 0.1)
-export const PITCH_UNITS: Record<PitchUnit, { cents: number; symbol: string; precision: number }> = {
-  semitones: { cents: 100, symbol: 'st', precision: 10 },
-  cents: { cents: 1, symbol: 'ct', precision: 1 },
-};
+export type PitchKnob = 'semi' | 'fine';
+// the cents of a step of a knob of the pitch
+export const PITCH_KNOB_CENTS: Record<PitchKnob, number> = { semi: 100, fine: 1 };
 
 // a knob of the filter in the voice node of each note (voice-filter.ts); its scale and range are those of the
 // type of the filter (filterTargetScale)
@@ -96,25 +90,25 @@ const oscTargets = (osc: number): Record<string, OscTarget> => {
     [id('wave')]: { kind: 'osc', osc, param: 'position', label: 'Wave', scale: 'linear', range: [0, 1] },
     // the unison detune: the spread of the voices in cents
     [id('detune')]: { kind: 'osc', osc, param: 'spread', label: 'Detune', scale: 'linear', range: [0, 100] },
-    // the pitch over Oct, Semi and Fine: Pitch on Semi smoothly, ±48 semitones at ±1 (no steps of semitones),
-    // Fine ±100 cents
+    // the pitch over Oct, Semi and Fine: Pitch on Semi smoothly (no steps of semitones), Fine; an amount of 1 their
+    // whole range, 24 semitones, 200 cents
     [id('pitch')]: {
       kind: 'osc',
       osc,
-      param: 'detune',
+      param: 'pitch',
       label: 'Pitch',
       scale: 'linear',
-      range: [0, 4800],
-      unit: 'semitones',
+      range: [-1200, 1200],
+      knob: 'semi',
     },
     [id('fine')]: {
       kind: 'osc',
       osc,
-      param: 'detune',
+      param: 'fine',
       label: 'Fine',
       scale: 'linear',
-      range: [0, 100],
-      unit: 'cents',
+      range: [-100, 100],
+      knob: 'fine',
     },
   };
 };
@@ -172,29 +166,9 @@ export const centered = (id: string) => {
   return definition.range[0] === -definition.range[1];
 };
 
-// a route of an LFO on the pitch is a vibrato: around the note; the others by centered
-export const bipolarByDefault = (source: ModSource, target: string) => {
-  const definition = MOD_TARGETS[target];
-  return centered(target) || (isLfo(source) && definition?.kind === 'osc' && !!definition.unit);
-};
-
 // the amount of a route in the units of the param (octaves for a log one, a share of the travel of a pow one)
 export const amountInUnits = (amount: number, scale: ModScale, [min, max]: [number, number]) =>
   scale === 'log' ? amount * Math.log2(max / min) : scale === 'pow' ? amount : amount * (max - min);
-
-// the whole units of the pitch (semitones, cents) in an amount of 1 of a target of the pitch: Pitch 48, Fine 100
-export const pitchSteps = (unit: PitchUnit, range: [number, number]) =>
-  amountInUnits(1, 'linear', range) / PITCH_UNITS[unit].cents;
-
-// the share of the range of a control an amount of 1 of a route of `target` moves it over: of the pitch its whole
-// units over the range of the control in them (Pitch on Semi: 48 of its 24 semitones, 2; Fine on Fine: 100 of its
-// 200 cents, 0.5), else the whole range
-export const modSpan = (target: string, [min, max]: [number, number]) => {
-  const definition = MOD_TARGETS[target];
-  return definition?.kind === 'osc' && definition.unit
-    ? pitchSteps(definition.unit, definition.range) / (max - min)
-    : 1;
-};
 
 // a route of the modulation in the units of the knob it moves: the scale only when it isn't linear, bipolar only
 // when it is

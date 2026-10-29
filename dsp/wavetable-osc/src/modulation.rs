@@ -2,11 +2,11 @@
 //! base + Σ amount × level (base × 2^Σ for a log one), clamped; one value while every envelope a param follows
 //! is in a flat stage. Source 3, after ENV 1–3, is the velocity of the voice (VELO: velocity.rs), flat but
 //! for a glide to the velocity of a note that takes the voice over; sources 4–7 its LFOs (lfo.rs). A bipolar
-//! route moves a param by amount × (level - ½) (a uni one: amount × level, to the bit). The knobs of the LFOs are
-//! params too (targets 11–30: a Modulation of their own in the voice, sources ENV 1–3 and VELO): the times by a
-//! share of their travel (pow: the knob is max · share⁴), Phase around the cycle (not clamped). A param keeps a
-//! route per source and polarity: a source on Pitch and on Fine of the same polarity comes as one (their cents
-//! added), of another as two
+//! route moves a param by amount × (level - ½) (a uni one: amount × level, to the bit). The pitch of an
+//! oscillator (Semi, Fine) is two params of base 0 (an offset of its detune within the bounds of its routes: the
+//! range of the knob from its value). The knobs of the LFOs are params too (targets 13–32: a Modulation of their
+//! own in the voice, sources ENV 1–3 and VELO): the times by a share of their travel (pow: the knob is max ·
+//! share⁴), Phase around the cycle (not clamped)
 
 use crate::envelope::EnvelopeBlock;
 use crate::glided::{glide_length, Glided};
@@ -15,17 +15,20 @@ use crate::voice::is_constant;
 use alloc::{vec, vec::Vec};
 use jsmath::{max, min, pow, sqrt};
 
-// the params a route moves, by id (the facade sends their names as these): the params of each oscillator in the
-// order of a block (position, detune: its pitch in cents, spread, gain), then the knobs of the filter
+// the params a route moves, by id (the facade sends their names as these): the knobs of each oscillator
+// (position, spread, gain, then the offsets of its detune: Semi in cents, Fine), then the knobs of the filter
 pub const POSITION1: usize = 0;
-pub const DETUNE1: usize = 1;
-pub const SPREAD1: usize = 2;
-pub const GAIN1: usize = 3;
-pub const CUTOFF: usize = 8;
-pub const RESONANCE: usize = 9;
-pub const FILTER_GAIN: usize = 10;
+pub const SPREAD1: usize = 1;
+pub const GAIN1: usize = 2;
+pub const PITCH1: usize = 3;
+pub const FINE1: usize = 4;
+/// the params of each oscillator
+pub const OSC_TARGETS: usize = 5;
+pub const CUTOFF: usize = 2 * OSC_TARGETS;
+pub const RESONANCE: usize = CUTOFF + 1;
+pub const FILTER_GAIN: usize = CUTOFF + 2;
 /// the params of the voice, then the knobs of LFO 1–4 (rate, delay, rise, smooth, phase each)
-pub const VOICE_TARGETS: usize = 11;
+pub const VOICE_TARGETS: usize = FILTER_GAIN + 1;
 pub const TARGET_PARAMS: usize = VOICE_TARGETS + LFOS * KNOBS;
 
 /// knob `knob` of LFO `lfo` as a param of the routes
@@ -301,18 +304,7 @@ impl Modulation {
             target.scale = scale;
             target.base = f64::NAN;
             let offset = if route.bipolar { 0.5 } else { 0.0 };
-            // the route of the source of that polarity (another one of it in the message replaces it), else the
-            // one of the other polarity not taken by a route before it in the message (its polarity glides there)
-            let routes = &target.routes;
-            let found = routes
-                .iter()
-                .position(|item| item.source == source && item.offset_target == offset)
-                .or_else(|| {
-                    routes
-                        .iter()
-                        .position(|item| item.source == source && item.removed)
-                });
-            let position = match found {
+            let position = match target.routes.iter().position(|item| item.source == source) {
                 Some(position) => position,
                 None => {
                     target.routes.push(Route {
@@ -746,52 +738,6 @@ mod tests {
                 played[i],
                 played[i - 1]
             );
-        }
-    }
-
-    #[test]
-    fn a_source_keeps_a_route_of_each_polarity_on_a_param_they_add_up() {
-        // Pitch up from the note, Fine around it, of one source: 1 + 10 × 0.25 + 4 × (0.25 - ½)
-        let uni = route(1.0, DETUNE1, 10.0, LINEAR, false);
-        let bipolar = route(1.0, DETUNE1, 4.0, LINEAR, true);
-        assert_eq!(moved_one(&[uni, bipolar], DETUNE1, 1.0, 0.25, false), Some(2.5));
-        assert_eq!(moved_one(&[bipolar, uni], DETUNE1, 1.0, 0.25, false), Some(2.5));
-        // two of one polarity are one route (the last)
-        assert_eq!(
-            moved_one(&[bipolar, bipolar], DETUNE1, 1.0, 0.25, false),
-            Some(0.0)
-        );
-
-        // both, then one of them alone: the other glides out, no step
-        let mut accesses = [false; TARGET_PARAMS];
-        accesses[DETUNE1] = true;
-        let mut modulation = Modulation::new(RATE_48, 3, false, &[uni, bipolar], accesses);
-        let envelopes = envelopes(0.25);
-        let velocity = Glided::new(0.0);
-        let one = [1.0f32];
-        let bases: [&[f32]; TARGET_PARAMS] = core::array::from_fn(|_| &one[..]);
-        let sources = Sources {
-            envelopes: &envelopes,
-            velocity: &velocity,
-            lfos: &[],
-        };
-        let mut played: Vec<f32> = Vec::new();
-        let mut render = |modulation: &mut Modulation, blocks: usize| {
-            for _ in 0..blocks {
-                let frame = played.len() as f64;
-                modulation.apply(&bases, &sources, frame, 0.0, 128.0, 128);
-                let moved = modulation.moved(DETUNE1).expect("moved");
-                played.extend((0..128).map(|i| moved[if moved.len() > 1 { i } else { 0 }]));
-            }
-        };
-        render(&mut modulation, 2);
-        modulation.set(&[route(1.0, DETUNE1, 14.0, LINEAR, false)]);
-        render(&mut modulation, 6);
-        let glide = glide_length(RATE_48) as usize;
-        assert!(played[..257].iter().all(|value| *value == 2.5));
-        assert!(played[256 + glide..].iter().all(|value| *value == 4.5));
-        for i in 1..played.len() {
-            assert!(((played[i] - played[i - 1]) as f64).abs() <= 2.0 / glide as f64 * 1.001);
         }
     }
 }

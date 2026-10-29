@@ -115,32 +115,17 @@ describe('useKnobModulation of the LFOs', () => {
     expect(delay.current.modulations?.[0].formatAmount?.(0.25)).toBe('+25%');
   });
 
-  it('shows a route on Pitch in semitones, on Fine in cents, dragged by whole ones', () => {
+  it('shows a route on Pitch and on Fine as a share of the range of the knob, around its value', () => {
     const { modulation, wrapper } = setup();
     act(() => {
-      modulation[1].addRoute('env2', 'osc1.pitch', 0.25);
+      modulation[1].addRoute('env2', 'osc1.pitch', 0.4);
       modulation[1].addRoute('velo', 'osc2.fine', -0.25);
     });
     const pitch = renderHook(() => useKnobModulation('osc1.pitch'), { wrapper }).result.current
       .modulations?.[0];
     const fine = renderHook(() => useKnobModulation('osc2.fine'), { wrapper }).result.current
       .modulations?.[0];
-    expect([0.25, 7 / 48, 1 / 96, -1].map((amount) => pitch?.formatAmount?.(amount))).toEqual([
-      '+12 st',
-      '+7 st',
-      '+0.5 st',
-      '-48 st',
-    ]);
-    expect([-0.25, 0.07, 0].map((amount) => fine?.formatAmount?.(amount))).toEqual([
-      '-25 ct',
-      '+7 ct',
-      '0 ct',
-    ]);
-    expect([pitch?.amountSteps, fine?.amountSteps]).toEqual([48, 100]);
-    // the other knobs: 1% (the default of the dot)
-    act(() => modulation[1].addRoute('env2', 'osc1.wave'));
-    const wave = renderHook(() => useKnobModulation('osc1.wave'), { wrapper }).result.current
-      .modulations?.[0];
-    expect(wave?.amountSteps).toBeUndefined();
+    expect([pitch?.amount, pitch?.bipolar, pitch?.formatAmount?.(0.4)]).toEqual([0.4, true, '+40%']);
+    expect([fine?.amount, fine?.bipolar, fine?.formatAmount?.(-0.25)]).toEqual([-0.25, true, '-25%']);
   });
 });

@@ -1,7 +1,7 @@
 import React from 'react';
 import cls from 'classnames';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
-import { modSpan } from '../../../common/modulation/modulation-targets';
+
 import { useKnobModulation } from '../../../modulation/use-knob-modulation';
 import { useOscillatorContext } from '../../hooks';
 import { Cell, Strip } from './value-strip';
@@ -18,7 +18,8 @@ interface Props {
 }
 
 // over the wave, on its background: Oct, Semi and Fine (the pitch of the oscillator over the note), dragged to
-// change them; Semi takes the routes of Pitch, Fine those of Fine, Oct none
+// change them; Semi takes the routes of Pitch, Fine those of Fine (an amount a share of the range of each, the
+// pitch within it), Oct none
 export const PitchInfo = ({ target, compact }: Props) => {
   const [{ $osc, ranges }, { setOscValue }] = useOscillatorContext();
   const osc = useBehaviorSubject($osc);
@@ -41,13 +42,8 @@ export const PitchInfo = ({ target, compact }: Props) => {
   return (
     <Strip $edge='top' className={cls({ compact })}>
       <Cell label='Oct' {...field('octave')} />
-      <Cell label='Semi' {...field('semi')} modSpan={modSpan(pitch, ranges.semi)} {...pitchModulation} />
-      <Cell
-        label='Fine'
-        {...field('fine', PX_PER_CENT)}
-        modSpan={modSpan(fine, ranges.fine)}
-        {...fineModulation}
-      />
+      <Cell label='Semi' {...field('semi')} {...pitchModulation} />
+      <Cell label='Fine' {...field('fine', PX_PER_CENT)} {...fineModulation} />
     </Strip>
   );
 };

@@ -157,8 +157,10 @@ const OSC_SCENES = [
       ),
     ],
   }),
-  // a kick and a pluck: ENV 2 on the pitch of osc 1 (36 semitones down to the note in 80 ms), ENV 3 on osc 2 (an
-  // octave down in 0.2 s, a fifth up and -7 cents)
+  // a kick and a pluck, the routes of the pitch as the app gives them (within the range of Semi and Fine from their
+  // values): ENV 2 on Semi of osc 1 at 100% (24 semitones up from 0: at the top, +12, until it falls under it,
+  // down to the note in 80 ms); osc 2 a fifth up and -7 cents, ENV 3 on its Semi at 50% (at most +12, down to +7
+  // in 0.2 s) and ENV 2 around its Fine at 100%
   oscScene('wavetable, pitch envelopes', {
     frames: OSC_RATE / 2,
     tables: { a: [saw(2048, 200), saw(1024, 300, 0.7)] },
@@ -177,8 +179,9 @@ const OSC_SCENES = [
             { attack: 0, hold: 0, decay: 0.2, sustain: 0, release: 0 },
           ],
           routes: [
-            { source: 1, param: 'detune1', amount: 3600, min: -12000, max: 12000 },
-            { source: 2, param: 'detune2', amount: 1200, min: -12000, max: 12000 },
+            { source: 1, param: 'pitch1', amount: 2400, min: -1200, max: 1200 },
+            { source: 2, param: 'pitch2', amount: 1200, min: -1900, max: 500 },
+            { source: 1, param: 'fine2', amount: 200, min: -93, max: 107, bipolar: true },
           ],
         }
       ),

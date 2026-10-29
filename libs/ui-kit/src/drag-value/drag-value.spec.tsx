@@ -249,29 +249,22 @@ describe('DragValue with routes', () => {
   });
 
   it('the bar of the selected route goes from the value by its share of the range, up to an end', () => {
-    // Semi 0 is the middle of its line; +0.25 of Pitch (12 of its 48 semitones) half the 24 of Semi
-    const { rerender } = render(semi({ modulations: [modulation(0.25)], modSpan: 2 }));
+    // a bipolar one around the value, ± half its share: Semi 0 at 100% from -12 to +12
+    const bipolar = (amount: number) => [{ ...modulation(amount), bipolar: true }];
+    const { rerender } = render(semi({ modulations: bipolar(1) }));
+    expect(bar()).toEqual(['0%', '100%']);
+    // from -12 up to 0: stops at the end
+    rerender(semi({ value: -12, modulations: bipolar(1) }));
+    expect(bar()).toEqual(['0%', '50%']);
+    // +6 at 50%: from 0 to +12
+    rerender(semi({ value: 6, modulations: bipolar(0.5) }));
     expect(bar()).toEqual(['50%', '50%']);
-    // from +6, three quarters: stops at the end
-    rerender(semi({ value: 6, modulations: [modulation(0.25)], modSpan: 2 }));
+    // a uni one up from the value: from +6, three quarters, by half the range stops at the end
+    rerender(semi({ value: 6, modulations: [modulation(0.5)] }));
     expect(bar()).toEqual(['75%', '25%']);
-    // a bipolar one around the value, ± half its share
-    rerender(semi({ modulations: [{ ...modulation(0.25), bipolar: true }], modSpan: 2 }));
-    expect(bar()).toEqual(['25%', '50%']);
-    // without modSpan an amount is a share of the range, as of a knob
-    rerender(semi({ value: -12, modulations: [modulation(0.25)] }));
-    expect(bar()).toEqual(['0%', '25%']);
-    // Fine: -1 is 100 of its 200 cents, from -50 down to the end
+    // Fine: -1 from -50 down to the end
     rerender(
-      <DragValue
-        label='Fine'
-        value={-50}
-        min={-100}
-        max={100}
-        precision={1}
-        modulations={[modulation(-1)]}
-        modSpan={0.5}
-      />
+      <DragValue label='Fine' value={-50} min={-100} max={100} precision={1} modulations={[modulation(-1)]} />
     );
     expect(bar()).toEqual(['0%', '25%']);
     // no route of the selected source: no bar, the dot only shows the routes
@@ -283,12 +276,12 @@ describe('DragValue with routes', () => {
   it('dragging the dot of the selected route changes its amount, not the value', () => {
     const onChange = jest.fn();
     const onAmount = jest.fn();
-    render(semi({ onChange, modulations: [{ ...modulation(0.25), onChange: onAmount, amountSteps: 48 }] }));
+    render(semi({ onChange, modulations: [{ ...modulation(0.25), onChange: onAmount }] }));
     pointer('pointerdown', screen.getByRole('slider', { name: 'env2' }), [100, 100]);
     pointer('pointermove', document, [100, 85]);
     pointer('pointerup', document, [100, 85]);
     expect(onChange).not.toHaveBeenCalled();
-    expect(onAmount).toHaveBeenLastCalledWith(19 / 48);
+    expect(onAmount).toHaveBeenLastCalledWith(0.4);
   });
 
   it('Shift+Alt+click switches the polarity of the selected route, the value stays', () => {
@@ -312,7 +305,7 @@ describe('DragValue with routes', () => {
       level: () => level,
       live: true,
     });
-    const { rerender } = render(semi({ modulations: [live(0.25), live(-0.125, 'env3')], modSpan: 2 }));
+    const { rerender } = render(semi({ modulations: [live(0.25), live(-0.125, 'env3')] }));
     const mark = screen.getByTestId('value-mod-mark');
     expect(mark.style.width).toBe(`${WIDTH}px`);
     // the center of the dot, as high as the line
@@ -324,15 +317,15 @@ describe('DragValue with routes', () => {
       expect([y, radius]).toEqual([2, 2]);
       return x;
     };
-    // the middle + (0.25 - 0.125) × 2 of the range (in steps of a thousandth of it: within half a px)
-    expect(x()).toBeCloseTo(WIDTH * 0.75, 0);
+    // the middle + 0.25 - 0.125 of the range (in steps of a thousandth of it: within half a px)
+    expect(x()).toBeCloseTo(WIDTH * 0.625, 0);
     level = 0.5;
     act(() => {
       jest.advanceTimersByTime(20);
     });
-    expect(x()).toBeCloseTo(WIDTH * 0.625, 0);
+    expect(x()).toBeCloseTo(WIDTH * 0.5625, 0);
     // within the line: a radius in from its end
-    rerender(semi({ value: 12, modulations: [live(1), live(1, 'env3')], modSpan: 2 }));
+    rerender(semi({ value: 12, modulations: [live(1), live(1, 'env3')] }));
     level = 1;
     act(() => {
       jest.advanceTimersByTime(20);

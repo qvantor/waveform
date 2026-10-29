@@ -271,25 +271,35 @@ describe('Oscillator', () => {
     const field = (name: string) => screen.getByRole('slider', { name });
     expect(field('Oct').hasAttribute('data-mod-target')).toBe(false);
     expect(field('Oct').querySelector('[data-testid="mod-track"]')).toBeNull();
-    act(() => modulation[1].addRoute('env1', 'osc2.pitch', 7 / 48));
-    // the dot of the selected tab (ENV 1 without the envelopes model) in the cell of Semi: its amount in semitones
+    act(() => modulation[1].addRoute('env1', 'osc2.pitch', 0.25));
+    // the dot of the selected tab (ENV 1 without the envelopes model) in the cell of Semi
     const dot = screen.getByRole('slider', { name: 'ENV 1' });
     expect(field('Semi').contains(dot)).toBe(true);
     act(() => modulation[1].addRoute('env1', 'osc2.fine', 0.25));
     expect(screen.getAllByTestId('mod-bar')).toHaveLength(2);
   });
 
-  it('shows a route of Pitch on the range of Semi, of Fine on the range of Fine, from the value', () => {
+  it('shows a route of Pitch on the range of Semi, of Fine on the range of Fine, around the value within it', () => {
     const { modulation, actions } = setup();
+    const bars = () => screen.getAllByTestId('mod-bar').map(({ style }) => [style.left, style.width]);
     act(() => {
-      actions.setOscValue('semi', 6);
-      modulation[1].addRoute('env1', 'osc1.pitch', 6 / 48);
+      modulation[1].addRoute('env1', 'osc1.pitch', 1);
       modulation[1].addRoute('env1', 'osc1.fine', 0.5);
     });
-    // +6 of the 24 semitones of Semi from +6 (three quarters); +50 of the 200 cents of Fine from the middle
-    const [pitch, fine] = screen.getAllByTestId('mod-bar').map(({ style }) => [style.left, style.width]);
-    expect(pitch).toEqual(['75%', '25%']);
-    expect(fine).toEqual(['50%', '25%']);
+    // Semi 0 at 100%: from -12 to +12; Fine 0 at 50%: from -50 to +50
+    expect(bars()).toEqual([
+      ['0%', '100%'],
+      ['25%', '50%'],
+    ]);
+    // Semi -12 at 100%: from -12 to 0
+    act(() => actions.setOscValue('semi', -12));
+    expect(bars()[0]).toEqual(['0%', '50%']);
+    // Semi +6 at 50%: from 0 to +12
+    act(() => {
+      actions.setOscValue('semi', 6);
+      modulation[1].setAmount('env1', 'osc1.pitch', 0.5);
+    });
+    expect(bars()[0]).toEqual(['50%', '50%']);
   });
 
   it.each([

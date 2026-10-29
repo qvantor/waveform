@@ -1799,7 +1799,7 @@ describe('the wavetable voice', () => {
       release: 0,
     });
     const level = (env: EnvelopeParams, frame: number) => envelopeValue(env, frame / RATE);
-    const route = (param: VoiceParam, amount: number, min = 0, max = 1, source = 1): VoiceRoute => ({
+    const route = (param: string, amount: number, min = 0, max = 1, source = 1): VoiceRoute => ({
       source,
       param,
       amount,
@@ -1915,8 +1915,9 @@ describe('the wavetable voice', () => {
       expect(maxStep(left)).toBeLessThan(0.003);
     });
 
-    describe('the pitch (Pitch and Fine: the detune)', () => {
-      // a kick: ENV 2 from 36 semitones over the note down to it in 80 ms
+    describe('the pitch (Semi and Fine: offsets of the detune)', () => {
+      // a kick: ENV 2 from 36 semitones over the note down to it in 80 ms (bounds the app never gives: those of
+      // Semi are 24 semitones)
       const kick = decay(0);
       const KICK_FRAMES = 0.08 * RATE;
       const pitched = (frames: number, shared = core.createVoiceShared()) => {
@@ -1927,7 +1928,7 @@ describe('the wavetable voice', () => {
           params: { frequency: 55, detune1: -1200 },
           frames,
           envelopes: [{ ...kick, decay: 0.08 }, FLAT],
-          routes: [route('detune1', 3600, -12000, 12000)],
+          routes: [route('pitch1', 3600, -12000, 12000)],
         });
         return { left, stats: shared.stats() };
       };
@@ -1956,6 +1957,20 @@ describe('the wavetable voice', () => {
       it('plays directly while the pitch moves, on its mix tables again once it is flat', () => {
         expect(pitched(KICK_FRAMES).stats.mixSamples).toBe(0);
         expect(pitched(0.3 * RATE).stats.mixSamples).toBeGreaterThan(0);
+      });
+
+      it('adds the offsets of Semi and Fine to the detune, each within its bounds', () => {
+        const { store } = core.storeWith({ a: [sine] });
+        // Oct -1, Semi +5: -700 cents; ENV 2 at 1 on Semi at 100% (+2400) stops at its top (+700), on Fine
+        // around 0 at 100% (+100 at 1): a semitone over the note
+        const { left } = render({
+          store,
+          params: { frequency: 55, detune1: -700 },
+          frames: 0.2 * RATE,
+          envelopes: [FLAT],
+          routes: [route('pitch1', 2400, -1700, 700), { ...route('fine1', 200, -100, 100), bipolar: true }],
+        });
+        expect(measureFrequency(left)).toBeCloseTo(55 * 2 ** (1 / 12), 2);
       });
     });
 

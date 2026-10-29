@@ -292,8 +292,7 @@ describe('Handle modulation', () => {
     expect(angleOf(start)).toBeCloseTo(0);
   });
 
-  it('is a drop target with its id, its dots change and remove the routes', () => {
-    const onChange = jest.fn();
+  it('is a drop target with its id, its dots remove the routes', () => {
     const onRemove = jest.fn();
     const { container } = render(
       <Handle
@@ -301,14 +300,12 @@ describe('Handle modulation', () => {
         max={1}
         value={0.5}
         modTarget='osc1.gain'
-        modulations={[{ ...modulation(0.25), onChange, onRemove }]}
+        modulations={[{ ...modulation(0.25), onRemove }]}
       />
     );
     expect(container.querySelector('[data-mod-target="osc1.gain"]')).not.toBeNull();
     const dot = screen.getByRole('slider', { name: 'env2' });
     expect(sectionColors()).toEqual(['#f1c40f']);
-    fireEvent.keyDown(dot, { key: 'ArrowUp' });
-    expect(onChange).toHaveBeenCalledWith(0.26);
     fireEvent.doubleClick(dot);
     expect(onRemove).toHaveBeenCalled();
   });

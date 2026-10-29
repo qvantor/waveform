@@ -9,14 +9,7 @@ import { EnvelopesContext } from '../common/modules/envelopes';
 import { SynthContext } from '../common/modules/synth';
 import { SynthCoreContext } from '../common/modules/synth-core';
 import { FxContext } from '../fx/modules/fx';
-import {
-  amountInUnits,
-  MOD_TARGETS,
-  ModScale,
-  PITCH_UNITS,
-  pitchSteps,
-  PitchUnit,
-} from '../common/modulation/modulation-targets';
+import { amountInUnits, MOD_TARGETS, ModScale } from '../common/modulation/modulation-targets';
 import { LFO_SOURCE, noteLevel } from '../fx/effects/fx-modulation';
 import { SOURCE_COLORS, SOURCE_LABELS } from '../envelope/envelope-colors';
 
@@ -29,16 +22,11 @@ const FIRST_TAB = new BehaviorSubject<ModSource>(ENVELOPES[0]);
 const sign = (value: number) => (value > 0 ? '+' : value < 0 ? '-' : '');
 
 // the amount of a route in the units of its knob: octaves for a log one (+2.4 oct), a share of the range of a
-// linear one or of the travel of a pow one (+35%); of the pitch semitones (+12 st, +0.5 st) or cents (+25 ct)
-export const formatAmount = (amount: number, scale: ModScale, range: [number, number], unit?: PitchUnit) => {
-  if (unit) {
-    const { symbol, precision } = PITCH_UNITS[unit];
-    return `${sign(amount)}${Math.abs(number.round(amount * pitchSteps(unit, range), precision))} ${symbol}`;
-  }
-  return scale === 'log'
+// linear one or of the travel of a pow one (+35%)
+export const formatAmount = (amount: number, scale: ModScale, range: [number, number]) =>
+  scale === 'log'
     ? `${sign(amount)}${Math.abs(number.round(amountInUnits(amount, scale, range), 10))} oct`
     : `${sign(amount)}${Math.round(Math.abs(amount) * 100)}%`;
-};
 
 // the scale and the range of a knob whose amounts depend on its state (the knobs of the filter: the type)
 interface KnobScale {
@@ -122,7 +110,6 @@ export const useKnobModulation = (target: string, knob?: KnobScale): KnobModulat
         : definition.kind === 'osc' || definition.kind === 'lfo'
         ? definition
         : undefined;
-    const unit = definition.kind === 'osc' ? definition.unit : undefined;
     // in the order of the sources: each has its section of the dot in the same place
     const modulations = routes
       .filter((route) => route.target === target)
@@ -135,8 +122,7 @@ export const useKnobModulation = (target: string, knob?: KnobScale): KnobModulat
           label: SOURCE_LABELS[source],
           onChange: (value) => actions?.setAmount(source, target, value),
           onRemove: () => actions?.removeRoute(source, target),
-          formatAmount: units && ((value) => formatAmount(value, units.scale, units.range, unit)),
-          ...(units && unit && { amountSteps: pitchSteps(unit, units.range) }),
+          formatAmount: units && ((value) => formatAmount(value, units.scale, units.range)),
           level: level(source),
           live,
           selected: source === selected,

@@ -423,9 +423,10 @@ const createCases = (dsp) => {
     });
     return retriggered(voiceDsp);
   };
-  // a kick of u8: ENV 2 from 36 semitones over the note down to it in 80 ms, the envelopes started again every AGAIN
-  // blocks (as `voice u1 routed`): the direct path while the pitch moves, then its mix tables again; its cost over
-  // `voice u8 held` (a tree before the pitch as a target leaves the route out)
+  // a kick of u8: ENV 2 from 36 semitones over the note down to it in 80 ms (bounds wider than those of Semi: the
+  // pitch moves all along), the envelopes started again every AGAIN blocks (as `voice u1 routed`): the direct path
+  // while the pitch moves, then its mix tables again; its cost over `voice u8 held` (a tree before the pitch as a
+  // target leaves the route out)
   const pitchEnv = () => {
     const kick = { attack: 0, hold: 0, decay: 0.08, sustain: 0, release: 0 };
     const voiceDsp = createVoice.wasm({
@@ -434,7 +435,7 @@ const createCases = (dsp) => {
       envelopes: [flat, kick, flat],
       envStart: 0,
       phrase: 0,
-      routes: [{ source: 1, param: 'detune1', amount: 3600, min: -12000, max: 12000 }],
+      routes: [{ source: 1, param: 'pitch1', amount: 3600, min: -12000, max: 12000 }],
       filter: null,
     });
     return retriggered(voiceDsp);

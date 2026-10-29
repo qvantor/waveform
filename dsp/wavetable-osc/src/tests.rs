@@ -902,13 +902,13 @@ fn the_gain_of_a_voice_follows_an_lfo_of_the_shared_from_its_note_on() {
     }
 }
 
-// --- a route on the pitch (Pitch, Fine) ---
+// --- a route on the pitch (Semi, Fine) ---
 
 #[test]
-fn a_route_on_the_detune_plays_as_its_values_given_in_the_param() {
+fn the_routes_on_the_pitch_add_their_offsets_to_the_detune_within_their_bounds() {
     use crate::envelope::EnvelopeBlock;
-    use crate::modulation::{Modulation, Sources, VoiceRoute, DETUNE1, TARGET_PARAMS};
-    // ENV 2 a kick: +36 semitones at the note on, down to the note in 80 ms
+    use crate::modulation::{Modulation, Sources, VoiceRoute, FINE1, PITCH1, TARGET_PARAMS};
+    // ENV 2 a kick: its level 1 at the note on, down to 0 in 80 ms
     let kick = EnvelopeParams {
         attack: 0.0,
         hold: 0.0,
@@ -917,30 +917,41 @@ fn a_route_on_the_detune_plays_as_its_values_given_in_the_param() {
         release: 0.0,
         curves: [0.0, 3.49, 3.49],
     };
-    let route = VoiceRoute {
+    // Oct -1 and Semi +5: the detune -700 cents; ENV 2 on Semi at 100% up from it (24 semitones), within Semi's
+    // range from its value (-1700..700), and around Fine of 0 at 100% (200 cents, within -100..100)
+    let pitch = VoiceRoute {
         source: 1.0,
-        param: DETUNE1,
-        amount: 3600.0,
-        min: -12000.0,
-        max: 12000.0,
+        param: PITCH1,
+        amount: 2400.0,
+        min: -1700.0,
+        max: 700.0,
         scale: 0,
         bipolar: false,
+    };
+    let fine = VoiceRoute {
+        param: FINE1,
+        amount: 200.0,
+        min: -100.0,
+        max: 100.0,
+        bipolar: true,
+        ..pitch
     };
     let mut envelopes = note().envelopes;
     envelopes[1] = kick;
     let blocks = 75;
-    // the values the route gives the detune of osc 1 from a base of -1200 cents, block by block
+    // the offsets the routes give the pitch of osc 1 from 0, block by block
     let mut accesses = [false; TARGET_PARAMS];
-    accesses[DETUNE1] = true;
-    let mut modulation = Modulation::new(RATE, 3, false, &[route], accesses);
+    accesses[PITCH1] = true;
+    accesses[FINE1] = true;
+    let mut modulation = Modulation::new(RATE, 3, false, &[pitch, fine], accesses);
     let mut levels: Vec<EnvelopeBlock> = envelopes
         .iter()
         .map(|params| EnvelopeBlock::new(*params, RATE, 0.0))
         .collect();
     let velocity = Glided::new(0.0);
-    let base = [-1200.0f32];
-    let bases: [&[f32]; TARGET_PARAMS] = core::array::from_fn(|_| &base[..]);
-    let detunes: Vec<Vec<f32>> = (0..blocks)
+    let zero = [0.0f32];
+    let bases: [&[f32]; TARGET_PARAMS] = core::array::from_fn(|_| &zero[..]);
+    let offsets: Vec<[Vec<f32>; 2]> = (0..blocks)
         .map(|block| {
             let frame = (block * 128) as f64;
             levels
@@ -952,14 +963,19 @@ fn a_route_on_the_detune_plays_as_its_values_given_in_the_param() {
                 lfos: &[],
             };
             modulation.apply(&bases, &sources, frame, 0.0, 128.0, 128);
-            modulation.moved(DETUNE1).expect("moved").to_vec()
+            [PITCH1, FINE1].map(|param| modulation.moved(param).expect("moved").to_vec())
         })
         .collect();
-    // it moves down from 3 octaves over the note (its base), then stays there: one value
-    assert!(detunes[0].len() == 128 && detunes[0][0] > 2300.0);
-    assert_eq!(detunes[blocks - 1], vec![-1200.0]);
+    // Semi at its top (+12) while the kick is over 700 / 2400 (27 ms), then down to its value; Fine from +100
+    // down to -100: one value each once the kick is over
+    let [semi, cents] = &offsets[0];
+    assert!(semi.iter().all(|offset| *offset == 700.0) && cents[0] == 100.0);
+    assert!(offsets[20][0]
+        .iter()
+        .all(|offset| *offset > 0.0 && *offset < 700.0));
+    assert_eq!(offsets[blocks - 1], [vec![0.0], vec![-100.0]]);
 
-    // a voice of 3 unison voices on the sine of the store, its detune moved by the route or given its values
+    // a voice of 3 unison voices on the sine of the store, its detune moved by the routes or given the sum
     let play = |routes: Vec<VoiceRoute>, detune: &dyn Fn(usize) -> Vec<f32>| {
         let (mut store, mut shared) = (Store::default(), Shared::default());
         let osc = OscOptions {
@@ -1009,9 +1025,16 @@ fn a_route_on_the_detune_plays_as_its_values_given_in_the_param() {
         voice.end(&mut store, &mut shared);
         (left, right)
     };
-    let routed = play(vec![route], &|_| vec![-1200.0]);
-    let given = play(Vec::new(), &|block| detunes[block].clone());
+    let at = |values: &[f32], i: usize| values[if values.len() > 1 { i } else { 0 }] as f64;
+    let routed = play(vec![pitch, fine], &|_| vec![-700.0]);
+    let given = play(Vec::new(), &|block| {
+        let [semi, cents] = &offsets[block];
+        let length = semi.len().max(cents.len());
+        (0..length)
+            .map(|i| (-700.0 + at(semi, i) + at(cents, i)) as f32)
+            .collect()
+    });
     assert_eq!(routed, given);
     // (not the note alone)
-    assert_ne!(routed, play(Vec::new(), &|_| vec![-1200.0]));
+    assert_ne!(routed, play(Vec::new(), &|_| vec![-700.0]));
 }
