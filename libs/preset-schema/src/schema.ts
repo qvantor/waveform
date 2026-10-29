@@ -143,6 +143,11 @@ export const withLegacyPhase = <T extends { ph?: unknown; pr?: unknown }>(osc: T
     : osc;
 };
 
+// the most Semi (semitones) and Fine (cents) move an oscillator by, down and up (their routes a share of the
+// whole range)
+export const SEMI_MAX = 24;
+export const FINE_MAX = 100;
+
 const oscillatorSchema = (active: boolean) =>
   z
     .preprocess(
@@ -157,8 +162,8 @@ const oscillatorSchema = (active: boolean) =>
           // the pitch of the oscillator over the note: octaves, semitones and cents (1200·o + 100·s + f); d is the
           // unison detune (its spread)
           o: intRange(-3, 3).default(0),
-          s: intRange(-12, 12).default(0),
-          f: intRange(-100, 100).default(0),
+          s: intRange(-SEMI_MAX, SEMI_MAX).default(0),
+          f: intRange(-FINE_MAX, FINE_MAX).default(0),
           d: range(0, 100).default(5),
           u: intRange(1, 8).default(2),
           // the start phase of every unison voice and the most of its random shift (0: all in phase, 1: any

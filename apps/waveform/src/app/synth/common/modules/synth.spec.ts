@@ -1361,9 +1361,9 @@ describe('synth', () => {
     it('gives a note the routes of the pitch in cents within the range of Semi and Fine from their values; none of an oscillator off', async () => {
       const { onPress, voices, options, modulation, osc1, osc2 } = await setup();
       const [, { addRoute }] = modulation;
-      osc1[1].setOscValue('semi', -12);
+      osc1[1].setOscValue('semi', -24);
       osc1[1].setOscValue('fine', 50);
-      // an amount of 1 the whole range of the knob (24 semitones, 200 cents), an LFO around its value, VELO up
+      // an amount of 1 the whole range of the knob (48 semitones, 200 cents), an LFO around its value, VELO up
       // from it
       addRoute('lfo1', 'osc1.pitch', 1);
       addRoute('velo', 'osc1.fine', -0.25);
@@ -1372,9 +1372,9 @@ describe('synth', () => {
 
       onPress([4, 'C']);
 
-      // Semi -12 at 100%: from -12 up to 0; Fine 50 at -25%: within -100..100
+      // Semi -24 at 100%: from -24 up to 0; Fine 50 at -25%: within -100..100
       expect(options(voices()[0]).routes).toEqual([
-        { source: 4, param: 'pitch1', amount: 2400, min: 0, max: 2400, bipolar: true },
+        { source: 4, param: 'pitch1', amount: 4800, min: 0, max: 4800, bipolar: true },
         { source: 3, param: 'fine1', amount: -50, min: -150, max: 50 },
       ]);
     });
@@ -1391,16 +1391,16 @@ describe('synth', () => {
       const [plain, routed] = voices();
       const routes = (min: number, max: number, fineMin = -100, fineMax = 100) => ({
         routes: [
-          { source: 4, param: 'pitch2', amount: 960, min, max, bipolar: true },
+          { source: 4, param: 'pitch2', amount: 1920, min, max, bipolar: true },
           { source: 1, param: 'fine2', amount: 100, min: fineMin, max: fineMax },
         ],
       });
       const sent = (voice: typeof routed) => voices().find(({ id }) => id === voice.id)?.messages ?? [];
 
       osc2[1].setOscValue('semi', 5);
-      expect(sent(routed)).toEqual([routes(-1700, 700)]);
+      expect(sent(routed)).toEqual([routes(-2900, 1900)]);
       osc2[1].setOscValue('fine', -20);
-      expect(sent(routed).at(-1)).toEqual(routes(-1700, 700, -80, 120));
+      expect(sent(routed).at(-1)).toEqual(routes(-2900, 1900, -80, 120));
       // the octave moves no bound
       osc2[1].setOscValue('octave', 1);
       expect(sent(routed)).toHaveLength(2);

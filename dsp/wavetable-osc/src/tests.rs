@@ -917,8 +917,8 @@ fn the_routes_on_the_pitch_add_their_offsets_to_the_detune_within_their_bounds()
         release: 0.0,
         curves: [0.0, 3.49, 3.49],
     };
-    // Oct -1 and Semi +5: the detune -700 cents; ENV 2 on Semi at 100% up from it (24 semitones), within Semi's
-    // range from its value (-1700..700), and around Fine of 0 at 100% (200 cents, within -100..100)
+    // Oct -1 and Semi +5: the detune -700 cents; ENV 2 on Semi up from it (24 semitones at 1), within its
+    // bounds (-1700..700: Semi from +5 within ±12), and around Fine of 0 at 100% (200 cents, within -100..100)
     let pitch = VoiceRoute {
         source: 1.0,
         param: PITCH1,
@@ -966,8 +966,8 @@ fn the_routes_on_the_pitch_add_their_offsets_to_the_detune_within_their_bounds()
             [PITCH1, FINE1].map(|param| modulation.moved(param).expect("moved").to_vec())
         })
         .collect();
-    // Semi at its top (+12) while the kick is over 700 / 2400 (27 ms), then down to its value; Fine from +100
-    // down to -100: one value each once the kick is over
+    // Semi at the top of its bounds (+12) while the kick is over 700 / 2400 (27 ms), then down to its value;
+    // Fine from +100 down to -100: one value each once the kick is over
     let [semi, cents] = &offsets[0];
     assert!(semi.iter().all(|offset| *offset == 700.0) && cents[0] == 100.0);
     assert!(offsets[20][0]

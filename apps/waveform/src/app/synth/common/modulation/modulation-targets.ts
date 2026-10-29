@@ -9,6 +9,8 @@ import {
   LFOS,
   LfoKnob,
   MOD_SOURCES,
+  FINE_MAX,
+  SEMI_MAX,
 } from '@waveform/preset-schema';
 import { rangesOf } from '../../filter/constants';
 import { FX_REGISTRY, MIX_PARAMS } from '../../fx/effects';
@@ -39,6 +41,11 @@ interface OscTarget {
 export type PitchKnob = 'semi' | 'fine';
 // the cents of a step of a knob of the pitch
 export const PITCH_KNOB_CENTS: Record<PitchKnob, number> = { semi: 100, fine: 1 };
+// the range of a knob of the pitch in cents
+const pitchRange = (knob: PitchKnob, max: number): [number, number] => [
+  -PITCH_KNOB_CENTS[knob] * max,
+  PITCH_KNOB_CENTS[knob] * max,
+];
 
 // a knob of the filter in the voice node of each note (voice-filter.ts); its scale and range are those of the
 // type of the filter (filterTargetScale)
@@ -91,14 +98,14 @@ const oscTargets = (osc: number): Record<string, OscTarget> => {
     // the unison detune: the spread of the voices in cents
     [id('detune')]: { kind: 'osc', osc, param: 'spread', label: 'Detune', scale: 'linear', range: [0, 100] },
     // the pitch over Oct, Semi and Fine: Pitch on Semi smoothly (no steps of semitones), Fine; an amount of 1 their
-    // whole range, 24 semitones, 200 cents
+    // whole range, 48 semitones, 200 cents
     [id('pitch')]: {
       kind: 'osc',
       osc,
       param: 'pitch',
       label: 'Pitch',
       scale: 'linear',
-      range: [-1200, 1200],
+      range: pitchRange('semi', SEMI_MAX),
       knob: 'semi',
     },
     [id('fine')]: {
@@ -107,7 +114,7 @@ const oscTargets = (osc: number): Record<string, OscTarget> => {
       param: 'fine',
       label: 'Fine',
       scale: 'linear',
-      range: [-100, 100],
+      range: pitchRange('fine', FINE_MAX),
       knob: 'fine',
     },
   };

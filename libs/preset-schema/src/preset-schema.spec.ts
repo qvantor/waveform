@@ -241,12 +241,13 @@ describe('normalizePreset', () => {
     expect(normalizePreset({ v: { bd: 0, bu: 24 } }).v).toMatchObject({ bd: 0, bu: 24 });
   });
 
-  it('fills Semi and Fine with 0 (a preset saved before them plays as it did), whole within ±12 and ±100', () => {
+  it('fills Semi and Fine with 0 (a preset saved before them plays as it did), whole within ±24 and ±100', () => {
     expect(normalizePreset(preset).osc1).toMatchObject({ o: -1, s: 0, f: 0 });
     expect(normalizePreset({ osc2: { s: 7, f: -7 } }).osc2).toMatchObject({ s: 7, f: -7 });
-    expect(normalizePreset({ osc1: { s: -12, f: 100 } }).osc1).toMatchObject({ s: -12, f: 100 });
+    expect(normalizePreset({ osc1: { s: -24, f: 100 } }).osc1).toMatchObject({ s: -24, f: 100 });
+    expect(normalizePreset({ osc1: { s: 24 } }).osc1).toMatchObject({ s: 24 });
     const osc = (value: object) => presetDataSchema.safeParse({ osc1: { ...preset.osc1, ...value } }).success;
-    expect([osc({ s: 13 }), osc({ s: -13 }), osc({ s: 0.5 })]).toEqual([false, false, false]);
+    expect([osc({ s: 25 }), osc({ s: -25 }), osc({ s: 0.5 })]).toEqual([false, false, false]);
     expect([osc({ f: 101 }), osc({ f: -101 }), osc({ f: 2.5 })]).toEqual([false, false, false]);
     expect(presetHash({ ...preset, osc1: { ...preset.osc1, s: 0, f: 0 } })).toBe(presetHash(preset));
     expect(presetHash({ ...preset, osc1: { ...preset.osc1, s: 7 } })).not.toBe(presetHash(preset));

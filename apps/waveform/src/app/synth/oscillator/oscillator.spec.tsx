@@ -257,8 +257,8 @@ describe('Oscillator', () => {
     drag(field('Fine'), [0, 28]);
     drag(field('Oct'), [10, 0]);
     drag(field('Semi'), [0, 500]);
-    expect(model.$osc.value).toMatchObject({ octave: 1, semi: -12, fine: -7 });
-    expect(field('Semi').getAttribute('aria-valuetext')).toBe('-12');
+    expect(model.$osc.value).toMatchObject({ octave: 1, semi: -24, fine: -7 });
+    expect(field('Semi').getAttribute('aria-valuetext')).toBe('-24');
   });
 
   it('Semi takes the routes of Pitch, Fine those of Fine; Oct none', () => {
@@ -286,17 +286,17 @@ describe('Oscillator', () => {
       modulation[1].addRoute('env1', 'osc1.pitch', 1, true);
       modulation[1].addRoute('env1', 'osc1.fine', 0.5, true);
     });
-    // Semi 0 at 100%: from -12 to +12; Fine 0 at 50%: from -50 to +50
+    // Semi 0 at 100%: from -24 to +24; Fine 0 at 50%: from -50 to +50
     expect(bars()).toEqual([
       ['0%', '100%'],
       ['25%', '50%'],
     ]);
-    // Semi -12 at 100%: from -12 to 0
-    act(() => actions.setOscValue('semi', -12));
+    // Semi -24 at 100%: from -24 to 0
+    act(() => actions.setOscValue('semi', -24));
     expect(bars()[0]).toEqual(['0%', '50%']);
-    // Semi +6 at 50%: from 0 to +12
+    // Semi +12 at 50%: from 0 to +24
     act(() => {
-      actions.setOscValue('semi', 6);
+      actions.setOscValue('semi', 12);
       modulation[1].setAmount('env1', 'osc1.pitch', 0.5);
     });
     expect(bars()[0]).toEqual(['50%', '50%']);

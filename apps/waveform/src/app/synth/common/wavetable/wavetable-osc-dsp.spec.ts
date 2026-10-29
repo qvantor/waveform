@@ -1917,7 +1917,7 @@ describe('the wavetable voice', () => {
 
     describe('the pitch (Semi and Fine: offsets of the detune)', () => {
       // a kick: ENV 2 from 36 semitones over the note down to it in 80 ms (bounds the app never gives: those of
-      // Semi are 24 semitones)
+      // Semi are 48 semitones)
       const kick = decay(0);
       const KICK_FRAMES = 0.08 * RATE;
       const pitched = (frames: number, shared = core.createVoiceShared()) => {
@@ -1961,8 +1961,8 @@ describe('the wavetable voice', () => {
 
       it('adds the offsets of Semi and Fine to the detune, each within its bounds', () => {
         const { store } = core.storeWith({ a: [sine] });
-        // Oct -1, Semi +5: -700 cents; ENV 2 at 1 on Semi at 100% (+2400) stops at its top (+700), on Fine
-        // around 0 at 100% (+100 at 1): a semitone over the note
+        // Oct -1, Semi +5: -700 cents; ENV 2 at 1 on Semi (+2400) stops at the top of its bounds (+700: Semi
+        // from +5 at most +12), on Fine around 0 at 100% (+100 at 1): a semitone over the note
         const { left } = render({
           store,
           params: { frequency: 55, detune1: -700 },

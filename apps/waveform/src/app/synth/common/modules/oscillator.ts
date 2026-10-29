@@ -14,7 +14,7 @@ import {
   distinctUntilChanged,
 } from 'rxjs';
 import { ObjectBS, rxModel, rxModelReact, PrimitiveBS, ArrayBS } from '@waveform/rxjs-react';
-import { DEFAULT_PHASE, withLegacyPhase } from '@waveform/preset-schema';
+import { DEFAULT_PHASE, FINE_MAX, SEMI_MAX, withLegacyPhase } from '@waveform/preset-schema';
 import { generateId, Vector2D } from '@waveform/math';
 import { urlSnapshotPlugin } from '../../../app';
 import { loadWavetable, LoadWavetable, wavetableId } from '../../services';
@@ -83,8 +83,8 @@ export const oscillator = ({
         phase: [0, 1],
         phaseRand: [0, 1],
         octave: [-3, 3],
-        semi: [-12, 12],
-        fine: [-100, 100],
+        semi: [-SEMI_MAX, SEMI_MAX],
+        fine: [-FINE_MAX, FINE_MAX],
       };
     const $active = new PrimitiveBS<boolean>(active);
     const $osc = new ObjectBS({
