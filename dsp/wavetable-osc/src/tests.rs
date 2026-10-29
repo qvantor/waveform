@@ -10,7 +10,7 @@ use crate::velocity::VoiceVelocity;
 use crate::voice::{OscOptions, UnisonShape, Voice, VoiceOptions};
 use alloc::vec;
 use alloc::vec::Vec;
-use jsmath::{floor, log2, pow};
+use jsmath::{floor, log2, max, min, pow};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
@@ -735,6 +735,106 @@ fn a_fade_between_two_levels_reads_both_frames_on_each() {
             );
         }
     }
+}
+
+// the frequency of the pitch at x of `segment` on two_level_frames (in f32), and the weight of the second level a
+// voice reads there
+fn pitch_at(x: f64) -> (f32, f64) {
+    let nyquist = log2(RATE / 2.0);
+    let f = pow(2.0, (x - 1.0) / 3.0 + nyquist - 8.0) as f32;
+    let x = 1.0 + 3.0 * (8.0 - nyquist) + 3.0 * log2(f as f64);
+    (f, x - floor(x))
+}
+
+// `out` is 1 + 3w at the weight w of the second level at each sample (two_level_frames of 1 and 4)
+fn expect_weights(out: &[f32], w: impl Fn(usize) -> f64) {
+    for (i, value) in out.iter().enumerate() {
+        let expected = 1.0 + 3.0 * w(i);
+        assert!(
+            (*value as f64 - expected).abs() < 1e-5,
+            "sample {i}: {value}, not {expected}"
+        );
+    }
+}
+
+#[test]
+fn a_mix_left_for_the_one_of_a_new_pitch_glides_the_levels_it_reads_over_a_period() {
+    // the pitch at w 0.3 (its mix from the second block), at 0.4 from 512: still on the mix of 0.3 (its reach holds
+    // it), the mix of 0.4 built at 640 and glided into over 5 ms (a period of 82 Hz is 12 ms) at the points of the
+    // block (its edges: a constant pitch), from 896 its mix
+    let ((a, wa), (b, wb)) = (pitch_at(0.3), pitch_at(0.4));
+    let mut store = Store::default();
+    two_level_frames(&mut store, [512, 256], [&[1.0], &[4.0]]);
+    let out = one(&mut store, 1024, |i| if i < 512 { a } else { b }, |_| 0.0);
+    let glide = |c: f64| wa + (wb - wa) * c;
+    expect_weights(&out, |i| match i {
+        0..640 => wa,
+        640..768 => glide((i - 640) as f64 / 240.0),
+        768..896 => glide(128.0 / 240.0 + (1.0 - 128.0 / 240.0) * (i - 768) as f64 / 128.0),
+        _ => wb,
+    });
+}
+
+#[test]
+fn a_pitch_that_steps_out_of_the_reach_of_its_mix_reads_its_own_levels_at_once() {
+    // from w 0.3 on its mix to 0.8 at 512, past its reach (a quarter of a level): the levels of the pitch from that
+    // sample, then its mix
+    let ((a, wa), (b, wb)) = (pitch_at(0.3), pitch_at(0.8));
+    let mut store = Store::default();
+    two_level_frames(&mut store, [512, 256], [&[1.0], &[4.0]]);
+    let out = one(&mut store, 1024, |i| if i < 512 { a } else { b }, |_| 0.0);
+    expect_weights(&out, |i| if i < 512 { wa } else { wb });
+}
+
+#[test]
+fn a_voice_that_leaves_the_reach_of_its_mix_while_the_pitch_moves_glides_without_a_step() {
+    // on the mix of w 0.3 from the second block, then up to 0.9 over 1536 samples from 512 (no build: it holds a
+    // band of the reach for less than one costs): on that mix while its reach holds the pitch (to 0.55), then a
+    // glide to the levels of the pitch. Without it a step of 3 × 0.25
+    let (a, wa) = pitch_at(0.3);
+    let mut store = Store::default();
+    two_level_frames(&mut store, [512, 256], [&[1.0], &[4.0]]);
+    let frequency = |i: usize| {
+        if i < 512 {
+            a
+        } else {
+            pitch_at(0.3 + 0.6 * min(1.0, (i - 512) as f64 / 1536.0)).0
+        }
+    };
+    let out = one(&mut store, 2560, frequency, |_| 0.0);
+    // (on the mix while the pitch moves)
+    assert!((out[700] as f64 - (1.0 + 3.0 * wa)).abs() < 1e-5);
+    let most = out
+        .windows(2)
+        .map(|pair| (pair[1] as f64 - pair[0] as f64).abs())
+        .fold(0.0, max);
+    assert!(most < 0.01, "a step of {most}");
+}
+
+#[test]
+fn a_mix_at_the_top_of_its_level_is_left_gliding_before_the_pitch_passes_it() {
+    // on the mix of w 0.9, its reach up to 1 (where the first level reaches the nyquist: from there the second and
+    // the silent one), then up to 1.2 over 1536 samples from 512: it leaves the mix as far before 1 as a glide
+    // takes, so the first level is gone by then (1 + 3w below it, 4 · (2 - x) above it: no step at 1, nor where the
+    // glide would end past it, the levels of the mix read up there)
+    let (a, _) = pitch_at(0.9);
+    let mut store = Store::default();
+    two_level_frames(&mut store, [512, 256], [&[1.0], &[4.0]]);
+    let frequency = |i: usize| {
+        if i < 512 {
+            a
+        } else {
+            pitch_at(0.9 + 0.3 * min(1.0, (i - 512) as f64 / 1536.0)).0
+        }
+    };
+    let out = one(&mut store, 2560, frequency, |_| 0.0);
+    // (a glide of the weights over 5 ms on the rise of the pitch: 0.002 a sample at most; one that went on past 1,
+    // its first level cut there within a segment of 32 samples, would step 0.009 a sample)
+    let most = out
+        .windows(2)
+        .map(|pair| (pair[1] as f64 - pair[0] as f64).abs())
+        .fold(0.0, max);
+    assert!(most < 0.003, "a step of {most}");
 }
 
 #[test]

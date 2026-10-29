@@ -812,7 +812,7 @@
     ]
   },
   "the pitch bend of the node: every voice, gliding to each value, a voice made later bent too": {
-    "sha256": "e4cc118057d29dcd1a303857f4af9c3c3e99a4569baceb4f76a99d3adb9852b5",
+    "sha256": "d34ba807edb1572b7e231286cb9a679919612343ede1332e5531d841229d651a",
     "at": 0,
     "head": [
       -1.582170089319229e-15,
@@ -826,7 +826,7 @@
     ]
   },
   "the pitch bend of the node: every voice, gliding to each value, a voice made later bent too: the sum of one node": {
-    "sha256": "2d11e2821e89873f53a6185abf1ceee505896e136997ac16fe9db907040eaf7a",
+    "sha256": "67583bb758032863678f65d2643ebee11610d212fe96db6dcbfa0e5c8cd6832f",
     "at": 0,
     "head": [
       -1.582170089319229e-15,

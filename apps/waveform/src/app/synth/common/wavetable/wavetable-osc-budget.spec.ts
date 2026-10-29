@@ -172,7 +172,7 @@ describe('the work of the voices', () => {
     expect(total(blocks.slice(constant + 1), 'builds')).toBe(8);
   });
 
-  it('a bend held still under the heavy chord: the voices play the mixes whose reach holds it until theirs are built', () => {
+  it('a bend held still under the heavy chord: the voices play the mixes whose reach holds it until theirs are built, then glide into them', () => {
     const { scope, run } = chord(48000);
     run(40);
     // 60 cents up over 20 blocks, then held: each mix reaches 100 cents up but where its richest level reaches
@@ -186,10 +186,16 @@ describe('the work of the voices', () => {
     const blocks = run(60);
     // block 20: the pitch still, the one of the block before another: the mixes whose reach holds it
     expect(blocks[20].mixSamples).toBeGreaterThan((UNISON * BLOCK) / 2);
-    // then steady: its own mixes, a few a block within the budget; meanwhile no voice leaves the one it plays
+    // then steady: its own mixes, a few a block within the budget, each glided into from the one whose reach held
+    // it (a glide of 5 ms at most, played directly: in the block it is built in and the next one); meanwhile no
+    // other voice leaves the one it plays
     blocks
       .slice(21)
-      .forEach((block) => expect(block.directSamples).toBeLessThanOrEqual(blocks[20].directSamples));
+      .forEach((block, i) =>
+        expect(block.directSamples).toBeLessThanOrEqual(
+          blocks[20].directSamples + BLOCK * (block.builds + blocks[20 + i].builds)
+        )
+      );
     expect(total(blocks.slice(21), 'builds')).toBe(UNISON);
     expect(blocks[blocks.length - 1]).toMatchObject({ directSamples: 0, mixSamples: UNISON * BLOCK });
   });
