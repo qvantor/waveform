@@ -168,7 +168,7 @@
     ]
   },
   "a free LFO 3 on two notes, its Delay and Rise from each, on the spread": {
-    "sha256": "052cf385bb78c57ebccc3ec00c09f2ac053a255c2541c163f753cd0cab3679e3",
+    "sha256": "3281ff89649a894e9975fcae02fe0b58899b6b2975e256bdd72eee1a14793046",
     "at": 0,
     "head": [
       -7.44695538297779e-16,
@@ -182,7 +182,7 @@
     ]
   },
   "a free LFO 3 on two notes, its Delay and Rise from each, on the spread: the sum of one node": {
-    "sha256": "d68433da5dc641709346013ab337ff08bcbfab8fc8b84b00e4fae6d47d3b3f30",
+    "sha256": "62ebbf161fa5715909dd18f743cfea312b23d52391b0e3dad4c2daf4fabfd1b9",
     "at": 0,
     "head": [
       -7.44695538297779e-16,
@@ -812,7 +812,7 @@
     ]
   },
   "the pitch bend of the node: every voice, gliding to each value, a voice made later bent too": {
-    "sha256": "d34ba807edb1572b7e231286cb9a679919612343ede1332e5531d841229d651a",
+    "sha256": "e4cc118057d29dcd1a303857f4af9c3c3e99a4569baceb4f76a99d3adb9852b5",
     "at": 0,
     "head": [
       -1.582170089319229e-15,
@@ -826,7 +826,7 @@
     ]
   },
   "the pitch bend of the node: every voice, gliding to each value, a voice made later bent too: the sum of one node": {
-    "sha256": "67583bb758032863678f65d2643ebee11610d212fe96db6dcbfa0e5c8cd6832f",
+    "sha256": "2d11e2821e89873f53a6185abf1ceee505896e136997ac16fe9db907040eaf7a",
     "at": 0,
     "head": [
       -1.582170089319229e-15,

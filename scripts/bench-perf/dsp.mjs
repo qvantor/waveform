@@ -337,29 +337,32 @@ const createCases = (dsp) => {
     })),
   });
   // a u8 voice LFO 1 moves a param of (a sine of 0.5 s on its position: the direct path, a frame at a time; on its
-  // gain: the gain per sample, the voice on its mix tables)
-  const lfoVoiceOf = (param, amount) => () => {
-    const flat = { attack: 0, hold: 0, decay: 0, sustain: 1, release: 0 };
-    const shared = createShared.wasm();
-    shared.setLfos(lfoState(0.5));
-    const voiceDsp = createVoice.wasm(
-      {
-        osc: [{ table: 'a', unison: 8, phase: 0, phaseRand: 1 }, null],
-        start: 0,
-        envelopes: [flat, flat, flat],
-        envStart: 0,
-        phrase: 0,
-        routes: [{ source: 4, param, amount, min: 0, max: 1 }],
-        filter: null,
-      },
-      shared
-    );
-    let frameAt = 0;
-    return () => {
-      voiceDsp.process(frameAt, held, outL, outR);
-      frameAt += BLOCK;
+  // gain: the gain per sample, the voice on its mix tables; a vibrato of 5 Hz on its Fine: the pitch moves all
+  // along)
+  const lfoVoiceOf =
+    (param, amount, route = { min: 0, max: 1 }, period = 0.5) =>
+    () => {
+      const flat = { attack: 0, hold: 0, decay: 0, sustain: 1, release: 0 };
+      const shared = createShared.wasm();
+      shared.setLfos(lfoState(period));
+      const voiceDsp = createVoice.wasm(
+        {
+          osc: [{ table: 'a', unison: 8, phase: 0, phaseRand: 1 }, null],
+          start: 0,
+          envelopes: [flat, flat, flat],
+          envStart: 0,
+          phrase: 0,
+          routes: [{ source: 4, param, amount, ...route }],
+          filter: null,
+        },
+        shared
+      );
+      let frameAt = 0;
+      return () => {
+        voiceDsp.process(frameAt, held, outL, outR);
+        frameAt += BLOCK;
+      };
     };
-  };
   // the chord of `scope chord attack` with a lowpass LFO 1 moves around its cutoff (bipolar, ±1 octave, 4 Hz),
   // the coefficients of every voice worked out again every 32 samples
   const scopeChordLfo = () => {
@@ -426,7 +429,7 @@ const createCases = (dsp) => {
   // a kick of u8: ENV 2 from 36 semitones over the note down to it in 80 ms (bounds wider than those of Semi: the
   // pitch moves all along), the envelopes started again every AGAIN blocks (as `voice u1 routed`): the direct path
   // while the pitch moves, then its mix tables again; its cost over `voice u8 held` (a tree before the pitch as a
-  // target leaves the route out)
+  // target: none)
   const pitchEnv = () => {
     const kick = { attack: 0, hold: 0, decay: 0.08, sustain: 0, release: 0 };
     const voiceDsp = createVoice.wasm({
@@ -440,6 +443,29 @@ const createCases = (dsp) => {
     });
     return retriggered(voiceDsp);
   };
+  // whether the tree's routes move the pitch of an oscillator (Semi and Fine as targets of its facade; another one
+  // leaves such a route out, its voice has no modulation): a block of a voice a route takes an octave up against
+  // one without
+  const pitchRoutes =
+    !!oscScope &&
+    (() => {
+      const blockOf = (routes) => {
+        createVoice
+          .wasm({
+            osc: [{ table: 'a', unison: 1, phase: 0, phaseRand: 0 }, null],
+            start: 0,
+            envelopes: [flat, flat, flat],
+            envStart: 0,
+            phrase: 0,
+            routes,
+            filter: null,
+          })
+          .process(0, held, outL, outR);
+        return outL.slice();
+      };
+      const up = blockOf([{ source: 1, param: 'pitch1', amount: 1200, min: -12000, max: 12000 }]);
+      return blockOf([]).some((sample, i) => sample !== up[i]);
+    })();
   // a position that moves in every block: the direct path. Its blocks over a period of the LFO (2 s) are worked
   // out once, not in the call: making them there (Float32Array.from, 128 sines) cost 34 ns/sample, more than the
   // core itself
@@ -497,7 +523,7 @@ const createCases = (dsp) => {
       oscScope && voiceOf('wasm', undefined, { level: 0.787, amp: 0.787 }),
       null
     ),
-    ...withTs({ 'voice u8 pitch env': [] }, oscScope && (() => pitchEnv), null),
+    ...withTs({ 'voice u8 pitch env': [] }, pitchRoutes && (() => pitchEnv), null),
     ...withTs(
       { 'voice u1 routed': [] },
       oscScope && (() => routedOf('wasm')),
@@ -511,11 +537,14 @@ const createCases = (dsp) => {
     ...(dsp.createVoiceScopeWasm && { 'scope chord attack': scopeChord }),
     // (a tree before the pitch bend: none)
     ...(oscScope?.exports.osc_scope_bend && { 'scope chord bend': scopeChordBend }),
-    // (a tree before the LFOs: none)
+    // (a tree before the LFOs: none; before the pitch as a target: no vibrato)
     ...(oscScope?.exports.osc_shared_lfos &&
       dsp.lfoTable && {
         'voice u8 lfo wave': lfoVoiceOf('position1', 1),
         'voice u8 lfo gain': lfoVoiceOf('gain1', -0.5),
+        ...(pitchRoutes && {
+          'voice u8 lfo fine': lfoVoiceOf('fine1', 100, { min: -100, max: 100, bipolar: true }, 0.2),
+        }),
         'scope chord lfo cutoff': scopeChordLfo,
       }),
     'build 256 frames': {
