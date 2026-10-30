@@ -1,6 +1,7 @@
 //! apps/waveform/src/app/synth/fx/effects/dsp.ts: the sample-by-sample blocks of the effects
 
-use crate::{power_of_two_above, wrap};
+use crate::simd::F64x2;
+use crate::{int32, power_of_two_above, wrap};
 use alloc::{vec, vec::Vec};
 use jsmath::{exp, floor, max, round, PI};
 
@@ -47,6 +48,80 @@ impl DelayLine {
     pub fn clear(&mut self) {
         self.buffer.fill(0.0);
     }
+
+    /// read() of two lines at once, each lane the delay of its line (the same operations as read, in each lane)
+    #[inline(always)]
+    pub fn read_pair(a: &DelayLine, b: &DelayLine, delay: F64x2) -> F64x2 {
+        let pos = F64x2::new(a.index as f64, b.index as f64) - F64x2::splat(2.0).max(delay);
+        let i = pos.floor();
+        let t = pos - i;
+        // (i is a whole number: ToInt32(i + k) is ToInt32(i) + k modulo 2^32, the index the TS masks)
+        let (ia, ib) = (int32(i.lo()), int32(i.hi()));
+        let (ba, bb) = (&a.buffer, &b.buffer);
+        let (ma, mb) = (a.mask as i32, b.mask as i32);
+        let at = |k: i32| {
+            F64x2::new(
+                ba[(ia.wrapping_add(k) & ma) as usize],
+                bb[(ib.wrapping_add(k) & mb) as usize],
+            )
+        };
+        let prev = at(-1);
+        let x0 = at(0);
+        let x1 = at(1);
+        let next = at(2);
+        hermite(prev, x0, x1, next, t)
+    }
+}
+
+// the cubic hermite of read() in lanes: the same operations in the same order
+#[inline(always)]
+fn hermite(prev: F64x2, x0: F64x2, x1: F64x2, next: F64x2, t: F64x2) -> F64x2 {
+    let half = F64x2::splat(0.5);
+    let c1 = half * (x1 - prev);
+    let c2 = prev - F64x2::splat(2.5) * x0 + F64x2::splat(2.0) * x1 - half * next;
+    let c3 = half * (next - prev) + F64x2::splat(1.5) * (x0 - x1);
+    ((c3 * t + c2) * t + c1) * t + x0
+}
+
+/// a DelayLine of both channels: one ring of lanes (the channels of a reverb read at one delay and write every
+/// sample: their indexes stay together), each lane read and written as a DelayLine of its own
+pub struct StereoDelayLine {
+    buffer: Vec<F64x2>,
+    mask: usize,
+    index: usize,
+}
+
+impl StereoDelayLine {
+    pub fn new(max_delay: f64) -> StereoDelayLine {
+        let size = power_of_two_above(max_delay + 4.0);
+        StereoDelayLine {
+            buffer: vec![F64x2::default(); size],
+            mask: size - 1,
+            index: 0,
+        }
+    }
+
+    #[inline(always)]
+    pub fn read(&self, delay: f64) -> F64x2 {
+        let pos = self.index as f64 - max(2.0, delay);
+        let i = floor(pos);
+        let t = F64x2::splat(pos - i);
+        let b = &self.buffer;
+        let (i, mask) = (int32(i), self.mask as i32);
+        let at = |k: i32| b[(i.wrapping_add(k) & mask) as usize];
+        let (prev, x0, x1, next) = (at(-1), at(0), at(1), at(2));
+        hermite(prev, x0, x1, next, t)
+    }
+
+    #[inline(always)]
+    pub fn write(&mut self, value: F64x2) {
+        self.buffer[self.index] = value;
+        self.index = (self.index + 1) & self.mask;
+    }
+
+    pub fn clear(&mut self) {
+        self.buffer.fill(F64x2::default());
+    }
 }
 
 /// createAllpass: Schroeder allpass of a gliding delay
@@ -72,25 +147,36 @@ impl Allpass {
     pub fn clear(&mut self) {
         self.line.clear();
     }
+
+    /// process() of two allpasses at once, each lane its own (the same operations in each lane)
+    #[inline(always)]
+    pub fn process_pair(a: &mut Allpass, b: &mut Allpass, input: F64x2, delay: F64x2, gain: F64x2) -> F64x2 {
+        let delayed = DelayLine::read_pair(&a.line, &b.line, delay);
+        let sum = input + gain * delayed;
+        a.line.write(sum.lo());
+        b.line.write(sum.hi());
+        delayed - gain * sum
+    }
 }
 
-/// createFixedAllpass: an allpass of a fixed delay, rounded to whole samples
-pub struct FixedAllpass {
-    buffer: Vec<f64>,
+/// createFixedAllpass of both channels in the lanes: an allpass of a fixed delay, rounded to whole samples (one
+/// delay, one gain: the diffusers of a reverb), each lane the allpass of its channel
+pub struct StereoFixedAllpass {
+    buffer: Vec<F64x2>,
     index: usize,
 }
 
-impl FixedAllpass {
-    pub fn new(delay: f64) -> FixedAllpass {
+impl StereoFixedAllpass {
+    pub fn new(delay: f64) -> StereoFixedAllpass {
         let length = max(1.0, round(delay)) as usize;
-        FixedAllpass {
-            buffer: vec![0.0; length],
+        StereoFixedAllpass {
+            buffer: vec![F64x2::default(); length],
             index: 0,
         }
     }
 
     #[inline(always)]
-    pub fn process(&mut self, input: f64, gain: f64) -> f64 {
+    pub fn process(&mut self, input: F64x2, gain: F64x2) -> F64x2 {
         let delayed = self.buffer[self.index];
         let sum = input + gain * delayed;
         self.buffer[self.index] = sum;
@@ -103,7 +189,7 @@ impl FixedAllpass {
     }
 
     pub fn clear(&mut self) {
-        self.buffer.fill(0.0);
+        self.buffer.fill(F64x2::default());
     }
 }
 
@@ -204,4 +290,114 @@ pub fn peak(data: &[f32]) -> f64 {
         loudest = max(loudest, (*value as f64).abs());
     }
     loudest
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use jsmath::min;
+
+    // a deterministic noise within ±1 (xorshift)
+    fn noise(seed: u64) -> impl FnMut() -> f64 {
+        let mut x = seed;
+        move || {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            (x >> 11) as f64 / (1u64 << 52) as f64 - 1.0
+        }
+    }
+
+    fn bits(value: F64x2) -> [u64; 2] {
+        [value.lo().to_bits(), value.hi().to_bits()]
+    }
+
+    // the delays a reverb reads: fractional, under 2 (read at 2), past the index (wrapped around the ring), up
+    // to the length of each line
+    fn delays(next: &mut impl FnMut() -> f64, max: f64) -> f64 {
+        (next() + 1.0) / 2.0 * max
+    }
+
+    #[test]
+    fn a_pair_of_lines_reads_each_as_read() {
+        let mut next = noise(1);
+        let (mut a, mut b) = (DelayLine::new(300.0), DelayLine::new(1100.5));
+        for step in 0..5000 {
+            a.write(next());
+            b.write(next());
+            let delay = F64x2::new(delays(&mut next, 300.0), delays(&mut next, 1100.5));
+            let delay = if step % 7 == 0 {
+                F64x2::new(1.25, 0.0)
+            } else {
+                delay
+            };
+            let pair = DelayLine::read_pair(&a, &b, delay);
+            assert_eq!(
+                bits(pair),
+                [a.read(delay.lo()).to_bits(), b.read(delay.hi()).to_bits()]
+            );
+            // one line in both lanes (the early reflections of a reverb)
+            let same = DelayLine::read_pair(&a, &a, delay.map(|d| min(d, 300.0)));
+            assert_eq!(
+                bits(same),
+                [
+                    a.read(min(delay.lo(), 300.0)).to_bits(),
+                    a.read(min(delay.hi(), 300.0)).to_bits()
+                ]
+            );
+        }
+    }
+
+    #[test]
+    fn a_stereo_line_is_a_line_per_lane() {
+        let mut next = noise(2);
+        let mut stereo = StereoDelayLine::new(700.0);
+        let (mut left, mut right) = (DelayLine::new(700.0), DelayLine::new(700.0));
+        for _ in 0..3000 {
+            let delay = delays(&mut next, 700.0);
+            let read = stereo.read(delay);
+            assert_eq!(
+                bits(read),
+                [left.read(delay).to_bits(), right.read(delay).to_bits()]
+            );
+            let (l, r) = (next(), next());
+            stereo.write(F64x2::new(l, r));
+            left.write(l);
+            right.write(r);
+        }
+    }
+
+    #[test]
+    fn a_pair_of_allpasses_is_an_allpass_per_lane() {
+        let mut next = noise(3);
+        let (mut a, mut b) = (Allpass::new(400.0), Allpass::new(900.0));
+        let (mut pa, mut pb) = (Allpass::new(400.0), Allpass::new(900.0));
+        let gain = F64x2::new(0.5, -0.7);
+        for _ in 0..4000 {
+            let input = F64x2::new(next(), next());
+            let delay = F64x2::new(delays(&mut next, 400.0), delays(&mut next, 900.0));
+            let pair = Allpass::process_pair(&mut pa, &mut pb, input, delay, gain);
+            let lo = a.process(input.lo(), delay.lo(), gain.lo());
+            let hi = b.process(input.hi(), delay.hi(), gain.hi());
+            assert_eq!(bits(pair), [lo.to_bits(), hi.to_bits()]);
+        }
+    }
+
+    // a Schroeder allpass of a whole delay d >= 2 reads the sample written d steps ago: a fixed allpass of d
+    #[test]
+    fn a_stereo_fixed_allpass_is_an_allpass_of_its_whole_delay_per_lane() {
+        let mut next = noise(4);
+        for delay in [2.0, 3.4, 37.0, 241.6] {
+            let mut stereo = StereoFixedAllpass::new(delay);
+            let whole = round(delay);
+            let (mut left, mut right) = (Allpass::new(whole), Allpass::new(whole));
+            let gain = 0.62;
+            for _ in 0..2000 {
+                let (l, r) = (next(), next());
+                let out = stereo.process(F64x2::new(l, r), F64x2::splat(gain));
+                assert_eq!(out.lo(), left.process(l, whole, gain));
+                assert_eq!(out.hi(), right.process(r, whole, gain));
+            }
+        }
+    }
 }
