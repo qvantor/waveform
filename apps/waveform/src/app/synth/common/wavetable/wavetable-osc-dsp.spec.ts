@@ -20,7 +20,7 @@ import { withCurves } from '../../../../test-utils/envelopes';
 import { seeded, VOICE_DEFAULTS } from '../../../../test-utils/voice-dsp';
 import { wasmCore } from '../../../../test-utils/wasm';
 import { buildLevels } from './wavetable-mipmap';
-import type { WavetableLevels } from './wavetable-levels';
+import { levelHarmonics, type WavetableLevels } from './wavetable-levels';
 import {
   TableStoreStats,
   UNISON_SHAPE,
@@ -302,18 +302,27 @@ const powerSpectrum = (signal: Float32Array) => {
 // a pitch on the bins of SIZE samples: its harmonics are the bins h · bin
 const binPitch = (bin: number, rate = RATE) => (bin * rate) / SIZE;
 
+// the pitch of a frame of up to 1023 harmonics at x = 1 + 3·log2(1024 · f / nyquist): level q is the whole tone from
+// x = q on, alone up to x = q + 0.8, then crossfaded into level q + 1 up to x = q + 1 (at w of the way over it: q +
+// 0.8 + 0.2w)
+const pitchAt = (x: number, rate = RATE) => (rate / 2 / 1024) * 2 ** ((x - 1) / 3);
+
+// the aliasing (all that is not a harmonic against the harmonics) and the worst spur (against the fundamental) in
+// dB, the highest harmonic at all and the highest at half the level of a saw's 1/h at least (not faded out)
 const harmonicAnalysis = (signal: Float32Array, bin: number) => {
   const spectrum = powerSpectrum(signal);
   let harmonics = 0;
   let other = 0;
   let worst = 0;
   let highest = 0;
+  let top = 0;
   const fundamental = spectrum[bin];
   spectrum.forEach((power, k) => {
     if (k === 0) return;
     if (k % bin === 0) {
       harmonics += power;
       if (power > fundamental * 1e-12) highest = k / bin;
+      if (power >= fundamental / (4 * (k / bin) ** 2)) top = k / bin;
     } else {
       other += power;
       worst = Math.max(worst, power);
@@ -323,7 +332,28 @@ const harmonicAnalysis = (signal: Float32Array, bin: number) => {
     aliasing: 10 * Math.log10(other / harmonics),
     worstSpur: 10 * Math.log10(worst / fundamental),
     highest,
+    top,
   };
+};
+
+// a windowed sinc (Blackman, 127 taps) lowpass at `cutoff` Hz, the first 127 samples 0
+const lowpass = (signal: Float32Array, cutoff: number, rate = RATE) => {
+  const taps = 127;
+  const cut = cutoff / rate;
+  const h = Array.from({ length: taps }, (_, i) => {
+    const m = i - (taps - 1) / 2;
+    const sinc = m ? Math.sin(2 * Math.PI * cut * m) / (Math.PI * m) : 2 * cut;
+    const window =
+      0.42 - 0.5 * Math.cos((2 * Math.PI * i) / (taps - 1)) + 0.08 * Math.cos((4 * Math.PI * i) / (taps - 1));
+    return sinc * window;
+  });
+  const out = new Float64Array(signal.length);
+  for (let i = taps; i < signal.length; i++) {
+    let sum = 0;
+    for (let j = 0; j < taps; j++) sum += h[j] * signal[i - j];
+    out[i] = sum;
+  }
+  return out;
 };
 
 // zero crossings upwards, interpolated: the frequency of a sine
@@ -369,30 +399,39 @@ describe('the wavetable voice', () => {
   });
 
   describe('band limit', () => {
-    // a native OscillatorNode with the PeriodicWave of the saw at 48 kHz (Chrome 133 and WebKit 18.2 alike,
-    // scripts/bench-osc): the bins of the analysis (55, 110, 220, 1046, 3520, 7040 Hz), its aliasing and worst
-    // spur (dB) and the number of its highest harmonic
-    const NATIVE: [number, number, number, number][] = [
-      [75, -72.2, -93.0, 406],
-      [150, -80.8, -99.3, 203],
-      [300, -88.5, -104.3, 101],
-      [1428, -108.3, -118.5, 20],
-      [4806, -124.5, -130.1, 6],
-      [9612, -132.2, -136.7, 3],
-    ];
-
-    it.each(NATIVE)(
-      'keeps the aliasing of a saw at bin %s within 1 dB of a native oscillator, as bright',
-      (bin, aliasing, spur, highest) => {
-        const { store } = core.storeWith({ a: [saw] });
-        const { left } = render({ store, params: { frequency: binPitch(bin) }, frames: SIZE + 4096 });
-        const result = harmonicAnalysis(left, bin);
-        expect(result.aliasing).toBeLessThanOrEqual(aliasing + 1);
-        expect(result.worstSpur).toBeLessThanOrEqual(spur + 1);
-        expect(result.highest).toBeGreaterThanOrEqual(highest);
-        expect(result.highest * binPitch(bin)).toBeLessThan(RATE / 2);
+    // the bin nearest to a note whose pitch is a float32 (the core takes the frequency in f32): every harmonic and
+    // every alias of it on a bin of SIZE samples, no window
+    const noteBin = (note: number, rate: number) => {
+      const near = Math.round((440 * 2 ** ((note - 69) / 12) * SIZE) / rate);
+      for (let d = 0; ; d++) {
+        const bin = [near - d, near + d].find((k) => Math.fround(binPitch(k, rate)) === binPitch(k, rate));
+        if (bin) return bin;
       }
-    );
+    };
+    // the harmonics of each level of a saw of 1023: level q from x = q on (x = 1 + 3·log2(1024 · f / nyquist)), its
+    // top below the nyquist over its third of an octave, from nyquist · 2^(-1/3) up
+    const LEVELS = levelHarmonics(1023);
+
+    describe.each([44100, 48000])('at %i Hz', (rate) => {
+      it.each([36, 48, 57, 60, 64, 67, 72, 76, 79, 84, 88, 91, 96, 100, 103, 108])(
+        'keeps the aliasing of a saw at note %i under -70 dB, its spurs under -80 dB, the harmonics of its level whole',
+        (note) => {
+          const bin = noteBin(note, rate);
+          const frequency = binPitch(bin, rate);
+          const { store } = core.storeWith({ a: [saw] });
+          const { left } = render({ store, rate, params: { frequency }, frames: SIZE + 4096 });
+          const result = harmonicAnalysis(left, bin);
+          expect(result.aliasing).toBeLessThan(-70);
+          expect(result.worstSpur).toBeLessThan(-80);
+          expect(result.highest * frequency).toBeLessThan(rate / 2);
+          // the level of the pitch alone but over the top fifth of its third of an octave (the crossfade into the
+          // next one, at half of it in the middle)
+          const x = 1 + 3 * Math.log2((1024 * frequency) / (rate / 2));
+          const level = Math.floor(x);
+          expect(result.top).toBe(LEVELS[x - level < 0.9 ? level : level + 1]);
+        }
+      );
+    });
 
     it('plays the harmonics of the additive synthesis at their level', () => {
       const { store } = core.storeWith({ a: [saw] });
@@ -404,6 +443,29 @@ describe('the wavetable voice', () => {
         const amplitude = (2 * Math.sqrt(spectrum[h * bin])) / SIZE;
         expect(amplitude).toBeCloseTo(1 / h, 3);
       }
+    });
+
+    it('reads the frame of the level of a pitch alone from one table, bit for bit as directly', () => {
+      const { store } = core.storeWith({ a: [saw, square] });
+      // x 13.69 (440 Hz), a pair of voices 10 cents apart: on the flat of level 13; a position that moves within
+      // frame 0 plays it directly
+      const play = (position1: number | ((frame: number) => number)) => {
+        const shared = core.createVoiceShared();
+        const out = render({
+          store,
+          shared,
+          oscs: [osc({ unison: 2 })],
+          params: { spread1: 10, position1 },
+          frames: 8 * BLOCK,
+        });
+        return { ...out, stats: shared.stats() };
+      };
+      const table = play(0);
+      const direct = play((frame) => (frame % 2 ? 0.2 : 0.3));
+      expect(table.stats).toMatchObject({ directSamples: 0, mixSamples: 2 * 8 * BLOCK });
+      expect(direct.stats).toMatchObject({ directSamples: 2 * 8 * BLOCK, mixSamples: 0 });
+      expect(table.left).toEqual(direct.left);
+      expect(table.right).toEqual(direct.right);
     });
 
     it('fades a fundamental above the nyquist out to silence', () => {
@@ -702,11 +764,11 @@ describe('the wavetable voice', () => {
       expect(maxStep(left)).toBeLessThanOrEqual(1.1 * Math.max(...stationary));
     });
 
-    // level q is the whole tone from pitch range x = q (1 + 3·log2(1024 · f / nyquist)) on, crossfaded into
-    // level q + 1 up to x = q + 1: a harmonic between their counts fades out over a third of an octave
+    // (pitchAt) a harmonic between the counts of two levels fades out over the top fifth of a third of an octave
+    const pitch = (x: number) => pitchAt(x);
+
     it('crossfades the levels: no step of the harmonics at a level boundary', () => {
       const { store } = core.storeWith({ a: [saw] });
-      const pitch = (x: number) => (RATE / 2 / 1024) * 2 ** ((x - 1) / 3);
       const play = (x: number) => render({ store, params: { frequency: pitch(x) }, frames: RATE / 2 }).left;
       // level 10 keeps 101 harmonics, level 11 80
       // harmonic h of the note at x, against its level in the saw
@@ -715,9 +777,37 @@ describe('the wavetable voice', () => {
         expect(harmonic(10 - 0.002, h)).toBeCloseTo(1, 1);
         expect(harmonic(10 + 0.002, h)).toBeCloseTo(1, 1);
       }
-      // harmonic 90 is in level 10, not in level 11: half of it in the middle
-      expect(harmonic(10.5, 90)).toBeCloseTo(0.5, 1);
-      expect(harmonic(10.5, 70)).toBeCloseTo(1, 1);
+      // harmonic 90 is in level 10, not in level 11: whole up to 10.8, half of it in the middle of the crossfade
+      expect(harmonic(10.5, 90)).toBeCloseTo(1, 1);
+      expect(harmonic(10.79, 90)).toBeCloseTo(1, 1);
+      expect(harmonic(10.9, 90)).toBeCloseTo(0.5, 1);
+      expect(harmonic(10.9, 70)).toBeCloseTo(1, 1);
+    });
+
+    it('fades the harmonics a level drops out without a step: a fast glide past it splatters nothing below 12 kHz', () => {
+      // harmonics 81..101: level 10 has them, level 11 none, each above 12 kHz from x = 10.5 on
+      const drops = cycle(
+        2048,
+        Array.from({ length: 21 }, (_, i): [number, number, number] => [81 + i, 1 / 21, 81 + i])
+      );
+      const { store } = core.storeWith({ a: [drops] });
+      // x up from 10.5 to 11.5 in 33 ms (as fast as C3 to C6 in 0.3 s), held 6.6 ms, back down
+      const seconds = 0.033;
+      const x = (frame: number) => {
+        const t = frame / RATE / seconds;
+        return 10.5 + (t < 1 ? t : t < 1.2 ? 1 : t < 2.2 ? 2.2 - t : 0);
+      };
+      const frames = Math.ceil((2.4 * seconds * RATE) / BLOCK) * BLOCK;
+      const { left } = render({ store, params: { frequency: (frame) => pitch(x(frame)) }, frames });
+      const peak = Math.max(...left.subarray(0, 0.4 * seconds * RATE).map(Math.abs));
+      const low = lowpass(left, 12000);
+      // where x crosses 10.7..11.05 up and back down: their aliasing alone (a step there at once: -48 dB)
+      const crossing = (from: number, to: number) =>
+        Math.max(
+          ...low.subarray(Math.round(from * seconds * RATE), Math.round(to * seconds * RATE)).map(Math.abs)
+        );
+      expect(db(crossing(0.2, 0.55) / peak)).toBeLessThan(-65);
+      expect(db(crossing(1.65, 2) / peak)).toBeLessThan(-65);
     });
   });
 
@@ -1954,9 +2044,16 @@ describe('the wavetable voice', () => {
         expect(measureFrequency(left.subarray(0.1 * RATE))).toBeCloseTo(27.5, 2);
       });
 
-      it('plays directly while the pitch moves, on its mix tables again once it is flat', () => {
-        expect(pitched(KICK_FRAMES).stats.mixSamples).toBe(0);
-        expect(pitched(0.3 * RATE).stats.mixSamples).toBeGreaterThan(0);
+      it('reads a level alone wherever the fast pitch holds the reach of one, directly over the crossfades: no build', () => {
+        // x from 10.7 down to 1.7 (220 to 27.5 Hz: the levels of a frame of 2048 samples) over 9 crossfades
+        const kick = pitched(KICK_FRAMES).stats;
+        expect(kick.builds).toBe(0);
+        expect(kick.directSamples).toBeGreaterThan(0);
+        expect(kick.mixSamples).toBeGreaterThan(kick.directSamples);
+        // then on the flat of level 1: its frame alone
+        const after = pitched(0.3 * RATE).stats;
+        expect(after.builds).toBe(0);
+        expect(after.directSamples).toBe(kick.directSamples);
       });
 
       it('adds the offsets of Semi and Fine to the detune, each within its bounds', () => {
@@ -2016,9 +2113,11 @@ describe('the wavetable voice', () => {
         });
       });
 
-      it('builds a mix of a unison voice again only when its pitch leaves the reach of the one it has', () => {
+      it('reads the level of a vibrato over its flat alone: no build, every sample from one table', () => {
         const { store } = core.storeWith({ a: [saw] });
         const shared = core.createVoiceShared();
+        // x 10.69 ± 0.125 (220 Hz ± 50 cents) ± 0.025 of the spread: level 10 alone, at most 0.04 into its crossfade
+        // (its reach holds a quarter of a level of it)
         render({
           store,
           shared,
@@ -2026,9 +2125,26 @@ describe('the wavetable voice', () => {
           params: { frequency: 220, detune1: vibrato, spread1: 20 },
           frames: RATE,
         });
+        expect(shared.stats()).toMatchObject({ directSamples: 0, builds: 0 });
+      });
+
+      // the middle of the crossfade of level 10 into 11: a cent moves it 1/80 of a level there
+      const crossfade = pitchAt(10.9);
+
+      it('builds a mix of a unison voice again only when its pitch leaves the reach of the one it has', () => {
+        const { store } = core.storeWith({ a: [saw] });
+        const shared = core.createVoiceShared();
+        // ±10 cents over the crossfade, the voices 4 cents apart: within it all along
+        render({
+          store,
+          shared,
+          oscs: [osc({ unison: 8 })],
+          params: { frequency: crossfade, detune1: (frame) => vibrato(frame) / 5, spread1: 4 },
+          frames: RATE,
+        });
         const stats = shared.stats();
         expect(share(stats)).toBeGreaterThan(0.9);
-        // a quarter of a level (100 cents) each way holds a swing of 100 cents: one build a voice in 5 periods
+        // a quarter of a level (20 cents there) each way holds a swing of 20 cents: one build a voice in 5 periods
         expect(stats.builds).toBe(8);
       });
 
@@ -2047,12 +2163,12 @@ describe('the wavetable voice', () => {
         expect(shared.stats().builds).toBe(0);
       });
 
-      it('sweeps a saw slowly over two levels on its mixes, no steeper than the pitches it passes', () => {
+      it('sweeps a saw slowly over two levels on their frames, no steeper than the pitches it passes', () => {
         const { store } = core.storeWith({ a: [saw] });
         const shared = core.createVoiceShared();
         const seconds = 2;
-        // two levels (two thirds of an octave) up from 100 Hz: levels as long as a mix, a build of 3 × 4096
-        // multiply-adds
+        // two levels (two thirds of an octave) up from 100 Hz (x 7.28 to 9.28): over the flats of levels 7, 8 and 9
+        // their frames alone, over the two crossfades between them directly
         const frequency = (frame: number) => 100 * 2 ** ((2 / 3) * Math.min(1, frame / (seconds * RATE)));
         const { left } = render({ store, shared, params: { frequency }, frames: seconds * RATE });
         const stationary = Array.from({ length: 32 }, (_, i) =>
@@ -2061,26 +2177,28 @@ describe('the wavetable voice', () => {
           )
         );
         expect(maxStep(left)).toBeLessThanOrEqual(1.1 * Math.max(...stationary));
-        // a mix at the middle of each band of the reach once the pitch has held it as long as the build costs
-        // played directly (0.08 s), then the next one
-        expect(share(shared.stats())).toBeGreaterThan(0.85);
-        expect(shared.stats().builds).toBe(10);
+        // (a mix over a crossfade: the pitch crosses a reach of it in 0.05 s, less than its build costs played
+        // directly). From one table over the flats and the reach of their levels into the crossfades: 0.89
+        const stats = shared.stats();
+        expect(stats.builds).toBe(0);
+        expect(share(stats)).toBeGreaterThan(0.85);
       });
 
       it('takes a mix of a pitch that came back again: no build', () => {
         const { store } = core.storeWith({ a: [saw] });
         const shared = core.createVoiceShared();
-        // a bend of 50 cents up and back within 0.1 s, at 0.2 s
+        // a bend of 10 cents up and back within 0.1 s, at 0.2 s, over the crossfade (a quarter of a level is 20
+        // cents there)
         const bend = (frame: number) => {
           const t = frame / RATE - 0.2;
-          return t > 0 && t < 0.1 ? 25 * (1 - Math.cos(20 * Math.PI * t)) : 0;
+          return t > 0 && t < 0.1 ? 5 * (1 - Math.cos(20 * Math.PI * t)) : 0;
         };
         let before = -1;
         render({
           store,
           shared,
           oscs: [osc({ unison: 8 })],
-          params: { frequency: 220, detune1: bend, spread1: 20 },
+          params: { frequency: crossfade, detune1: bend, spread1: 4 },
           frames: 0.5 * RATE,
           before: (frame) => {
             if (frame === 9600 - (9600 % BLOCK)) before = shared.stats().builds;
@@ -2856,7 +2974,14 @@ describe('the wavetable voice', () => {
     it('counts the samples played directly and from the mix tables, and the mix builds', () => {
       const { store } = core.storeWith({ a: [saw, square] });
       const shared = core.createVoiceShared();
-      render({ store, shared, oscs: [osc({ unison: 2 })], params: { spread1: 10 }, frames: 4 * BLOCK });
+      // in the middle of a crossfade (x 13.9: 462 Hz), the voices 10 cents apart
+      render({
+        store,
+        shared,
+        oscs: [osc({ unison: 2 })],
+        params: { frequency: pitchAt(13.9), spread1: 10 },
+        frames: 4 * BLOCK,
+      });
       const stats = shared.stats();
       // the first block plays directly, the second builds the mixes and plays them, as do the next ones
       expect(stats).toMatchObject({
@@ -2866,6 +2991,19 @@ describe('the wavetable voice', () => {
         refused: 0,
       });
       expect(stats.buildCost).toBeGreaterThan(0);
+    });
+
+    it('counts the frame of a level read alone as one table, from the first block: no build', () => {
+      const { store } = core.storeWith({ a: [saw, square] });
+      const shared = core.createVoiceShared();
+      // x 13.69 (440 Hz), the voices 10 cents apart (±0.0125): on the flat of level 13
+      render({ store, shared, oscs: [osc({ unison: 2 })], params: { spread1: 10 }, frames: 4 * BLOCK });
+      expect(shared.stats()).toMatchObject({
+        directSamples: 0,
+        mixSamples: 2 * 4 * BLOCK,
+        builds: 0,
+        mixes: 0,
+      });
     });
 
     it('counts each sample once through a crossfade into a new version', () => {
@@ -2895,12 +3033,13 @@ describe('the wavetable voice', () => {
     it('counts the builds the budget refuses and the peak cost of a block, read once', () => {
       const { store } = core.storeWith({ a: [saw, square] });
       const shared = core.createVoiceShared();
-      // 8 voices between two frames: their mixes take more than the budget of one block
+      // 2 × 8 voices in the crossfade of level 11 (4096 samples) into 12 (2048, interpolated): 32,768 multiply-adds
+      // a mix, more than the budget of one block
       render({
         store,
         shared,
-        oscs: [osc({ unison: 8 })],
-        params: { spread1: 20, position1: 0.5 },
+        oscs: [osc({ unison: 8 }), osc({ unison: 8 })],
+        params: { frequency: pitchAt(11.9), spread1: 4, spread2: 4, gain2: 1 },
         frames: 3 * BLOCK,
       });
       const stats = shared.stats();

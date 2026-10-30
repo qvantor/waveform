@@ -7,7 +7,7 @@ use crate::shared::{Shared, PARAMS};
 use crate::store::{EntryRef, Store, FRAME_GUARD};
 use crate::timeline::{Kind, Timeline};
 use crate::velocity::VoiceVelocity;
-use crate::voice::{OscOptions, UnisonShape, Voice, VoiceOptions};
+use crate::voice::{level_x, OscOptions, UnisonShape, Voice, VoiceOptions, LEVEL_BAND};
 use alloc::vec;
 use alloc::vec::Vec;
 use jsmath::{floor, log2, max, min, pow};
@@ -716,12 +716,9 @@ fn each_voice_of_a_unison_fades_on_its_own() {
 
 #[test]
 fn a_fade_between_two_levels_reads_both_frames_on_each() {
-    // a pitch at w 0.3 between the levels (79.8 Hz, the fade 5 ms), frame 0 then 1 from 128: on levels of other
+    // a pitch at w 0.3 between the levels (90.7 Hz, the fade 5 ms), frame 0 then 1 from 128: on levels of other
     // lengths (render22) and of one (render22_same, in f32), each frame of each level a value of its own
-    let nyquist = log2(RATE / 2.0);
-    let f = pow(2.0, (0.3 - 1.0) / 3.0 + nyquist - 8.0) as f32;
-    let x = 1.0 + 3.0 * (8.0 - nyquist) + 3.0 * log2(f as f64);
-    let w = x - floor(x);
+    let (f, w) = pitch_at(0.3);
     for lengths in [[512, 256], [512, 512]] {
         let mut store = Store::default();
         two_level_frames(&mut store, lengths, [&[1.0, 2.0], &[4.0, 8.0]]);
@@ -737,13 +734,23 @@ fn a_fade_between_two_levels_reads_both_frames_on_each() {
     }
 }
 
-// the frequency of the pitch at x of `segment` on two_level_frames (in f32), and the weight of the second level a
-// voice reads there
-fn pitch_at(x: f64) -> (f32, f64) {
+// the frequency of the pitch at x = 1 + 3·log2(base · f / nyquist) on two_level_frames (in f32), and the weight of
+// the second level a voice reads there (in the top LEVEL_BAND of the first: level_x)
+fn pitch_x(x: f64) -> (f32, f64) {
     let nyquist = log2(RATE / 2.0);
     let f = pow(2.0, (x - 1.0) / 3.0 + nyquist - 8.0) as f32;
-    let x = 1.0 + 3.0 * (8.0 - nyquist) + 3.0 * log2(f as f64);
+    let x = level_x(1.0 + 3.0 * (8.0 - nyquist) + 3.0 * log2(f as f64));
     (f, x - floor(x))
+}
+
+// the x of the pitch at the weight w (0..1) of the second level
+fn x_at(w: f64) -> f64 {
+    1.0 - LEVEL_BAND + LEVEL_BAND * w
+}
+
+// the pitch at the weight w (0..1) of the second level
+fn pitch_at(w: f64) -> (f32, f64) {
+    pitch_x(x_at(w))
 }
 
 // `out` is 1 + 3w at the weight w of the second level at each sample (two_level_frames of 1 and 4)
@@ -760,7 +767,7 @@ fn expect_weights(out: &[f32], w: impl Fn(usize) -> f64) {
 #[test]
 fn a_mix_left_for_the_one_of_a_new_pitch_glides_the_levels_it_reads_over_a_period() {
     // the pitch at w 0.3 (its mix from the second block), at 0.4 from 512: still on the mix of 0.3 (its reach holds
-    // it), the mix of 0.4 built at 640 and glided into over 5 ms (a period of 82 Hz is 12 ms) at the points of the
+    // it), the mix of 0.4 built at 640 and glided into over 5 ms (a period of 92 Hz is 11 ms) at the points of the
     // block (its edges: a constant pitch), from 896 its mix
     let ((a, wa), (b, wb)) = (pitch_at(0.3), pitch_at(0.4));
     let mut store = Store::default();
@@ -777,9 +784,9 @@ fn a_mix_left_for_the_one_of_a_new_pitch_glides_the_levels_it_reads_over_a_perio
 
 #[test]
 fn a_pitch_that_steps_out_of_the_reach_of_its_mix_reads_its_own_levels_at_once() {
-    // from w 0.3 on its mix to 0.8 at 512, past its reach (a quarter of a level): the levels of the pitch from that
-    // sample, then its mix
-    let ((a, wa), (b, wb)) = (pitch_at(0.3), pitch_at(0.8));
+    // from w 0.3 on its mix to 0.6 at 512, past its reach (a quarter of a level) and that of either level: the levels
+    // of the pitch from that sample, then its mix
+    let ((a, wa), (b, wb)) = (pitch_at(0.3), pitch_at(0.6));
     let mut store = Store::default();
     two_level_frames(&mut store, [512, 256], [&[1.0], &[4.0]]);
     let out = one(&mut store, 1024, |i| if i < 512 { a } else { b }, |_| 0.0);
@@ -812,11 +819,25 @@ fn a_voice_that_leaves_the_reach_of_its_mix_while_the_pitch_moves_glides_without
 }
 
 #[test]
+fn a_mix_at_the_top_of_its_level_plays_nowhere_past_it() {
+    // on the mix of w 0.9 (its reach up to 1, where the first level reaches the nyquist), then at x 1.3 from 512: the
+    // flat of the second level (a whole x, 1, as the top of that reach): the second level alone at once, not the
+    // mix (1 + 3 · 0.9)
+    let (a, wa) = pitch_at(0.9);
+    let (b, wb) = pitch_x(1.3);
+    assert_eq!(wb, 0.0);
+    let mut store = Store::default();
+    two_level_frames(&mut store, [512, 256], [&[1.0], &[4.0]]);
+    let out = one(&mut store, 1024, |i| if i < 512 { a } else { b }, |_| 0.0);
+    expect_weights(&out, |i| if i < 512 { wa } else { 1.0 });
+}
+
+#[test]
 fn a_mix_at_the_top_of_its_level_is_left_gliding_before_the_pitch_passes_it() {
-    // on the mix of w 0.9, its reach up to 1 (where the first level reaches the nyquist: from there the second and
-    // the silent one), then up to 1.2 over 1536 samples from 512: it leaves the mix as far before 1 as a glide
-    // takes, so the first level is gone by then (1 + 3w below it, 4 · (2 - x) above it: no step at 1, nor where the
-    // glide would end past it, the levels of the mix read up there)
+    // on the mix of w 0.9, its reach up to 1 (where the first level reaches the nyquist: from there the second
+    // alone), then up as fast as w 0.3 over 1536 samples from 512: it leaves the mix as far before 1 as a glide
+    // takes, so the first level is gone by then (1 + 3w below it, 4 above it: no step at 1, nor where the glide would
+    // end past it, the levels of the mix read up there)
     let (a, _) = pitch_at(0.9);
     let mut store = Store::default();
     two_level_frames(&mut store, [512, 256], [&[1.0], &[4.0]]);
@@ -824,7 +845,7 @@ fn a_mix_at_the_top_of_its_level_is_left_gliding_before_the_pitch_passes_it() {
         if i < 512 {
             a
         } else {
-            pitch_at(0.9 + 0.3 * min(1.0, (i - 512) as f64 / 1536.0)).0
+            pitch_x(x_at(0.9) + LEVEL_BAND * 0.3 * min(1.0, (i - 512) as f64 / 1536.0)).0
         }
     };
     let out = one(&mut store, 2560, frequency, |_| 0.0);

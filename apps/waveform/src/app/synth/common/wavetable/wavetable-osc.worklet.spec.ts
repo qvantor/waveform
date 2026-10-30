@@ -231,7 +231,8 @@ describe('wavetable oscillator wasm worklet', () => {
     expect(after.tables - before.tables).toBe(1);
     expect(after.bytes - before.bytes).toBe(levels.data.byteLength);
     expect(after.voices - before.voices).toBe(1);
-    expect(after.mixSamples - before.mixSamples).toBe(128);
+    // (on the flat of its level: its frame alone from the first block)
+    expect(after.mixSamples - before.mixSamples).toBe(256);
   });
 
   it('tells a start later than scheduled once: the fx and Poly follow it', () => {

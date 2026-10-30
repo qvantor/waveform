@@ -402,18 +402,24 @@ const db = (ratio: number) => 20 * Math.log10(ratio);
 const frameOf = (frames: Frames) => Math.floor((frames.length - 1) / 2);
 const positionOf = (frames: Frames) => (frames.length > 1 ? frameOf(frames) / (frames.length - 1) : 0);
 
+// the amplitude of the harmonics below nyquist · 2^(-2/3) together: every level a pitch reads keeps them, both
+// oscillators play them whole (above it the native one crossfades into the next level over a third of an octave,
+// ours over its top fifth: brighter)
+const commonLevel = (signal: Float32Array, frequency: number, rate: number) => {
+  let sum = 0;
+  for (let h = 1; h * frequency < (rate / 2) * 2 ** (-2 / 3); h++)
+    sum += toneAmplitude(signal, h * frequency, rate) ** 2;
+  return Math.sqrt(sum);
+};
+
 const sound = async ({ rate, name, pitches }: { rate: number; name: string; pitches: number[] }) => {
   const frames = await table(name);
   const levels = buildLevels(frames);
   const k = frameOf(frames);
   const results = [];
   for (const frequency of pitches) {
-    const native = analyze(
-      await nativeRender(rate, SIZE + LEAD, frames[k], frequency),
-      frequency,
-      rate,
-      frames[k]
-    );
+    const nativeSignal = await nativeRender(rate, SIZE + LEAD, frames[k], frequency);
+    const native = analyze(nativeSignal, frequency, rate, frames[k]);
     const [left] = await oursRender(
       rate,
       SIZE + LEAD,
@@ -421,7 +427,8 @@ const sound = async ({ rate, name, pitches }: { rate: number; name: string; pitc
       { params: { frequency, position1: positionOf(frames) } }
     );
     const ours = analyze(left, frequency, rate, frames[k]);
-    results.push({ frequency, native, ours, level: db(ours.rms / native.rms) });
+    const level = db(commonLevel(left, frequency, rate) / commonLevel(nativeSignal, frequency, rate));
+    results.push({ frequency, native, ours, level });
   }
   return results;
 };

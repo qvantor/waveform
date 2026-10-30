@@ -26,6 +26,13 @@ const TABLES = [
   'ESW Core Tables/Vocal/ESW Vocal - Ahhh 01.wav',
 ];
 const PITCHES = [55, 220, 1046, 3520, 7040];
+// bounds of our own (dB, those of wavetable-osc-dsp.spec): a note reads the level of its pitch alone up to the top
+// fifth of its third of an octave, brighter than a native oscillator (it crossfades into the next level over all
+// of it) and on high notes less clean than it (the levels read linearly, no mix as long as a native table). A
+// render passes under them or within 1 dB of the native one (a table whose content aliases in both)
+const ALIASING = -70;
+const SPUR = -80;
+const bounded = (ours, native, bound) => ours <= Math.max(bound, native + 1);
 
 const bundle = async () => {
   const esbuild = require('esbuild');
@@ -131,8 +138,8 @@ const runPages = async (browser, name, port) => {
         for (const { frequency, native, ours, level } of results) {
           const where = `${rate} Hz ${table} ${frequency} Hz`;
           const verdict = [
-            check(failures, ours.aliasing <= native.aliasing + 1, `aliasing ${where}`),
-            check(failures, ours.spur <= native.spur + 1, `spur ${where}`),
+            check(failures, bounded(ours.aliasing, native.aliasing, ALIASING), `aliasing ${where}`),
+            check(failures, bounded(ours.spur, native.spur, SPUR), `spur ${where}`),
             check(failures, ours.highest >= native.highest, `brightness ${where}`),
             check(failures, Math.abs(level) <= 0.1, `level ${where}`),
           ];

@@ -11,7 +11,9 @@ use jsmath::{ceil, max};
 /// with its 200000 (the attack of a chord in Node, one shared:
 /// 0.105 against 0.215 µs per 1000 multiply-adds at 48 kHz, 0.138 against 0.30 at 96 kHz); the most whose
 /// longest block of the attack of a chord of 12 × 2 × u8 is not longer than the one of the TS (0.170 against
-/// 0.172 ms; 400000: 0.180), its 192 mixes built from block 26 on instead of 56
+/// 0.172 ms; 400000: 0.180), its 192 mixes built from block 26 on instead of 56. Since the mixes are as long as
+/// their levels and only the voices in a crossfade build one (the others read their level alone) the 32 of the
+/// heavy chord at 48 kHz are built by block 3
 pub const MIX_BUDGET_WASM: f64 = 360000.0;
 const SEGMENT: f64 = 32.0;
 pub const PARAMS: usize = 10;
@@ -64,7 +66,8 @@ pub struct Shared {
     pub lengths: [f32; PARAMS],
     pub output: Vec<f32>,
     frames: usize,
-    // the weights of the 6-point Lagrange interpolation per ratio (the upsamplers of the TS, cached per scope)
+    // the weights of the 6-point Lagrange interpolation per ratio (the upsamplers of the TS, cached per scope; ratio 2
+    // only since the mixes are as long as their levels)
     pub upsamplers: Vec<(usize, Vec<f64>)>,
     // the LFOs of the voices (lfo.rs) and the count of their states: a voice that sees another one works its LFOs
     // out again

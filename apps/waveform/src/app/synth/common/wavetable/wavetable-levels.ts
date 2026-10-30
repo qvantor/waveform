@@ -28,12 +28,14 @@ export const frameStart = (
 // the levels of a table are a third of an octave apart on the grid of a browser's PeriodicWave: level r keeps
 // the harmonics up to base · 2^(-r/3), at most those of the table; base is the power of two above them (1024
 // for 1023 harmonics, a frame of 2048 samples), the grid of Chrome and WebKit (their table size / 2 · 2^(-r/3)
-// lands on it), so a note gets as many harmonics as from a native oscillator
+// lands on it). A note reads the level of its pitch alone, its top harmonic from nyquist · 2^(-1/3) up to the
+// nyquist, but over the top fifth of the third of an octave (a crossfade into the next one; a native oscillator
+// crossfades over all of it: its top a third of an octave lower in the middle)
 export const levelBase = (harmonics: number) => 2 ** Math.ceil(Math.log2(harmonics + 1));
 
 export const LEVELS_PER_OCTAVE = 3;
 // samples of a level: 32 per cycle of its highest harmonic, a power of two in 512..4096 (the oscillator reads
-// them linearly while it glides or morphs; a held note reads a mix of them as long as a native table)
+// them linearly; a held note in a crossfade reads a mix of two as long as the first)
 const SAMPLES_PER_HARMONIC = 32;
 const MIN_LENGTH = 512;
 const MAX_LENGTH = 4096;
