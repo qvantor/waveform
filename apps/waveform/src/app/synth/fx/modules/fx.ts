@@ -43,12 +43,12 @@ const defaultFxState = (type: FxType): FxState => ({
 const defaultEffects = () =>
   Object.fromEntries(FX_TYPES.map((type) => [type, defaultFxState(type)])) as Record<FxType, FxState>;
 
-// the routes to the knobs of an effect, in the units of its params; an amount of 0 is left out. With a route of an
-// LFO those of the note to the knobs of the LFOs too
+// the routes to the knobs of an effect, in the units of its params; an amount of 0 and a route switched off are left
+// out. With a route of an LFO those of the note to the knobs of the LFOs too
 const fxRoutes = (routes: ModRoute[], type: FxType): FxRoute[] => {
   const own = routes.flatMap((route) => {
     const definition = MOD_TARGETS[route.target];
-    if (definition?.kind !== 'fx' || definition.fx !== type || route.amount === 0) return [];
+    if (definition?.kind !== 'fx' || definition.fx !== type || route.amount === 0 || route.off) return [];
     return [fxRoute(definition.param, route, definition.scale, definition.range)];
   });
   return own.some(({ source }) => isLfoSource(source)) ? [...own, ...lfoKnobRoutes(routes)] : own;

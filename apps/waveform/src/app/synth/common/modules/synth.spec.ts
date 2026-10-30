@@ -1143,6 +1143,29 @@ describe('synth', () => {
       expect(calls(param(voice, 'detune1'), 'setValueAtTime').at(-1)).toEqual([1200, now]);
     });
 
+    it('Semi and Fine are set at once, on top of the octave, released notes too', async () => {
+      const { onPress, onRelease, voices, param, osc1, osc2, audioCtx } = await setup();
+      osc2[1].toggleActive();
+      onPress([4, 'C']);
+      onRelease([4, 'C']);
+      onPress([4, 'E']);
+      const now = audioCtx.currentTime;
+
+      osc2[1].setOscValue('semi', 7);
+      osc2[1].setOscValue('fine', -7);
+      osc1[1].setOscValue('octave', -1);
+      osc1[1].setOscValue('fine', 12);
+
+      voices().forEach((voice) => {
+        expect(calls(param(voice, 'detune2'), 'setTargetAtTime')).toEqual([]);
+        expect(calls(param(voice, 'detune2'), 'setValueAtTime')).toEqual([
+          [700, now],
+          [693, now],
+        ]);
+        expect(calls(param(voice, 'detune1'), 'setValueAtTime').at(-1)).toEqual([-1188, now]);
+      });
+    });
+
     it('a glide settles exactly within about 20 ms, a newer value cancels it', async () => {
       const { onPress, voices, param, osc1, travel } = await setup();
       onPress([4, 'C']);
@@ -1313,6 +1336,77 @@ describe('synth', () => {
       ]);
     });
 
+    it('leaves out a route switched off, sends the playing notes their routes when one is switched off or on', async () => {
+      const { onPress, voices, options, modulation } = await setup();
+      const [, { addRoute, setOff }] = modulation;
+      addRoute('env2', 'osc1.wave', 0.5);
+      addRoute('lfo1', 'osc1.gain', 0.25);
+      addRoute('env3', 'lfo1.rate', 0.5);
+      setOff('lfo1', 'osc1.gain', true);
+      setOff('env3', 'lfo1.rate', true);
+
+      onPress([4, 'C']);
+
+      const wave = { source: 1, param: 'position1', amount: 0.5, min: 0, max: 1 };
+      const [voice] = voices();
+      expect(options(voice).routes).toEqual([wave]);
+      setOff('lfo1', 'osc1.gain', false);
+      setOff('env2', 'osc1.wave', true);
+      expect(voices()[0].messages).toEqual([
+        { routes: [wave, { source: 4, param: 'gain1', amount: 0.25, min: 0, max: 1 }] },
+        { routes: [{ source: 4, param: 'gain1', amount: 0.25, min: 0, max: 1 }] },
+      ]);
+    });
+
+    it('gives a note the routes of the pitch in cents within the range of Semi and Fine from their values; none of an oscillator off', async () => {
+      const { onPress, voices, options, modulation, osc1, osc2 } = await setup();
+      const [, { addRoute }] = modulation;
+      osc1[1].setOscValue('semi', -24);
+      osc1[1].setOscValue('fine', 50);
+      // an amount of 1 the whole range of the knob (48 semitones, 200 cents), an LFO around its value, VELO up
+      // from it
+      addRoute('lfo1', 'osc1.pitch', 1);
+      addRoute('velo', 'osc1.fine', -0.25);
+      addRoute('env3', 'osc2.pitch', 1);
+      expect(osc2[0].$active.value).toBe(false);
+
+      onPress([4, 'C']);
+
+      // Semi -24 at 100%: from -24 up to 0; Fine 50 at -25%: within -100..100
+      expect(options(voices()[0]).routes).toEqual([
+        { source: 4, param: 'pitch1', amount: 4800, min: 0, max: 4800, bipolar: true },
+        { source: 3, param: 'fine1', amount: -50, min: -150, max: 50 },
+      ]);
+    });
+
+    it('gives the notes with a route of the pitch its bounds again when Semi or Fine changes, the others nothing', async () => {
+      const { onPress, voices, modulation, osc2 } = await setup();
+      const [, { addRoute }] = modulation;
+      addRoute('lfo1', 'osc2.pitch', 0.4);
+      addRoute('env2', 'osc2.fine', 0.5, false);
+      // osc 2 off: the first note has no route of it
+      onPress([4, 'C']);
+      osc2[1].toggleActive();
+      onPress([4, 'E']);
+      const [plain, routed] = voices();
+      const routes = (min: number, max: number, fineMin = -100, fineMax = 100) => ({
+        routes: [
+          { source: 4, param: 'pitch2', amount: 1920, min, max, bipolar: true },
+          { source: 1, param: 'fine2', amount: 100, min: fineMin, max: fineMax },
+        ],
+      });
+      const sent = (voice: typeof routed) => voices().find(({ id }) => id === voice.id)?.messages ?? [];
+
+      osc2[1].setOscValue('semi', 5);
+      expect(sent(routed)).toEqual([routes(-2900, 1900)]);
+      osc2[1].setOscValue('fine', -20);
+      expect(sent(routed).at(-1)).toEqual(routes(-2900, 1900, -80, 120));
+      // the octave moves no bound
+      osc2[1].setOscValue('octave', 1);
+      expect(sent(routed)).toHaveLength(2);
+      expect(sent(plain)).toEqual([]);
+    });
+
     it('gives a note the routes of the LFOs (sources 4–7, bipolar ones so) and to the knobs of the LFOs', async () => {
       const { onPress, voices, options, modulation } = await setup();
       const [, { addRoute, setPolarity }] = modulation;
@@ -1438,14 +1532,13 @@ describe('synth', () => {
       const { onPress, voices, filter, modulation } = await setup();
       const [, { toggleActive, setType }] = filter;
       toggleActive();
-      // (bipolar: the gain is centered on 0)
       modulation[1].addRoute('env2', 'filter.gain', 0.5);
       onPress([4, 'C']);
       setType('lowshelf');
 
       const [voice] = voices();
       expect(posted(voice).at(-1)).toEqual({
-        routes: [{ source: 1, param: 'gain', amount: 40, min: -40, max: 40, bipolar: true }],
+        routes: [{ source: 1, param: 'gain', amount: 40, min: -40, max: 40 }],
       });
     });
   });

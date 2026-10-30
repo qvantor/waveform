@@ -1,5 +1,4 @@
 import React from 'react';
-import styled from 'styled-components';
 import { BehaviorSubject } from 'rxjs';
 import { HandleModulation, LineChart, LiveKnob, theme, useLiveDraw, useLiveLine } from '@waveform/ui-kit';
 import { useBehaviorSubject, useObservable } from '@waveform/rxjs-react';
@@ -12,11 +11,6 @@ import {
 import { useOscillatorContext } from '../../hooks';
 import { PhaseOverlay } from './phase-overlay';
 import { DrawnWave, periodX, usePeriodLine } from './period';
-
-// the top of the block of the wave, its values under it
-const Root = styled(LineChart)`
-  border-radius: 3px 3px 0 0;
-`;
 
 const PADDING: [number, number] = [-1, 2];
 const DOMAIN_Y: [number, number] = [1, -1];
@@ -95,7 +89,7 @@ export const Chart = ({ phaseVisible = false, modulations }: Props) => {
   const $drawn = React.useMemo(() => new BehaviorSubject<DrawnWave | null>(null), []);
   const knobs = [{ value: position, min: 0, max: Math.max(0, frames - 1), modulations }];
   return (
-    <Root
+    <LineChart
       padding={PADDING}
       domainX={[periodX(0, wave.length), periodX(1, wave.length)]}
       domainY={DOMAIN_Y}

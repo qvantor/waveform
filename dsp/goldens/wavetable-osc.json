@@ -168,7 +168,7 @@
     ]
   },
   "a free LFO 3 on two notes, its Delay and Rise from each, on the spread": {
-    "sha256": "052cf385bb78c57ebccc3ec00c09f2ac053a255c2541c163f753cd0cab3679e3",
+    "sha256": "3281ff89649a894e9975fcae02fe0b58899b6b2975e256bdd72eee1a14793046",
     "at": 0,
     "head": [
       -7.44695538297779e-16,
@@ -182,7 +182,7 @@
     ]
   },
   "a free LFO 3 on two notes, its Delay and Rise from each, on the spread: the sum of one node": {
-    "sha256": "d68433da5dc641709346013ab337ff08bcbfab8fc8b84b00e4fae6d47d3b3f30",
+    "sha256": "62ebbf161fa5715909dd18f743cfea312b23d52391b0e3dad4c2daf4fabfd1b9",
     "at": 0,
     "head": [
       -7.44695538297779e-16,
@@ -445,6 +445,34 @@
       0.008660338819026947,
       0.010233384557068348,
       0.010905478149652481
+    ]
+  },
+  "pitch env: ENV 2 on the detune of osc 1, 36 semitones down to the note in 80 ms; osc 2 a fifth up, -7 cents": {
+    "sha256": "4ecc8376a7f9380f2c7ec4b4c923df35097d3e3d5a3962f6849596ef8a184ac4",
+    "at": 1,
+    "head": [
+      0.00007582321268273517,
+      0.00030266924295574427,
+      0.0006790113402530551,
+      0.001202547224238515,
+      0.001870218780823052,
+      0.002678241580724716,
+      0.003622120013460517,
+      0.004696694668382406
+    ]
+  },
+  "pitch env: ENV 2 on the detune of osc 1, 36 semitones down to the note in 80 ms; osc 2 a fifth up, -7 cents: the sum of one node": {
+    "sha256": "9e5b202851c49428df15a4fbe60a79d2e5d303c9de9e8126b2975245c812ae83",
+    "at": 1,
+    "head": [
+      0.00007582321268273517,
+      0.00030266924295574427,
+      0.0006790113402530551,
+      0.001202547224238515,
+      0.001870218780823052,
+      0.002678241580724716,
+      0.003622120013460517,
+      0.004696694668382406
     ]
   },
   "released, its envelope to 0": {

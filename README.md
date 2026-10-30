@@ -7,7 +7,7 @@
 Built with TypeScript, Rust (WebAssembly), RxJS and the Web Audio API. Nothing to install and no account needed: open it and play.
 
 [![CI](https://github.com/qvantor/waveform/actions/workflows/ci.yml/badge.svg)](https://github.com/qvantor/waveform/actions/workflows/ci.yml)
-[![License](https://img.shields.io/github/license/qvantor/waveform)](LICENSE)
+[![License](https://img.shields.io/badge/license-PolyForm_Noncommercial_1.0.0-blue)](LICENSE)
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
 ![Rust](https://img.shields.io/badge/Rust-000000?logo=rust&logoColor=white)
 ![WebAssembly](https://img.shields.io/badge/WebAssembly-654FF0?logo=webassembly&logoColor=white)
@@ -217,4 +217,6 @@ Found a bug or have an idea? [Open an issue](https://github.com/qvantor/waveform
 
 ## License
 
-Distributed under the Apache License 2.0. See [LICENSE](LICENSE).
+Source-available under the [PolyForm Noncommercial License 1.0.0](LICENSE): use, change and share it for any noncommercial purpose (personal use, hobby projects, research, education, nonprofit organizations). Commercial use needs a separate license: [contact the author](https://github.com/qvantor).
+
+Earlier versions were released under the Apache License 2.0 and stay under it. Third-party code and its licenses are listed in [NOTICE](NOTICE).

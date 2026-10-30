@@ -5,13 +5,16 @@ import cls from 'classnames';
 import { number, vector2d } from '@waveform/math';
 import { theme } from '../common/constants';
 import { absoluteCenterX, absoluteCenterXY } from '../common/styles';
-import { ScaleMode, singlePointerTracker, valueScale } from '../common/utils';
+import { ScaleMode, valueScale } from '../common/utils';
 import { Tooltip } from '../tooltip';
 import { ValueTooltip } from '../tooltip/value-tooltip';
 import { Label } from '../label';
 import { MarkCanvas, useModulations } from '../common/utils/use-mod-mark';
+import { OFF_OPACITY } from '../common/utils/mod-routes';
 import { AMOUNT_DOT_SIZE, RoutesDot } from '../amount-dot';
-import { MOD_DRAGGING_CLASS, MOD_OVER_ATTR, MOD_REFUSED_ATTR, MOD_TARGET_ATTR } from '../mod-drag';
+import { MOD_TARGET_ATTR } from '../mod-drag';
+import { modDragHighlight } from '../mod-drag/highlight';
+import { useControlMenu } from '../control-menu';
 
 // a modulation of the knob: a source (an envelope) moves it by amount, a share of its range in its scale
 // (-1..1); a dot at the top left has a section of the color of each route, the route of the selected source
@@ -23,6 +26,7 @@ export interface HandleModulation {
   // the name of the source
   label?: string;
   onChange?: (amount: number) => void;
+  // the × of its row in the menu of the knob
   onRemove?: () => void;
   // the amount in the units of the knob (+2.4 oct, +35%)
   formatAmount?: (amount: number) => React.ReactNode;
@@ -33,9 +37,12 @@ export interface HandleModulation {
   // mark
   selected?: boolean;
   // it moves the knob around its value (amount × (level - ½): its arc ±amount / 2), else up from it; onPolarity
-  // switches it (Shift+Alt+click on the knob, Shift+click or B on its dot)
+  // switches it (Shift+Alt+click on the knob, Shift+click on its dot, the menu of the knob)
   bipolar?: boolean;
   onPolarity?: (bipolar: boolean) => void;
+  // switched off (the menu of the knob): kept, it moves nothing, its section of the dot and its arc faded
+  off?: boolean;
+  onOff?: (off: boolean) => void;
 }
 
 type Size = 'm' | 'l';
@@ -67,6 +74,11 @@ export interface HandleProps {
   modTarget?: string;
   // a knob around a cycle (the Phase of an LFO): the routes move it around, not clamped (its mark, the arc)
   wrap?: boolean;
+  // the value of an empty preset: the menu of the knob (a right click, a long press on a touch screen) sets it,
+  // within min..max
+  defaultValue?: number;
+  // removes every route on it at once (the menu of the knob)
+  onClearModulations?: () => void;
 }
 
 interface StyledProps {
@@ -97,6 +109,7 @@ const Root = styled.div`
   flex-direction: column;
   align-items: center;
   touch-action: none;
+  -webkit-touch-callout: none;
 
   &.disabled {
     pointer-events: none;
@@ -164,18 +177,8 @@ const ModHighlight = styled.div<StyledProps>`
   width: ${(props) => sizes[props.size].handleOuter}px;
   height: ${(props) => sizes[props.size].handleOuter}px;
   border-radius: 100%;
-  pointer-events: none;
   z-index: 3;
-  display: none;
-
-  body.${MOD_DRAGGING_CLASS} [${MOD_TARGET_ATTR}]:not([${MOD_REFUSED_ATTR}]) > * > & {
-    display: block;
-    box-shadow: 0 0 0 2px var(--mod-drag-color);
-  }
-
-  body.${MOD_DRAGGING_CLASS} [${MOD_OVER_ATTR}] > * > & {
-    box-shadow: 0 0 0 3px var(--mod-drag-color), 0 0 12px 3px var(--mod-drag-color);
-  }
+  ${modDragHighlight('> * >')}
 `;
 
 // where the knob moves with its modulations now: over the knob, a canvas its mark is painted on (markCanvasOf)
@@ -286,6 +289,8 @@ export const Handle = ({
   modulations: routes,
   modTarget,
   wrap = false,
+  defaultValue,
+  onClearModulations,
 }: HandleProps) => {
   const { svg, arc: travelRadii } = sizes[size];
   const { ring, track, travel, dot } = shapes[size];
@@ -333,43 +338,50 @@ export const Handle = ({
     [spans, ring]
   );
 
-  const [trackPointer] = React.useState(singlePointerTracker);
-  const onPointerDown = React.useCallback(
-    (e: React.PointerEvent) => {
-      // Shift+Alt+click: the selected route switches its polarity, the knob doesn't turn
-      if (e.shiftKey && e.altKey && shown?.onPolarity) {
-        shown.onPolarity(!shown.bipolar);
-        return;
-      }
-      const initialPosition = vector2d.fromMouseEvent(e);
-      trackPointer(e, (e) => {
-        const current = vector2d.fromMouseEvent(e);
-        const diff = vector2d.addition(vector2d.invertY(vector2d.subtract(current, initialPosition)));
-        const currValue = step ? scaleMouse(step.indexOf(value * precision)) : scaleMouse(value * precision);
-        const currValueAbs = Math.abs(currValue);
-        const tDiff = number.thresholds(diff, -plotSize - currValueAbs, plotSize + currValueAbs);
-        const result = number.thresholds(
-          Math.round(scaleMouse.invert(currValue + tDiff)) / precision,
-          min,
-          max
-        );
-        if (prevValue.current === result) return;
-        prevValue.current = result;
+  // a right click or a long press: the routes, Default, Clear modulation
+  const menu = useControlMenu({
+    name,
+    value,
+    formatValue,
+    defaultValue,
+    min,
+    max,
+    onChange,
+    modulations: disabled ? undefined : routes,
+    onClearModulations,
+  });
 
-        onChange?.(step ? step[result] : result);
-      });
-    },
-    [trackPointer, step, scaleMouse, value, precision, plotSize, onChange, min, max, shown]
-  );
+  const onPointerDown = (e: React.PointerEvent) => {
+    const initialPosition = vector2d.fromMouseEvent(e);
+    // the value now (set meanwhile by a preset or Default): a drag back to the last one it set changes it
+    if (!step) prevValue.current = value;
+    menu.track(e, (e) => {
+      const current = vector2d.fromMouseEvent(e);
+      const diff = vector2d.addition(vector2d.invertY(vector2d.subtract(current, initialPosition)));
+      const currValue = step ? scaleMouse(step.indexOf(value * precision)) : scaleMouse(value * precision);
+      const currValueAbs = Math.abs(currValue);
+      const tDiff = number.thresholds(diff, -plotSize - currValueAbs, plotSize + currValueAbs);
+      const result = number.thresholds(
+        Math.round(scaleMouse.invert(currValue + tDiff)) / precision,
+        min,
+        max
+      );
+      if (prevValue.current === result) return;
+      prevValue.current = result;
+
+      onChange?.(step ? step[result] : result);
+    });
+  };
 
   return (
     <Tooltip content={<ValueTooltip name={name}>{formatValue?.(value) ?? value}</ValueTooltip>}>
       <Root
         onPointerDown={onPointerDown}
+        onContextMenu={menu.onContextMenu}
         className={cls({ disabled: disabled })}
         {...(modTarget && !disabled && { [MOD_TARGET_ATTR]: modTarget })}
       >
-        <HandleContainer size={size}>
+        <HandleContainer size={size} ref={menu.anchorRef}>
           <ModHighlight size={size} />
           <HandleCircle style={{ transform: `rotate(${rotateRad}rad)` }} size={size}>
             <HandleCircleInner size={size}>
@@ -393,12 +405,20 @@ export const Handle = ({
                   {fill && <path fill={theme.colors.accent} d={fill} data-testid='knob-fill' />}
                 </>
               )}
-              {shown && modArc && <path fill={shown.color} d={modArc} data-testid='mod-arc' />}
+              {shown && modArc && (
+                <path
+                  fill={shown.color}
+                  fillOpacity={shown.off ? OFF_OPACITY : undefined}
+                  d={modArc}
+                  data-testid='mod-arc'
+                />
+              )}
             </g>
           </Svg>
-          {modulations.length > 0 && <Dot modulations={modulations} style={dot} />}
+          {modulations.length > 0 && <Dot modulations={modulations} onLongPress={menu.open} style={dot} />}
         </HandleContainer>
         {label && <Label>{label}</Label>}
+        {menu.menu}
       </Root>
     </Tooltip>
   );

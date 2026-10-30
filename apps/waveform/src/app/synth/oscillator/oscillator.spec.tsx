@@ -227,13 +227,94 @@ describe('Oscillator', () => {
     });
   });
 
-  it('has the knobs Gain, Wave and Detune: Phase, Phase rand and Unison are under the wave', () => {
+  it('has the knobs Gain, Wave and Detune: Oct, Semi and Fine are over the wave, Phase, Phase rand and Unison under it', () => {
     setup();
     const labels = (Handle as jest.Mock).mock.calls.map(([props]) => (props as HandleProps).label);
     expect([...new Set(labels)]).toEqual(['Gain', 'Wave', 'Detune']);
     const sliders = screen.getAllByRole('slider').map((slider) => slider.getAttribute('aria-label'));
-    expect(sliders).toEqual(['Phase', 'Phase rand', 'Unison']);
+    expect(sliders).toEqual(['Oct', 'Semi', 'Fine', 'Phase', 'Phase rand', 'Unison']);
     expect(useWavetables).toHaveBeenCalled();
+  });
+
+  it('has Oct, Semi and Fine in a strip on top of the block of the wave, the table over the block', () => {
+    setup();
+    const strip = screen.getByRole('slider', { name: 'Semi' }).parentElement as HTMLElement;
+    const block = strip.parentElement as HTMLElement;
+    expect(block.firstElementChild).toBe(strip);
+    expect(block.lastElementChild).toBe(screen.getByRole('slider', { name: 'Unison' }).parentElement);
+    const table = screen.getByText('Loading...');
+    expect(block.contains(table)).toBe(false);
+    expect(table.compareDocumentPosition(block) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('has Oct, Semi and Fine dragged up or right by whole octaves, semitones and cents (2 px each)', () => {
+    const { model } = setup();
+    const field = (name: string) => screen.getByRole('slider', { name });
+    drag(field('Semi'), [0, -70]);
+    drag(field('Fine'), [0, -14]);
+    expect(model.$osc.value).toMatchObject({ octave: 0, semi: 7, fine: 7 });
+    expect(model.$params.value.detune).toBe(707);
+    drag(field('Fine'), [0, 28]);
+    drag(field('Oct'), [10, 0]);
+    drag(field('Semi'), [0, 500]);
+    expect(model.$osc.value).toMatchObject({ octave: 1, semi: -24, fine: -7 });
+    expect(field('Semi').getAttribute('aria-valuetext')).toBe('-24');
+  });
+
+  it('Semi takes the routes of Pitch, Fine those of Fine; Oct none', () => {
+    const { modulation } = setup({ target: 'osc2' });
+    const targets = () =>
+      Array.from(document.querySelectorAll('[data-mod-target]')).map((element) =>
+        element.getAttribute('data-mod-target')
+      );
+    expect(targets()).toEqual(expect.arrayContaining(['osc2.pitch', 'osc2.fine']));
+    const field = (name: string) => screen.getByRole('slider', { name });
+    expect(field('Oct').hasAttribute('data-mod-target')).toBe(false);
+    expect(field('Oct').querySelector('[data-testid="mod-track"]')).toBeNull();
+    act(() => modulation[1].addRoute('env1', 'osc2.pitch', 0.25));
+    // the dot of the selected tab (ENV 1 without the envelopes model) in the cell of Semi
+    const dot = screen.getByRole('slider', { name: 'ENV 1' });
+    expect(field('Semi').contains(dot)).toBe(true);
+    act(() => modulation[1].addRoute('env1', 'osc2.fine', 0.25));
+    expect(screen.getAllByTestId('mod-bar')).toHaveLength(2);
+  });
+
+  it('shows a route of Pitch on the range of Semi, of Fine on the range of Fine, around the value within it', () => {
+    const { modulation, actions } = setup();
+    const bars = () => screen.getAllByTestId('mod-bar').map(({ style }) => [style.left, style.width]);
+    act(() => {
+      modulation[1].addRoute('env1', 'osc1.pitch', 1, true);
+      modulation[1].addRoute('env1', 'osc1.fine', 0.5, true);
+    });
+    // Semi 0 at 100%: from -24 to +24; Fine 0 at 50%: from -50 to +50
+    expect(bars()).toEqual([
+      ['0%', '100%'],
+      ['25%', '50%'],
+    ]);
+    // Semi -24 at 100%: from -24 to 0
+    act(() => actions.setOscValue('semi', -24));
+    expect(bars()[0]).toEqual(['0%', '50%']);
+    // Semi +12 at 50%: from 0 to +24
+    act(() => {
+      actions.setOscValue('semi', 12);
+      modulation[1].setAmount('env1', 'osc1.pitch', 0.5);
+    });
+    expect(bars()[0]).toEqual(['50%', '50%']);
+  });
+
+  it.each([
+    [300, true],
+    [620, false],
+  ])('in a strip of %s px has Oct, Semi and Fine compact, without carets: %s', (width, compact) => {
+    const restore = withElementSize(width, 26);
+    try {
+      setup();
+      const field = screen.getByRole('slider', { name: 'Semi' });
+      expect(field.parentElement?.classList.contains('compact')).toBe(compact);
+      expect(field.querySelectorAll('.anticon')).toHaveLength(compact ? 0 : 2);
+    } finally {
+      restore();
+    }
   });
 
   it('shows Unison under the wave with the arrows of Oct, 2 voices by default, dragged by whole voices from 1 to 8', () => {

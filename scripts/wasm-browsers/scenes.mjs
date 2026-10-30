@@ -157,6 +157,36 @@ const OSC_SCENES = [
       ),
     ],
   }),
+  // a kick and a pluck, the routes of the pitch as the app gives them (within the range of Semi and Fine from their
+  // values): ENV 2 on Semi of osc 1 at 100% (48 semitones up from 0: at the top, +24, until it falls under it,
+  // down to the note in 80 ms); osc 2 a fifth up and -7 cents, ENV 3 on its Semi at 50% (at most +24, down to +7
+  // in 0.2 s) and ENV 2 around its Fine at 100%
+  oscScene('wavetable, pitch envelopes', {
+    frames: OSC_RATE / 2,
+    tables: { a: [saw(2048, 200), saw(1024, 300, 0.7)] },
+    voices: [
+      note(
+        [
+          { table: 'a', unison: 1, phase: 0, phaseRand: 0 },
+          { table: 'a', unison: 3, phase: 0.25, phaseRand: 0 },
+        ],
+        { frequency: 55, spread2: 12, detune2: 693, position2: 1, gain2: 0.3 },
+        [],
+        {
+          envelopes: [
+            FLAT,
+            { attack: 0, hold: 0, decay: 0.08, sustain: 0, release: 0 },
+            { attack: 0, hold: 0, decay: 0.2, sustain: 0, release: 0 },
+          ],
+          routes: [
+            { source: 1, param: 'pitch1', amount: 4800, min: -2400, max: 2400 },
+            { source: 2, param: 'pitch2', amount: 2400, min: -3100, max: 1700 },
+            { source: 1, param: 'fine2', amount: 200, min: -93, max: 107, bipolar: true },
+          ],
+        }
+      ),
+    ],
+  }),
   oscScene('wavetable, LFOs on the wave, the gain and the cutoff, ENV 2 on a Rate', {
     frames: OSC_RATE / 2,
     tables: { a: [saw(2048, 200), saw(1024, 300, 0.7), saw(2048, 50)] },

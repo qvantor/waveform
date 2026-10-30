@@ -1,8 +1,10 @@
 import React from 'react';
+import { distinctUntilChanged, map } from 'rxjs';
 import styled from 'styled-components';
-import { Handle, DraggableNumber } from '@waveform/ui-kit';
-import { useBehaviorSubject } from '@waveform/rxjs-react';
+import { Handle } from '@waveform/ui-kit';
+import { useBehaviorSubject, useObservable } from '@waveform/rxjs-react';
 import { number } from '@waveform/math';
+import { OSC_DEFAULTS } from '@waveform/preset-schema';
 import { OscillatorActions, OscillatorModel, useOscillator1 } from '../common/modules';
 import { RxHandle } from '../../common/components';
 import { useKnobModulation } from '../modulation/use-knob-modulation';
@@ -18,9 +20,9 @@ const Root = styled.div`
   gap: 5px;
 `;
 
-const TopControls = styled.div`
-  display: flex;
-  gap: 5px;
+// the table: as wide as the oscillator whatever its name (cut with an ellipsis)
+const Table = styled.div`
+  contain: inline-size;
 `;
 
 const Handles = styled.div`
@@ -53,10 +55,18 @@ export const Oscillator = ({
   setGain,
   target = 'osc1',
 }: Props) => {
-  // const wavetables = useWavetables();
-
   const oscillator = useOscillator();
-  const osc = useBehaviorSubject($osc);
+  // only the unison detune: Oct, Semi, Fine, the phases and the unison render their strips (a drag of one
+  // doesn't render the oscillator)
+  const $detune = React.useMemo(
+    () =>
+      $osc.pipe(
+        map(({ detune }) => detune),
+        distinctUntilChanged()
+      ),
+    [$osc]
+  );
+  const detune = useObservable($detune, $osc.value.detune);
   // the frames played (of an expanded table 256)
   const frames = useBehaviorSubject($frames);
   const gainModulation = useKnobModulation(`${target}.gain`);
@@ -66,16 +76,10 @@ export const Oscillator = ({
   return (
     <OscillatorContext.Provider value={oscillator}>
       <Root>
-        <TopControls>
-          <DraggableNumber
-            value={osc.octave}
-            label='Oct'
-            range={ranges.octave}
-            onChange={(value) => setOscValue('octave', value)}
-          />
+        <Table>
           <WaveSelector />
-        </TopControls>
-        <Wave modulations={waveModulation.modulations} />
+        </Table>
+        <Wave modulations={waveModulation.modulations} target={target} />
         <Handles>
           <HandlesGroup>
             <RxHandle
@@ -87,6 +91,7 @@ export const Oscillator = ({
               onChange={setGain}
               formatValue={(value) => number.percent(number.round(value, 100))}
               precision={100}
+              defaultValue={OSC_DEFAULTS.g}
               {...gainModulation}
             />
           </HandlesGroup>
@@ -101,6 +106,7 @@ export const Oscillator = ({
               onChange={setPosition}
               precision={1}
               formatValue={formatWavePosition}
+              defaultValue={OSC_DEFAULTS.w}
               {...waveModulation}
             />
           </HandlesGroup>
@@ -108,11 +114,12 @@ export const Oscillator = ({
             <Handle
               label='Detune'
               name='Unison detune'
-              value={osc.detune}
+              value={detune}
               min={ranges.detune[0]}
               max={ranges.detune[1]}
               onChange={(value) => setOscValue('detune', Math.round(value * 100000) / 100000)}
               precision={1}
+              defaultValue={OSC_DEFAULTS.d}
               {...detuneModulation}
             />
           </HandlesGroup>

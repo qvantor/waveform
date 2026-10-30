@@ -103,6 +103,17 @@ describe('LfoSection', () => {
     expect(lfos[0].$lfos.value.lfo1.rate).toBe(0.01);
   });
 
+  it('its knobs have the defaults of an LFO for their menus: Rate by the frequency of its period', () => {
+    const { lfos, knob } = setup();
+    expect(knob('Rate').defaultValue).toBe(2);
+    act(() => knob('Rate').onChange?.(knob('Rate').defaultValue as number));
+    expect(lfos[0].$lfos.value.lfo1.rate).toBe(0.5);
+    expect(['Delay', 'Rise', 'Smooth', 'Phase'].map((label) => knob(label).defaultValue)).toEqual([
+      0, 0, 0, 0,
+    ]);
+    expect(knob('Delay').onClearModulations).toEqual(expect.any(Function));
+  });
+
   it('times by their travel, Phase in degrees around the cycle', () => {
     const { knob } = setup();
     expect(knob('Delay')).toMatchObject({ min: 0, max: 32, mode: 'pow' });

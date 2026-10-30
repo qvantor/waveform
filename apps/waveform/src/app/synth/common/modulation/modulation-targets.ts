@@ -9,10 +9,11 @@ import {
   LFOS,
   LfoKnob,
   MOD_SOURCES,
+  FINE_MAX,
+  SEMI_MAX,
 } from '@waveform/preset-schema';
 import { rangesOf } from '../../filter/constants';
-import { FX_REGISTRY, MIX_PARAM } from '../../fx/effects';
-import { OscParam } from '../wavetable/wavetable-osc-params';
+import { FX_REGISTRY, MIX_PARAMS } from '../../fx/effects';
 import type { ModRoute } from '../modules/modulation';
 import type { FxRoute } from '../../fx/effects/fx-modulation';
 
@@ -25,15 +26,26 @@ export type ModScale = 'linear' | 'log' | 'pow';
 
 // a param of the voice node of each note (wavetable-osc-params.ts), moved by the envelopes of the note;
 // range: of the knob, in the units of the param (the Wave knob shows frames, its param is a share of the
-// table: an amount moves it by the same share whatever the table)
+// table: an amount moves it by the same share whatever the table). The pitch (`knob`: Semi, Fine) is an offset of
+// the detune in cents, within the range of its knob from the value of the knob (the bounds of its routes)
 interface OscTarget {
   kind: 'osc';
   osc: number;
-  param: OscParam;
+  param: 'position' | 'spread' | 'gain' | 'pitch' | 'fine';
   label: string;
   scale: ModScale;
   range: [number, number];
+  knob?: PitchKnob;
 }
+
+export type PitchKnob = 'semi' | 'fine';
+// the cents of a step of a knob of the pitch
+export const PITCH_KNOB_CENTS: Record<PitchKnob, number> = { semi: 100, fine: 1 };
+// the range of a knob of the pitch in cents
+const pitchRange = (knob: PitchKnob, max: number): [number, number] => [
+  -PITCH_KNOB_CENTS[knob] * max,
+  PITCH_KNOB_CENTS[knob] * max,
+];
 
 // a knob of the filter in the voice node of each note (voice-filter.ts); its scale and range are those of the
 // type of the filter (filterTargetScale)
@@ -69,7 +81,7 @@ export type ModTarget = OscTarget | FilterTarget | FxTarget | LfoTarget;
 
 const fxTargets = Object.fromEntries(
   FX_TYPES.flatMap((fx) =>
-    [...Object.entries(FX_REGISTRY[fx].params), ['mix', MIX_PARAM] as const]
+    [...Object.entries(FX_REGISTRY[fx].params), ['mix', MIX_PARAMS[fx]] as const]
       .filter(([, definition]) => !definition.options)
       .map(([param, { label, min, max, mode }]): [string, FxTarget] => [
         `${fx}.${param}`,
@@ -85,6 +97,26 @@ const oscTargets = (osc: number): Record<string, OscTarget> => {
     [id('wave')]: { kind: 'osc', osc, param: 'position', label: 'Wave', scale: 'linear', range: [0, 1] },
     // the unison detune: the spread of the voices in cents
     [id('detune')]: { kind: 'osc', osc, param: 'spread', label: 'Detune', scale: 'linear', range: [0, 100] },
+    // the pitch over Oct, Semi and Fine: Pitch on Semi smoothly (no steps of semitones), Fine; an amount of 1 their
+    // whole range, 48 semitones, 200 cents
+    [id('pitch')]: {
+      kind: 'osc',
+      osc,
+      param: 'pitch',
+      label: 'Pitch',
+      scale: 'linear',
+      range: pitchRange('semi', SEMI_MAX),
+      knob: 'semi',
+    },
+    [id('fine')]: {
+      kind: 'osc',
+      osc,
+      param: 'fine',
+      label: 'Fine',
+      scale: 'linear',
+      range: pitchRange('fine', FINE_MAX),
+      knob: 'fine',
+    },
   };
 };
 
@@ -133,7 +165,8 @@ export const filterTargetScale = (type: BiquadFilterType, param: FilterNumerics)
 export const isModTarget = (id: string) => id in MOD_TARGETS;
 
 // a knob whose range is centered on 0 (min = -max: a side, a boost or a cut; the gain of the filter is the boost
-// or the cut of its shelves): a route dropped on it moves it around its value (bipolar), on the others up from it
+// or the cut of its shelves): a route of an LFO dropped on it moves it around its value (bipolar), on the others
+// and of the other sources up from it
 export const centered = (id: string) => {
   const definition = MOD_TARGETS[id];
   if (!definition) return false;
@@ -162,10 +195,11 @@ export const fxRoute = (
   ...(bipolar && { bipolar }),
 });
 
-// the routes of the note to the knobs of the LFOs (lfo2.rate…: of the envelopes and VELO), in the units of each
+// the routes of the note to the knobs of the LFOs (lfo2.rate…: of the envelopes and VELO), in the units of each;
+// an amount of 0 and a route switched off are left out
 export const lfoKnobRoutes = (routes: ModRoute[]): FxRoute[] =>
   routes.flatMap((route) => {
     const definition = MOD_TARGETS[route.target];
-    if (definition?.kind !== 'lfo' || route.amount === 0) return [];
+    if (definition?.kind !== 'lfo' || route.amount === 0 || route.off) return [];
     return [fxRoute(route.target, route, definition.scale, definition.range)];
   });

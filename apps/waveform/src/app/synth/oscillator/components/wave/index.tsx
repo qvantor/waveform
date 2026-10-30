@@ -4,12 +4,13 @@ import styled from 'styled-components';
 import { theme, Modal, Deactivated, HandleModulation } from '@waveform/ui-kit';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
 import WaveTableEditor from '../../../wave-table-editor';
-import { useOscillatorContext } from '../../hooks';
+import { useCompact, useOscillatorContext } from '../../hooks';
 import { OscillatorStatus } from '../oscillator-status';
 import { Chart } from './chart';
+import { PitchInfo } from './pitch-info';
 import { WaveInfo } from './wave-info';
 
-// the wave and under it its frame, Phase, Phase rand and Unison: one dark block
+// the wave, over it Oct, Semi and Fine, under it its frame, Phase, Phase rand and Unison: one dark block
 const Root = styled.div`
   flex: 1 1;
   display: flex;
@@ -18,7 +19,7 @@ const Root = styled.div`
   border-radius: 3px;
 `;
 
-// the overlays (off, status, edit) cover the wave only, the values under it stay usable
+// the overlays (off, status, edit) cover the wave only, the values over and under it stay usable
 const ChartArea = styled.div`
   flex: 1 1;
   position: relative;
@@ -45,17 +46,22 @@ const EditIcon = styled(EditFilled)`
 interface Props {
   // the routes of the Wave knob: the chart follows where they move it
   modulations?: HandleModulation[];
+  // the prefix of the modulation targets of the oscillator (osc1.pitch…)
+  target: 'osc1' | 'osc2';
 }
 
-export const Wave = ({ modulations }: Props) => {
+export const Wave = ({ modulations, target }: Props) => {
   const [{ $active }] = useOscillatorContext();
   const [editorOpen, setEditorOpen] = React.useState(false);
   // Phase and Phase rand held under the wave (both at once with two fingers): the chart shows them
   const [phaseHeld, setPhaseHeld] = React.useState(0);
   const toggleEditorOpen = () => setEditorOpen(!editorOpen);
   const active = useBehaviorSubject($active);
+  // narrow: the values of both strips smaller (they are as wide as the block)
+  const [ref, compact] = useCompact<HTMLDivElement>();
   return (
-    <Root>
+    <Root ref={ref}>
+      <PitchInfo target={target} compact={compact} />
       <ChartArea>
         {!active && <Deactivated />}
         <OscillatorStatus />
@@ -68,7 +74,10 @@ export const Wave = ({ modulations }: Props) => {
           <Chart phaseVisible={phaseHeld > 0} modulations={modulations} />
         )}
       </ChartArea>
-      <WaveInfo onPhaseActiveChange={(active) => setPhaseHeld((held) => held + (active ? 1 : -1))} />
+      <WaveInfo
+        onPhaseActiveChange={(active) => setPhaseHeld((held) => held + (active ? 1 : -1))}
+        compact={compact}
+      />
     </Root>
   );
 };

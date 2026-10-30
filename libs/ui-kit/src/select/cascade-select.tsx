@@ -4,13 +4,20 @@ import { Cascader, Spin } from 'antd';
 import { isEqual } from 'lodash';
 import { SelectDumb, ContentContainer } from './select-dumb';
 
+// a name longer than its place is cut with an ellipsis (it never widens the row)
 const Root = styled.div`
   ${ContentContainer}
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 `;
 
 const SelectDumbInternal = styled(SelectDumb)`
+  min-width: 0;
+
   .ant-spin-nested-loading {
     width: 100%;
+    min-width: 0;
   }
 `;
 

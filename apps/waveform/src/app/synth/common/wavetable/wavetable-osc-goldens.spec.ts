@@ -689,6 +689,26 @@ const GOLDEN: [string, Scenario][] = [
     },
   ],
   [
+    'pitch env: ENV 2 on the detune of osc 1, 36 semitones down to the note in 80 ms; osc 2 a fifth up, -7 cents',
+    {
+      rate: RATE,
+      blocks: quanta(0.15),
+      tables: { a: [SINE] },
+      voices: [
+        {
+          at: 0,
+          options: note({
+            osc: [osc(), osc({ unison: 3 })],
+            envelopes: [ENV, { attack: 0, hold: 0, decay: 0.08, sustain: 0, release: 0.1 }, FLAT],
+            routes: [{ source: 1, param: 'pitch1', amount: 3600, min: -12000, max: 12000 }],
+          }),
+          params: { frequency: constant(55), detune2: constant(693), spread2: constant(15) },
+        },
+      ],
+      seed: 6,
+    },
+  ],
+  [
     'a new version of the table, crossfaded; the table removed',
     {
       rate: RATE,
@@ -933,7 +953,8 @@ const KNOBS: [string, number, number, ('log' | 'pow')?][] = [
   ['cutoff', 20, 20000, 'log'],
   ['resonance', -12, 24],
   ['gain', -24, 24],
-  ['detune1', -2400, 2400],
+  ['pitch1', -1200, 1200],
+  ['fine2', -100, 100],
   ['lfo1.rate', 1 / 32, 100, 'log'],
   ['lfo2.delay', 0, 32, 'pow'],
   ['lfo3.rise', 0, 32, 'pow'],

@@ -45,12 +45,20 @@ describe('oscillator', () => {
     });
     expect(model.$active.value).toBe(false);
     expect(model.$waveTablePath.value).toEqual(['folder', 'file.wav']);
-    expect(model.$osc.value).toEqual({ unison: 2, detune: 5, phase: 0.5, phaseRand: 1, octave: 0 });
+    expect(model.$osc.value).toEqual({
+      unison: 2,
+      detune: 5,
+      phase: 0.5,
+      phaseRand: 1,
+      octave: 0,
+      semi: 0,
+      fine: 0,
+    });
     expect(model.$waveTable.value.map(({ value }) => value)).toEqual([placeholder]);
     expect(model.$position.value).toBe(0);
   });
 
-  it('gives the voices the base of their params: position share, octave in cents, detune, gain', () => {
+  it('gives the voices the base of their params: position share, pitch in cents, detune, gain', () => {
     const [{ $params }, { setWaveTable, setPosition, setOscValue, setGain }] = createOscillator();
     expect($params.value).toEqual({ position: 0, detune: 0, spread: 5, gain: 0.5 });
 
@@ -61,6 +69,18 @@ describe('oscillator', () => {
     setGain(0.2);
 
     expect($params.value).toEqual({ position: 0.25, detune: -2400, spread: 30, gain: 0.2 });
+  });
+
+  it('pitches the oscillator by Oct, Semi and Fine: 1200·Oct + 100·Semi + Fine cents', () => {
+    const [{ $params }, { setOscValue }] = createOscillator();
+    setOscValue('semi', 7);
+    setOscValue('fine', -7);
+    expect($params.value.detune).toBe(693);
+    setOscValue('octave', -1);
+    expect($params.value.detune).toBe(-507);
+    setOscValue('semi', -12);
+    setOscValue('fine', 100);
+    expect($params.value.detune).toBe(-2300);
   });
 
   it('plays a table of one frame at position 0', () => {
@@ -326,6 +346,8 @@ describe('oscillator', () => {
     it('exposes the persisted state', () => {
       const [, actions] = createOscillator();
       actions.setOscValue('octave', -2);
+      actions.setOscValue('semi', 7);
+      actions.setOscValue('fine', -7);
       actions.setOscValue('phase', 0.25);
       actions.setOscValue('phaseRand', 0.5);
       actions.setGain(0.7);
@@ -337,6 +359,8 @@ describe('oscillator', () => {
         p: ['a', '1'],
         w: 3,
         o: -2,
+        s: 7,
+        f: -7,
         d: 5,
         u: 2,
         ph: 0.25,
@@ -361,25 +385,57 @@ describe('oscillator', () => {
       model.$position.next(2);
       actions.setOscValue('phase', 0.5);
       actions.setOscValue('phaseRand', 0.5);
-      applySnapshot({ osc1: { a: false, w: 0, g: 0, o: 0, d: 0, u: 1, ph: 0, pr: 0 } });
+      actions.setOscValue('semi', 5);
+      actions.setOscValue('fine', 5);
+      applySnapshot({ osc1: { a: false, w: 0, g: 0, o: 0, s: 0, f: 0, d: 0, u: 1, ph: 0, pr: 0 } });
 
       expect(model.$active.value).toBe(false);
       expect(model.$position.value).toBe(0);
       expect(model.$gain.value).toBe(0);
-      expect(model.$osc.value).toEqual({ octave: 0, detune: 0, unison: 1, phase: 0, phaseRand: 0 });
+      expect(model.$osc.value).toEqual({
+        octave: 0,
+        semi: 0,
+        fine: 0,
+        detune: 0,
+        unison: 1,
+        phase: 0,
+        phaseRand: 0,
+      });
     });
 
     it('restores default settings for missing keys and keeps the wavetable', () => {
       const [model, actions] = createOscillator();
       actions.setOscValue('detune', 50);
+      actions.setOscValue('semi', 7);
+      actions.setOscValue('fine', -7);
       actions.setOscValue('phase', 0.25);
       actions.setGain(0.9);
 
       applySnapshot({});
 
-      expect(model.$osc.value).toEqual({ octave: 0, detune: 5, unison: 2, phase: 0.5, phaseRand: 1 });
+      expect(model.$osc.value).toEqual({
+        octave: 0,
+        semi: 0,
+        fine: 0,
+        detune: 5,
+        unison: 2,
+        phase: 0.5,
+        phaseRand: 1,
+      });
+      expect(model.$params.value.detune).toBe(0);
       expect(model.$gain.value).toBe(0.9);
       expect(model.$waveTablePath.value).toEqual(['default']);
+    });
+
+    it('plays a snapshot saved before Semi and Fine (a legacy url) at its octave, takes theirs', () => {
+      const [model, actions] = createOscillator();
+      actions.setOscValue('semi', 3);
+      actions.setOscValue('fine', 3);
+      applySnapshot({ osc1: { o: 1, d: 10 } });
+      expect(model.$osc.value).toMatchObject({ octave: 1, semi: 0, fine: 0, detune: 10 });
+      expect(model.$params.value.detune).toBe(1200);
+      applySnapshot({ osc1: { o: -1, s: 7, f: -7 } });
+      expect(model.$params.value.detune).toBe(-507);
     });
 
     it('reads the Phase rand of a legacy snapshot from r (a start delay up to 2 ms), writes only pr', () => {

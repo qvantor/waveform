@@ -1,7 +1,7 @@
 import React from 'react';
-import { screen, within } from '@testing-library/react';
+import { act, fireEvent, screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
-import { FX_TYPES } from '@waveform/preset-schema';
+import { FX_PARAMS, FX_TYPES } from '@waveform/preset-schema';
 import { renderWithFx } from '../../../../test-utils/fx-wrapper';
 import { FxPanel } from './fx-panel';
 
@@ -52,6 +52,20 @@ describe('FxPanel', () => {
     const { user } = setup();
     await user.click(screen.getByRole('button', { name: 'Delay' }));
     expect(document.querySelector('[data-mod-target]')).toBeNull();
+  });
+
+  it('the menu of a knob sets its default: Mix of the distortion all wet, a param the default of the effect', () => {
+    const { fx } = renderWithFx(<FxPanel type='distortion' />);
+    const out = screen.getByRole('group', { name: 'Out' });
+    act(() => fx[1].setMix('distortion', 0.2));
+    fireEvent.contextMenu(within(out).getByText('Mix'));
+    fireEvent.click(screen.getByRole('button', { name: /Default/ }));
+    expect(fx[0].$effects.value.distortion.mix).toBe(1);
+    act(() => fx[1].setParam('distortion', 'drive', 11));
+    // the label of the knob, not the caption of its group
+    fireEvent.contextMenu(screen.getByText('Drive', { selector: 'label' }));
+    fireEvent.click(screen.getByRole('button', { name: /Default/ }));
+    expect(fx[0].$effects.value.distortion.params['drive']).toBe(FX_PARAMS.distortion.drive.default);
   });
 
   it('selecting a preset applies it to the model', async () => {

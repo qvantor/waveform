@@ -8,7 +8,7 @@ members = ["jsmath", "jsmath-check", "wasm-rt", "dsp-core", "limiter", "reverb",
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
-license = "MIT"
+license = "PolyForm-Noncommercial-1.0.0"
 
 # the ports keep the loops and the arguments of the TS: indexes over several arrays, the render loops of the voice
 [workspace.lints.clippy]

@@ -6,7 +6,7 @@ import { useObservable } from '@waveform/rxjs-react';
 import { Section } from '@waveform/ui-kit';
 import { useSynthCore } from '../../common/modules';
 import { useFx } from '../modules';
-import { FX_REGISTRY, MIX_PARAM } from '../effects';
+import { FX_REGISTRY, MIX_PARAMS } from '../effects';
 import { ControlsFlow, ControlsGroup, FX_CONTROLS, ParamHandle } from './controls';
 import { PresetSelect } from './preset-select';
 
@@ -56,7 +56,7 @@ export const FxPanel = ({ type }: { type: FxType }) => {
             out={
               <Out caption='Out' disabled={!on}>
                 <ParamHandle
-                  def={MIX_PARAM}
+                  def={MIX_PARAMS[type]}
                   value={mix}
                   onChange={(value) => setMix(type, value)}
                   disabled={!on}

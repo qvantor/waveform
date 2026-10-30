@@ -4,7 +4,7 @@ import { animationFrameScheduler, auditTime } from 'rxjs';
 import { useBehaviorSubject, useObservable } from '@waveform/rxjs-react';
 import { DraggableNumber, PitchWheel } from '@waveform/ui-kit';
 import { number } from '@waveform/math';
-import { PITCH_BEND_MAX } from '@waveform/preset-schema';
+import { PITCH_BEND_DEFAULT, PITCH_BEND_MAX } from '@waveform/preset-schema';
 import { useInputController, useSynth } from '../common/modules';
 import { bendCents } from '../common/modules/synth';
 
@@ -62,8 +62,22 @@ export const PitchBend = React.memo(({ compact = false }: Props) => {
   return (
     <Root>
       <Ranges>
-        <DraggableNumber value={up} range={[0, PITCH_BEND_MAX]} label='Up' onChange={setBendUp} />
-        <DraggableNumber value={down} range={[0, PITCH_BEND_MAX]} label='Down' onChange={setBendDown} />
+        <DraggableNumber
+          value={up}
+          range={[0, PITCH_BEND_MAX]}
+          label='Up'
+          name='Bend up'
+          defaultValue={PITCH_BEND_DEFAULT}
+          onChange={setBendUp}
+        />
+        <DraggableNumber
+          value={down}
+          range={[0, PITCH_BEND_MAX]}
+          label='Down'
+          name='Bend down'
+          defaultValue={PITCH_BEND_DEFAULT}
+          onChange={setBendDown}
+        />
       </Ranges>
       <Wheel />
     </Root>

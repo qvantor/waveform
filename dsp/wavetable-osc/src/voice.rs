@@ -6,8 +6,8 @@ use crate::envelope::{EnvelopeBlock, EnvelopeParams};
 use crate::filter::{FilterOptions, VoiceFilter};
 use crate::lfo::{LfoBlock, LfoGlobal, DELAY, KNOBS, LFOS, RATE, RISE, SMOOTH};
 use crate::modulation::{
-    lfo_target, Modulation, Sources, VoiceRoute, CUTOFF, FILTER_GAIN, GAIN1, LFO, POSITION1, RESONANCE,
-    SPREAD1, TARGET_PARAMS, VOICE_TARGETS,
+    lfo_target, Modulation, Sources, VoiceRoute, CUTOFF, FILTER_GAIN, FINE1, GAIN1, LFO, OSC_TARGETS, PITCH1,
+    POSITION1, RESONANCE, SPREAD1, TARGET_PARAMS, VOICE_TARGETS,
 };
 use crate::shared::{Scratch, Shared, DIRECT_SAMPLES, MIX_SAMPLES, PARAMS, UNISON, VOICES};
 use crate::store::{EntryRef, Levels, Store, FRAME_GUARD};
@@ -21,8 +21,23 @@ const BLOCK: usize = 128;
 const FADE_IN: f64 = 0.0015;
 const KILL_FADE: f64 = 0.02;
 const CROSSFADE: f64 = 0.01;
-// a change of frame fades in over a period of the voice, at most this (dsp/measurements/frame-fades.json)
+// a change of frame fades in over a period of the voice, at most this (dsp/measurements/frame-fades.json), as a
+// change of the mix a voice plays glides the levels it reads (SourceFade)
 const FRAME_FADE: f64 = 0.005;
+// a mix plays the pitches within this many levels (x of `segment`, a level a third of an octave) of the one it was
+// built at: the gain of every harmonic within as much of the one it has directly (each moves at most 1 a level)
+const MIX_REACH: f64 = 0.25;
+// the band of pitches a moving pitch holds to get a mix (PitchBand): the reach (and the rounding of the log2s of a
+// swing of exactly the reach, ±50 cents)
+const MIX_BAND: f64 = MIX_REACH + 1e-9;
+// the samples of a voice played directly that cost as much as a multiply-add of a mix build (Node: a multiply-add
+// 0.16–0.22 ns, a sample from a mix 0.5–0.9 ns less than directly, the more the wider the pitch moves): a moving
+// pitch builds a mix only where it is likely to play it as long × its multiply-adds
+const MIX_PAYBACK: f64 = 0.3;
+// the pitches past the reach of the levels a voice read that it still glides from (SourceFade): as far as a pitch
+// moves in a sample (the last block held the reach, the next one starts a sample on; a fall of 36 semitones in 80
+// ms moves 0.003 a sample at 48 kHz), a pitch that stepped further reads its own at once
+const SOURCE_SLACK: f64 = 0.01;
 pub const UPSAMPLER_TAPS: usize = 6;
 const HELD_GATE: f64 = 1.0;
 const RELEASE_GATE: f64 = 2.0;
@@ -32,14 +47,89 @@ const RELEASE_LEAD: f64 = 0.05;
 // each oscillator
 const FREQUENCY: usize = 0;
 const GATE: usize = 1;
+// the params of the oscillators, OSC_PARAMS each, from OSC_PARAMS_AT
+const OSC_PARAMS_AT: usize = GATE + 1;
+const OSC_PARAMS: usize = 4;
 const OSC_PARAM_POSITION: usize = 0;
 const OSC_PARAM_DETUNE: usize = 1;
 const OSC_PARAM_SPREAD: usize = 2;
 const OSC_PARAM_GAIN: usize = 3;
 /// the detune of each oscillator among the params of a block (detune1, detune2)
-pub const DETUNES: [usize; 2] = [2 + OSC_PARAM_DETUNE, 6 + OSC_PARAM_DETUNE];
+pub const DETUNES: [usize; 2] = [
+    OSC_PARAMS_AT + OSC_PARAM_DETUNE,
+    OSC_PARAMS_AT + OSC_PARAMS + OSC_PARAM_DETUNE,
+];
 
 pub type Params<'a> = [&'a [f32]; PARAMS];
+
+// the param of a block a route of an oscillator moves (POSITION1, SPREAD1, GAIN1: OSC_PARAM_POSITION…), none for
+// the offsets of its pitch (PITCH1, FINE1: of base 0, added to its detune)
+fn base_param(kind: usize) -> Option<usize> {
+    match kind {
+        POSITION1 => Some(OSC_PARAM_POSITION),
+        SPREAD1 => Some(OSC_PARAM_SPREAD),
+        GAIN1 => Some(OSC_PARAM_GAIN),
+        _ => None,
+    }
+}
+
+// the base of the offsets of the pitch
+const ZERO: &[f32] = &[0.0];
+
+// the detune of an oscillator (with the pitch bend on it) plus the offsets of its pitch the routes give (Semi,
+// Fine), worked out only where it is read: its first sample and the points of the pitch (without an offset the
+// detune as it is)
+struct Detune<'a> {
+    values: &'a [f32],
+    offsets: [Option<&'a [f32]>; 2],
+}
+
+impl Detune<'_> {
+    fn moved(&self) -> bool {
+        self.offsets.iter().any(Option::is_some)
+    }
+
+    // the cents at sample i: the sum in f64, rounded to f32 once
+    #[inline]
+    fn at(&self, i: usize) -> f32 {
+        if !self.moved() {
+            return read(self.values, i);
+        }
+        let mut cents = read(self.values, i) as f64;
+        for offset in self.offsets.iter().flatten() {
+            cents += read(offset, i) as f64;
+        }
+        cents as f32
+    }
+
+    // one value in the block (is_constant of the sum of every sample): a sum at a point of the routes (from a every
+    // SEGMENT samples, then the last) other than the first is enough, else every sample is compared
+    fn constant(&self, a: usize, b: usize) -> bool {
+        if !self.moved() {
+            return is_constant(self.values);
+        }
+        let length = self
+            .offsets
+            .iter()
+            .flatten()
+            .fold(self.values.len(), |length, offset| length.max(offset.len()));
+        if length == 1 {
+            return true;
+        }
+        let first = self.at(0);
+        let mut s = a;
+        loop {
+            if self.at(s) != first {
+                return false;
+            }
+            if s == b - 1 {
+                break;
+            }
+            s = (s + SEGMENT).min(b - 1);
+        }
+        (1..length).all(|i| self.at(i) == first)
+    }
+}
 
 /// an oscillator of a voice (VoiceOscOptions) with the random shares of its unison voices
 #[derive(Clone, Copy, Debug)]
@@ -270,15 +360,17 @@ fn render11(
 // two voices of an oscillator from their mix tables at once (render11 of each): two chains of phases in one loop.
 // `out_b` None: both add into
 // out_a, a then b per sample, as the TS adds voice after voice (a channel sums each sample in the order of its
-// voices). The step of a mix is constant (d_inc 0: inc + 0 is inc, the steps are > 0)
+// voices). STEP: the steps move by d_incs each sample (a pitch that moves), else they are constant (the loop of a
+// steady pitch, without the adds)
 #[inline(never)]
-fn render11_pair(
+fn render11_pair<const STEP: bool>(
     ta: &[f32],
     len_a: f64,
     tb: &[f32],
     len_b: f64,
     phases: (f64, f64),
     incs: (f64, f64),
+    d_incs: (f64, f64),
     gains: (f64, f64),
     out_a: &mut [f32],
     out_b: Option<&mut [f32]>,
@@ -290,28 +382,53 @@ fn render11_pair(
     match out_b {
         Some(out_b) => {
             let out_b = &mut out_b[..s1];
-            pair_loop(wa, len_a, wb, len_b, phases, incs, gains, s0, s1, |s, va, vb| {
-                out_a[s] = (out_a[s] as f64 + va) as f32;
-                out_b[s] = (out_b[s] as f64 + vb) as f32;
-            })
+            pair_loop::<STEP>(
+                wa,
+                len_a,
+                wb,
+                len_b,
+                phases,
+                incs,
+                d_incs,
+                gains,
+                s0,
+                s1,
+                |s, va, vb| {
+                    out_a[s] = (out_a[s] as f64 + va) as f32;
+                    out_b[s] = (out_b[s] as f64 + vb) as f32;
+                },
+            )
         }
-        None => pair_loop(wa, len_a, wb, len_b, phases, incs, gains, s0, s1, |s, va, vb| {
-            let after_a = (out_a[s] as f64 + va) as f32;
-            out_a[s] = (after_a as f64 + vb) as f32;
-        }),
+        None => pair_loop::<STEP>(
+            wa,
+            len_a,
+            wb,
+            len_b,
+            phases,
+            incs,
+            d_incs,
+            gains,
+            s0,
+            s1,
+            |s, va, vb| {
+                let after_a = (out_a[s] as f64 + va) as f32;
+                out_a[s] = (after_a as f64 + vb) as f32;
+            },
+        ),
     }
 }
 
 // the loop of render11_pair: `add` takes the gain × v of each voice at sample s (in the lanes of f64x2 it was no faster:
-// the loop is bound by its loads and stores, not by its arithmetic)
+// the loop is bound by its loads and stores, not by its arithmetic); each phase and step as render11 does them
 #[inline(always)]
-fn pair_loop(
+fn pair_loop<const STEP: bool>(
     wa: &[f32],
     len_a: f64,
     wb: &[f32],
     len_b: f64,
     phases: (f64, f64),
     incs: (f64, f64),
+    (d_inc_a, d_inc_b): (f64, f64),
     (ga, gb): (f64, f64),
     s0: usize,
     s1: usize,
@@ -319,7 +436,7 @@ fn pair_loop(
 ) -> (f64, f64) {
     let (last_a, last_b) = (len_a as i32 - 1, len_b as i32 - 1);
     let (mut ph_a, mut ph_b) = phases;
-    let (inc_a, inc_b) = incs;
+    let (mut inc_a, mut inc_b) = incs;
     for s in s0..s1 {
         let (i, f) = split(ph_a * len_a, last_a);
         let va = lerp(wa, i, f);
@@ -333,6 +450,10 @@ fn pair_loop(
         ph_b += inc_b;
         if ph_b >= 1.0 {
             ph_b = wrap(ph_b);
+        }
+        if STEP {
+            inc_a += d_inc_a;
+            inc_b += d_inc_b;
         }
     }
     (ph_a, ph_b)
@@ -725,6 +846,15 @@ fn add_to_mix(
     }
 }
 
+// the length of a fade of a voice at its phase step inc: a period of it, at most `limit`
+fn fade_length(inc: f64, limit: f64) -> f64 {
+    if inc > 0.0 {
+        min(1.0 / inc, limit)
+    } else {
+        limit
+    }
+}
+
 // the frame a unison voice plays, and the fade it goes there in from the frame before (dsp/measurements/
 // frame-fades.json): decided at the points of a block, linear over `length` samples from the frame `start` (a period
 // of the voice there, at most FRAME_FADE), never cut short: a change meanwhile is seen at the first point after it
@@ -772,14 +902,205 @@ impl FrameFade {
         if self.frame < 0 {
             self.frame = frame;
         } else if frame != self.frame && !self.fading(t) {
-            let length = if inc > 0.0 { min(1.0 / inc, limit) } else { limit };
             *self = FrameFade {
                 frame,
                 from: self.frame,
                 start: t,
-                length,
+                length: fade_length(inc, limit),
             };
         }
+    }
+}
+
+// the levels a unison voice reads (x of `segment`): those of its pitch, or of the x of the mix it plays (MixKey::x),
+// and the glide it goes from one to the other in. A mix differs from the levels read at the pitch by up to MIX_REACH
+// of the gains of the top third of an octave of the harmonics of a level (0.63..1 × the nyquist): a change of the
+// mix a voice plays (one it leaves, one it takes, another one) would step them. Decided at the start of a block,
+// linear over `length` samples from `start` (a period of the voice there, at most FRAME_FADE), worked out at the
+// points of the block as the pitch is; meanwhile the voice reads its levels directly at the x of the glide
+#[derive(Clone, Copy)]
+struct SourceFade {
+    // the x it glides from (None: its pitch, a voice that read it before)
+    from: Option<f64>,
+    // the x it reads (None: its pitch)
+    to: Option<f64>,
+    start: f64,
+    length: f64,
+    // the frame it ends at (start + length)
+    end: f64,
+}
+
+impl SourceFade {
+    const NONE: SourceFade = SourceFade {
+        from: None,
+        to: None,
+        start: 0.0,
+        length: 0.0,
+        end: 0.0,
+    };
+
+    // at the frame t
+    fn fading(&self, t: f64) -> bool {
+        t < self.end
+    }
+
+    // the x it reads at the frame t, its pitch at x: never a level richer than the pitch reads past where its top
+    // reaches the nyquist (it would alias; a mix the voice left before is done gliding there, the decisions of
+    // render_voices)
+    fn x_at(&self, t: f64, x: f64) -> f64 {
+        let to = self.to.unwrap_or(x);
+        if !self.fading(t) {
+            return to;
+        }
+        let from = self.from.unwrap_or(x);
+        max(
+            from + (to - from) * ((t - self.start) / self.length),
+            ceil(x) - 1.0,
+        )
+    }
+
+    // the x it reads at the ends t0, t1 of a segment, its pitch at x0, x1 (a call of the voices that glide only:
+    // inlined into the loops of render_voices it cost a voice held on its mix table)
+    #[cold]
+    #[inline(never)]
+    fn segment_x(&self, t0: f64, t1: f64, x0: f64, x1: f64) -> (f64, f64) {
+        (self.x_at(t0, x0), self.x_at(t1, x1))
+    }
+
+    // at the start of the block t, its pitch at x and its phase step inc: the voice reads another `to` from then on
+    // (the x of its mix, None: its pitch). It glides there from what it reads at t (from the middle of a glide too),
+    // but takes it at once where that reads the levels `to` does there (a mix of the pitch the voice played
+    // directly: the sound of before, to the bit) or where its reach no longer holds the pitch (one that stepped: its
+    // levels would sound duller, read up there they would alias). A call of the voices whose mix changes only (out
+    // of the loops of render_voices)
+    #[cold]
+    #[inline(never)]
+    fn at_block(&mut self, to: Option<f64>, x: f64, t: f64, inc: f64, limit: f64) {
+        let now = self.x_at(t, x);
+        // (the keys of any frame: the voice reads its own)
+        let (key, next) = (MixKey::at(0, now), MixKey::at(0, to.unwrap_or(x)));
+        let (low, high) = key.reach();
+        *self = if key != next && x >= low - SOURCE_SLACK && x <= high + SOURCE_SLACK {
+            let length = fade_length(inc, limit);
+            SourceFade {
+                from: if self.to.is_none() && !self.fading(t) {
+                    None
+                } else {
+                    Some(now)
+                },
+                to,
+                start: t,
+                length,
+                end: t + length,
+            }
+        } else {
+            SourceFade {
+                to,
+                ..SourceFade::NONE
+            }
+        };
+    }
+}
+
+// the level the pitches x0..x1 (x of `segment`) read, the one of the lower, and the weight of the next at each
+#[inline(always)]
+fn level_weights(x0: f64, x1: f64) -> (f64, f64, f64) {
+    let level = max(0.0, floor(min(x0, x1)));
+    (
+        level,
+        min(1.0, max(0.0, x0 - level)),
+        min(1.0, max(0.0, x1 - level)),
+    )
+}
+
+// what a mix of a voice is built of: frame `frame` of `level` and of the next one at the weight w, below 1 (that of
+// a constant pitch, level_weights) (frame -1: none)
+#[derive(Clone, Copy, PartialEq)]
+struct MixKey {
+    frame: i32,
+    level: usize,
+    w: f64,
+}
+
+impl MixKey {
+    const NONE: MixKey = MixKey {
+        frame: -1,
+        level: 0,
+        w: 0.0,
+    };
+
+    // the pitches it plays, as the x of `segment`: within MIX_REACH of the x it was built at (under level 0 alone
+    // none is richer), never above where the richest of its levels, `level`, reaches the nyquist: at the next one
+    // (it would alias)
+    fn reach(&self) -> (f64, f64) {
+        let x = self.level as f64 + self.w;
+        let low = if x == 0.0 {
+            f64::NEG_INFINITY
+        } else {
+            x - MIX_REACH
+        };
+        (low, min(x + MIX_REACH, self.level as f64 + 1.0))
+    }
+
+    // the x of `segment` it was built at
+    fn x(&self) -> f64 {
+        self.level as f64 + self.w
+    }
+
+    // whether it plays frame `frame` at the pitches low..high (x of `segment`)
+    fn holds(&self, frame: i32, low: f64, high: f64) -> bool {
+        let (from, to) = self.reach();
+        self.frame == frame && low >= from && high <= to
+    }
+
+    // the mix of pitch x: its level and the weight of the next as `segment` reads them there
+    fn at(frame: i32, x: f64) -> MixKey {
+        let (level, w, _) = level_weights(x, x);
+        MixKey {
+            frame,
+            level: level as usize,
+            w,
+        }
+    }
+}
+
+// the pitches (x of `segment`) a moving pitch of a voice has held since `since`, in every block since (`until`: the
+// end of the last one): a block it skipped (a steady one: nothing to build for; one played directly whatever: a
+// moving position, a frame that fades) or a pitch out of MIX_BAND starts it again from that block
+#[derive(Clone, Copy)]
+struct PitchBand {
+    low: f64,
+    high: f64,
+    since: f64,
+    until: f64,
+}
+
+impl PitchBand {
+    const NONE: PitchBand = PitchBand {
+        low: f64::INFINITY,
+        high: f64::NEG_INFINITY,
+        since: f64::NAN,
+        until: f64::NAN,
+    };
+
+    // the pitches low..high of the block t0..t1
+    fn extend(&mut self, low: f64, high: f64, t0: f64, t1: f64) {
+        let (wide_low, wide_high) = (min(self.low, low), max(self.high, high));
+        *self = if self.until == t0 && wide_high - wide_low <= MIX_BAND {
+            PitchBand {
+                low: wide_low,
+                high: wide_high,
+                until: t1,
+                ..*self
+            }
+        } else {
+            PitchBand {
+                low,
+                high,
+                since: t0,
+                until: t1,
+            }
+        };
     }
 }
 
@@ -804,13 +1125,18 @@ struct Osc {
     crossfade: f64,
     incs: Vec<f64>,
     logs: Vec<f64>,
+    // the factor of the step of each voice while the pitch moves, of the spread `factors_spread` (pitch_points)
+    factors: [f64; MAX_UNISON],
+    factors_spread: f64,
     cached: bool,
     last: [f64; 4],
     last_entry: Option<EntryRef>,
-    stable: bool,
-    stable_id: i32,
+    // the mix table of each voice and what it was built of (a steady block plays the one of its key)
     mixes: [Option<Vec<f32>>; MAX_UNISON],
-    mix_ids: [i32; MAX_UNISON],
+    mix_keys: [MixKey; MAX_UNISON],
+    bands: [PitchBand; MAX_UNISON],
+    // the levels each voice reads in the version it plays: of its pitch, of its mix, a glide between them
+    sources: [SourceFade; MAX_UNISON],
     // the index of the oscillator in VoiceOptions.osc: its params
     index: usize,
     shape: UnisonShape,
@@ -825,16 +1151,11 @@ struct Osc {
 
 impl Osc {
     fn param(&self, kind: usize) -> usize {
-        2 + 4 * self.index + kind
+        OSC_PARAMS_AT + OSC_PARAMS * self.index + kind
     }
-    // the param a route moves of this oscillator (position1, spread1, gain1 or those of osc 2)
+    // the param a route moves of this oscillator: `kind` that of osc 1 (POSITION1…)
     fn target(&self, kind: usize) -> usize {
-        3 * self.index
-            + match kind {
-                OSC_PARAM_POSITION => POSITION1,
-                OSC_PARAM_SPREAD => SPREAD1,
-                _ => GAIN1,
-            }
+        OSC_TARGETS * self.index + kind
     }
 }
 
@@ -879,6 +1200,7 @@ fn shape_unison(osc: &mut Osc) {
 pub struct Voice {
     sample_rate: f64,
     log2_nyquist: f64,
+    nyquist_inc: f64,
     native_length: usize,
     pub start_frame: f64,
     env_start_frame: f64,
@@ -964,13 +1286,15 @@ impl Voice {
                 crossfade: 0.0,
                 incs: Vec::new(),
                 logs: Vec::new(),
+                factors: [1.0; MAX_UNISON],
+                factors_spread: f64::NAN,
                 cached: false,
                 last: [f64::NAN; 4],
                 last_entry: None,
-                stable: false,
-                stable_id: 0,
                 mixes: Default::default(),
-                mix_ids: [-1; MAX_UNISON],
+                mix_keys: [MixKey::NONE; MAX_UNISON],
+                bands: [PitchBand::NONE; MAX_UNISON],
+                sources: [SourceFade::NONE; MAX_UNISON],
                 index,
                 shape: config.shape,
                 shares: [0.0; MAX_UNISON],
@@ -982,7 +1306,7 @@ impl Voice {
         // the params the routes move: those of the oscillators on, the knobs of the filter
         let mut accesses = [false; TARGET_PARAMS];
         for osc in &oscs {
-            for kind in [OSC_PARAM_POSITION, OSC_PARAM_SPREAD, OSC_PARAM_GAIN] {
+            for kind in 0..OSC_TARGETS {
                 accesses[osc.target(kind)] = true;
             }
         }
@@ -1003,6 +1327,7 @@ impl Voice {
         Voice {
             sample_rate,
             log2_nyquist: log2(nyquist),
+            nyquist_inc: pow(2.0, log2(nyquist)) / sample_rate,
             native_length: native_table_length(sample_rate),
             start_frame,
             env_start_frame,
@@ -1095,7 +1420,7 @@ impl Voice {
             let spread = params[osc.param(OSC_PARAM_SPREAD)];
             // (a stack or a position spread sound at no detune too)
             if read(spread, i) as f64 <= 0.0
-                && !self.modulation.raises(osc.target(OSC_PARAM_SPREAD))
+                && !self.modulation.raises(osc.target(SPREAD1))
                 && osc.shape.stack == STACK_OFF
                 && osc.shape.position_spread == 0.0
             {
@@ -1335,20 +1660,13 @@ impl Voice {
         }
         if self.modulation.active {
             let filter = &self.filter;
-            let voice = [
-                params[2],
-                params[4],
-                params[5],
-                params[6],
-                params[8],
-                params[9],
-                filter.base(0),
-                filter.base(1),
-                filter.base(2),
-            ];
+            // the params of both oscillators (the offsets of the pitch from 0), then the knobs of the filter
             let bases: [&[f32]; TARGET_PARAMS] = core::array::from_fn(|param| {
-                if param < VOICE_TARGETS {
-                    voice[param]
+                if param < CUTOFF {
+                    let (index, kind) = (param / OSC_TARGETS, param % OSC_TARGETS);
+                    base_param(kind).map_or(ZERO, |kind| params[OSC_PARAMS_AT + OSC_PARAMS * index + kind])
+                } else if param < VOICE_TARGETS {
+                    filter.base(param - CUTOFF)
                 } else {
                     &[][..]
                 }
@@ -1371,6 +1689,7 @@ impl Voice {
             let ctx = Ctx {
                 points_length: self.points_length,
                 log2_nyquist: self.log2_nyquist,
+                nyquist_inc: self.nyquist_inc,
                 sample_rate: self.sample_rate,
                 native_length: self.native_length,
                 block_frame: self.block_frame,
@@ -1433,6 +1752,8 @@ impl Voice {
 struct Ctx {
     points_length: usize,
     log2_nyquist: f64,
+    // the step of a voice at the nyquist (pow(2, log2_nyquist) / the rate: as a step of a pitch at it is worked out)
+    nyquist_inc: f64,
     sample_rate: f64,
     native_length: usize,
     block_frame: f64,
@@ -1441,15 +1762,20 @@ struct Ctx {
     frame_fade_limit: f64,
 }
 
-// the pitch at the points of the block for every voice: the phase step and log2 of the frequency
+// the pitch at the points of the block for every voice: the phase step and log2 of the frequency. While it
+// moves over a constant spread (`factored`) the step of a voice is the one of the oscillator × its factor (the
+// share of the spread and the stack, worked out again when the spread changes): one pow a point, not one a voice
+// (the steps of a pow a voice within 15 ulps, most within 2: the exponents are rounded apart, pow scales their
+// error by the log2 of the pitch); a spread that moves in the block (a route of it): one pow a voice, as at rest
 fn pitch_points(
     ctx: &Ctx,
     osc: &mut Osc,
     frequency: &[f32],
-    detune: &[f32],
+    detune: &Detune,
     spread: &[f32],
     count: usize,
     points: &[i32],
+    factored: bool,
 ) {
     let voices = osc.voices;
     // the pitch of the point before (a position that moves alone keeps it: its log2 and pow are not worked out
@@ -1458,7 +1784,7 @@ fn pitch_points(
     for p in 0..count {
         let s = points[p] as usize;
         let f = read(frequency, s) as f64;
-        let d = read(detune, s) as f64;
+        let d = detune.at(s) as f64;
         let sp = max(0.0, read(spread, s) as f64);
         if p > 0 && last == [f, d, sp] {
             for v in 0..voices {
@@ -1470,6 +1796,21 @@ fn pitch_points(
         }
         last = [f, d, sp];
         let log2_f = if f > 0.0 { log2(f) } else { f64::NEG_INFINITY };
+        if factored && sp != osc.factors_spread {
+            osc.factors_spread = sp;
+            for v in 0..voices {
+                let mut cents = if voices > 1 { sp * osc.shares[v] } else { 0.0 };
+                if osc.shape.stack != STACK_OFF {
+                    cents += osc.stack_cents[v];
+                }
+                osc.factors[v] = pow(2.0, cents / 1200.0);
+            }
+        }
+        let inc = if factored && f > 0.0 {
+            pow(2.0, log2_f + d / 1200.0) / ctx.sample_rate
+        } else {
+            0.0
+        };
         for v in 0..voices {
             let mut cents = d + (if voices > 1 { sp * osc.shares[v] } else { 0.0 });
             if osc.shape.stack != STACK_OFF {
@@ -1480,8 +1821,12 @@ fn pitch_points(
             osc.logs[index] = log;
             osc.incs[index] = if log == f64::NEG_INFINITY {
                 0.0
-            } else {
+            } else if !factored {
                 pow(2.0, log) / ctx.sample_rate
+            } else if log == ctx.log2_nyquist {
+                ctx.nyquist_inc
+            } else {
+                inc * osc.factors[v]
             };
         }
     }
@@ -1524,7 +1869,7 @@ fn build_mix(
             if let Some(mix) = other {
                 shared.release_mix(mix);
             }
-            // no memory for it: the voice plays directly (its mix id stays another)
+            // no memory for it: the voice plays directly (it has no mix, a later block tries again)
             let Some(mix) = shared.acquire_mix(length) else {
                 return;
             };
@@ -1544,7 +1889,11 @@ fn build_mix(
     mix[length + 1] = mix[1];
     mix[length + 2] = mix[2];
     osc.mixes[v] = Some(mix);
-    osc.mix_ids[v] = osc.stable_id;
+    osc.mix_keys[v] = MixKey {
+        frame: k as i32,
+        level,
+        w,
+    };
 }
 
 // the level of a span: the one of w alone (w = 0), the next alone (w = 1, a constant w) or both (None)
@@ -1764,9 +2113,18 @@ fn two_channels(
     (first.as_mut_slice(), second)
 }
 
+// whether the voices of an oscillator may play their mix tables in a block: not at all; the pitch, the position and
+// the version of the last block (steady: the mixes of that pitch); another pitch or one that moves over a constant
+// position and the same version (the mixes whose reach holds it; `build`: one is built for a pitch that moves)
+#[derive(Clone, Copy, PartialEq)]
+enum Mixing {
+    Off,
+    Steady,
+    Reach { build: bool },
+}
+
 // the voices of an oscillator over a..b of the block from one version of its table, × g added to the channels;
-// settled: the voices stay on their frames, none fades (render_osc); mixable: the pitch, the position and the
-// version are those of the last block; counted: its samples count
+// settled: the voices stay on their frames, none fades (render_osc); counted: its samples count
 fn render_voices(
     ctx: &Ctx,
     osc: &mut Osc,
@@ -1779,7 +2137,7 @@ fn render_voices(
     b: usize,
     channels: Channels,
     g: f64,
-    mixable: bool,
+    mixing: Mixing,
     counted: bool,
     store: &Store,
     shared: &mut Shared,
@@ -1869,45 +2227,116 @@ fn render_voices(
             0
         }
     };
-    // the level and the weights of voice v over segment p (None: above the fundamental's nyquist, silent)
-    let segment = |osc: &Osc, v: usize, p: usize, length: f64| {
-        let index = v * points_length + p;
-        let x0 = offset + 3.0 * osc.logs[index];
-        let x1 = offset + 3.0 * osc.logs[index + 1];
-        let level_f = max(0.0, floor(min(x0, x1)));
-        let w0 = min(1.0, max(0.0, x0 - level_f));
-        let w1 = min(1.0, max(0.0, x1 - level_f));
+    // the pitch of voice v at point p
+    let pitch = |osc: &Osc, v: usize, p: usize| offset + 3.0 * osc.logs[v * points_length + p];
+    // the level and the weights of a segment a voice reads at x0..x1 (None: above the fundamental's nyquist, silent)
+    let segment = |x0: f64, x1: f64, length: f64| {
+        let (level_f, w0, w1) = level_weights(x0, x1);
         if (level_f + (if w0 == 1.0 && w1 == 1.0 { 1.0 } else { 0.0 })) >= silent as f64 {
             return None;
         }
         Some((level_f as usize, w0, (w1 - w0) / length))
     };
-    // a steady block (one segment, the mixes may play): the builds of the voices are decided first, in their order
-    // (the budget and the counters as the TS decides them voice by voice), so two neighbours that both play their
-    // mixes render in one loop (render11_pair)
-    let mut decided = [false; MAX_UNISON];
+    // the voices that play their mixes over the block, decided first, in their order (the budget and the counters as
+    // the TS decides them voice by voice), so two neighbours that both play theirs render in one loop
+    // (render11_pair). A steady block (one segment): the mix of its pitch, built now if the budget allows, or the one
+    // a voice still has of it (a pitch that came back), else the one whose reach holds it until it is built (a bend
+    // held still under a chord: the budget builds a few a block). Another pitch: the mix whose reach holds the pitch of the
+    // voice at every point, its weights of the levels kept (MIX_REACH); for a pitch that moves one is built at the
+    // middle of the band it holds (PitchBand) once it has held it as long as the build costs played directly
+    // (MIX_PAYBACK) and is as far from leaving the reach at the speed it moved over the band: a turn of a wide
+    // vibrato holds one for a moment, it plays directly, as a faster pitch does. A voice glides from the levels it
+    // read to those of the mix it plays now, or of its pitch (SourceFade), played directly, its mix after it
+    let t1 = ctx.block_frame + b as f64;
+    let mut on_mix = [false; MAX_UNISON];
     let mut paired = [false; MAX_UNISON];
-    if mixable && count == 2 {
-        let length = (shared.scratch.points[1] - shared.scratch.points[0]) as f64;
+    if mixing != Mixing::Off {
         for v in 0..voices {
             // (a voice that fades plays both frames directly; none does in a settled block)
             if !settled && osc.frame_fades[slot][v].fading(t) {
                 continue;
             }
-            let Some((level, w0, _)) = segment(osc, v, 0, length) else {
+            let frame = osc.frame_fades[slot][v].frame;
+            if mixing == Mixing::Steady {
+                let length = (shared.scratch.points[1] - shared.scratch.points[0]) as f64;
+                let Some((level, w0, _)) = segment(pitch(osc, v, 0), pitch(osc, v, 1), length) else {
+                    continue;
+                };
+                let key = MixKey { frame, level, w: w0 };
+                if !(osc.mixes[v].is_some() && osc.mix_keys[v] == key)
+                    && shared.take_build(ctx.block_frame, build_cost(ctx, levels, level, w0))
+                {
+                    build_mix(ctx, osc, v, levels, level, w0, frame as usize, shared);
+                }
+                let x = pitch(osc, v, 0);
+                on_mix[v] =
+                    osc.mixes[v].is_some() && (osc.mix_keys[v] == key || osc.mix_keys[v].holds(frame, x, x));
                 continue;
-            };
-            decided[v] = true;
-            if osc.mix_ids[v] != osc.stable_id
-                && shared.take_build(ctx.block_frame, build_cost(ctx, levels, level, w0))
+            }
+            // the pitch of the voice over the block (x of `segment`), none above the nyquist of its fundamental (a
+            // segment sounds while the lower of its ends is below the silent level: `segment` is None there)
+            let xs = &osc.logs[v * points_length..v * points_length + count];
+            let (mut low, mut high) = (f64::INFINITY, f64::NEG_INFINITY);
+            let mut sounds = true;
+            let mut before = f64::NEG_INFINITY;
+            for log in xs {
+                let x = offset + 3.0 * log;
+                low = min(low, x);
+                high = max(high, x);
+                sounds &= min(before, x) < silent as f64;
+                before = x;
+            }
+            if !sounds {
+                continue;
+            }
+            let band = &mut osc.bands[v];
+            band.extend(low, high, t, t1);
+            let band = *band;
+            // the pitch a mix holds over the block, and as far on as the pitch rises in a glide from it to the
+            // levels of the pitch: one leaving it is done gliding before the pitch passes where its richest level
+            // reaches the nyquist
+            let rise = (high - (offset + 3.0 * xs[0])) / (b - a) as f64;
+            let ahead = high + rise * fade_length(osc.incs[v * points_length], ctx.frame_fade_limit);
+            if osc.mixes[v].is_some() && osc.mix_keys[v].holds(frame, low, ahead) {
+                on_mix[v] = true;
+                continue;
+            }
+            // the samples it held the band (a build costs a mix of the native length at least), its width; a glide
+            // as fast leaves the reach of the middle after (MIX_REACH - width / 2) × held / width
+            let (held, width) = (t1 - band.since, band.high - band.low);
+            if mixing != (Mixing::Reach { build: true }) || held < MIX_PAYBACK * ctx.native_length as f64 {
+                continue;
+            }
+            // (its level not below the one of the top of the band: the reach of a level ends at the next)
+            let key = MixKey::at(
+                frame,
+                max(0.0, max((band.low + band.high) / 2.0, floor(band.high))),
+            );
+            let cost = build_cost(ctx, levels, key.level, key.w);
+            let payback = MIX_PAYBACK * cost;
+            if key.level + 1 < silent
+                && key.holds(frame, low, ahead)
+                && held >= payback
+                && (MIX_REACH - width / 2.0) * held >= payback * width
+                && shared.take_build(ctx.block_frame, cost)
             {
-                let k = osc.frame_fades[slot][v].frame as usize;
-                build_mix(ctx, osc, v, levels, level, w0, k, shared);
+                build_mix(ctx, osc, v, levels, key.level, key.w, frame as usize, shared);
+                on_mix[v] = osc.mixes[v].is_some();
             }
         }
-        let ready = |osc: &Osc, v: usize| {
-            decided[v] && osc.fades[v] == 0 && osc.mix_ids[v] == osc.stable_id && osc.mixes[v].is_some()
-        };
+    }
+    // (the version a crossfade goes to plays directly at the pitch)
+    if slot == 0 {
+        for v in 0..voices {
+            let to = on_mix[v].then(|| osc.mix_keys[v].x());
+            if to != osc.sources[v].to {
+                let x = pitch(osc, v, 0);
+                osc.sources[v].at_block(to, x, t, osc.incs[v * points_length], ctx.frame_fade_limit);
+            }
+        }
+    }
+    if mixing != Mixing::Off {
+        let ready = |osc: &Osc, v: usize| on_mix[v] && osc.fades[v] == 0 && !osc.sources[v].fading(t);
         let mut v = 0;
         while v + 1 < voices {
             if ready(osc, v) && ready(osc, v + 1) {
@@ -1921,39 +2350,61 @@ fn render_voices(
     let mut v = 0;
     while v < voices {
         if paired[v] {
-            // v and v + 1 from their mixes
-            let (s0, s1) = (
-                shared.scratch.points[0] as usize,
-                shared.scratch.points[1] as usize,
-            );
+            // v and v + 1 from their mixes, segment by segment
             let (mix_a, mix_b) = (osc.mixes[v].as_ref(), osc.mixes[v + 1].as_ref());
             let (Some(mix_a), Some(mix_b)) = (mix_a, mix_b) else {
                 unreachable!()
             };
-            let (out_a, out_b) = two_channels(
-                &mut shared.scratch,
-                channels,
-                channel_of_voice(v),
-                channel_of_voice(v + 1),
-            );
-            let (ph_a, ph_b) = render11_pair(
-                mix_a,
+            let (len_a, len_b) = (
                 (mix_a.len() - FRAME_GUARD) as f64,
-                mix_b,
                 (mix_b.len() - FRAME_GUARD) as f64,
-                (osc.phases[v], osc.phases[v + 1]),
-                (osc.incs[v * points_length], osc.incs[(v + 1) * points_length]),
-                (g * osc.gains[v], g * osc.gains[v + 1]),
-                out_a,
-                out_b,
-                s0,
-                s1,
             );
-            osc.phases[v] = ph_a;
-            osc.phases[v + 1] = ph_b;
-            if cfg!(feature = "perf") && counted {
-                shared.counts[MIX_SAMPLES] += 2.0 * (s1 - s0) as f64;
+            let gains = (g * osc.gains[v], g * osc.gains[v + 1]);
+            let mut phases = (osc.phases[v], osc.phases[v + 1]);
+            for p in 0..count - 1 {
+                let (s0, s1) = (
+                    shared.scratch.points[p] as usize,
+                    shared.scratch.points[p + 1] as usize,
+                );
+                let (ia, ib) = (v * points_length + p, (v + 1) * points_length + p);
+                let incs = (osc.incs[ia], osc.incs[ib]);
+                let (out_a, out_b) = two_channels(
+                    &mut shared.scratch,
+                    channels,
+                    channel_of_voice(v),
+                    channel_of_voice(v + 1),
+                );
+                phases = if mixing != Mixing::Steady {
+                    let length = (s1 - s0) as f64;
+                    let d_incs = (
+                        (osc.incs[ia + 1] - incs.0) / length,
+                        (osc.incs[ib + 1] - incs.1) / length,
+                    );
+                    render11_pair::<true>(
+                        mix_a, len_a, mix_b, len_b, phases, incs, d_incs, gains, out_a, out_b, s0, s1,
+                    )
+                } else {
+                    render11_pair::<false>(
+                        mix_a,
+                        len_a,
+                        mix_b,
+                        len_b,
+                        phases,
+                        incs,
+                        (0.0, 0.0),
+                        gains,
+                        out_a,
+                        out_b,
+                        s0,
+                        s1,
+                    )
+                };
+                if cfg!(feature = "perf") && counted {
+                    shared.counts[MIX_SAMPLES] += 2.0 * (s1 - s0) as f64;
+                }
             }
+            osc.phases[v] = phases.0;
+            osc.phases[v + 1] = phases.1;
             v += 2;
             continue;
         }
@@ -1964,6 +2415,8 @@ fn render_voices(
             shared.scratch.fading[a..b].fill(0.0);
         }
         let mut ph = osc.phases[v];
+        // the end of the glide of its levels (none in the version a crossfade goes to)
+        let glide_end = if slot == 0 { osc.sources[v].end } else { 0.0 };
         for p in 0..count - 1 {
             let s0 = shared.scratch.points[p] as usize;
             let s1 = shared.scratch.points[p + 1] as usize;
@@ -1980,43 +2433,42 @@ fn render_voices(
             }
             let length = (s1 - s0) as f64;
             let d_inc = (osc.incs[index + 1] - inc0) / length;
-            let Some((level, w0, dw)) = segment(osc, v, p, length) else {
+            // the levels of its pitch, or of the glide from or to a mix while it goes on
+            let (x0, x1) = (pitch(osc, v, p), pitch(osc, v, p + 1));
+            let gliding = t0 < glide_end;
+            let (x0, x1) = if gliding {
+                osc.sources[v].segment_x(t0, ctx.block_frame + s1 as f64, x0, x1)
+            } else {
+                (x0, x1)
+            };
+            let Some((level, w0, dw)) = segment(x0, x1, length) else {
                 // above the fundamental's nyquist: silent, the phase goes on
                 ph += inc0 * length + (d_inc * length * (length - 1.0)) / 2.0;
                 ph -= floor(ph);
                 continue;
             };
             let k = osc.frame_fades[slot][v].frame as usize;
-            if mixable && !osc.frame_fades[slot][v].fading(t0) {
-                // one segment at a constant pitch and position: the mix of the voice, built now if the budget allows
-                // (decided already in a steady block)
-                if !decided[v]
-                    && osc.mix_ids[v] != osc.stable_id
-                    && shared.take_build(ctx.block_frame, build_cost(ctx, levels, level, w0))
-                {
-                    build_mix(ctx, osc, v, levels, level, w0, k, shared);
-                }
-                if osc.mix_ids[v] == osc.stable_id {
-                    if let Some(mix) = &osc.mixes[v] {
-                        let (channel_out, fading) = channel_of(&mut shared.scratch, channels, channel);
-                        let out = if fade_left > 0 { fading } else { channel_out };
-                        ph = render11(
-                            mix,
-                            1,
-                            (mix.len() - FRAME_GUARD) as f64,
-                            ph,
-                            inc0,
-                            0.0,
-                            g,
-                            out,
-                            s0,
-                            s1,
-                        );
-                        if cfg!(feature = "perf") && counted {
-                            shared.counts[MIX_SAMPLES] += length;
-                        }
-                        continue;
+            if on_mix[v] && !gliding {
+                // its mix (decided for the block), the step of the phase as directly
+                if let Some(mix) = &osc.mixes[v] {
+                    let (channel_out, fading) = channel_of(&mut shared.scratch, channels, channel);
+                    let out = if fade_left > 0 { fading } else { channel_out };
+                    ph = render11(
+                        mix,
+                        1,
+                        (mix.len() - FRAME_GUARD) as f64,
+                        ph,
+                        inc0,
+                        d_inc,
+                        g,
+                        out,
+                        s0,
+                        s1,
+                    );
+                    if cfg!(feature = "perf") && counted {
+                        shared.counts[MIX_SAMPLES] += length;
                     }
+                    continue;
                 }
             }
             if cfg!(feature = "perf") && counted {
@@ -2079,7 +2531,7 @@ fn release_mixes(osc: &mut Osc, shared: &mut Shared) {
         if let Some(mix) = osc.mixes[v].take() {
             shared.release_mix(mix);
         }
-        osc.mix_ids[v] = -1;
+        osc.mix_keys[v] = MixKey::NONE;
     }
 }
 
@@ -2109,19 +2561,24 @@ fn render_osc(
             }
         }
     }
-    // the browser's params, those the routes move replaced
+    // the browser's params, those the routes move replaced (the detune with the pitch bend on it, the offsets of
+    // the pitch added where it is read)
     let frequency = params[FREQUENCY];
-    let detune = params[osc.param(OSC_PARAM_DETUNE)];
+    let detune = Detune {
+        values: params[osc.param(OSC_PARAM_DETUNE)],
+        offsets: [PITCH1, FINE1].map(|kind| modulation.moved(osc.target(kind))),
+    };
     let spread = modulation
-        .moved(osc.target(OSC_PARAM_SPREAD))
+        .moved(osc.target(SPREAD1))
         .unwrap_or(params[osc.param(OSC_PARAM_SPREAD)]);
     let position = modulation
-        .moved(osc.target(OSC_PARAM_POSITION))
+        .moved(osc.target(POSITION1))
         .unwrap_or(params[osc.param(OSC_PARAM_POSITION)]);
     let gain = modulation
-        .moved(osc.target(OSC_PARAM_GAIN))
+        .moved(osc.target(GAIN1))
         .unwrap_or(params[osc.param(OSC_PARAM_GAIN)]);
-    let constant_pitch = is_constant(frequency) && is_constant(detune) && is_constant(spread);
+    let constant_spread = is_constant(spread);
+    let constant_pitch = is_constant(frequency) && detune.constant(a, b) && constant_spread;
     // (a table of one frame is played at any position)
     let one_frame =
         store.levels(osc.entry).frames == 1 && osc.next.is_none_or(|next| store.levels(next).frames == 1);
@@ -2158,15 +2615,11 @@ fn render_osc(
     let steady = constant_pitch
         && still
         && osc.last[0] == frequency[0] as f64
-        && osc.last[1] == detune[0] as f64
+        && osc.last[1] == detune.at(0) as f64
         && osc.last[2] == spread[0] as f64;
-    if !steady || !osc.stable {
-        osc.stable_id = osc.stable_id.wrapping_add(1);
-    }
-    osc.stable = steady;
     osc.last = [
         frequency[0] as f64,
-        detune[0] as f64,
+        detune.at(0) as f64,
         spread[0] as f64,
         position[0] as f64,
     ];
@@ -2178,11 +2631,31 @@ fn render_osc(
         let points = &mut shared.scratch.points;
         let last = points[count - 1];
         points[count - 1] = b as i32 - 1;
-        pitch_points(ctx, osc, frequency, detune, spread, count, points);
+        pitch_points(
+            ctx,
+            osc,
+            frequency,
+            &detune,
+            spread,
+            count,
+            points,
+            !constant_pitch && constant_spread,
+        );
         points[count - 1] = last;
     }
     osc.cached = constant_pitch && count == 2;
 
+    // the mixes of the version the voices play: those of the pitch of a steady block, those whose reach holds
+    // another pitch over a constant position (one that moves changes frames: directly)
+    let mixing = if steady {
+        Mixing::Steady
+    } else if constant_position && osc.next.is_none() {
+        Mixing::Reach {
+            build: !constant_pitch,
+        }
+    } else {
+        Mixing::Off
+    };
     let next = osc.next;
     let constant_gain = is_constant(gain);
     if next.is_none() && constant_gain && osc.width.is_none() {
@@ -2200,7 +2673,7 @@ fn render_osc(
             b,
             Channels::Voice,
             g,
-            steady,
+            mixing,
             true,
             store,
             shared,
@@ -2231,7 +2704,7 @@ fn render_osc(
         b,
         Channels::A,
         level,
-        steady,
+        mixing,
         true,
         store,
         shared,
@@ -2258,7 +2731,7 @@ fn render_osc(
             b,
             Channels::B,
             level,
-            false,
+            Mixing::Off,
             false,
             store,
             shared,
@@ -2282,6 +2755,8 @@ fn render_osc(
             osc.entry = next;
             osc.next = None;
             osc.frame_fades[0] = osc.frame_fades[1];
+            // (its voices played it directly at their pitches)
+            osc.sources = [SourceFade::NONE; MAX_UNISON];
         }
     }
     if constant_gain {

@@ -1,7 +1,7 @@
 {
   "name": "waveform",
   "version": "0.0.0",
-  "license": "MIT",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "scripts": {
     "start": "concurrently -k -p \"[{name}]\" -n \"api,client\" -c  \"yellow.bold,green.bold\" \"netlify dev\" \"npm run client:start\"",
     "client:start": "npm run wasm -- --only=prod && npm run worklets && concurrently -k -n wasm,worklets,serve \"npm run wasm -- --only=prod --watch\" \"npm run worklets -- --watch=forever\" \"nx serve\"",

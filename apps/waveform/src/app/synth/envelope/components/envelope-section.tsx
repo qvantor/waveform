@@ -4,6 +4,7 @@ import { useBehaviorSubject } from '@waveform/rxjs-react';
 import {
   ENVELOPE_CURVE_MAX,
   ENVELOPE_CURVES,
+  ENVELOPE_DEFAULTS,
   ENVELOPE_TIME_MAX,
   ENVELOPES,
   EnvelopeId,
@@ -21,6 +22,7 @@ const EnvelopeChart = ({ id }: { id: EnvelopeId }) => {
       {...envelopes[id]}
       maxTime={ENVELOPE_TIME_MAX}
       onChange={(key, value) => setEnvelopeValue(id, key, value)}
+      defaultValues={ENVELOPE_DEFAULTS[id]}
       // the points on the curves: a double click gives a stage its default curve again
       curveMax={ENVELOPE_CURVE_MAX}
       defaultCurves={ENVELOPE_CURVES}

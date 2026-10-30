@@ -14,18 +14,8 @@ const pointer = (type: string, target: EventTarget, [clientX, clientY]: [number,
 
 const setup = (props: Partial<React.ComponentProps<typeof AmountDot>> = {}) => {
   const onChange = jest.fn();
-  const onRemove = jest.fn();
-  render(
-    <AmountDot
-      colors={['#f00']}
-      amount={0.5}
-      onChange={onChange}
-      onRemove={onRemove}
-      label='ENV 2'
-      {...props}
-    />
-  );
-  return { onChange, onRemove, dot: screen.getByRole('slider', { name: 'ENV 2' }) };
+  render(<AmountDot colors={['#f00']} amount={0.5} onChange={onChange} label='ENV 2' {...props} />);
+  return { onChange, dot: screen.getByRole('slider', { name: 'ENV 2' }) };
 };
 
 const sections = (dot: HTMLElement) => Array.from(dot.querySelectorAll('[data-testid="amount-dot-section"]'));
@@ -97,20 +87,15 @@ describe('AmountDot', () => {
     pointer('pointerup', document, [10, 300]);
   });
 
-  it('a double click removes the route', () => {
-    const { dot, onRemove } = setup();
-    fireEvent.doubleClick(dot);
-    expect(onRemove).toHaveBeenCalledTimes(1);
-  });
-
-  it('a long press removes the route, not a drag', () => {
+  it('a long press opens the menu of the control, not a drag', () => {
     jest.useFakeTimers();
-    const { dot, onRemove, onChange } = setup();
+    const onLongPress = jest.fn();
+    const { dot, onChange } = setup({ onLongPress });
     pointer('pointerdown', dot, [10, 100]);
     act(() => {
       jest.advanceTimersByTime(600);
     });
-    expect(onRemove).toHaveBeenCalledTimes(1);
+    expect(onLongPress).toHaveBeenCalledTimes(1);
     pointer('pointerup', document, [10, 100]);
 
     pointer('pointerdown', dot, [10, 100]);
@@ -119,21 +104,26 @@ describe('AmountDot', () => {
       jest.advanceTimersByTime(600);
     });
     pointer('pointerup', document, [10, 90]);
-    expect(onRemove).toHaveBeenCalledTimes(1);
+    expect(onLongPress).toHaveBeenCalledTimes(1);
     expect(onChange).toHaveBeenCalledWith(0.6);
   });
 
-  it('takes the arrows and removes on Delete', () => {
-    const { dot, onChange, onRemove } = setup({ amount: 0.5 });
-    fireEvent.keyDown(dot, { key: 'ArrowUp' });
-    expect(onChange).toHaveBeenLastCalledWith(0.51);
-    fireEvent.keyDown(dot, { key: 'ArrowDown' });
-    expect(onChange).toHaveBeenLastCalledWith(0.49);
-    fireEvent.keyDown(dot, { key: 'Delete' });
-    expect(onRemove).toHaveBeenCalled();
+  it('fades the sections of the routes switched off', () => {
+    const { dot } = setup({ colors: ['#f00', '#0f0'], off: [false, true] });
+    expect(sections(dot).map((path) => path.getAttribute('fill-opacity'))).toEqual([null, '0.35']);
   });
 
-  it('switches the polarity on Shift+click or B, shows a bipolar amount as ±', () => {
+  it('takes no focus nor keys: a press keeps the focus where it was', () => {
+    const onPolarity = jest.fn();
+    const { dot, onChange } = setup({ amount: 0.5, onPolarity });
+    expect(dot.hasAttribute('tabindex')).toBe(false);
+    expect(fireEvent.mouseDown(dot)).toBe(false);
+    ['ArrowUp', 'Delete', 'b'].forEach((key) => fireEvent.keyDown(dot, { key }));
+    expect(onChange).not.toHaveBeenCalled();
+    expect(onPolarity).not.toHaveBeenCalled();
+  });
+
+  it('switches the polarity on Shift+click, shows a bipolar amount as ±', () => {
     const onPolarity = jest.fn();
     const { dot, onChange } = setup({ amount: -0.35, bipolar: true, onPolarity });
     const event = new MouseEvent('pointerdown', {
@@ -147,8 +137,6 @@ describe('AmountDot', () => {
       dot.dispatchEvent(event);
     });
     expect(onPolarity).toHaveBeenLastCalledWith(false);
-    fireEvent.keyDown(dot, { key: 'b' });
-    expect(onPolarity).toHaveBeenCalledTimes(2);
     expect(onChange).not.toHaveBeenCalled();
     fireEvent.mouseEnter(dot);
     expect(document.getElementById('tooltip')?.textContent ?? '±35%').toContain('±35%');

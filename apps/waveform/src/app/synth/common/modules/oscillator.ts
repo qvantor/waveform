@@ -14,7 +14,7 @@ import {
   distinctUntilChanged,
 } from 'rxjs';
 import { ObjectBS, rxModel, rxModelReact, PrimitiveBS, ArrayBS } from '@waveform/rxjs-react';
-import { DEFAULT_PHASE, withLegacyPhase } from '@waveform/preset-schema';
+import { DEFAULT_PHASE, FINE_MAX, SEMI_MAX, withLegacyPhase } from '@waveform/preset-schema';
 import { generateId, Vector2D } from '@waveform/math';
 import { urlSnapshotPlugin } from '../../../app';
 import { loadWavetable, LoadWavetable, wavetableId } from '../../services';
@@ -52,11 +52,16 @@ export const framePosition = (j: number, count: number, morph: boolean) =>
   playedFrames(count, morph) === count ? j : keyFrame(j, count);
 
 // the base of the params of the oscillator on a voice node (wavetable-osc-params.ts), from the knobs: the
-// position as a share of the table, the octave in cents (the pitch of a voice is the note's), the unison detune
-// as its spread (cents), the gain
-const baseParams = (position: number, frames: number, octave: number, detune: number, gain: number) => ({
+// position as a share of the table, its pitch over the note in cents (Oct, Semi and Fine; the pitch of a voice is
+// the note's), the unison detune as its spread (cents), the gain
+const baseParams = (
+  position: number,
+  frames: number,
+  { octave, semi, fine, detune }: { octave: number; semi: number; fine: number; detune: number },
+  gain: number
+) => ({
   position: frames > 1 ? Math.min(1, Math.max(0, position / (frames - 1))) : 0,
-  detune: 1200 * octave,
+  detune: 1200 * octave + 100 * semi + fine,
   spread: detune,
   gain,
 });
@@ -69,14 +74,18 @@ export const oscillator = ({
     // the id of its table in the wavetable oscillator too
     const id = generateId();
     // phase: the start of every unison voice, phaseRand: the most of its random shift (0: all in phase, 1: any
-    // phase), shares of a period (the knobs show degrees and percents); read when a note is pressed, as unison
-    const ranges: Record<'unison' | 'detune' | 'phase' | 'phaseRand' | 'octave', Vector2D> = {
-      unison: [1, 8],
-      detune: [0, 100],
-      phase: [0, 1],
-      phaseRand: [0, 1],
-      octave: [-3, 3],
-    };
+    // phase), shares of a period (the knobs show degrees and percents); read when a note is pressed, as unison.
+    // octave, semi, fine: the pitch over the note (octaves, semitones, cents)
+    const ranges: Record<'unison' | 'detune' | 'phase' | 'phaseRand' | 'octave' | 'semi' | 'fine', Vector2D> =
+      {
+        unison: [1, 8],
+        detune: [0, 100],
+        phase: [0, 1],
+        phaseRand: [0, 1],
+        octave: [-3, 3],
+        semi: [-SEMI_MAX, SEMI_MAX],
+        fine: [-FINE_MAX, FINE_MAX],
+      };
     const $active = new PrimitiveBS<boolean>(active);
     const $osc = new ObjectBS({
       unison: 2,
@@ -84,6 +93,8 @@ export const oscillator = ({
       phase: DEFAULT_PHASE,
       phaseRand: 1,
       octave: 0,
+      semi: 0,
+      fine: 0,
     });
     // how the unison voices sound (Blend, Width, Stack, the detune, the position spread): no knobs
     // and not in the snapshot yet (the specs and the perf hook set it), read when a note is pressed
@@ -135,9 +146,7 @@ export const oscillator = ({
       map((tables) => tables[id] ?? null),
       distinctUntilChanged()
     );
-    const $params = new BehaviorSubject<Record<OscParam, number>>(
-      baseParams(0, 1, $osc.value.octave, $osc.value.detune, $gain.value)
-    );
+    const $params = new BehaviorSubject<Record<OscParam, number>>(baseParams(0, 1, $osc.value, $gain.value));
     // its notes play the table of its path: loaded and in the wavetable oscillator (stored, or refused or failed:
     // the version before plays); the table loaded goes to the oscillator before loading ends (setWaveTable sets
     // it sending), so no moment between them reads as played
@@ -212,11 +221,7 @@ export const oscillator = ({
     // the base of the params of the voices follows the knobs and the frames played
     .subscriptions(({ $position, $frames, $osc, $gain, $params }) =>
       combineLatest([$position, $frames, $osc, $gain])
-        .pipe(
-          map(([position, frames, { octave, detune }, gain]) =>
-            baseParams(position, frames, octave, detune, gain)
-          )
-        )
+        .pipe(map(([position, frames, osc, gain]) => baseParams(position, frames, osc, gain)))
         .subscribe($params)
     )
     // the table follows the path (also from presets) whatever screen is shown
@@ -255,6 +260,8 @@ export const oscillator = ({
             w: model.$position.value,
 
             o: model.$osc.value.octave,
+            s: model.$osc.value.semi,
+            f: model.$osc.value.fine,
             d: model.$osc.value.detune,
             u: model.$osc.value.unison,
             ph: model.$osc.value.phase,
@@ -271,6 +278,8 @@ export const oscillator = ({
           snap.g !== undefined && model.$gain.next(snap.g);
           model.$osc.next({
             octave: snap.o ?? 0,
+            semi: snap.s ?? 0,
+            fine: snap.f ?? 0,
             detune: snap.d ?? 5,
             unison: snap.u ?? 2,
             phase: ph ?? DEFAULT_PHASE,

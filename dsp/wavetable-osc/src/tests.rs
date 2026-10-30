@@ -10,7 +10,7 @@ use crate::velocity::VoiceVelocity;
 use crate::voice::{OscOptions, UnisonShape, Voice, VoiceOptions};
 use alloc::vec;
 use alloc::vec::Vec;
-use jsmath::{floor, log2, pow};
+use jsmath::{floor, log2, max, min, pow};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
@@ -737,6 +737,106 @@ fn a_fade_between_two_levels_reads_both_frames_on_each() {
     }
 }
 
+// the frequency of the pitch at x of `segment` on two_level_frames (in f32), and the weight of the second level a
+// voice reads there
+fn pitch_at(x: f64) -> (f32, f64) {
+    let nyquist = log2(RATE / 2.0);
+    let f = pow(2.0, (x - 1.0) / 3.0 + nyquist - 8.0) as f32;
+    let x = 1.0 + 3.0 * (8.0 - nyquist) + 3.0 * log2(f as f64);
+    (f, x - floor(x))
+}
+
+// `out` is 1 + 3w at the weight w of the second level at each sample (two_level_frames of 1 and 4)
+fn expect_weights(out: &[f32], w: impl Fn(usize) -> f64) {
+    for (i, value) in out.iter().enumerate() {
+        let expected = 1.0 + 3.0 * w(i);
+        assert!(
+            (*value as f64 - expected).abs() < 1e-5,
+            "sample {i}: {value}, not {expected}"
+        );
+    }
+}
+
+#[test]
+fn a_mix_left_for_the_one_of_a_new_pitch_glides_the_levels_it_reads_over_a_period() {
+    // the pitch at w 0.3 (its mix from the second block), at 0.4 from 512: still on the mix of 0.3 (its reach holds
+    // it), the mix of 0.4 built at 640 and glided into over 5 ms (a period of 82 Hz is 12 ms) at the points of the
+    // block (its edges: a constant pitch), from 896 its mix
+    let ((a, wa), (b, wb)) = (pitch_at(0.3), pitch_at(0.4));
+    let mut store = Store::default();
+    two_level_frames(&mut store, [512, 256], [&[1.0], &[4.0]]);
+    let out = one(&mut store, 1024, |i| if i < 512 { a } else { b }, |_| 0.0);
+    let glide = |c: f64| wa + (wb - wa) * c;
+    expect_weights(&out, |i| match i {
+        0..640 => wa,
+        640..768 => glide((i - 640) as f64 / 240.0),
+        768..896 => glide(128.0 / 240.0 + (1.0 - 128.0 / 240.0) * (i - 768) as f64 / 128.0),
+        _ => wb,
+    });
+}
+
+#[test]
+fn a_pitch_that_steps_out_of_the_reach_of_its_mix_reads_its_own_levels_at_once() {
+    // from w 0.3 on its mix to 0.8 at 512, past its reach (a quarter of a level): the levels of the pitch from that
+    // sample, then its mix
+    let ((a, wa), (b, wb)) = (pitch_at(0.3), pitch_at(0.8));
+    let mut store = Store::default();
+    two_level_frames(&mut store, [512, 256], [&[1.0], &[4.0]]);
+    let out = one(&mut store, 1024, |i| if i < 512 { a } else { b }, |_| 0.0);
+    expect_weights(&out, |i| if i < 512 { wa } else { wb });
+}
+
+#[test]
+fn a_voice_that_leaves_the_reach_of_its_mix_while_the_pitch_moves_glides_without_a_step() {
+    // on the mix of w 0.3 from the second block, then up to 0.9 over 1536 samples from 512 (no build: it holds a
+    // band of the reach for less than one costs): on that mix while its reach holds the pitch (to 0.55), then a
+    // glide to the levels of the pitch. Without it a step of 3 × 0.25
+    let (a, wa) = pitch_at(0.3);
+    let mut store = Store::default();
+    two_level_frames(&mut store, [512, 256], [&[1.0], &[4.0]]);
+    let frequency = |i: usize| {
+        if i < 512 {
+            a
+        } else {
+            pitch_at(0.3 + 0.6 * min(1.0, (i - 512) as f64 / 1536.0)).0
+        }
+    };
+    let out = one(&mut store, 2560, frequency, |_| 0.0);
+    // (on the mix while the pitch moves)
+    assert!((out[700] as f64 - (1.0 + 3.0 * wa)).abs() < 1e-5);
+    let most = out
+        .windows(2)
+        .map(|pair| (pair[1] as f64 - pair[0] as f64).abs())
+        .fold(0.0, max);
+    assert!(most < 0.01, "a step of {most}");
+}
+
+#[test]
+fn a_mix_at_the_top_of_its_level_is_left_gliding_before_the_pitch_passes_it() {
+    // on the mix of w 0.9, its reach up to 1 (where the first level reaches the nyquist: from there the second and
+    // the silent one), then up to 1.2 over 1536 samples from 512: it leaves the mix as far before 1 as a glide
+    // takes, so the first level is gone by then (1 + 3w below it, 4 · (2 - x) above it: no step at 1, nor where the
+    // glide would end past it, the levels of the mix read up there)
+    let (a, _) = pitch_at(0.9);
+    let mut store = Store::default();
+    two_level_frames(&mut store, [512, 256], [&[1.0], &[4.0]]);
+    let frequency = |i: usize| {
+        if i < 512 {
+            a
+        } else {
+            pitch_at(0.9 + 0.3 * min(1.0, (i - 512) as f64 / 1536.0)).0
+        }
+    };
+    let out = one(&mut store, 2560, frequency, |_| 0.0);
+    // (a glide of the weights over 5 ms on the rise of the pitch: 0.002 a sample at most; one that went on past 1,
+    // its first level cut there within a segment of 32 samples, would step 0.009 a sample)
+    let most = out
+        .windows(2)
+        .map(|pair| (pair[1] as f64 - pair[0] as f64).abs())
+        .fold(0.0, max);
+    assert!(most < 0.003, "a step of {most}");
+}
+
 #[test]
 fn a_fade_goes_on_above_the_nyquist_and_into_a_version_of_fewer_frames() {
     let mut store = Store::default();
@@ -900,4 +1000,141 @@ fn the_gain_of_a_voice_follows_an_lfo_of_the_shared_from_its_note_on() {
             );
         }
     }
+}
+
+// --- a route on the pitch (Semi, Fine) ---
+
+#[test]
+fn the_routes_on_the_pitch_add_their_offsets_to_the_detune_within_their_bounds() {
+    use crate::envelope::EnvelopeBlock;
+    use crate::modulation::{Modulation, Sources, VoiceRoute, FINE1, PITCH1, TARGET_PARAMS};
+    // ENV 2 a kick: its level 1 at the note on, down to 0 in 80 ms
+    let kick = EnvelopeParams {
+        attack: 0.0,
+        hold: 0.0,
+        decay: 0.08,
+        sustain: 0.0,
+        release: 0.0,
+        curves: [0.0, 3.49, 3.49],
+    };
+    // Oct -1 and Semi +5: the detune -700 cents; ENV 2 on Semi up from it (24 semitones at 1), within its
+    // bounds (-1700..700: Semi from +5 within ±12), and around Fine of 0 at 100% (200 cents, within -100..100)
+    let pitch = VoiceRoute {
+        source: 1.0,
+        param: PITCH1,
+        amount: 2400.0,
+        min: -1700.0,
+        max: 700.0,
+        scale: 0,
+        bipolar: false,
+    };
+    let fine = VoiceRoute {
+        param: FINE1,
+        amount: 200.0,
+        min: -100.0,
+        max: 100.0,
+        bipolar: true,
+        ..pitch
+    };
+    let mut envelopes = note().envelopes;
+    envelopes[1] = kick;
+    let blocks = 75;
+    // the offsets the routes give the pitch of osc 1 from 0, block by block
+    let mut accesses = [false; TARGET_PARAMS];
+    accesses[PITCH1] = true;
+    accesses[FINE1] = true;
+    let mut modulation = Modulation::new(RATE, 3, false, &[pitch, fine], accesses);
+    let mut levels: Vec<EnvelopeBlock> = envelopes
+        .iter()
+        .map(|params| EnvelopeBlock::new(*params, RATE, 0.0))
+        .collect();
+    let velocity = Glided::new(0.0);
+    let zero = [0.0f32];
+    let bases: [&[f32]; TARGET_PARAMS] = core::array::from_fn(|_| &zero[..]);
+    let offsets: Vec<[Vec<f32>; 2]> = (0..blocks)
+        .map(|block| {
+            let frame = (block * 128) as f64;
+            levels
+                .iter_mut()
+                .for_each(|envelope| envelope.render(frame, 0.0, 128.0));
+            let sources = Sources {
+                envelopes: &levels,
+                velocity: &velocity,
+                lfos: &[],
+            };
+            modulation.apply(&bases, &sources, frame, 0.0, 128.0, 128);
+            [PITCH1, FINE1].map(|param| modulation.moved(param).expect("moved").to_vec())
+        })
+        .collect();
+    // Semi at the top of its bounds (+12) while the kick is over 700 / 2400 (27 ms), then down to its value;
+    // Fine from +100 down to -100: one value each once the kick is over
+    let [semi, cents] = &offsets[0];
+    assert!(semi.iter().all(|offset| *offset == 700.0) && cents[0] == 100.0);
+    assert!(offsets[20][0]
+        .iter()
+        .all(|offset| *offset > 0.0 && *offset < 700.0));
+    assert_eq!(offsets[blocks - 1], [vec![0.0], vec![-100.0]]);
+
+    // a voice of 3 unison voices on the sine of the store, its detune moved by the routes or given the sum
+    let play = |routes: Vec<VoiceRoute>, detune: &dyn Fn(usize) -> Vec<f32>| {
+        let (mut store, mut shared) = (Store::default(), Shared::default());
+        let osc = OscOptions {
+            table: 9,
+            unison: 3.0,
+            phase: 0.0,
+            phase_rand: 0.0,
+            random: [0.0; 8],
+            shape: UnisonShape::default(),
+        };
+        let mut voice = Voice::new(
+            RATE,
+            VoiceOptions {
+                osc: [Some(osc), None],
+                envelopes: envelopes.clone(),
+                routes,
+                ..note()
+            },
+            &mut shared,
+        );
+        voice.attach(&mut store, &mut shared);
+        let (mut left, mut right) = (vec![0.0f32; blocks * 128], vec![0.0f32; blocks * 128]);
+        for block in 0..blocks {
+            let frame = block * 128;
+            let d = detune(block);
+            let params: [&[f32]; PARAMS] = [
+                &[110.0],
+                &[1.0],
+                &[0.0],
+                d.as_slice(),
+                &[20.0],
+                &[0.5],
+                &[0.0],
+                &[0.0],
+                &[0.0],
+                &[0.5],
+            ];
+            voice.process(
+                frame as f64,
+                &params,
+                &mut left[frame..frame + 128],
+                &mut right[frame..frame + 128],
+                &mut store,
+                &mut shared,
+            );
+        }
+        voice.end(&mut store, &mut shared);
+        (left, right)
+    };
+    let at = |values: &[f32], i: usize| values[if values.len() > 1 { i } else { 0 }] as f64;
+    let routed = play(vec![pitch, fine], &|_| vec![-700.0]);
+    let given = play(Vec::new(), &|block| {
+        let [semi, cents] = &offsets[block];
+        let length = semi.len().max(cents.len());
+        (0..length)
+            .map(|i| (-700.0 + at(semi, i) + at(cents, i)) as f32)
+            .collect()
+    });
+    assert_eq!(routed, given);
+    // (not the note alone)
+    assert_ne!(routed, play(Vec::new(), &|_| vec![-700.0]));
 }

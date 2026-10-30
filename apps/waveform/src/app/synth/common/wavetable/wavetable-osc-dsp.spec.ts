@@ -1799,7 +1799,7 @@ describe('the wavetable voice', () => {
       release: 0,
     });
     const level = (env: EnvelopeParams, frame: number) => envelopeValue(env, frame / RATE);
-    const route = (param: VoiceParam, amount: number, min = 0, max = 1, source = 1): VoiceRoute => ({
+    const route = (param: string, amount: number, min = 0, max = 1, source = 1): VoiceRoute => ({
       source,
       param,
       amount,
@@ -1913,6 +1913,235 @@ describe('the wavetable voice', () => {
       expect(left[2048 + 240]).toBeCloseTo(0.5, 2);
       expect(left[2048 + 480]).toBeCloseTo(1, 4);
       expect(maxStep(left)).toBeLessThan(0.003);
+    });
+
+    describe('the pitch (Semi and Fine: offsets of the detune)', () => {
+      // a kick: ENV 2 from 36 semitones over the note down to it in 80 ms (bounds the app never gives: those of
+      // Semi are 48 semitones)
+      const kick = decay(0);
+      const KICK_FRAMES = 0.08 * RATE;
+      const pitched = (frames: number, shared = core.createVoiceShared()) => {
+        const { store } = core.storeWith({ a: [sine] });
+        const { left } = render({
+          store,
+          shared,
+          params: { frequency: 55, detune1: -1200 },
+          frames,
+          envelopes: [{ ...kick, decay: 0.08 }, FLAT],
+          routes: [route('pitch1', 3600, -12000, 12000)],
+        });
+        return { left, stats: shared.stats() };
+      };
+
+      it('follows the pitch of the route on the detune from its base, sample by sample: no step', () => {
+        const frames = 0.2 * RATE;
+        const { left } = pitched(frames);
+        // the phase of a sine at 55 Hz × 2^((-1200 + 3600 × ENV 2) / 1200)
+        let phase = 0;
+        let maxError = 0;
+        for (let i = 0; i < frames; i++) {
+          maxError = Math.max(maxError, Math.abs(left[i] - Math.sin(2 * Math.PI * phase)));
+          const cents = -1200 + 3600 * level({ ...kick, decay: 0.08 }, i);
+          phase += (55 * 2 ** (cents / 1200)) / RATE;
+          phase -= Math.floor(phase);
+        }
+        // (the points every 32 samples of a pitch falling 3 octaves in 80 ms: within 0.001 of a period)
+        expect(maxError).toBeLessThan(5e-3);
+        // no step: a sample moves at most as far as a sine of the highest pitch, 220 Hz
+        const most = (2 * Math.PI * 220) / RATE;
+        for (let i = 1; i < frames; i++) expect(Math.abs(left[i] - left[i - 1])).toBeLessThan(most * 1.01);
+        // then at its base: an octave under the note
+        expect(measureFrequency(left.subarray(0.1 * RATE))).toBeCloseTo(27.5, 2);
+      });
+
+      it('plays directly while the pitch moves, on its mix tables again once it is flat', () => {
+        expect(pitched(KICK_FRAMES).stats.mixSamples).toBe(0);
+        expect(pitched(0.3 * RATE).stats.mixSamples).toBeGreaterThan(0);
+      });
+
+      it('adds the offsets of Semi and Fine to the detune, each within its bounds', () => {
+        const { store } = core.storeWith({ a: [sine] });
+        // Oct -1, Semi +5: -700 cents; ENV 2 at 1 on Semi (+2400) stops at the top of its bounds (+700: Semi
+        // from +5 at most +12), on Fine around 0 at 100% (+100 at 1): a semitone over the note
+        const { left } = render({
+          store,
+          params: { frequency: 55, detune1: -700 },
+          frames: 0.2 * RATE,
+          envelopes: [FLAT],
+          routes: [route('pitch1', 2400, -1700, 700), { ...route('fine1', 200, -100, 100), bipolar: true }],
+        });
+        expect(measureFrequency(left)).toBeCloseTo(55 * 2 ** (1 / 12), 2);
+      });
+
+      // a vibrato of 5 Hz, ±50 cents on the detune: the pitch moves in every block
+      const vibrato = (frame: number) => 50 * Math.sin((2 * Math.PI * 5 * frame) / RATE);
+      const share = ({ mixSamples, directSamples }: { mixSamples: number; directSamples: number }) =>
+        mixSamples / (mixSamples + directSamples);
+
+      it('plays the mix tables of its voices while the pitch moves slowly, their steps as directly', () => {
+        const { store } = core.storeWith({ a: [sine] });
+        const frames = 0.5 * RATE;
+        // two voices 20 cents apart (a pair on their mixes, render11_pair: the higher one left, the lower right)
+        // and one alone, the phase of a sine at 220 Hz × the vibrato in each channel
+        const spread = 20;
+        [2, 1].forEach((unison) => {
+          const shared = core.createVoiceShared();
+          const { left, right } = render({
+            store,
+            shared,
+            oscs: [osc({ unison })],
+            params: { frequency: 220, detune1: vibrato, spread1: spread },
+            frames,
+          });
+          const cents = unison === 2 ? spread / 2 : 0;
+          (
+            [
+              [left, cents],
+              [right, -cents],
+            ] as const
+          ).forEach(([channel, offset]) => {
+            let phase = 0;
+            let maxError = 0;
+            for (let i = 0; i < frames; i++) {
+              maxError = Math.max(maxError, Math.abs(channel[i] - Math.sin(2 * Math.PI * phase)));
+              phase += (220 * 2 ** ((vibrato(i) + offset) / 1200)) / RATE;
+              phase -= Math.floor(phase);
+            }
+            // (the points every 32 samples, the steps linear between them)
+            expect(maxError).toBeLessThan(1e-3);
+          });
+          // (the first 0.08 s directly: the mix is built once the pitch has held a band of the reach as long as
+          // its build costs played directly)
+          expect(share(shared.stats())).toBeGreaterThan(0.8);
+        });
+      });
+
+      it('builds a mix of a unison voice again only when its pitch leaves the reach of the one it has', () => {
+        const { store } = core.storeWith({ a: [saw] });
+        const shared = core.createVoiceShared();
+        render({
+          store,
+          shared,
+          oscs: [osc({ unison: 8 })],
+          params: { frequency: 220, detune1: vibrato, spread1: 20 },
+          frames: RATE,
+        });
+        const stats = shared.stats();
+        expect(share(stats)).toBeGreaterThan(0.9);
+        // a quarter of a level (100 cents) each way holds a swing of 100 cents: one build a voice in 5 periods
+        expect(stats.builds).toBe(8);
+      });
+
+      it('plays a wide vibrato directly: a turn of it holds a mix for a moment', () => {
+        const { store } = core.storeWith({ a: [saw] });
+        const shared = core.createVoiceShared();
+        // ±200 cents at 5 Hz: the pitch stays within the reach of a turn for a third of a period, less than a
+        // build costs
+        render({
+          store,
+          shared,
+          oscs: [osc({ unison: 8 })],
+          params: { frequency: 220, detune1: (frame) => 4 * vibrato(frame), spread1: 20 },
+          frames: RATE,
+        });
+        expect(shared.stats().builds).toBe(0);
+      });
+
+      it('sweeps a saw slowly over two levels on its mixes, no steeper than the pitches it passes', () => {
+        const { store } = core.storeWith({ a: [saw] });
+        const shared = core.createVoiceShared();
+        const seconds = 2;
+        // two levels (two thirds of an octave) up from 100 Hz: levels as long as a mix, a build of 3 × 4096
+        // multiply-adds
+        const frequency = (frame: number) => 100 * 2 ** ((2 / 3) * Math.min(1, frame / (seconds * RATE)));
+        const { left } = render({ store, shared, params: { frequency }, frames: seconds * RATE });
+        const stationary = Array.from({ length: 32 }, (_, i) =>
+          maxStep(
+            render({ store, params: { frequency: 100 * 2 ** ((2 / 3) * (i / 31)) }, frames: 4096 }).left
+          )
+        );
+        expect(maxStep(left)).toBeLessThanOrEqual(1.1 * Math.max(...stationary));
+        // a mix at the middle of each band of the reach once the pitch has held it as long as the build costs
+        // played directly (0.08 s), then the next one
+        expect(share(shared.stats())).toBeGreaterThan(0.85);
+        expect(shared.stats().builds).toBe(10);
+      });
+
+      it('takes a mix of a pitch that came back again: no build', () => {
+        const { store } = core.storeWith({ a: [saw] });
+        const shared = core.createVoiceShared();
+        // a bend of 50 cents up and back within 0.1 s, at 0.2 s
+        const bend = (frame: number) => {
+          const t = frame / RATE - 0.2;
+          return t > 0 && t < 0.1 ? 25 * (1 - Math.cos(20 * Math.PI * t)) : 0;
+        };
+        let before = -1;
+        render({
+          store,
+          shared,
+          oscs: [osc({ unison: 8 })],
+          params: { frequency: 220, detune1: bend, spread1: 20 },
+          frames: 0.5 * RATE,
+          before: (frame) => {
+            if (frame === 9600 - (9600 % BLOCK)) before = shared.stats().builds;
+          },
+        });
+        expect(before).toBe(8);
+        expect(shared.stats().builds).toBe(8);
+      });
+
+      // a frame of every harmonic at one level (an impulse): a mix differs most from the levels read directly
+      const impulse = Array.from({ length: 2048 }, (_, n) => (n === 0 ? 1 : 0));
+
+      it('plays every harmonic of a moving pitch from its mix within the reach of its gain directly', () => {
+        // two frames of it: a position that moves within frame 0 plays it directly, a still one plays the mixes
+        const { store } = core.storeWith({ a: [impulse, impulse] });
+        const seconds = 2;
+        const frames = seconds * RATE;
+        const frequency = (frame: number) => 100 * 2 ** ((2 / 3) * Math.min(1, frame / frames));
+        const play = (position1: number | ((frame: number) => number)) => {
+          const shared = core.createVoiceShared();
+          const { left } = render({ store, shared, params: { frequency, position1 }, frames });
+          return { left, share: share(shared.stats()) };
+        };
+        const mixed = play(0.25);
+        const direct = play((frame) => (frame % 2 ? 0.2 : 0.3));
+        expect(mixed.share).toBeGreaterThan(0.7);
+        expect(direct.share).toBe(0);
+        const error = mixed.left.map((v, i) => v - direct.left[i]);
+        let worst = 0;
+        for (let from = 0; from + 1024 <= frames; from += 1024)
+          worst = Math.max(worst, rms(error, from, from + 1024) / rms(direct.left, from, from + 1024));
+        // the harmonics of the top third of an octave of a level (a share 1 - 2^(-1/3) of them) within a quarter
+        // of a level of their gains: −19 dB at most, −18.5 with the reads of the levels interpolated otherwise
+        // (a mix a level off: −7 dB)
+        expect(db(worst)).toBeLessThan(-17);
+      });
+
+      it('never plays a mix above where the richest of its levels reaches the nyquist', () => {
+        // harmonics 102..127: levels 0..9 have them (up to 1024 · 2^(-9/3) = 128), level 10 (up to 101) none
+        const band = cycle(
+          2048,
+          Array.from({ length: 26 }, (_, i): [number, number] => [102 + i, 1])
+        );
+        const { store } = core.storeWith({ a: [band] });
+        // x = 1 + 3·log2(1024 · f / nyquist) up from 9.5 to 10.5: level 9 read to x = 10 (187.5 Hz), then 10 and
+        // 11: silence
+        const seconds = 4;
+        const frames = seconds * RATE;
+        const frequency = (frame: number) =>
+          (RATE / 2 / 1024) * 2 ** ((9.5 + Math.min(1, frame / frames) - 1) / 3);
+        const shared = core.createVoiceShared();
+        const { left, right } = render({ store, shared, params: { frequency }, frames });
+        const stats = shared.stats();
+        expect(share(stats)).toBeGreaterThan(0.9);
+        // past the block x reaches 10 in: what levels 10 and 11 have of them (the FFT of the frame)
+        let peak = 0;
+        for (let i = (Math.floor(frames / 2 / BLOCK) + 1) * BLOCK; i < frames; i++)
+          peak = Math.max(peak, Math.abs(left[i]), Math.abs(right[i]));
+        expect(peak).toBeLessThan(1e-9);
+        expect(rms(left, 0, frames / 4)).toBeGreaterThan(0.1);
+      });
     });
 
     describe('the velocity', () => {
