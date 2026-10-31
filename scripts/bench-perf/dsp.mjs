@@ -596,7 +596,12 @@ const createCases = (dsp) => {
     ),
     ...withTs(
       {
+        // silence: the limiter skips its blocks once it has let go
+        'limiter silent': [new Float32Array(RATE)],
+        // under the bound of its true peaks: the samples alone
         'limiter quiet': [noise(RATE, 0.05)],
+        // over it, under the ceiling: the 4× interpolation of both sides
+        'limiter loud': [noise(RATE, 0.4)],
         'limiter limiting': [noise(RATE, 2)],
       },
       dsp.wasm.limiter &&

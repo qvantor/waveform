@@ -88,6 +88,23 @@ impl StereoTruePeak {
             },
         )
     }
+
+    /// as `n` samples of +0 on both sides once the history holds only +0 and both channels are quiet: the ring
+    /// moves on, nothing else changes
+    pub fn skip(&mut self, n: usize) {
+        self.pos = (self.pos + TRUE_PEAK_TAPS - n % TRUE_PEAK_TAPS) % TRUE_PEAK_TAPS;
+    }
+
+    /// the bits of its state (the specs of a core compare a core that skipped silence with one that rendered it)
+    pub fn state_bits(&self) -> impl Iterator<Item = u64> + '_ {
+        let history = self
+            .history
+            .iter()
+            .flat_map(|h| [h.lo().to_bits(), h.hi().to_bits()]);
+        [self.pos as u64, self.loud[0] as u64, self.loud[1] as u64]
+            .into_iter()
+            .chain(history)
+    }
 }
 
 #[cfg(test)]

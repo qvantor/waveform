@@ -337,6 +337,38 @@ describe('the limiter', () => {
     expect(samplePeak(outL)).toBeCloseTo(0.9, 2);
   });
 
+  it('skips the blocks of silence once it has let go, as if it rendered them', () => {
+    const block = (value: (i: number) => number) => Float32Array.from({ length: BLOCK }, (_, i) => value(i));
+    const loud = block((i) => 4 * Math.sin(i / 7.64));
+    const [zero, negative] = [block(() => 0), block(() => -0)];
+    // the second limiter gets −0 for the silence: it renders every block
+    const [skipping, rendering] = [0, 1].map(() => createLimiterWasm(core, SAMPLE_RATE));
+    const [outL, outR, otherL, otherR] = [0, 1, 2, 3].map(() => new Float32Array(BLOCK));
+    const idle: boolean[] = [];
+    const play = (input: Float32Array, blocks: number) => {
+      for (let i = 0; i < blocks; i++) {
+        skipping.process(input, input, outL, outR);
+        const other = input === zero ? negative : input;
+        rendering.process(other, other, otherL, otherR);
+        // (+0 and −0 are equal)
+        outL.forEach((value, n) => expect(value === otherL[n]).toBe(true));
+        outR.forEach((value, n) => expect(value === otherR[n]).toBe(true));
+        idle.push(skipping.idle);
+      }
+    };
+    play(loud, 40);
+    // its release: 0.25 s without a peak, then the fast one, then the averages back at exactly 1
+    play(zero, 150);
+    expect(idle.some(Boolean)).toBe(false);
+    play(zero, 150);
+    expect(idle.at(-1)).toBe(true);
+    expect(rendering.idle).toBe(false);
+    // woken by the next note, which it limits as the one that rendered the silence
+    play(loud, 40);
+    expect(skipping.idle).toBe(false);
+    expect(samplePeak(outL)).toBeLessThanOrEqual(MAX_SAMPLE);
+  });
+
   it('links the sides: a loud left side turns the right one down by the same gain', () => {
     const { L, R, gain } = renderCore(
       (n, channel) => (channel ? 0.25 : 4) * Math.sin(n / (channel ? 11 : 7.64)),

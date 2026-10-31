@@ -29,6 +29,24 @@ const signal = (frames, amplitude) => {
   );
 };
 
+// the chord under the ceiling, a silence the limiter rests in, the chord 12 dB over, its release into a silence it
+// rests in too, the chord again: the blocks it skips and those it wakes in
+const notesAndSilences = (frames) => {
+  const [quiet, loud] = [signal(frames, 0.5), signal(frames, 2)];
+  // (the chord is in the first 60% of a signal)
+  const chord = (source, n) => source[n % Math.floor(0.6 * frames)];
+  return [0, 1].map((channel) =>
+    Float32Array.from({ length: frames }, (_, n) => {
+      const share = n / frames;
+      if (share < 0.1) return chord(quiet[channel], n);
+      if (share < 0.2) return 0;
+      if (share < 0.3) return chord(loud[channel], n);
+      if (share < 0.85) return 0;
+      return chord(quiet[channel], n);
+    })
+  );
+};
+
 const REVERB = {
   lowcut: 20,
   pre: 0.02,
@@ -222,6 +240,15 @@ export const SCENES = [
     create: (dsp, wasm) => dsp.createLimiterWasm(wasm.limiter, RATE),
   },
   {
+    name: 'limiter, notes and silences: idle and woken',
+    module: 'limiter',
+    processor: 'waveform-limiter',
+    options: STEREO,
+    frames: 2 * RATE,
+    input: () => notesAndSilences(2 * RATE),
+    create: (dsp, wasm) => dsp.createLimiterWasm(wasm.limiter, RATE),
+  },
+  {
     name: 'reverb, the 70s era',
     module: 'reverb',
     processor: 'waveform-reverb',
@@ -341,7 +368,7 @@ const nodeOscRender = async (scene) => {
 export const nodeRender = async (scene) => {
   if (scene.kind === 'osc') return nodeOscRender(scene);
   const { dsp, wasm } = await load();
-  const input = signal(scene.frames, scene.amplitude);
+  const input = scene.input?.() ?? signal(scene.frames, scene.amplitude);
   const core = scene.create(dsp, wasm);
   const output = [new Float32Array(scene.frames), new Float32Array(scene.frames)];
   for (let at = 0; at < scene.frames; at += BLOCK) {
