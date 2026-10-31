@@ -4,6 +4,7 @@
 use crate::velocity::Volume;
 use alloc::{vec, vec::Vec};
 use dsp_core::biquad::{coefficients_into, FilterType};
+use dsp_core::simd::F64x2;
 use jsmath::{exp, log2, max, min, pow};
 
 /// the knobs of the filter (VoiceFilterOptions), the type an index of FILTER_TYPES (None: unknown)
@@ -195,7 +196,7 @@ impl VoiceFilter {
 }
 
 // a span s..e of both channels (the middle voices added into each) through the biquad, × the volume (ENV 1 × the
-// amp of the velocity)
+// amp of the velocity), both channels in the lanes (each lane the operations of its channel, in the same order)
 fn filter_span(
     left: &[f32],
     right: &[f32],
@@ -208,21 +209,20 @@ fn filter_span(
     z: &mut [f64; 4],
     volume: Volume,
 ) {
-    let [b0, b1, b2, a1, a2] = *c;
-    let [mut z1l, mut z2l, mut z1r, mut z2r] = *z;
+    let [b0, b1, b2, a1, a2] = c.map(F64x2::splat);
+    let mut z1 = F64x2::new(z[0], z[2]);
+    let mut z2 = F64x2::new(z[1], z[3]);
+    let (left, right, center) = (&left[..e], &right[..e], &center[..e]);
+    let (out_l, out_r) = (&mut out_l[..e], &mut out_r[..e]);
     for i in s..e {
-        let m = center[i] as f64;
-        let xl = left[i] as f64 + m;
-        let xr = right[i] as f64 + m;
-        let yl = b0 * xl + z1l;
-        z1l = b1 * xl - a1 * yl + z2l;
-        z2l = b2 * xl - a2 * yl;
-        let yr = b0 * xr + z1r;
-        z1r = b1 * xr - a1 * yr + z2r;
-        z2r = b2 * xr - a2 * yr;
-        let g = volume.at(i);
-        out_l[i] = (yl * g) as f32;
-        out_r[i] = (yr * g) as f32;
+        let m = F64x2::splat(center[i] as f64);
+        let x = F64x2::new(left[i] as f64, right[i] as f64) + m;
+        let y = b0 * x + z1;
+        z1 = b1 * x - a1 * y + z2;
+        z2 = b2 * x - a2 * y;
+        let out = y * F64x2::splat(volume.at(i));
+        out_l[i] = out.lo() as f32;
+        out_r[i] = out.hi() as f32;
     }
-    *z = [z1l, z2l, z1r, z2r];
+    *z = [z1.lo(), z2.lo(), z1.hi(), z2.hi()];
 }

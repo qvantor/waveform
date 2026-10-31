@@ -1,14 +1,17 @@
 import React from 'react';
 import { scaleLog } from 'd3-scale';
 import styled from 'styled-components';
-import { number, requestIdleCallback, cancelIdleCallback } from '@waveform/math';
+import { number } from '@waveform/math';
 import { theme } from '../common/constants';
+import { MeterLoop, meterLoop } from '../common/utils/meter-loop';
 
 interface Props {
   master: AudioNode;
   audioCtx: AudioContext;
   fftSize?: number;
   className?: string;
+  // a voice sounds: drawn every frame; else it sleeps once the output has been silent a while (meterLoop)
+  active?: boolean;
 }
 
 const Canvas = styled.canvas`
@@ -35,9 +38,11 @@ const MAX_DB = -10;
 
 const formatFq = (fq: number) => (fq >= 1000 ? `${fq / 1000}k` : `${fq}`);
 
-export const FqAnalyser = ({ fftSize = 12, master, audioCtx, className }: Props) => {
+export const FqAnalyser = ({ fftSize = 12, master, audioCtx, className, active = true }: Props) => {
   const rootRef = React.useRef<HTMLDivElement>(null);
   const ref = React.useRef<HTMLCanvasElement>(null);
+  const activeRef = React.useRef(active);
+  const loopRef = React.useRef<MeterLoop | null>(null);
   const [[width, height], setSize] = React.useState<[number, number]>([300, 150]);
   const scale = React.useMemo(
     () =>
@@ -62,7 +67,6 @@ export const FqAnalyser = ({ fftSize = 12, master, audioCtx, className }: Props)
 
   React.useEffect(() => {
     if (!ref.current) return;
-    let idleCallback = requestIdleCallback(draw);
     const analyser = audioCtx.createAnalyser();
     analyser.fftSize = number.powerOfTwo(fftSize);
     analyser.maxDecibels = MAX_DB;
@@ -77,30 +81,64 @@ export const FqAnalyser = ({ fftSize = 12, master, audioCtx, className }: Props)
     gradient.addColorStop(0, theme.colors.accent);
     gradient.addColorStop(1, theme.colors.secondAccent);
 
-    // [bin index, x, width]; bins below MIN_FQ are not drawn
-    const grid: [number, number, number][] = [];
+    // [first bin, end bin, x, width]: a column of a bin a pixel wide or more, or of the next bins narrower than a
+    // pixel together (the high ones: 2047 bars of 4096 bins are ~400 columns at 800 px), as tall as the tallest
+    // of them (their bars drawn one over the other showed as much); the bins below MIN_FQ are not drawn
+    const columns: [number, number, number, number][] = [];
+    let from = -1;
+    let start = 0;
     for (let i = 0; i < bufferLength; i++) {
       if ((i + 1) * freqPerItem <= MIN_FQ) continue;
-      const start = scale(Math.max(i * freqPerItem, MIN_FQ));
-      grid.push([i, start, scale((i + 1) * freqPerItem) - start]);
-    }
-
-    function draw() {
-      idleCallback = requestIdleCallback(draw);
-      analyser.getByteFrequencyData(frequencyData);
-      ctx.clearRect(0, 0, width, height);
-
-      ctx.fillStyle = gradient;
-      for (const [i, x, w] of grid) {
-        ctx.fillRect(x, height, w, (-frequencyData[i] / 255) * height);
+      if (from < 0) {
+        from = i;
+        start = scale(Math.max(i * freqPerItem, MIN_FQ));
       }
+      const end = scale((i + 1) * freqPerItem);
+      if (end - start < 1 && i < bufferLength - 1) continue;
+      columns.push([from, i + 1, start, end - start]);
+      from = -1;
     }
+    const tops = new Uint8Array(columns.length);
+    // the canvas has bars on it: a frame without any clears it once, then nothing is drawn (no commit)
+    let shown = false;
+
+    const draw = () => {
+      analyser.getByteFrequencyData(frequencyData);
+      let any = false;
+      for (let c = 0; c < columns.length; c++) {
+        const [first, end] = columns[c];
+        let top = 0;
+        for (let i = first; i < end; i++) if (frequencyData[i] > top) top = frequencyData[i];
+        tops[c] = top;
+        if (top > 0) any = true;
+      }
+      if (!any && !shown) return false;
+      ctx.clearRect(0, 0, width, height);
+      shown = any;
+      if (!any) return false;
+      ctx.fillStyle = gradient;
+      for (let c = 0; c < columns.length; c++) {
+        if (tops[c] === 0) continue;
+        const [, , x, w] = columns[c];
+        ctx.fillRect(x, height, w, (-tops[c] / 255) * height);
+      }
+      return true;
+    };
+    const loop = meterLoop(draw);
+    loop.setAwake(activeRef.current);
+    loopRef.current = loop;
 
     return () => {
-      cancelIdleCallback(idleCallback);
+      loop.stop();
+      loopRef.current = null;
       master.disconnect(analyser);
     };
   }, [width, height, fftSize, audioCtx, master, scale]);
+
+  React.useEffect(() => {
+    activeRef.current = active;
+    loopRef.current?.setAwake(active);
+  }, [active]);
 
   return (
     <div className={className} ref={rootRef}>

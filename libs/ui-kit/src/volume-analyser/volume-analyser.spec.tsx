@@ -1,6 +1,7 @@
 import React from 'react';
-import { render } from '@testing-library/react';
+import { act, render } from '@testing-library/react';
 import { theme } from '../common/constants';
+import { QUIET_MS } from '../common/utils/meter-loop';
 import { FFT_SIZE, METER } from './meter';
 import { VolumeAnalyser } from './index';
 
@@ -28,7 +29,7 @@ interface Rect {
   h: number;
 }
 
-const setup = () => {
+const setup = ({ active }: { active?: boolean } = {}) => {
   const rects: Rect[] = [];
   const gradient = { addColorStop: jest.fn() };
   // jsdom has no canvas: getContext returns a stub that records the drawn rects with their fill
@@ -44,7 +45,9 @@ const setup = () => {
   // keep the scheduled frame to draw it by hand with a timestamp
   let frame: ((time: number) => void) | undefined;
   let frameId = 0;
-  const cancelAnimationFrame = jest.fn();
+  const cancelAnimationFrame = jest.fn(() => {
+    frame = undefined;
+  });
   Object.assign(window, {
     requestAnimationFrame: (callback: (time: number) => void) => {
       frame = callback;
@@ -79,12 +82,14 @@ const setup = () => {
   } as unknown as AudioContext;
   const master = { connect: jest.fn(), disconnect: jest.fn() } as unknown as AudioNode;
 
-  const result = render(<VolumeAnalyser audioCtx={audioCtx} master={master} />);
+  const result = render(<VolumeAnalyser audioCtx={audioCtx} master={master} active={active} />);
 
   // draws one frame at time ms, returns the bar and the mark of each column
   const drawFrame = (time: number) => {
     rects.length = 0;
-    frame?.(time);
+    const callback = frame;
+    frame = undefined;
+    callback?.(time);
     const column = (x: number) => ({
       bar: rects.find((rect) => rect.x === x && rect.style === gradient),
       mark: rects.find((rect) => rect.x === x && rect.style === theme.colors.thirdAccent),
@@ -101,6 +106,11 @@ const setup = () => {
     gradient,
     cancelAnimationFrame,
     drawFrame,
+    rects,
+    clearRect: ctx.clearRect,
+    scheduled: () => frame !== undefined,
+    rerenderActive: (value: boolean) =>
+      result.rerender(<VolumeAnalyser audioCtx={audioCtx} master={master} active={value} />),
   };
 };
 
@@ -198,6 +208,39 @@ describe('VolumeAnalyser', () => {
       [0.9375, theme.colors.red],
       [1, theme.colors.red],
     ]);
+  });
+
+  it('clears the canvas once when the output goes silent and the peak mark has fallen, then draws nothing', () => {
+    const { signals, drawFrame, clearRect, rects } = setup();
+    signals.L = square(-6);
+    drawFrame(0);
+    signals.L = silence;
+    // held 1 s, then falls 20 dB/s from -6 to below -48 dB
+    expect(drawFrame(1000).L.mark).toBeDefined();
+    clearRect.mockClear();
+    drawFrame(3200);
+    expect(clearRect).toHaveBeenCalledTimes(1);
+    expect(rects.every(({ h }) => h === 0)).toBe(true);
+    drawFrame(3220);
+    drawFrame(3240);
+    expect(clearRect).toHaveBeenCalledTimes(1);
+    expect(rects).toHaveLength(0);
+  });
+
+  it(`sleeps once silent for ${QUIET_MS} ms while no voice sounds, wakes with the next one`, () => {
+    const { signals, drawFrame, scheduled, rerenderActive } = setup({ active: false });
+    for (let time = 0; time <= QUIET_MS + 100; time += 1000 / 60) drawFrame(time);
+    expect(scheduled()).toBe(false);
+    act(() => rerenderActive(true));
+    expect(scheduled()).toBe(true);
+    signals.L = square(-6);
+    expect(drawFrame(QUIET_MS + 1000).L.bar?.h).toBeLessThan(0);
+  });
+
+  it('keeps drawing while a voice sounds, even in silence', () => {
+    const { drawFrame, scheduled } = setup({ active: true });
+    for (let time = 0; time <= 2 * QUIET_MS; time += 1000 / 60) drawFrame(time);
+    expect(scheduled()).toBe(true);
   });
 
   it('cancels the first frame and disconnects from the master when unmounted before drawing', () => {

@@ -13,13 +13,16 @@
 //   (the shares of the source frames in each), the morph marks 1..4 on frames of other phases
 // - frame-fades.json: how a moving position (A WT Pos automated by host.swift) goes from one frame to another:
 //   the length of the fade by note and rate, sweeps, two unison voices, a pitch bend during a fade
+// - aliasing.json: the sound criteria of the oscillator benchmark (scripts/bench-osc: its tables, pitches and rates,
+//   the frame it compares as a table of one frame), which it checks ours against
 // Its knobs are 0..1: the times are 32 s · v⁵, the sustain v² (-12 dB at 0.5), the voices 1 + 15v.
-// `--only=envelopes,unison,unison-modes,phases,frames,frame-fades` renders some of them
+// `--only=envelopes,unison,unison-modes,phases,frames,frame-fades,aliasing` renders some of them
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
-import { readEnv } from '../bench-common.mjs';
+import { downloadTables, fileName, readEnv } from '../bench-common.mjs';
+import { analyze, frameOf, PITCHES, sawFrame, SIZE, TABLES } from '../bench-osc/sound.mjs';
 import { editedState, tables, writeTable } from './state.mjs';
 
 const require = createRequire(import.meta.url);
@@ -804,6 +807,132 @@ if (runs('frame-fades')) {
       `dsp/measurements: frame fades of ${Object.keys(lengths).length} rates, ${
         Object.keys(sweeps).length
       } sweeps`
+    );
+  } finally {
+    removeTables();
+  }
+}
+
+// --- aliasing ---
+if (runs('aliasing')) {
+  const RATES = [44100, 48000, 96000];
+  // the frames of a table of the bucket (mono float32, frames of 2048 samples, 256 at most: as the benchmark reads it)
+  const framesOf = (file) => {
+    const bytes = readFileSync(file);
+    let float = false;
+    for (let at = 12; at + 8 <= bytes.length; ) {
+      const id = bytes.toString('latin1', at, at + 4);
+      const size = bytes.readUInt32LE(at + 4);
+      if (id === 'fmt ') float = bytes.readUInt16LE(at + 8) === 3 && bytes.readUInt16LE(at + 22) === 32;
+      if (id === 'data') {
+        if (!float) throw new Error(`${file}: not float32`);
+        const start = bytes.byteOffset + at + 8;
+        const samples = new Float32Array(bytes.buffer.slice(start, start + size));
+        return Array.from({ length: Math.min(256, Math.floor(samples.length / 2048)) }, (_, k) => [
+          ...samples.subarray(k * 2048, (k + 1) * 2048),
+        ]);
+      }
+      at += 8 + size + (size & 1);
+    }
+    throw new Error(`${file}: no data`);
+  };
+  const tablesDir = join(root, 'tmp/bench-osc/tables');
+  await downloadTables(TABLES, tablesDir);
+  const sources = [
+    ['saw', sawFrame()],
+    ...TABLES.map((key) => {
+      const frames = framesOf(join(tablesDir, fileName(key)));
+      return [fileName(key), frames[frameOf(frames)]];
+    }),
+  ];
+  // the note nearest to a pitch of the benchmark (it plays 1046 Hz, the AU C6 at 1046.5), the frequency of it the
+  // AU plays: the one within ±1 cent (by 0.05) the fundamental is loudest at (the bands of the analysis are ±14
+  // bins wide: a harmonic 400 of 55 Hz 0.025 cent off is within 0.3 Hz)
+  const noteOf = (pitch) => Math.round(69 + 12 * Math.log2(pitch / 440));
+  const fundamental = (x, rate, note) => {
+    const nominal = 440 * 2 ** ((note - 69) / 12);
+    const from = x.length - SIZE;
+    let best = { frequency: nominal, amplitude: -1 };
+    for (let c = -20; c <= 20; c++) {
+      const frequency = nominal * 2 ** (c / 24000);
+      const w = (2 * Math.PI * frequency) / rate;
+      let a = 0;
+      let b = 0;
+      for (let n = from; n < x.length; n++) {
+        a += x[n] * Math.cos(w * n);
+        b += x[n] * Math.sin(w * n);
+      }
+      const amplitude = Math.hypot(a, b);
+      if (amplitude > best.amplitude) best = { frequency, amplitude };
+    }
+    return best.frequency;
+  };
+  const round = (value) => Number(value.toFixed(1));
+  try {
+    const results = {};
+    const floor = {};
+    const jobs = [];
+    // a note of osc A at one voice on the frame (a table of it alone): its left channel, SIZE samples after 0.25 s
+    const play = (name, state, rate, note) =>
+      hostRender(name, {
+        rate,
+        seconds: SIZE / rate + 0.25,
+        state,
+        params: { ...FLAT, 'A Unison': 0 },
+        notes: [{ note, on: 0, off: SIZE / rate + 0.25 }],
+      }).then(([left]) => {
+        if (left.length < SIZE) throw new Error(`${name}: ${left.length} samples`);
+        return left;
+      });
+    // the floor of the stand: a sine (the patch adds nothing to the oscillator)
+    const sineState = tableState('alias-sine', [sine()]);
+    for (const rate of RATES)
+      jobs.push(
+        play(`alias-sine-${rate}`, sineState, rate, 57).then((left) => {
+          floor[rate] = round(analyze(left, fundamental(left, rate, 57), rate, sine()).aliasing);
+        })
+      );
+    sources.forEach(([table, frame], t) => {
+      const state = tableState(`alias-${t}`, [frame]);
+      for (const rate of RATES) {
+        const rows = ((results[rate] ??= {})[table] = []);
+        PITCHES.forEach((pitch, p) => {
+          const note = noteOf(pitch);
+          jobs.push(
+            play(`alias-${t}-${rate}-${note}`, state, rate, note).then((left) => {
+              const frequency = fundamental(left, rate, note);
+              const { aliasing, spur, highest } = analyze(left, frequency, rate, frame);
+              rows[p] = {
+                pitch,
+                note,
+                frequency: Number(frequency.toFixed(3)),
+                aliasing: round(aliasing),
+                spur: round(spur),
+                highest,
+              };
+            })
+          );
+        });
+      }
+    });
+    await Promise.all(jobs);
+    writeFileSync(
+      join(out, 'aliasing.json'),
+      `${JSON.stringify(
+        {
+          about:
+            'Osc A of the init patch of the Audio Unit at one voice on a table of one frame: the frame the oscillator benchmark compares (scripts/bench-osc/sound.mjs: the saw, the middle frame of each of its tables), a note of each of its pitches (the nearest one: 1046 Hz is C6 at 1046.5) at each of its rates; `analyze` of the benchmark over the last 65536 samples (from 0.25 s on), at the frequency the fundamental is loudest at within ±1 cent of the note: `aliasing` the power outside the harmonics against theirs, `spur` the loudest bin outside them against the fundamental (dB), `highest` the highest harmonic played at half its amplitude in the frame at least; `floor` the aliasing of a sine at A3 (the noise of the stand); scripts/renders/run.mjs --only=aliasing',
+          floor,
+          rates: results,
+        },
+        null,
+        1
+      )}\n`
+    );
+    console.log(
+      `dsp/measurements: aliasing of ${sources.length} tables at ${
+        RATES.length
+      } rates, floor ${JSON.stringify(floor)}`
     );
   } finally {
     removeTables();

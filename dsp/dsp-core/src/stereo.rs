@@ -29,6 +29,16 @@ impl StereoBiquad {
         coefficients_into(&mut self.c, Some(ty), frequency, q, gain, sample_rate);
     }
 
+    /// one sample of both channels
+    #[inline(always)]
+    pub fn process(&mut self, input: F64x2) -> F64x2 {
+        let [b0, b1, b2, a1, a2] = self.c.map(F64x2::splat);
+        let out = b0.mul(input).add(self.z1);
+        self.z1 = b1.mul(input).sub(a1.mul(out)).add(self.z2);
+        self.z2 = b2.mul(input).sub(a2.mul(out));
+        out
+    }
+
     /// output[s] of input[s] for s < frames
     pub fn process_block(&mut self, input: &[F64x2], output: &mut [F64x2], frames: usize) {
         let [b0, b1, b2, a1, a2] = self.c.map(F64x2::splat);
@@ -43,6 +53,60 @@ impl StereoBiquad {
         }
         self.z1 = z1;
         self.z2 = z2;
+    }
+
+    pub fn clear(&mut self) {
+        self.z1 = F64x2::default();
+        self.z2 = F64x2::default();
+    }
+}
+
+/// createBiquad of two filters at once: the coefficients of each lane, a state per lane (two lines of a reverb)
+#[derive(Clone)]
+pub struct LaneBiquad {
+    c: [F64x2; 5],
+    z1: F64x2,
+    z2: F64x2,
+}
+
+impl Default for LaneBiquad {
+    fn default() -> Self {
+        LaneBiquad {
+            c: [
+                F64x2::splat(1.0),
+                F64x2::default(),
+                F64x2::default(),
+                F64x2::default(),
+                F64x2::default(),
+            ],
+            z1: F64x2::default(),
+            z2: F64x2::default(),
+        }
+    }
+}
+
+impl LaneBiquad {
+    /// the coefficients of lane `lane` (0 or 1)
+    pub fn set(&mut self, lane: usize, ty: FilterType, frequency: f64, q: f64, gain: f64, sample_rate: f64) {
+        let mut c = [0.0; 5];
+        coefficients_into(&mut c, Some(ty), frequency, q, gain, sample_rate);
+        for k in 0..5 {
+            let (lo, hi) = (self.c[k].lo(), self.c[k].hi());
+            self.c[k] = if lane == 0 {
+                F64x2::new(c[k], hi)
+            } else {
+                F64x2::new(lo, c[k])
+            };
+        }
+    }
+
+    #[inline(always)]
+    pub fn process(&mut self, input: F64x2) -> F64x2 {
+        let [b0, b1, b2, a1, a2] = self.c;
+        let output = b0 * input + self.z1;
+        self.z1 = b1 * input - a1 * output + self.z2;
+        self.z2 = b2 * input - a2 * output;
+        output
     }
 
     pub fn clear(&mut self) {
@@ -291,5 +355,51 @@ impl StereoOversampler8 {
         self.history = input.history;
         self.pos = input.pos;
         self.streams = [[F64x2::default(); 2 * STREAM]; OVERSAMPLING8];
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::biquad::Biquad;
+
+    #[test]
+    fn the_lanes_of_a_biquad_are_a_biquad_each() {
+        let (rate, mut x) = (48000.0, 0.3);
+        let mut stereo = StereoBiquad::new();
+        let mut lanes = LaneBiquad::default();
+        let (mut left, mut right, mut low, mut high) = (
+            Biquad::default(),
+            Biquad::default(),
+            Biquad::default(),
+            Biquad::default(),
+        );
+        stereo.set(FilterType::Lowpass, 3000.0, 0.7, 0.0, rate);
+        left.set(FilterType::Lowpass, 3000.0, 0.7, 0.0, rate);
+        right.set(FilterType::Lowpass, 3000.0, 0.7, 0.0, rate);
+        lanes.set(0, FilterType::Lowshelf, 200.0, 0.0, -2.5, rate);
+        lanes.set(1, FilterType::Highshelf, 6000.0, 0.0, -7.0, rate);
+        low.set(FilterType::Lowshelf, 200.0, 0.0, -2.5, rate);
+        high.set(FilterType::Highshelf, 6000.0, 0.0, -7.0, rate);
+        for s in 0..2000 {
+            x = jsmath::sin(x * 3.7 + s as f64);
+            let input = F64x2::new(x, -0.5 * x);
+            let both = stereo.process(input);
+            assert_eq!(
+                [both.lo().to_bits(), both.hi().to_bits()],
+                [
+                    left.process(input.lo()).to_bits(),
+                    right.process(input.hi()).to_bits()
+                ]
+            );
+            let each = lanes.process(input);
+            assert_eq!(
+                [each.lo().to_bits(), each.hi().to_bits()],
+                [
+                    low.process(input.lo()).to_bits(),
+                    high.process(input.hi()).to_bits()
+                ]
+            );
+        }
     }
 }

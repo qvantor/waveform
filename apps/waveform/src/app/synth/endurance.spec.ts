@@ -48,6 +48,9 @@ describe('the synth played for a long time', () => {
     let crossfades = 0;
     for (let patch = 0; patch < 30; patch++) {
       osc1[1].setOscValue('unison', 1 + Math.floor(random() * 8));
+      // osc 1 up to 3 octaves up (the notes of a table of 64 samples read its level 0 alone below 600 Hz: up there
+      // they cross the crossfades of its levels, where the voices build mixes)
+      osc1[1].setOscValue('octave', patch % 4);
       osc2[1].setOscValue('unison', 1 + Math.floor(random() * 8));
       if (random() < 0.5) osc2[1].toggleActive();
       synthActions.setMaxVoices(random() < 0.5 ? 8 : 12);

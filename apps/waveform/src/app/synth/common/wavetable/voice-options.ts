@@ -189,8 +189,9 @@ export interface TableStoreStats {
   versions: number;
   bytes: number;
 }
-// the voices of a scope: processors alive and their unison voices; unison-voice samples played from mix tables
-// and directly (once during a crossfade into a new version; silent spans above the nyquist are not played);
+// the voices of a scope: processors alive and their unison voices; unison-voice samples played from one table (a
+// mix table, or the frame of a level alone) and directly (two levels, two frames, a glide of the levels; once during
+// a crossfade into a new version; silent spans above the nyquist are not played);
 // mix builds, their multiply-adds and those the budget refused; the most multiply-adds of builds in one block
 // since the last read; the mix tables allocated (the pool reuses them, a voice that ends gives them back) and
 // their bytes
@@ -266,11 +267,3 @@ export interface VoiceFilterOptions {
 // stolen pad still sounds, a linear 5 ms clicked (its splatter ~35 dB above this one's)
 export const KILL_FADE = 0.02;
 export const CROSSFADE = 0.01;
-
-// the length of the tables of a browser's PeriodicWave at the rate (Chrome and WebKit: 2048 up to 24 kHz, 4096
-// up to 88.2 kHz, 16384 above), its oscillator reads them linearly: a mix table as long has the same aliasing
-export const nativeTableLength = (sampleRate: number) =>
-  sampleRate <= 24000 ? 2048 : sampleRate <= 88200 ? 4096 : 16384;
-
-// the points of the interpolation that brings a shorter level to the length of a mix
-export const UPSAMPLER_TAPS = 6;

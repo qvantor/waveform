@@ -56,6 +56,45 @@ const chord: Signal = (n, channel) => {
   return n < 2400 ? 0 : value / 2;
 };
 
+// a signal of parts one after another: [seconds, signal] each, silence after the last one
+const parts = (rate: number, list: [number, Signal][]): Signal => {
+  let from = 0;
+  const spans = list.map(([seconds, signal]) => {
+    const span = { from, to: from + Math.round(seconds * rate), signal };
+    from = span.to;
+    return span;
+  });
+  return (n, channel) => {
+    const span = spans.find(({ to }) => n < to);
+    return span ? span.signal(n - span.from, channel) : 0;
+  };
+};
+const silence: Signal = () => 0;
+// notes under the ceiling and over it with silences of every length between them: the limiter goes idle once it
+// has let go (a −0 holds it, a NaN wakes it as a sound would), the next note wakes it
+const notesAndSilences = parts(48000, [
+  [0.1, sine(440, 0.6)],
+  [0.1, silence],
+  [0.05, sine(440, 0.6)],
+  [0.1, (n) => (n < 2400 ? -0 : 0)],
+  [0.2, sine(1000, 4)],
+  [0.005, silence],
+  [0.1, sine(330, 0.6)],
+  [0.03, silence],
+  [0.1, sine(330, 0.6)],
+  [1.5, (n) => (n === 48000 ? NaN : 0)],
+  [0.2, chord],
+  [0.4, silence],
+]);
+// blocks of 1 to 1000
+const oddBlocks = (frames: number) => {
+  const sizes = [1, 7, 128, 333, 1000, 64, 999, 2];
+  const blocks: number[] = [];
+  for (let at = 0, i = 0; at < frames; at += blocks[blocks.length - 1], i++)
+    blocks.push(sizes[i % sizes.length]);
+  return blocks;
+};
+
 const GOLDEN: [string, Scenario][] = [
   ['silence', { rate: 48000, blocks: quanta(0.1), input: () => 0 }],
   ['a sine below the ceiling', { rate: 48000, blocks: quanta(0.2), input: sine(440, 0.8) }],
@@ -89,6 +128,21 @@ const GOLDEN: [string, Scenario][] = [
   [
     '96 kHz, blocks of 1000',
     { rate: 96000, blocks: Array<number>(30).fill(1000), input: sine(5000, 3, 96000) },
+  ],
+  ['notes and silences: idle and woken', { rate: 48000, blocks: quanta(2.9), input: notesAndSilences }],
+  [
+    '44.1 kHz, blocks of 1 to 1000: released into a silence, struck again',
+    {
+      rate: 44100,
+      blocks: oddBlocks(2.6 * 44100),
+      input: parts(44100, [
+        [0.3, (n) => (Math.floor(n / 50) % 2 ? 4 : -4)],
+        [1.5, silence],
+        [0.2, sine(220, 0.5, 44100)],
+        [0.03, silence],
+        [0.2, sine(220, 2, 44100)],
+      ]),
+    },
   ],
 ];
 

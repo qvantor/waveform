@@ -41,6 +41,11 @@ mod lanes {
         pub fn abs(self) -> F64x2 {
             F64x2(f64x2_abs(self.0))
         }
+        // Math.floor of each lane
+        #[inline(always)]
+        pub fn floor(self) -> F64x2 {
+            F64x2(f64x2_floor(self.0))
+        }
         // Math.min / Math.max of each lane
         #[inline(always)]
         pub fn min(self, other: F64x2) -> F64x2 {
@@ -88,6 +93,10 @@ mod lanes {
         #[inline(always)]
         pub fn abs(self) -> F64x2 {
             F64x2([self.0[0].abs(), self.0[1].abs()])
+        }
+        #[inline(always)]
+        pub fn floor(self) -> F64x2 {
+            F64x2([jsmath::floor(self.0[0]), jsmath::floor(self.0[1])])
         }
         #[inline(always)]
         pub fn min(self, other: F64x2) -> F64x2 {
@@ -153,5 +162,11 @@ mod tests {
         let min = F64x2::new(0.0, f64::NAN).min(F64x2::new(-0.0, 1.0));
         assert!(min.lo().is_sign_negative() && min.lo() == 0.0);
         assert!(min.hi().is_nan());
+        // floor as Math.floor (f64x2.floor of wasm): -0 stays, NaN stays
+        let floor = F64x2::new(-0.5, 2.5).floor();
+        assert_eq!((floor.lo(), floor.hi()), (-1.0, 2.0));
+        let floor = F64x2::new(-0.0, f64::NAN).floor();
+        assert!(floor.lo().is_sign_negative() && floor.lo() == 0.0);
+        assert!(floor.hi().is_nan());
     }
 }

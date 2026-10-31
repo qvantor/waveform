@@ -11,8 +11,10 @@ use alloc::{boxed::Box, vec::Vec};
 use wasm_rt as _;
 
 use dsp_core::biquad::{Biquad, FilterType};
-use dsp_core::blocks::{peak, Allpass, DelayLine, FixedAllpass, Smoothed};
+use dsp_core::blocks::{peak, Allpass, DelayLine, Smoothed, StereoDelayLine, StereoFixedAllpass};
 use dsp_core::io::StereoIo;
+use dsp_core::simd::F64x2;
+use dsp_core::stereo::{LaneBiquad, StereoBiquad};
 use jsmath::{max, min, pow, sin, tanh, PI};
 
 // the params, in the order of REVERB_KEYS of reverb-wasm.ts
@@ -84,14 +86,16 @@ const TUBE_RANGE: f64 = 8.0;
 const TUBE_BIAS: f64 = 0.3;
 const MIN_DRIVE: f64 = 1e-4;
 
+// the tube of both channels in the lanes (each lane as the tube of the TS: the same operations)
 #[inline(always)]
-fn tube(input: f64, drive: f64, offset: f64) -> f64 {
-    let x = max(-TUBE_RANGE, min(TUBE_RANGE, input));
+fn tube(input: F64x2, drive: f64, offset: f64) -> F64x2 {
+    let x = F64x2::splat(-TUBE_RANGE).max(F64x2::splat(TUBE_RANGE).min(input));
     if drive < MIN_DRIVE {
         return x;
     }
     // TUBE_OFFSET ** 2: x * x in V8
-    (tanh(drive * x + TUBE_BIAS) - offset) / (drive * (1.0 - offset * offset))
+    ((F64x2::splat(drive) * x + F64x2::splat(TUBE_BIAS)).map(tanh) - F64x2::splat(offset))
+        / F64x2::splat(drive * (1.0 - offset * offset))
 }
 
 // reverb-dsp.ts
@@ -134,27 +138,38 @@ fn allpass_gain(delay: f64, decay: f64, gain: f64) -> f64 {
     min(gain, pow(10.0, (-3.0 * delay) / (decay * ALLPASS_RING)))
 }
 
-struct Channel {
-    bandwidth: [Biquad; 2],
-    lowcut: Biquad,
-    body: Biquad,
-    predelay: DelayLine,
-    diffusers: [FixedAllpass; 4],
+// the input stage of both channels, the left one in the low lane, the right one in the high lane (the TS renders
+// them one after the other: the lanes are independent, each the bits of its channel)
+struct Input {
+    bandwidth: [StereoBiquad; 2],
+    lowcut: StereoBiquad,
+    body: StereoBiquad,
+    predelay: StereoDelayLine,
+    diffusers: [StereoFixedAllpass; 4],
 }
 
-struct Line {
-    base: f64,
-    allpass_base: f64,
-    delay: DelayLine,
-    allpass: Allpass,
-    low: Biquad,
-    high: Biquad,
-    input: f64,
-    gain: f64,
-    allpass_gain: f64,
-    phase: f64,
-    mod_from: f64,
-    mod_to: f64,
+// two lines of the FDN (2p and 2p + 1) in the lanes: each lane a line of the TS, the even one in the low lane (its
+// output goes left), the odd one in the high lane (right)
+struct LinePair {
+    base: F64x2,
+    allpass_base: F64x2,
+    delay: [DelayLine; 2],
+    allpass: [Allpass; 2],
+    low: LaneBiquad,
+    high: LaneBiquad,
+    input: F64x2,
+    gain: F64x2,
+    allpass_gain: F64x2,
+    phase: [f64; 2],
+    mod_from: F64x2,
+    mod_to: F64x2,
+}
+
+const PAIRS: usize = LINE_TIMES.len() / 2;
+
+// a value per lane of a pair (line 2p in the low lane, 2p + 1 in the high one)
+fn lanes(p: usize, value: impl Fn(usize) -> f64) -> F64x2 {
+    F64x2::new(value(2 * p), value(2 * p + 1))
 }
 
 pub struct Reverb {
@@ -169,13 +184,13 @@ pub struct Reverb {
     idle: bool,
     quiet_frames: f64,
     drain_frames: f64,
-    channels: [Channel; 2],
+    input: Input,
     er_absorb: Biquad,
     er_line: DelayLine,
     er_delays: [f64; 8],
     diffuser_gains: [f64; 4],
-    lines: Vec<Line>,
-    outs: [f64; 16],
+    pairs: Vec<LinePair>,
+    outs: [F64x2; PAIRS],
     pub io: StereoIo,
 }
 
@@ -201,28 +216,32 @@ impl Reverb {
             ((DIFFUSER_TIMES[0] + DIFFUSER_TIMES[1]) + DIFFUSER_TIMES[2]) + DIFFUSER_TIMES[3];
         let drain_frames =
             samples(MAX_PREDELAY + ER_TAPS[ER_TAPS.len() - 1].0 * max_factor + diffusers_total + longest);
-        let channel = || Channel {
-            bandwidth: [Biquad::default(), Biquad::default()],
-            lowcut: Biquad::default(),
-            body: Biquad::default(),
-            predelay: DelayLine::new(samples(MAX_PREDELAY) + 1.0),
-            diffusers: core::array::from_fn(|i| FixedAllpass::new(samples(DIFFUSER_TIMES[i]))),
+        let input = Input {
+            bandwidth: [StereoBiquad::new(), StereoBiquad::new()],
+            lowcut: StereoBiquad::new(),
+            body: StereoBiquad::new(),
+            predelay: StereoDelayLine::new(samples(MAX_PREDELAY) + 1.0),
+            diffusers: core::array::from_fn(|i| StereoFixedAllpass::new(samples(DIFFUSER_TIMES[i]))),
         };
         let line_input = 0.5 * jsmath::sqrt(8.0 / LINE_TIMES.len() as f64);
-        let lines = (0..LINE_TIMES.len())
-            .map(|i| Line {
-                base: samples(LINE_TIMES[i]),
-                allpass_base: samples(LOOP_ALLPASS_TIMES[i]),
-                delay: DelayLine::new(samples(LINE_TIMES[i] * max_line_factor + MOD_DEPTH) + 2.0),
-                allpass: Allpass::new(samples(LOOP_ALLPASS_TIMES[i] * max_line_factor) + 2.0),
-                low: Biquad::default(),
-                high: Biquad::default(),
-                input: line_input * line_polarity(i),
-                gain: 1.0,
-                allpass_gain: LOOP_DIFFUSION,
-                phase: 0.0,
-                mod_from: 0.0,
-                mod_to: 0.0,
+        let pairs = (0..PAIRS)
+            .map(|p| LinePair {
+                base: lanes(p, |i| samples(LINE_TIMES[i])),
+                allpass_base: lanes(p, |i| samples(LOOP_ALLPASS_TIMES[i])),
+                delay: core::array::from_fn(|lane| {
+                    DelayLine::new(samples(LINE_TIMES[2 * p + lane] * max_line_factor + MOD_DEPTH) + 2.0)
+                }),
+                allpass: core::array::from_fn(|lane| {
+                    Allpass::new(samples(LOOP_ALLPASS_TIMES[2 * p + lane] * max_line_factor) + 2.0)
+                }),
+                low: LaneBiquad::default(),
+                high: LaneBiquad::default(),
+                input: lanes(p, |i| line_input * line_polarity(i)),
+                gain: F64x2::splat(1.0),
+                allpass_gain: F64x2::splat(LOOP_DIFFUSION),
+                phase: [0.0; 2],
+                mod_from: F64x2::default(),
+                mod_to: F64x2::default(),
             })
             .collect();
         let mut reverb = Reverb {
@@ -241,13 +260,13 @@ impl Reverb {
             idle: !active,
             quiet_frames: 0.0,
             drain_frames,
-            channels: [channel(), channel()],
+            input,
             er_absorb: Biquad::default(),
             er_line: DelayLine::new(samples(ER_TAPS[ER_TAPS.len() - 1].0 * max_factor) + 2.0),
             er_delays: core::array::from_fn(|i| samples(ER_TAPS[i].0)),
             diffuser_gains: [DIFFUSION; 4],
-            lines,
-            outs: [0.0; 16],
+            pairs,
+            outs: [F64x2::default(); PAIRS],
             io: StereoIo::default(),
         };
         reverb.update_input();
@@ -265,17 +284,14 @@ impl Reverb {
         let bandwidth = self.values[BANDWIDTH].value;
         let lowcut = self.values[LOWCUT].value;
         let body = self.values[BODY].value;
-        for channel in self.channels.iter_mut() {
-            for node in channel.bandwidth.iter_mut() {
-                node.set(FilterType::Lowpass, bandwidth, BUTTERWORTH_Q, 0.0, rate);
-            }
-            channel
-                .lowcut
-                .set(FilterType::Highpass, lowcut, BUTTERWORTH_Q, 0.0, rate);
-            channel
-                .body
-                .set(FilterType::Peaking, BODY_FREQ, BODY_Q, body, rate);
+        let input = &mut self.input;
+        for node in input.bandwidth.iter_mut() {
+            node.set(FilterType::Lowpass, bandwidth, BUTTERWORTH_Q, 0.0, rate);
         }
+        input
+            .lowcut
+            .set(FilterType::Highpass, lowcut, BUTTERWORTH_Q, 0.0, rate);
+        input.body.set(FilterType::Peaking, BODY_FREQ, BODY_Q, body, rate);
     }
 
     // the gain and both shelves of a line come from the same values and its current length
@@ -290,22 +306,36 @@ impl Reverb {
             self.diffuser_gains[i] = allpass_gain(*time, decay, DIFFUSION);
         }
         let bass = self.values[BASS].value;
-        for (i, line) in self.lines.iter_mut().enumerate() {
-            let (gain, low_db, high_db) = line_decay(loop_length(i, factor), decay, bass);
-            line.gain = gain;
-            line.allpass_gain = allpass_gain(LOOP_ALLPASS_TIMES[i] * factor, decay, LOOP_DIFFUSION);
-            line.low.set(FilterType::Lowshelf, XOVER, 0.0, low_db, rate);
-            line.high.set(FilterType::Highshelf, damp, 0.0, high_db, rate);
+        for (p, pair) in self.pairs.iter_mut().enumerate() {
+            let mut gains = [0.0; 2];
+            let mut allpass_gains = [0.0; 2];
+            for lane in 0..2 {
+                let i = 2 * p + lane;
+                let (gain, low_db, high_db) = line_decay(loop_length(i, factor), decay, bass);
+                gains[lane] = gain;
+                allpass_gains[lane] = allpass_gain(LOOP_ALLPASS_TIMES[i] * factor, decay, LOOP_DIFFUSION);
+                pair.low.set(lane, FilterType::Lowshelf, XOVER, 0.0, low_db, rate);
+                pair.high
+                    .set(lane, FilterType::Highshelf, damp, 0.0, high_db, rate);
+            }
+            pair.gain = F64x2::new(gains[0], gains[1]);
+            pair.allpass_gain = F64x2::new(allpass_gains[0], allpass_gains[1]);
         }
     }
 
     fn update_mod(&mut self, frames: f64) {
         let rate = self.sample_rate;
         let depth = self.values[DEPTH].value * (MOD_DEPTH * rate);
-        for (i, line) in self.lines.iter_mut().enumerate() {
-            line.phase = (line.phase + (2.0 * PI * MOD_RATES[i] * frames) / rate) % (2.0 * PI);
-            line.mod_from = line.mod_to;
-            line.mod_to = line_polarity(i) * depth * sin(line.phase);
+        for (p, pair) in self.pairs.iter_mut().enumerate() {
+            let mut to = [0.0; 2];
+            for lane in 0..2 {
+                let i = 2 * p + lane;
+                pair.phase[lane] =
+                    (pair.phase[lane] + (2.0 * PI * MOD_RATES[i] * frames) / rate) % (2.0 * PI);
+                to[lane] = line_polarity(i) * depth * sin(pair.phase[lane]);
+            }
+            pair.mod_from = pair.mod_to;
+            pair.mod_to = F64x2::new(to[0], to[1]);
         }
     }
 
@@ -317,25 +347,26 @@ impl Reverb {
     }
 
     fn clear(&mut self) {
-        for channel in self.channels.iter_mut() {
-            for node in channel.bandwidth.iter_mut() {
-                node.clear();
-            }
-            channel.lowcut.clear();
-            channel.body.clear();
-            channel.predelay.clear();
-            for diffuser in channel.diffusers.iter_mut() {
-                diffuser.clear();
-            }
+        let input = &mut self.input;
+        for node in input.bandwidth.iter_mut() {
+            node.clear();
+        }
+        input.lowcut.clear();
+        input.body.clear();
+        input.predelay.clear();
+        for diffuser in input.diffusers.iter_mut() {
+            diffuser.clear();
         }
         self.er_absorb.clear();
         self.er_line.clear();
-        for line in self.lines.iter_mut() {
-            line.delay.clear();
-            line.allpass.clear();
-            line.low.clear();
-            line.high.clear();
-            line.mod_from = line.mod_to;
+        for pair in self.pairs.iter_mut() {
+            for lane in 0..2 {
+                pair.delay[lane].clear();
+                pair.allpass[lane].clear();
+            }
+            pair.low.clear();
+            pair.high.clear();
+            pair.mod_from = pair.mod_to;
         }
     }
 
@@ -370,7 +401,7 @@ impl Reverb {
         if !self.idle {
             self.clear();
         }
-        self.outs.fill(0.0);
+        self.outs.fill(F64x2::default());
         self.idle = true;
     }
 
@@ -425,79 +456,75 @@ impl Reverb {
         let width = self.values[SEP].value;
         let er = self.values[ER].value;
         let drive = self.values[DRIVE].value;
-        let count = self.lines.len();
+        let count = LINE_TIMES.len();
         let loop_scale = 2.0 / count as f64;
         let mut output_peak = 0.0;
-        let [left, right] = &mut self.channels;
+        let input = &mut self.input;
+        let er_taps: [F64x2; ER_TAPS.len() / 2] = core::array::from_fn(|p| lanes(p, |i| ER_TAPS[i].1));
+        let er_delays: [F64x2; ER_TAPS.len() / 2] = core::array::from_fn(|p| lanes(p, |i| self.er_delays[i]));
+        // (the left channel in the low lane, the right one in the high lane; of the lines the even ones low, the
+        // odd ones high: what the TS sums into the left and the right side, in the same order)
         for s in 0..frames {
             let t = (s as f64 + 1.0) / n;
             let room_scale = size_factor(size_from + (size_value - size_from) * t);
             let factor = scale_from + (scale_value - scale_from) * t;
             let predelay = (pre_from + (pre_value - pre_from) * t) * rate;
             let gain = fade_from + (fade_value - fade_from) * t;
+            let (t2, factor2, gain2) = (F64x2::splat(t), F64x2::splat(factor), F64x2::splat(gain));
 
-            let banded_l = left.bandwidth[0].process(in_l[s] as f64);
-            let banded_r = right.bandwidth[0].process(in_r[s] as f64);
-            let mut l = left.bandwidth[1].process(banded_l);
-            let mut r = right.bandwidth[1].process(banded_r);
-            l = left
+            let banded = input.bandwidth[0].process(F64x2::new(in_l[s] as f64, in_r[s] as f64));
+            let mut x = input.bandwidth[1].process(banded);
+            x = input
                 .body
-                .process(left.lowcut.process(tube(l, drive, tube_offset)));
-            r = right
-                .body
-                .process(right.lowcut.process(tube(r, drive, tube_offset)));
-            let pre_l = left.predelay.read(predelay);
-            let pre_r = right.predelay.read(predelay);
-            left.predelay.write(l);
-            right.predelay.write(r);
+                .process(input.lowcut.process(tube(x, drive, tube_offset)));
+            let pre = input.predelay.read(predelay);
+            input.predelay.write(x);
 
-            let mut er_l = 0.0;
-            let mut er_r = 0.0;
-            for i in 0..ER_TAPS.len() {
-                let tap = ER_TAPS[i].1 * self.er_line.read(self.er_delays[i] * room_scale);
-                if i % 2 == 1 {
-                    er_r += tap;
-                } else {
-                    er_l += tap;
-                }
+            let mut er_sides = F64x2::default();
+            let room_scale2 = F64x2::splat(room_scale);
+            for p in 0..er_taps.len() {
+                let tap = er_taps[p]
+                    * DelayLine::read_pair(&self.er_line, &self.er_line, er_delays[p] * room_scale2);
+                er_sides = er_sides + tap;
             }
-            self.er_line.write(self.er_absorb.process((pre_l + pre_r) / 2.0));
+            self.er_line
+                .write(self.er_absorb.process((pre.lo() + pre.hi()) / 2.0));
 
-            let mut diff_l = pre_l;
-            let mut diff_r = pre_r;
+            let mut diff = pre;
             for i in 0..self.diffuser_gains.len() {
-                diff_l = left.diffusers[i].process(diff_l, self.diffuser_gains[i]);
-                diff_r = right.diffusers[i].process(diff_r, self.diffuser_gains[i]);
+                diff = input.diffusers[i].process(diff, F64x2::splat(self.diffuser_gains[i]));
             }
 
             let mut sum = 0.0;
-            let mut tail_l = 0.0;
-            let mut tail_r = 0.0;
-            for (i, line) in self.lines.iter_mut().enumerate() {
-                let modulation = line.mod_from + (line.mod_to - line.mod_from) * t;
-                let delayed = line.delay.read(line.base * factor + modulation);
-                let out = line
-                    .allpass
-                    .process(delayed, line.allpass_base * factor, line.allpass_gain);
-                self.outs[i] = out;
-                sum += out;
-                if i % 2 == 1 {
-                    tail_r += out;
-                } else {
-                    tail_l += out;
-                }
+            let mut tail = F64x2::default();
+            for (p, pair) in self.pairs.iter_mut().enumerate() {
+                let modulation = pair.mod_from + (pair.mod_to - pair.mod_from) * t2;
+                let delayed =
+                    DelayLine::read_pair(&pair.delay[0], &pair.delay[1], pair.base * factor2 + modulation);
+                let [allpass_a, allpass_b] = &mut pair.allpass;
+                let out = Allpass::process_pair(
+                    allpass_a,
+                    allpass_b,
+                    delayed,
+                    pair.allpass_base * factor2,
+                    pair.allpass_gain,
+                );
+                self.outs[p] = out;
+                sum += out.lo();
+                sum += out.hi();
+                tail = tail + out;
             }
-            let feedback = sum * loop_scale;
-            for (i, line) in self.lines.iter_mut().enumerate() {
-                let diff = if i % 2 == 1 { diff_r } else { diff_l };
-                let input = diff * line.input + self.outs[i] - feedback;
-                line.delay
-                    .write(line.high.process(line.low.process(input * line.gain * gain)));
+            let feedback = F64x2::splat(sum * loop_scale);
+            for (p, pair) in self.pairs.iter_mut().enumerate() {
+                let line_in = diff * pair.input + self.outs[p] - feedback;
+                let y = pair.high.process(pair.low.process(line_in * pair.gain * gain2));
+                pair.delay[0].write(y.lo());
+                pair.delay[1].write(y.hi());
             }
 
             // mid/side: L = M + w·S, R = M - w·S
-            let side_l = er * er_l + TAIL_LEVEL * tail_l;
-            let side_r = er * er_r + TAIL_LEVEL * tail_r;
+            let side = F64x2::splat(er) * er_sides + F64x2::splat(TAIL_LEVEL) * tail;
+            let (side_l, side_r) = (side.lo(), side.hi());
             let y_l = gain * ((side_l * (1.0 + width)) / 2.0 + (side_r * (1.0 - width)) / 2.0);
             let y_r = gain * ((side_r * (1.0 + width)) / 2.0 + (side_l * (1.0 - width)) / 2.0);
             out_l[s] = y_l as f32;
@@ -509,7 +536,7 @@ impl Reverb {
         // stay in the lines until the reverb is off: forgotten, the block is silence
         if output_peak.is_nan() || output_peak > f32::MAX as f64 {
             self.clear();
-            self.outs.fill(0.0);
+            self.outs.fill(F64x2::default());
             out_l.fill(0.0);
             out_r.fill(0.0);
             return;
@@ -519,7 +546,10 @@ impl Reverb {
         let faded = !self.active && self.fade.value == 0.0;
         let drained = self.quiet_frames > self.drain_frames
             && output_peak < SILENCE
-            && self.outs.iter().all(|value| value.abs() < SILENCE);
+            && self
+                .outs
+                .iter()
+                .all(|value| value.lo().abs() < SILENCE && value.hi().abs() < SILENCE);
         if faded || drained {
             self.clear();
             self.idle = true;

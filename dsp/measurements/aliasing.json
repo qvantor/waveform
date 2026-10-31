@@ -1,0 +1,520 @@
+{
+ "about": "Osc A of the init patch of the Audio Unit at one voice on a table of one frame: the frame the oscillator benchmark compares (scripts/bench-osc/sound.mjs: the saw, the middle frame of each of its tables), a note of each of its pitches (the nearest one: 1046 Hz is C6 at 1046.5) at each of its rates; `analyze` of the benchmark over the last 65536 samples (from 0.25 s on), at the frequency the fundamental is loudest at within ±1 cent of the note: `aliasing` the power outside the harmonics against theirs, `spur` the loudest bin outside them against the fundamental (dB), `highest` the highest harmonic played at half its amplitude in the frame at least; `floor` the aliasing of a sine at A3 (the noise of the stand); scripts/renders/run.mjs --only=aliasing",
+ "floor": {
+  "44100": -120.1,
+  "48000": -117.4,
+  "96000": -118
+ },
+ "rates": {
+  "44100": {
+   "saw": [
+    {
+     "pitch": 55,
+     "note": 33,
+     "frequency": 55,
+     "aliasing": -54.3,
+     "spur": -55.4,
+     "highest": 400
+    },
+    {
+     "pitch": 220,
+     "note": 57,
+     "frequency": 220,
+     "aliasing": -50.8,
+     "spur": -49.2,
+     "highest": 100
+    },
+    {
+     "pitch": 1046,
+     "note": 84,
+     "frequency": 1046.502,
+     "aliasing": -80,
+     "spur": -77.9,
+     "highest": 21
+    },
+    {
+     "pitch": 3520,
+     "note": 105,
+     "frequency": 3520,
+     "aliasing": -118.6,
+     "spur": -126.5,
+     "highest": 6
+    },
+    {
+     "pitch": 7040,
+     "note": 117,
+     "frequency": 7040,
+     "aliasing": -118.2,
+     "spur": -126.3,
+     "highest": 3
+    }
+   ],
+   "ESW Basics - Saw Collection.wav": [
+    {
+     "pitch": 55,
+     "note": 33,
+     "frequency": 54.998,
+     "aliasing": -63.1,
+     "spur": -62.7,
+     "highest": 400
+    },
+    {
+     "pitch": 220,
+     "note": 57,
+     "frequency": 220,
+     "aliasing": -52.9,
+     "spur": -51.9,
+     "highest": 100
+    },
+    {
+     "pitch": 1046,
+     "note": 84,
+     "frequency": 1046.502,
+     "aliasing": -79.9,
+     "spur": -78.3,
+     "highest": 21
+    },
+    {
+     "pitch": 3520,
+     "note": 105,
+     "frequency": 3520,
+     "aliasing": -118.4,
+     "spur": -126.6,
+     "highest": 6
+    },
+    {
+     "pitch": 7040,
+     "note": 117,
+     "frequency": 7040,
+     "aliasing": -117.9,
+     "spur": -126.4,
+     "highest": 3
+    }
+   ],
+   "ESW Digital - Air Lazer.wav": [
+    {
+     "pitch": 55,
+     "note": 33,
+     "frequency": 55,
+     "aliasing": -33.6,
+     "spur": -27.2,
+     "highest": 400
+    },
+    {
+     "pitch": 220,
+     "note": 57,
+     "frequency": 220,
+     "aliasing": -38.8,
+     "spur": -31.5,
+     "highest": 100
+    },
+    {
+     "pitch": 1046,
+     "note": 84,
+     "frequency": 1046.502,
+     "aliasing": -98,
+     "spur": -90.6,
+     "highest": 21
+    },
+    {
+     "pitch": 3520,
+     "note": 105,
+     "frequency": 3520,
+     "aliasing": -118.3,
+     "spur": -122.4,
+     "highest": 6
+    },
+    {
+     "pitch": 7040,
+     "note": 117,
+     "frequency": 7040,
+     "aliasing": -117.7,
+     "spur": -122.3,
+     "highest": 3
+    }
+   ],
+   "ESW Vocal - Ahhh 01.wav": [
+    {
+     "pitch": 55,
+     "note": 33,
+     "frequency": 55.002,
+     "aliasing": -73.4,
+     "spur": -51.1,
+     "highest": 400
+    },
+    {
+     "pitch": 220,
+     "note": 57,
+     "frequency": 220,
+     "aliasing": -71.4,
+     "spur": -46.7,
+     "highest": 100
+    },
+    {
+     "pitch": 1046,
+     "note": 84,
+     "frequency": 1046.502,
+     "aliasing": -76.5,
+     "spur": -49.7,
+     "highest": 21
+    },
+    {
+     "pitch": 3520,
+     "note": 105,
+     "frequency": 3520,
+     "aliasing": -108.8,
+     "spur": -106.6,
+     "highest": 0
+    },
+    {
+     "pitch": 7040,
+     "note": 117,
+     "frequency": 7040,
+     "aliasing": -117.7,
+     "spur": -126.3,
+     "highest": 0
+    }
+   ]
+  },
+  "48000": {
+   "saw": [
+    {
+     "pitch": 55,
+     "note": 33,
+     "frequency": 55.002,
+     "aliasing": -54.4,
+     "spur": -56.7,
+     "highest": 436
+    },
+    {
+     "pitch": 220,
+     "note": 57,
+     "frequency": 220,
+     "aliasing": -52,
+     "spur": -50.2,
+     "highest": 109
+    },
+    {
+     "pitch": 1046,
+     "note": 84,
+     "frequency": 1046.502,
+     "aliasing": -34.2,
+     "spur": -32.1,
+     "highest": 22
+    },
+    {
+     "pitch": 3520,
+     "note": 105,
+     "frequency": 3520,
+     "aliasing": -48.1,
+     "spur": -46.4,
+     "highest": 6
+    },
+    {
+     "pitch": 7040,
+     "note": 117,
+     "frequency": 7040,
+     "aliasing": -119.4,
+     "spur": -127.5,
+     "highest": 3
+    }
+   ],
+   "ESW Basics - Saw Collection.wav": [
+    {
+     "pitch": 55,
+     "note": 33,
+     "frequency": 55,
+     "aliasing": -65.7,
+     "spur": -67.9,
+     "highest": 436
+    },
+    {
+     "pitch": 220,
+     "note": 57,
+     "frequency": 220,
+     "aliasing": -52.7,
+     "spur": -51.2,
+     "highest": 109
+    },
+    {
+     "pitch": 1046,
+     "note": 84,
+     "frequency": 1046.502,
+     "aliasing": -36.8,
+     "spur": -35.2,
+     "highest": 22
+    },
+    {
+     "pitch": 3520,
+     "note": 105,
+     "frequency": 3520,
+     "aliasing": -47.8,
+     "spur": -46.5,
+     "highest": 6
+    },
+    {
+     "pitch": 7040,
+     "note": 117,
+     "frequency": 7040,
+     "aliasing": -118.9,
+     "spur": -127.6,
+     "highest": 3
+    }
+   ],
+   "ESW Digital - Air Lazer.wav": [
+    {
+     "pitch": 55,
+     "note": 33,
+     "frequency": 54.998,
+     "aliasing": -44.2,
+     "spur": -38.5,
+     "highest": 436
+    },
+    {
+     "pitch": 220,
+     "note": 57,
+     "frequency": 220,
+     "aliasing": -43.9,
+     "spur": -36.3,
+     "highest": 109
+    },
+    {
+     "pitch": 1046,
+     "note": 84,
+     "frequency": 1046.502,
+     "aliasing": -50.2,
+     "spur": -42.8,
+     "highest": 22
+    },
+    {
+     "pitch": 3520,
+     "note": 105,
+     "frequency": 3520,
+     "aliasing": -57.2,
+     "spur": -49.8,
+     "highest": 6
+    },
+    {
+     "pitch": 7040,
+     "note": 117,
+     "frequency": 7040,
+     "aliasing": -118.6,
+     "spur": -122.8,
+     "highest": 3
+    }
+   ],
+   "ESW Vocal - Ahhh 01.wav": [
+    {
+     "pitch": 55,
+     "note": 33,
+     "frequency": 55.003,
+     "aliasing": -79,
+     "spur": -57,
+     "highest": 436
+    },
+    {
+     "pitch": 220,
+     "note": 57,
+     "frequency": 220,
+     "aliasing": -54.9,
+     "spur": -28.2,
+     "highest": 109
+    },
+    {
+     "pitch": 1046,
+     "note": 84,
+     "frequency": 1046.502,
+     "aliasing": -31.3,
+     "spur": -4.5,
+     "highest": 22
+    },
+    {
+     "pitch": 3520,
+     "note": 105,
+     "frequency": 3520,
+     "aliasing": -28.8,
+     "spur": -20.3,
+     "highest": 0
+    },
+    {
+     "pitch": 7040,
+     "note": 117,
+     "frequency": 7040,
+     "aliasing": -118.6,
+     "spur": -127,
+     "highest": 0
+    }
+   ]
+  },
+  "96000": {
+   "saw": [
+    {
+     "pitch": 55,
+     "note": 33,
+     "frequency": 55.006,
+     "aliasing": -63.6,
+     "spur": -63.5,
+     "highest": 872
+    },
+    {
+     "pitch": 220,
+     "note": 57,
+     "frequency": 220,
+     "aliasing": -52.5,
+     "spur": -52.3,
+     "highest": 218
+    },
+    {
+     "pitch": 1046,
+     "note": 84,
+     "frequency": 1046.502,
+     "aliasing": -40.2,
+     "spur": -38,
+     "highest": 45
+    },
+    {
+     "pitch": 3520,
+     "note": 105,
+     "frequency": 3520,
+     "aliasing": -54.4,
+     "spur": -52.5,
+     "highest": 13
+    },
+    {
+     "pitch": 7040,
+     "note": 117,
+     "frequency": 7040,
+     "aliasing": -48.1,
+     "spur": -46.4,
+     "highest": 6
+    }
+   ],
+   "ESW Basics - Saw Collection.wav": [
+    {
+     "pitch": 55,
+     "note": 33,
+     "frequency": 55.005,
+     "aliasing": -72.5,
+     "spur": -75.5,
+     "highest": 872
+    },
+    {
+     "pitch": 220,
+     "note": 57,
+     "frequency": 220,
+     "aliasing": -56.5,
+     "spur": -57.9,
+     "highest": 218
+    },
+    {
+     "pitch": 1046,
+     "note": 84,
+     "frequency": 1046.502,
+     "aliasing": -43.5,
+     "spur": -41.8,
+     "highest": 45
+    },
+    {
+     "pitch": 3520,
+     "note": 105,
+     "frequency": 3520,
+     "aliasing": -54.3,
+     "spur": -52.8,
+     "highest": 13
+    },
+    {
+     "pitch": 7040,
+     "note": 117,
+     "frequency": 7040,
+     "aliasing": -47.8,
+     "spur": -46.5,
+     "highest": 6
+    }
+   ],
+   "ESW Digital - Air Lazer.wav": [
+    {
+     "pitch": 55,
+     "note": 33,
+     "frequency": 55.003,
+     "aliasing": -43.3,
+     "spur": -37.2,
+     "highest": 872
+    },
+    {
+     "pitch": 220,
+     "note": 57,
+     "frequency": 220,
+     "aliasing": -46.2,
+     "spur": -42,
+     "highest": 218
+    },
+    {
+     "pitch": 1046,
+     "note": 84,
+     "frequency": 1046.502,
+     "aliasing": -47.3,
+     "spur": -39.7,
+     "highest": 45
+    },
+    {
+     "pitch": 3520,
+     "note": 105,
+     "frequency": 3520,
+     "aliasing": -75.1,
+     "spur": -67.7,
+     "highest": 13
+    },
+    {
+     "pitch": 7040,
+     "note": 117,
+     "frequency": 7040,
+     "aliasing": -57.2,
+     "spur": -49.8,
+     "highest": 6
+    }
+   ],
+   "ESW Vocal - Ahhh 01.wav": [
+    {
+     "pitch": 55,
+     "note": 33,
+     "frequency": 55.019,
+     "aliasing": -81.8,
+     "spur": -58.9,
+     "highest": 872
+    },
+    {
+     "pitch": 220,
+     "note": 57,
+     "frequency": 220,
+     "aliasing": -72.2,
+     "spur": -47.7,
+     "highest": 218
+    },
+    {
+     "pitch": 1046,
+     "note": 84,
+     "frequency": 1046.502,
+     "aliasing": -59.3,
+     "spur": -32.4,
+     "highest": 45
+    },
+    {
+     "pitch": 3520,
+     "note": 105,
+     "frequency": 3520,
+     "aliasing": -30.7,
+     "spur": -10.2,
+     "highest": 0
+    },
+    {
+     "pitch": 7040,
+     "note": 117,
+     "frequency": 7040,
+     "aliasing": -28.8,
+     "spur": -20.3,
+     "highest": 0
+    }
+   ]
+  }
+ }
+}

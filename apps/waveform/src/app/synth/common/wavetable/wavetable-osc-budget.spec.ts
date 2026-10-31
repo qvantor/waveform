@@ -3,19 +3,12 @@ import { getFq } from '../../services';
 import { TABLE_THROTTLE } from '../modules/oscillator';
 import { BLOCK, createVoiceScope, storeWith, VoiceParams } from '../../../../test-utils/voice-dsp';
 import { buildLevels } from './wavetable-mipmap';
-import {
-  CROSSFADE,
-  KILL_FADE,
-  nativeTableLength,
-  UPSAMPLER_TAPS,
-  VoiceOscOptions,
-  VoiceStats,
-} from './voice-options';
+import { CROSSFADE, KILL_FADE, VoiceOscOptions, VoiceStats } from './voice-options';
 import { WASM_MIX_BUDGET } from './wavetable-osc-wasm';
 
 // the work of the voices on the audio thread as exact counts (it replaces the CPU scenes of the browser suite
-// but the heavy patch, S5): the samples each unison voice plays from its mix table or directly from the
-// levels, the mix builds, their multiply-adds and the blocks they take. The counts don't depend on the
+// but the heavy patch, S5): the samples each unison voice plays from one table (its mix, or the frame of its level
+// alone) or directly from the levels, the mix builds, their multiply-adds and the blocks they take. The counts don't depend on the
 // machine, the cycles each costs are measured by scripts/bench-perf (S5 in the browser, dsp.mjs in Node).
 //
 // The tables: 3 frames of a saw of 1023 harmonics (any 2048-sample frame has the levels of a full one) at
@@ -78,57 +71,52 @@ const chord = (rate: number, notes = CHORD, oscs = OSCS) => {
 const total = (blocks: VoiceStats[], key: keyof VoiceStats) =>
   blocks.reduce((sum, block) => sum + block[key], 0);
 const lastBuild = (blocks: VoiceStats[]) => blocks.reduce((last, block, i) => (block.builds ? i : last), -1);
-// the blocks up to the one from which every voice plays its mix table, no build left
+// the blocks up to the one from which every voice plays one table, no build left
 const settled = (blocks: VoiceStats[]) =>
   blocks.findIndex((_, i) =>
     blocks.slice(i).every((block) => block.directSamples === 0 && block.builds === 0)
   );
 
 describe('the work of the voices', () => {
-  // the multiply-adds of a mix (build_cost of the voice): its fill (4096 at 44.1 and 48 kHz) and each of
-  // the 2 levels it reads, added as it is when as long, interpolated at 6 points a sample when shorter; one
-  // frame. 12,288 = 3 · 4096 (both levels 4096 long: the low notes), 32,768 = 4096 + 4096 + 6 · 4096 (the
-  // next is 2048 long), 53,248 = 4096 + 2 · 6 · 4096 (both shorter: the high notes). At 48 kHz 120 unison voices
-  // cost 12,288, 32 cost 32,768 and 40 cost 53,248: 4,653,056 in all
+  // the unison voices whose pitch is in the crossfade of a level into the next (its top fifth of a third of an
+  // octave) build a mix, the others read the frame of their level alone from the first block. The multiply-adds of
+  // a mix (build_cost of the voice): its fill (as long as its level) and each of the 2 levels it reads, added as it
+  // is when as long, interpolated at 6 points a sample when half as long; one frame: 12,288 = 3 · 4096 (both
+  // levels 4096 long: the low notes), 32,768 = 4096 + 4096 + 6 · 4096 (the next is 2048 long), 6,144 = 3 · 2048
+  // (both 2048 long). At 96 kHz the pitches are lower against the nyquist, on levels of 4096 (the mixes were as long
+  // as a native table there, 16,384 samples: one a block, the chord took 192 blocks, F1)
   it.each([
-    [44100, 5144576, 16],
-    [48000, 4653056, 15],
+    [44100, 50, 808960, 4],
+    [48000, 32, 557056, 3],
+    [96000, 32, 32 * 12288, 3],
   ])(
-    'at %i Hz the heavy chord builds its 192 mix tables (%i multiply-adds) within the budget, the last in block %j',
-    (rate, cost, lasts) => {
+    'at %i Hz the %i unison voices of the heavy chord in a crossfade build their mixes (%i multiply-adds) within the budget, the last in block %j',
+    (rate, mixes, cost, lasts) => {
       const last = lasts;
       const { run } = chord(rate);
       const blocks = run(40);
-      // the first block plays directly (the mixes are built in the second block of constant params)
-      expect(blocks[0]).toMatchObject({ directSamples: UNISON * BLOCK, mixSamples: 0, builds: 0 });
-      expect(total(blocks, 'builds')).toBe(UNISON);
+      // the first block: the levels alone, the others directly (the mixes are built in the second block of
+      // constant params)
+      expect(blocks[0]).toMatchObject({
+        directSamples: mixes * BLOCK,
+        mixSamples: (UNISON - mixes) * BLOCK,
+        builds: 0,
+      });
+      expect(total(blocks, 'builds')).toBe(mixes);
       expect(total(blocks, 'buildCost')).toBe(cost);
-      // a block builds until its next mix would go over the budget: 29 of the cheapest in one block
-      const cheapest = Math.floor(core.budget / (3 * nativeTableLength(rate)));
-      expect(cheapest).toBe(29);
-      expect(blocks[1]).toMatchObject({ builds: cheapest, peakCost: cheapest * 3 * nativeTableLength(rate) });
+      // a block builds until its next mix would go over the budget
+      expect(blocks[1].peakCost).toBeGreaterThan(core.budget - 32768);
       blocks.forEach((block) => expect(block.peakCost).toBeLessThanOrEqual(core.budget));
       expect(lastBuild(blocks) + 1).toBe(last);
       expect(last - 1).toBeGreaterThanOrEqual(Math.ceil(cost / core.budget));
-      // then every unison voice plays its mix table, nothing directly
+      // then, once the voices have glided from their levels into their mixes (5 ms at most), every unison voice
+      // plays one table, nothing directly
+      expect(settled(blocks)).toBeLessThanOrEqual(last + Math.ceil((0.005 * rate) / BLOCK));
       blocks
-        .slice(last)
+        .slice(settled(blocks))
         .forEach((block) => expect(block).toMatchObject({ directSamples: 0, mixSamples: UNISON * BLOCK }));
     }
   );
-
-  it('at 96 kHz two mixes cost more than the budget: one build a block, the chord takes 192 blocks (F1)', () => {
-    const { run } = chord(96000);
-    const blocks = run(200);
-    // 16384-sample mixes (nativeTableLength), both levels interpolated into them
-    const each = (1 + 2 * UPSAMPLER_TAPS) * nativeTableLength(96000);
-    expect(each).toBe(212992);
-    // (the TS budget is under one of them)
-    expect(2 * each).toBeGreaterThan(core.budget);
-    expect(total(blocks, 'buildCost')).toBe(UNISON * each);
-    blocks.slice(1, 193).forEach((block) => expect(block).toMatchObject({ builds: 1, peakCost: each }));
-    expect(lastBuild(blocks) + 1).toBe(193);
-  });
 
   it.each([
     [1, 1],
@@ -151,28 +139,55 @@ describe('the work of the voices', () => {
     }
   );
 
-  it('a gliding pitch plays directly, its mixes are built in the second block after it settles', () => {
+  it('a gliding pitch reads its levels alone over their flats, directly over the crossfades; its mixes are built in the second block after it settles', () => {
     const { store } = coreStoreWith({ a: FRAMES, b: FRAMES });
     const scope = coreScope(48000, store);
-    // a portamento of 100 ms: 37.5 blocks
+    // a portamento of 100 ms (37.5 blocks) from 220 Hz up to the middle of the crossfade of level 13 into 14 (462
+    // Hz: x 13.9)
     const glide = 4800;
+    const to = (24000 / 1024) * 2 ** ((13.9 - 1) / 3);
     scope.add([OSCS[0], null], {
       ...params([4, 'A'] as Note),
-      frequency: (frame) => (frame < glide ? 220 + (220 * frame) / glide : 440),
+      frequency: (frame) => (frame < glide ? 220 + ((to - 220) * frame) / glide : to),
     });
     const blocks = Array.from({ length: 50 }, () => scope.block());
     const constant = Math.ceil(glide / BLOCK);
-    blocks
-      .slice(0, constant + 1)
-      .forEach((block) => expect(block).toMatchObject({ builds: 0, mixSamples: 0 }));
+    blocks.slice(0, constant + 1).forEach((block) => expect(block.builds).toBe(0));
+    expect(total(blocks.slice(0, constant), 'mixSamples')).toBeGreaterThan(total(blocks, 'directSamples'));
     expect(blocks.findIndex((block) => block.builds > 0)).toBe(constant + 1);
-    // its 8 mixes over the next blocks: 6 of 53,248 multiply-adds a block (the levels of A4 are shorter than a
-    // mix)
-    expect(blocks[constant + 1].builds).toBe(Math.floor(core.budget / 53248));
+    // its 8 mixes in that block: 6,144 multiply-adds each (both levels 2048 long)
+    expect(blocks[constant + 1]).toMatchObject({ builds: 8, buildCost: 8 * 6144 });
     expect(total(blocks.slice(constant + 1), 'builds')).toBe(8);
   });
 
-  it('a bend held still under the heavy chord: the voices play the mixes whose reach holds it until theirs are built, then glide into them', () => {
+  it('a voice that leaves a crossfade keeps its mix, one that ends gives it back: the next one built takes it', () => {
+    const { store } = coreStoreWith({ a: FRAMES, b: FRAMES });
+    const scope = coreScope(48000, store);
+    // x 13.9 (the crossfade of level 13 into 14: a mix), x 13.5 (the flat of level 13)
+    const crossfade = (24000 / 1024) * 2 ** ((13.9 - 1) / 3);
+    const flat = (24000 / 1024) * 2 ** ((13.5 - 1) / 3);
+    const alone = [{ ...OSCS[0], unison: 1 }, null];
+    const first = scope.add(alone, {
+      ...params([4, 'A'] as Note),
+      frequency: (frame) => (frame < 8 * BLOCK ? crossfade : flat),
+    });
+    const before = Array.from({ length: 16 }, () => scope.block());
+    // (over the flat the first voice reads its level alone and keeps its mix: a pitch that comes back takes it)
+    const second = scope.add(alone, { ...params([4, 'A'] as Note), frequency: crossfade });
+    const after = Array.from({ length: 8 }, () => scope.block());
+    expect(total(before, 'builds') + total(after, 'builds')).toBe(2);
+    expect(total(before, 'mixes') + total(after, 'mixes')).toBe(2);
+    first.params.gate = 0;
+    second.params.gate = 0;
+    scope.block();
+    expect(scope.alive()).toBe(0);
+    scope.add(alone, { ...params([4, 'A'] as Note), frequency: crossfade });
+    const next = Array.from({ length: 8 }, () => scope.block());
+    expect(total(next, 'builds')).toBe(1);
+    expect(total(next, 'mixes')).toBe(0);
+  });
+
+  it('a bend held still under the heavy chord: the voices play the tables whose reach holds it until theirs are built, then glide into them', () => {
     const { scope, run } = chord(48000);
     run(40);
     // 60 cents up over 20 blocks, then held: each mix reaches 100 cents up but where its richest level reaches
@@ -184,11 +199,11 @@ describe('the work of the voices', () => {
       params.detune2 = (frame) => -1200 + bend(frame);
     });
     const blocks = run(60);
-    // block 20: the pitch still, the one of the block before another: the mixes whose reach holds it
+    // block 20: the pitch still, the one of the block before another: the tables whose reach holds it
     expect(blocks[20].mixSamples).toBeGreaterThan((UNISON * BLOCK) / 2);
-    // then steady: its own mixes, a few a block within the budget, each glided into from the one whose reach held
-    // it (a glide of 5 ms at most, played directly: in the block it is built in and the next one); meanwhile no
-    // other voice leaves the one it plays
+    // then steady: the mixes of the 30 voices bent into a crossfade, within the budget, each glided into from the
+    // table whose reach held it (a glide of 5 ms at most, played directly: in the block it is built in and the next
+    // one); meanwhile no other voice leaves the one it plays
     blocks
       .slice(21)
       .forEach((block, i) =>
@@ -196,19 +211,19 @@ describe('the work of the voices', () => {
           blocks[20].directSamples + BLOCK * (block.builds + blocks[20 + i].builds)
         )
       );
-    expect(total(blocks.slice(21), 'builds')).toBe(UNISON);
+    expect(total(blocks.slice(21), 'builds')).toBe(30);
     expect(blocks[blocks.length - 1]).toMatchObject({ directSamples: 0, mixSamples: UNISON * BLOCK });
   });
 
-  // the voices back on their mix tables after a new version of their tables (an edit of a frame, a preset):
-  // within TABLE_THROTTLE, the edits of a frame the oscillator sends at most, at 44.1 and 48 kHz. At 96 kHz
-  // they take 268 ms (F1): a continuous edit keeps them on the direct path
+  // the voices back on one table after a new version of their tables (an edit of a frame, a preset): within
+  // TABLE_THROTTLE, the edits of a frame the oscillator sends at most (at 96 kHz too: the mixes as long as their
+  // levels; as long as a native table there they took 268 ms, F1)
   it.each([
-    [44100, 20],
-    [48000, 19],
-    [96000, 201],
+    [44100, 8],
+    [48000, 7],
+    [96000, 11],
   ])(
-    'at %i Hz a new version of both tables under the heavy chord: on their mixes again after %j blocks',
+    'at %i Hz a new version of both tables under the heavy chord: on one table again after %j blocks',
     (rate, backs) => {
       const back = backs;
       const { run, store, freed } = chord(rate);
@@ -229,9 +244,7 @@ describe('the work of the voices', () => {
       expect(freedAt[crossfade - 1]).toBe(2);
       expect(store.stats()).toMatchObject({ tables: 2, versions: 2 });
       expect(settled(blocks)).toBe(back);
-      const ms = ((back * BLOCK) / rate) * 1000;
-      if (rate <= 48000) expect(ms).toBeLessThan(TABLE_THROTTLE);
-      else expect(ms).toBeGreaterThan(TABLE_THROTTLE);
+      expect(((back * BLOCK) / rate) * 1000).toBeLessThan(TABLE_THROTTLE);
     }
   );
 

@@ -3,7 +3,7 @@
 //! the counters (VoiceStats, the perf build); and the params and outputs of the block the wrapper copies in and out
 
 use crate::lfo::{frac, Anchor, LfoGlobal, LfoState, KNOBS, LFOS, TABLE};
-use crate::store::FRAME_GUARD;
+use crate::store::{FRAME_GUARD, MAX_LEVEL_LENGTH};
 use alloc::{vec, vec::Vec};
 use jsmath::{ceil, max};
 
@@ -11,7 +11,9 @@ use jsmath::{ceil, max};
 /// with its 200000 (the attack of a chord in Node, one shared:
 /// 0.105 against 0.215 µs per 1000 multiply-adds at 48 kHz, 0.138 against 0.30 at 96 kHz); the most whose
 /// longest block of the attack of a chord of 12 × 2 × u8 is not longer than the one of the TS (0.170 against
-/// 0.172 ms; 400000: 0.180), its 192 mixes built from block 26 on instead of 56
+/// 0.172 ms; 400000: 0.180), its 192 mixes built from block 26 on instead of 56. Since the mixes are as long as
+/// their levels and only the voices in a crossfade build one (the others read their level alone) the 32 of the
+/// heavy chord at 48 kHz are built by block 3
 pub const MIX_BUDGET_WASM: f64 = 360000.0;
 const SEGMENT: f64 = 32.0;
 pub const PARAMS: usize = 10;
@@ -54,7 +56,8 @@ struct Phrase {
 pub struct Shared {
     size: usize,
     pub scratch: Scratch,
-    pool: Vec<(usize, Vec<Vec<f32>>)>,
+    // the mix tables no voice holds, each as long as the longest level can be (any of them holds any mix)
+    pool: Vec<Vec<f32>>,
     budget_frame: f64,
     spent: f64,
     pub counts: [f64; 10],
@@ -64,7 +67,8 @@ pub struct Shared {
     pub lengths: [f32; PARAMS],
     pub output: Vec<f32>,
     frames: usize,
-    // the weights of the 6-point Lagrange interpolation per ratio (the upsamplers of the TS, cached per scope)
+    // the weights of the 6-point Lagrange interpolation per ratio (the upsamplers of the TS, cached per scope; ratio 2
+    // only since the mixes are as long as their levels)
     pub upsamplers: Vec<(usize, Vec<f64>)>,
     // the LFOs of the voices (lfo.rs) and the count of their states: a voice that sees another one works its LFOs
     // out again
@@ -213,41 +217,35 @@ impl Shared {
         }
     }
 
-    /// a mix table of `length` (from the pool, or allocated); None: no memory for it, the voice plays directly, as
-    /// when the budget refuses a build (the same sound, more CPU)
+    /// a mix table of `length` (from the pool, or allocated room for the longest level: a mix of any level takes it
+    /// later, no size of the pool runs out while another one is kept); None: no memory for it, the voice plays
+    /// directly, as when the budget refuses a build (the same sound, more CPU)
     pub fn acquire_mix(&mut self, length: usize) -> Option<Vec<f32>> {
-        if let Some((_, free)) = self.pool.iter_mut().find(|(size, _)| *size == length) {
-            if let Some(mix) = free.pop() {
-                return Some(mix);
-            }
-        }
         let size = length.checked_add(FRAME_GUARD)?;
-        let mut mix = Vec::new();
+        let mut mix = match self.pool.pop() {
+            Some(mix) => mix,
+            None => {
+                let mut mix = Vec::new();
+                mix.try_reserve_exact(length.max(MAX_LEVEL_LENGTH) + FRAME_GUARD)
+                    .ok()?;
+                if cfg!(feature = "perf") {
+                    self.counts[MIXES] += 1.0;
+                    self.counts[MIX_BYTES] += 4.0 * mix.capacity() as f64;
+                }
+                mix
+            }
+        };
+        // (within its room: no allocation)
+        mix.clear();
         mix.try_reserve_exact(size).ok()?;
         mix.resize(size, 0.0f32);
-        if cfg!(feature = "perf") {
-            self.counts[MIXES] += 1.0;
-            self.counts[MIX_BYTES] += 4.0 * mix.len() as f64;
-        }
         Some(mix)
     }
 
     /// a mix table back to the pool (freed when the pool has no memory to keep it: the end of a voice never traps)
     pub fn release_mix(&mut self, mix: Vec<f32>) {
-        let length = mix.len() - FRAME_GUARD;
-        match self.pool.iter_mut().find(|(size, _)| *size == length) {
-            Some((_, free)) => {
-                if free.try_reserve(1).is_ok() {
-                    free.push(mix);
-                }
-            }
-            None => {
-                let mut free = Vec::new();
-                if free.try_reserve(1).is_ok() && self.pool.try_reserve(1).is_ok() {
-                    free.push(mix);
-                    self.pool.push((length, free));
-                }
-            }
+        if self.pool.try_reserve(1).is_ok() {
+            self.pool.push(mix);
         }
     }
 

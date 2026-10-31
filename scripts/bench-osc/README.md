@@ -26,22 +26,22 @@ exit code is 1 if a criterion failed.
 Offline renders (`OfflineAudioContext`) at 44.1, 48 and 96 kHz of a band-limited saw and the middle frame of
 3 real tables at 55, 220, 1046, 3520 and 7040 Hz:
 
-| Criterion         | How                                                                                   | Threshold                                                                                                                                    |
-| ----------------- | ------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Aliasing          | power outside the harmonics against the harmonics (Kaiser β 38 window, 65536 samples) | ≤ native + 1 dB                                                                                                                              |
-| Worst spur        | loudest bin outside the harmonics against the fundamental                             | ≤ native + 1 dB                                                                                                                              |
-| Brightness        | highest harmonic played at half its amplitude in the frame at least                   | ≥ native                                                                                                                                     |
-| Level             | RMS against the native render of the frame (`disableNormalization`: at its volume)    | ±0.1 dB                                                                                                                                      |
-| Pitch             | drift of the phase of the fundamental over 10 s                                       | ≤ 0.01 cent                                                                                                                                  |
-| Integer positions | `position` k / (N − 1) against a table of frame k alone                               | the same samples                                                                                                                             |
-| Morph             | `position` 0 → 1 in 1 s at 220 Hz                                                     | max step ≤ 1.1 × the steepest frame                                                                                                          |
-| Glide             | 55 Hz → 7 kHz in 2 s                                                                  | max step ≤ 1.1 × the steepest pitch on the way                                                                                               |
-| Table switch      | a new version at 0.25 s of a note                                                     | no step, the new table from 10 ms on                                                                                                         |
-| Stereo, unison    | u3 and u8 widely detuned: each voice in its channel                                   | its level, nothing in the other one                                                                                                          |
-| Unison level      | 400 notes of 100 ms, u2…u8 against u1                                                 | RMS ±0.3 dB, peak −1…+4 dB                                                                                                                   |
-| CPU               | 8 voices × 2 oscillators × u4, 10 s; native: the graph the synth had                  | ≤ 1.0× native held, ≤ 1.3× with an LFO on position (against native held) or on detune (against native with it)                               |
-| CPU, envelopes    | the same, ENV 2 routed to Wave, Detune and Gain of both oscillators                   | on its sustain (from the note on) ≤ 1.05× the same sound without routes; moving the whole time ≤ 1.05× ours with an LFO into the same params |
-| Tables            | building 256 frames on the main thread, their size                                    | ≤ 500 ms, ≤ 64 MiB                                                                                                                           |
+| Criterion         | How                                                                                                                                               | Threshold                                                                                                                                    |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Aliasing          | power outside the harmonics against the harmonics (Kaiser β 38 window, 65536 samples)                                                             | ≤ −70, native or the reference AU + 1 dB (native: cleaner on high notes, and duller; the reference: `dsp/measurements/aliasing.json`)        |
+| Worst spur        | loudest bin outside the harmonics against the fundamental                                                                                         | ≤ −80, native or the reference AU + 1 dB                                                                                                     |
+| Brightness        | highest harmonic played at half its amplitude in the frame at least                                                                               | ≥ native                                                                                                                                     |
+| Level             | the harmonics below nyquist · 2^(−2/3) against the native render of the frame (`disableNormalization`: at its volume; above it ours are brighter) | ±0.1 dB                                                                                                                                      |
+| Pitch             | drift of the phase of the fundamental over 10 s                                                                                                   | ≤ 0.01 cent                                                                                                                                  |
+| Integer positions | `position` k / (N − 1) against a table of frame k alone                                                                                           | the same samples                                                                                                                             |
+| Morph             | `position` 0 → 1 in 1 s at 220 Hz                                                                                                                 | max step ≤ 1.1 × the steepest frame                                                                                                          |
+| Glide             | 55 Hz → 7 kHz in 2 s                                                                                                                              | max step ≤ 1.1 × the steepest pitch on the way                                                                                               |
+| Table switch      | a new version at 0.25 s of a note                                                                                                                 | no step, the new table from 10 ms on                                                                                                         |
+| Stereo, unison    | u3 and u8 widely detuned: each voice in its channel                                                                                               | its level, nothing in the other one                                                                                                          |
+| Unison level      | 400 notes of 100 ms, u2…u8 against u1                                                                                                             | RMS ±0.3 dB, peak −1…+4 dB                                                                                                                   |
+| CPU               | 8 voices × 2 oscillators × u4, 10 s; native: the graph the synth had                                                                              | ≤ 1.0× native held, ≤ 1.3× with an LFO on position (against native held) or on detune (against native with it)                               |
+| CPU, envelopes    | the same, ENV 2 routed to Wave, Detune and Gain of both oscillators                                                                               | on its sustain (from the note on) ≤ 1.05× the same sound without routes; moving the whole time ≤ 1.05× ours with an LFO into the same params |
+| Tables            | building 256 frames on the main thread, their size                                                                                                | ≤ 500 ms, ≤ 64 MiB                                                                                                                           |
 
 The table switch needs `OfflineAudioContext.suspend`, which Firefox does not have: it is not measured there
 (the offline specs of the dsp cover it).
@@ -49,6 +49,16 @@ The table switch needs `OfflineAudioContext.suspend`, which Firefox does not hav
 The native reference is a `PeriodicWave` without its normalization (`disableNormalization`): the oscillator plays
 a frame at its volume. Normalized, Firefox scales each band-limited range of its own (its level moved
 with the pitch, by up to −32 dB on a vocal frame): the level criterion now holds in the three engines.
+
+The reference AU of the stand (`node scripts/renders/run.mjs --only=aliasing`: macOS with the AU, into
+`dsp/measurements/aliasing.json`) plays the same frames as tables of one frame at the nearest notes, analysed
+by the same `analyze` (`sound.mjs`). It is brighter than both (every harmonic below the nyquist: 436 of 55 Hz
+at 48 kHz, ours 406, native 322) and dirtier at most renders (−29…−65 dB at 48 and 96 kHz, −34 the saw at
+1046 Hz at 48 kHz), cleaner than ours only on high notes at 44.1 kHz (−118 dB). Against it the levels read
+alone over most of a third of an octave (mixes as long as their levels) are closer than the mixes as long as
+a native table were: the median distance of the aliasing 27 dB against 37 (closer in 48 of the 60 renders),
+of the worst spur 36 against 50 (44), of the brightness 0.31 thirds of an octave against 0.97 (32, none
+farther); the core in Node, 31.10.2026.
 
 ## On the device
 

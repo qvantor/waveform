@@ -5,7 +5,7 @@ import { WorkerStub } from '../../../../test-utils/worker-stub';
 import { createTableBuilder } from './wavetable-builder';
 import { createLevels, FRAME_GUARD, levelHarmonics, levelLength } from './wavetable-levels';
 import { MAX_FRAMES, MAX_HARMONICS, tableBytes } from './wavetable-mipmap';
-import { CROSSFADE, nativeTableLength, VoiceOscOptions } from './voice-options';
+import { CROSSFADE, VoiceOscOptions } from './voice-options';
 import {
   createOscScope,
   createStoreReceiver,
@@ -75,26 +75,55 @@ describe('the memory of the wavetable oscillator', () => {
   });
 
   it.each([
-    [48000, 3148032],
-    [96000, 12585216],
-  ])('at %i Hz the mixes of the heavy chord take %i bytes, a chord after it reuses them', (rate, bytes) => {
-    const { scope: core, store, setTable } = createWasmTables();
-    setTable('a', 1);
-    setTable('b', 1);
-    const scope = createVoiceScope({ rate, store, scope: core });
-    const notes = Array.from({ length: 12 }, (_, i) => 110 * 2 ** (i / 12));
-    // 192 unison voices, a mix of the length of a native table each
-    expect(192 * (nativeTableLength(rate) + FRAME_GUARD) * 4).toBe(bytes);
-    // every mix built (one a block at 96 kHz, F1), then the notes end and the next chord plays
-    const blocks = rate > 48000 ? 200 : 20;
-    for (let cycle = 0; cycle < 3; cycle++) {
-      const voices = notes.map((frequency) => scope.add(OSCS, { ...NOTE, frequency }));
-      Array.from({ length: blocks }, scope.block);
-      voices.forEach((voice) => (voice.params.gate = 0));
-      scope.block();
-      expect(scope.alive()).toBe(0);
+    [48000, 48],
+    [96000, 48],
+  ])(
+    'at %i Hz the mixes of the heavy chord take %i tables of 4096 samples, a chord after it reuses them',
+    (rate, mixes) => {
+      const { scope: core, store, setTable } = createWasmTables();
+      setTable('a', 1);
+      setTable('b', 1);
+      const scope = createVoiceScope({ rate, store, scope: core });
+      const notes = Array.from({ length: 12 }, (_, i) => 110 * 2 ** (i / 12));
+      // of its 192 unison voices those in a crossfade of their levels, a mix as long as their level each (4096 for
+      // these notes; as long as a native table they took 3,148,032 bytes at 48 kHz, 12,585,216 at 96)
+      const bytes = mixes * (4096 + FRAME_GUARD) * 4;
+      // every mix built, then the notes end and the next chord plays
+      const blocks = 20;
+      for (let cycle = 0; cycle < 3; cycle++) {
+        const voices = notes.map((frequency) => scope.add(OSCS, { ...NOTE, frequency }));
+        Array.from({ length: blocks }, scope.block);
+        voices.forEach((voice) => (voice.params.gate = 0));
+        scope.block();
+        expect(scope.alive()).toBe(0);
+      }
+      expect(scope.shared.stats()).toMatchObject({ mixes, mixBytes: bytes });
     }
-    expect(scope.shared.stats()).toMatchObject({ mixes: 192, mixBytes: bytes });
+  );
+
+  it('the mixes of a chord of shorter levels take the tables of one before it: none allocated', () => {
+    // the heavy chord, then two octaves up: levels of 1024 and 2048 samples, its mixes in the tables of 4096
+    const chord = (base: number) => Array.from({ length: 12 }, (_, i) => base * 2 ** (i / 12));
+    const play = (chords: number[][]) => {
+      const { scope: core, store, setTable } = createWasmTables();
+      setTable('a', 1);
+      setTable('b', 1);
+      const scope = createVoiceScope({ rate: 48000, store, scope: core });
+      chords.forEach((notes) => {
+        const voices = notes.map((frequency) => scope.add(OSCS, { ...NOTE, frequency }));
+        Array.from({ length: 20 }, scope.block);
+        voices.forEach((voice) => (voice.params.gate = 0));
+        scope.block();
+      });
+      return scope.shared.stats();
+    };
+    const low = play([chord(110)]).mixes;
+    const high = play([chord(440)]).mixes;
+    expect(high).toBeGreaterThan(0);
+    expect(play([chord(110), chord(440)])).toMatchObject({
+      mixes: Math.max(low, high),
+      mixBytes: Math.max(low, high) * (4096 + FRAME_GUARD) * 4,
+    });
   });
 
   it('an oscillator that is off sends its table too: a note right after it is switched on plays it (F6)', async () => {

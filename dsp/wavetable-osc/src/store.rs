@@ -9,6 +9,8 @@ use alloc::{vec, vec::Vec};
 use jsmath::{sin, PI};
 
 pub const FRAME_GUARD: usize = 3;
+/// the samples of the longest level (MAX_LENGTH of wavetable-levels.ts): a mix table holds one of them
+pub const MAX_LEVEL_LENGTH: usize = 4096;
 // freed buffers kept for the next tables (two at most), and their samples at most those of one table of 256
 // frames of 2048 samples (66,683,904 bytes): a buffer the next table can't use goes back to the allocator
 const POOL: usize = 2;
