@@ -1,5 +1,6 @@
 import React from 'react';
 import styled from 'styled-components';
+import { distinctUntilChanged, map } from 'rxjs';
 import {
   PianoKeyboard,
   VolumeAnalyser,
@@ -9,7 +10,7 @@ import {
   useElementSize,
   useIsMobile,
 } from '@waveform/ui-kit';
-import { useBehaviorSubject } from '@waveform/rxjs-react';
+import { useBehaviorSubject, useObservable } from '@waveform/rxjs-react';
 import { DEFAULT_WAVETABLE_PATH } from '@waveform/preset-schema';
 import { useApp } from '../app';
 import { Header, HeaderSection } from '../common/components';
@@ -316,29 +317,51 @@ const OscillatorInternal = ({ children }: React.PropsWithChildren) => {
   );
 };
 
-const HeaderInternal = ({ screen, onScreenChange }: ScreenProps) => {
-  const [{ audioCtx, output }] = useSynthCore();
-  return (
-    <Header>
-      <HeaderEq audioCtx={audioCtx} master={output} />
-      <HeaderRight>
-        <TapeSwitch options={SYNTH_SCREENS} value={screen} onChange={onScreenChange} switchOnDrag />
-        <PresetSection
-          actions={
-            <>
-              <MidiInput />
-              <SettingsButton />
-            </>
-          }
-        />
-        <MasterSection>
-          <MasterHandle />
-          <VolumeAnalyser audioCtx={audioCtx} master={output} />
-        </MasterSection>
-      </HeaderRight>
-    </Header>
+// a voice sounds: the meters of the output draw every frame; after the last one they sleep once its tails are over
+const useSounding = () => {
+  const [{ $voicesCount }] = useSynth();
+  const $sounding = React.useMemo(
+    () =>
+      $voicesCount.pipe(
+        map((count) => count > 0),
+        distinctUntilChanged()
+      ),
+    [$voicesCount]
   );
+  return useObservable($sounding, $voicesCount.value > 0);
 };
+
+// the meters render alone when the first voice starts and the last one ends, not the header
+const OutputSpectrum = () => {
+  const [{ audioCtx, output }] = useSynthCore();
+  return <HeaderEq audioCtx={audioCtx} master={output} active={useSounding()} />;
+};
+
+const OutputLevel = () => {
+  const [{ audioCtx, output }] = useSynthCore();
+  return <VolumeAnalyser audioCtx={audioCtx} master={output} active={useSounding()} />;
+};
+
+const HeaderInternal = ({ screen, onScreenChange }: ScreenProps) => (
+  <Header>
+    <OutputSpectrum />
+    <HeaderRight>
+      <TapeSwitch options={SYNTH_SCREENS} value={screen} onChange={onScreenChange} switchOnDrag />
+      <PresetSection
+        actions={
+          <>
+            <MidiInput />
+            <SettingsButton />
+          </>
+        }
+      />
+      <MasterSection>
+        <MasterHandle />
+        <OutputLevel />
+      </MasterSection>
+    </HeaderRight>
+  </Header>
+);
 
 // the LFOs run in the voices node of the synth core
 const LfoInternal = ({ children }: React.PropsWithChildren) => {

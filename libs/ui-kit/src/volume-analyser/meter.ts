@@ -6,7 +6,8 @@ import { number } from '@waveform/math';
 export const METER = { minDb: -48, warnDb: -12, hotDb: -3, peakHold: 1, peakFall: 20 };
 
 // ~85 ms at 48 kHz: a few periods of a bass note (the rms doesn't flicker) and longer than a frame,
-// so no peak is missed between two frames
+// so no peak is missed between two frames. The window is only the copy of the main thread: an analyser of Chromium
+// writes the same quantum into a ring of its own at any fftSize (1024 cost the main thread no less)
 export const FFT_SIZE = 4096;
 
 export const levels = (data: Float32Array) => {
