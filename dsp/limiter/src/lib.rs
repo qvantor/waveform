@@ -11,7 +11,7 @@ use wasm_rt as _;
 
 use dsp_core::consts::CEILING;
 use dsp_core::io::StereoIo;
-use dsp_core::true_peak::{TruePeak, TRUE_PEAK_DELAY};
+use dsp_core::true_peak::{StereoTruePeak, TRUE_PEAK_DELAY};
 use dsp_core::{finite, power_of_two_above};
 use jsmath::{exp, log10, max, min, pow, round};
 
@@ -144,8 +144,7 @@ impl Delay {
 
 pub struct Limiter {
     pub latency: usize,
-    peak_l: TruePeak,
-    peak_r: TruePeak,
+    peaks: StereoTruePeak,
     held: SlidingMax,
     recent: SlidingMax,
     smooth1: Boxcar,
@@ -171,8 +170,7 @@ impl Limiter {
         let latency = lookahead as usize + TRUE_PEAK_DELAY;
         Limiter {
             latency,
-            peak_l: TruePeak::new(CEILING),
-            peak_r: TruePeak::new(CEILING),
+            peaks: StereoTruePeak::new(CEILING),
             held: SlidingMax::new((lookahead + 1.0 + round(HOLD * sample_rate)) as usize),
             recent: SlidingMax::new(round(RECENT * sample_rate) as usize),
             smooth1: Boxcar::new(average1 as usize),
@@ -196,7 +194,8 @@ impl Limiter {
             let l = finite(in_l[s] as f64);
             let r = finite(in_r[s] as f64);
 
-            let peak = self.held.next(max(self.peak_l.next(l), self.peak_r.next(r)));
+            let peaks = self.peaks.next(l, r);
+            let peak = self.held.next(max(peaks.lo(), peaks.hi()));
             if peak != self.last_peak {
                 self.last_peak = peak;
                 self.last_over = if peak > CEILING {
@@ -238,8 +237,7 @@ impl Limiter {
     /// the sound before is forgotten (a preset switch, the output muted): its gain reduction, its lookahead, as
     /// a new limiter
     pub fn forget(&mut self) {
-        self.peak_l = TruePeak::new(CEILING);
-        self.peak_r = TruePeak::new(CEILING);
+        self.peaks = StereoTruePeak::new(CEILING);
         self.held.clear();
         self.recent.clear();
         self.smooth1.clear();
