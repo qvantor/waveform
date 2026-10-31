@@ -160,22 +160,31 @@ describe('the work of the voices', () => {
     expect(total(blocks.slice(constant + 1), 'builds')).toBe(8);
   });
 
-  it('a voice that leaves a crossfade gives its mix back: the next one built takes it from the pool', () => {
+  it('a voice that leaves a crossfade keeps its mix, one that ends gives it back: the next one built takes it', () => {
     const { store } = coreStoreWith({ a: FRAMES, b: FRAMES });
     const scope = coreScope(48000, store);
     // x 13.9 (the crossfade of level 13 into 14: a mix), x 13.5 (the flat of level 13)
     const crossfade = (24000 / 1024) * 2 ** ((13.9 - 1) / 3);
     const flat = (24000 / 1024) * 2 ** ((13.5 - 1) / 3);
     const alone = [{ ...OSCS[0], unison: 1 }, null];
-    scope.add(alone, {
+    const first = scope.add(alone, {
       ...params([4, 'A'] as Note),
       frequency: (frame) => (frame < 8 * BLOCK ? crossfade : flat),
     });
     const before = Array.from({ length: 16 }, () => scope.block());
-    scope.add(alone, { ...params([4, 'A'] as Note), frequency: crossfade });
+    // (over the flat the first voice reads its level alone and keeps its mix: a pitch that comes back takes it)
+    const second = scope.add(alone, { ...params([4, 'A'] as Note), frequency: crossfade });
     const after = Array.from({ length: 8 }, () => scope.block());
     expect(total(before, 'builds') + total(after, 'builds')).toBe(2);
-    expect(total(before, 'mixes') + total(after, 'mixes')).toBe(1);
+    expect(total(before, 'mixes') + total(after, 'mixes')).toBe(2);
+    first.params.gate = 0;
+    second.params.gate = 0;
+    scope.block();
+    expect(scope.alive()).toBe(0);
+    scope.add(alone, { ...params([4, 'A'] as Note), frequency: crossfade });
+    const next = Array.from({ length: 8 }, () => scope.block());
+    expect(total(next, 'builds')).toBe(1);
+    expect(total(next, 'mixes')).toBe(0);
   });
 
   it('a bend held still under the heavy chord: the voices play the tables whose reach holds it until theirs are built, then glide into them', () => {

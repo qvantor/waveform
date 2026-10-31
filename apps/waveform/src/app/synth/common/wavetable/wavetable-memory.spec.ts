@@ -101,6 +101,31 @@ describe('the memory of the wavetable oscillator', () => {
     }
   );
 
+  it('the mixes of a chord of shorter levels take the tables of one before it: none allocated', () => {
+    // the heavy chord, then two octaves up: levels of 1024 and 2048 samples, its mixes in the tables of 4096
+    const chord = (base: number) => Array.from({ length: 12 }, (_, i) => base * 2 ** (i / 12));
+    const play = (chords: number[][]) => {
+      const { scope: core, store, setTable } = createWasmTables();
+      setTable('a', 1);
+      setTable('b', 1);
+      const scope = createVoiceScope({ rate: 48000, store, scope: core });
+      chords.forEach((notes) => {
+        const voices = notes.map((frequency) => scope.add(OSCS, { ...NOTE, frequency }));
+        Array.from({ length: 20 }, scope.block);
+        voices.forEach((voice) => (voice.params.gate = 0));
+        scope.block();
+      });
+      return scope.shared.stats();
+    };
+    const low = play([chord(110)]).mixes;
+    const high = play([chord(440)]).mixes;
+    expect(high).toBeGreaterThan(0);
+    expect(play([chord(110), chord(440)])).toMatchObject({
+      mixes: Math.max(low, high),
+      mixBytes: Math.max(low, high) * (4096 + FRAME_GUARD) * 4,
+    });
+  });
+
   it('an oscillator that is off sends its table too: a note right after it is switched on plays it (F6)', async () => {
     // its levels are built and held like those of an oscillator on: 66.7 MB for a table of 256 frames
     const { osc1, osc2 } = createSynth();

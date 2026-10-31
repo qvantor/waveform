@@ -2208,10 +2208,51 @@ describe('the wavetable voice', () => {
         expect(shared.stats().builds).toBe(8);
       });
 
+      it('keeps the mix of a voice while it reads a level alone: a pitch that comes back takes it again', () => {
+        const { store } = core.storeWith({ a: [saw] });
+        const shared = core.createVoiceShared();
+        // held over the crossfade, 60 cents down onto the flat of level 10 over 0.1..0.2 s, back
+        const detune1 = (frame: number) => (frame >= 0.1 * RATE && frame < 0.2 * RATE ? -60 : 0);
+        let flat = { builds: -1, mixSamples: 0 };
+        render({
+          store,
+          shared,
+          oscs: [osc({ unison: 8 })],
+          params: { frequency: crossfade, detune1, spread1: 4 },
+          frames: 0.3 * RATE,
+          before: (frame) => {
+            if (frame === 0.1 * RATE - ((0.1 * RATE) % BLOCK)) flat = shared.stats();
+          },
+        });
+        const stats = shared.stats();
+        // the mixes of the crossfade once, the level alone over the flat, the mixes again
+        expect(flat.builds).toBe(8);
+        expect(stats.builds).toBe(8);
+        expect(share(stats)).toBeGreaterThan(0.9);
+      });
+
+      it('reads a vibrato over a crossfade from its levels alone, the next one from its middle on: no build', () => {
+        const { store } = core.storeWith({ a: [saw] });
+        const shared = core.createVoiceShared();
+        // ±50 cents around the middle of the crossfade (x 10.775..11.025: the flats of levels 10 and 11 at its
+        // turns), the voices 20 cents apart: level 10 alone up to the middle, 11 from there, a glide of a period
+        // (directly) where they change
+        render({
+          store,
+          shared,
+          oscs: [osc({ unison: 8 })],
+          params: { frequency: crossfade, detune1: vibrato, spread1: 20 },
+          frames: RATE,
+        });
+        const stats = shared.stats();
+        expect(stats.builds).toBe(0);
+        expect(share(stats)).toBeGreaterThan(0.9);
+      });
+
       // a frame of every harmonic at one level (an impulse): a mix differs most from the levels read directly
       const impulse = Array.from({ length: 2048 }, (_, n) => (n === 0 ? 1 : 0));
 
-      it('plays every harmonic of a moving pitch from its mix within the reach of its gain directly', () => {
+      it('plays every harmonic of a moving pitch from one table within the reach of its gain directly', () => {
         // two frames of it: a position that moves within frame 0 plays it directly, a still one plays the mixes
         const { store } = core.storeWith({ a: [impulse, impulse] });
         const seconds = 2;
@@ -2230,10 +2271,10 @@ describe('the wavetable voice', () => {
         let worst = 0;
         for (let from = 0; from + 1024 <= frames; from += 1024)
           worst = Math.max(worst, rms(error, from, from + 1024) / rms(direct.left, from, from + 1024));
-        // the harmonics of the top third of an octave of a level (a share 1 - 2^(-1/3) of them) within a quarter
-        // of a level of their gains: −19 dB at most, −18.5 with the reads of the levels interpolated otherwise
-        // (a mix a level off: −7 dB)
-        expect(db(worst)).toBeLessThan(-17);
+        // the harmonics of the top third of an octave of a level (a share 1 - 2^(-1/3) of them) within half a level
+        // of their gains (a level read alone, LEVEL_REACH: the next one from the middle of a crossfade on): −12.9
+        // dB at most, −14.1 here (a mix within a quarter of a level: −19; a mix a level off: −7 dB)
+        expect(db(worst)).toBeLessThan(-13);
       });
 
       it('never plays a mix above where the richest of its levels reaches the nyquist', () => {

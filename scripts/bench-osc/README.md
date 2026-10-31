@@ -28,8 +28,8 @@ Offline renders (`OfflineAudioContext`) at 44.1, 48 and 96 kHz of a band-limited
 
 | Criterion         | How                                                                                                                                               | Threshold                                                                                                                                    |
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Aliasing          | power outside the harmonics against the harmonics (Kaiser β 38 window, 65536 samples)                                                             | ≤ −70 dB or ≤ native + 1 dB (native: cleaner on high notes, and duller)                                                                      |
-| Worst spur        | loudest bin outside the harmonics against the fundamental                                                                                         | ≤ −80 dB or ≤ native + 1 dB                                                                                                                  |
+| Aliasing          | power outside the harmonics against the harmonics (Kaiser β 38 window, 65536 samples)                                                             | ≤ −70, native or the reference AU + 1 dB (native: cleaner on high notes, and duller; the reference: `dsp/measurements/aliasing.json`)        |
+| Worst spur        | loudest bin outside the harmonics against the fundamental                                                                                         | ≤ −80, native or the reference AU + 1 dB                                                                                                     |
 | Brightness        | highest harmonic played at half its amplitude in the frame at least                                                                               | ≥ native                                                                                                                                     |
 | Level             | the harmonics below nyquist · 2^(−2/3) against the native render of the frame (`disableNormalization`: at its volume; above it ours are brighter) | ±0.1 dB                                                                                                                                      |
 | Pitch             | drift of the phase of the fundamental over 10 s                                                                                                   | ≤ 0.01 cent                                                                                                                                  |
@@ -49,6 +49,16 @@ The table switch needs `OfflineAudioContext.suspend`, which Firefox does not hav
 The native reference is a `PeriodicWave` without its normalization (`disableNormalization`): the oscillator plays
 a frame at its volume. Normalized, Firefox scales each band-limited range of its own (its level moved
 with the pitch, by up to −32 dB on a vocal frame): the level criterion now holds in the three engines.
+
+The reference AU of the stand (`node scripts/renders/run.mjs --only=aliasing`: macOS with the AU, into
+`dsp/measurements/aliasing.json`) plays the same frames as tables of one frame at the nearest notes, analysed
+by the same `analyze` (`sound.mjs`). It is brighter than both (every harmonic below the nyquist: 436 of 55 Hz
+at 48 kHz, ours 406, native 322) and dirtier at most renders (−29…−65 dB at 48 and 96 kHz, −34 the saw at
+1046 Hz at 48 kHz), cleaner than ours only on high notes at 44.1 kHz (−118 dB). Against it the levels read
+alone over most of a third of an octave (mixes as long as their levels) are closer than the mixes as long as
+a native table were: the median distance of the aliasing 27 dB against 37 (closer in 48 of the 60 renders),
+of the worst spur 36 against 50 (44), of the brightness 0.31 thirds of an octave against 0.97 (32, none
+farther); the core in Node, 31.10.2026.
 
 ## On the device
 

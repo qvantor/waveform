@@ -2,7 +2,6 @@
 // Firefox): the wavetable oscillator worklet against a native OscillatorNode with the PeriodicWave of the
 // same frame, rendered in OfflineAudioContexts. Each function returns plain numbers, run.mjs checks them
 // against the criteria of the spec
-import FFT from 'fft.js';
 import { wave } from '@waveform/math';
 import { buildLevels } from '../../apps/waveform/src/app/synth/common/wavetable/wavetable-mipmap';
 import type { WavetableLevels } from '../../apps/waveform/src/app/synth/common/wavetable/wavetable-levels';
@@ -26,23 +25,15 @@ import type {
   VoiceEvent,
 } from '../../apps/waveform/src/app/synth/common/wavetable/voice-options';
 import { parseWav } from '../../apps/waveform/src/app/synth/services/wav';
+import { analyze, frameOf, kaiser, sawFrame, SIZE } from './sound.mjs';
 
 const WORKLET_URL = 'wavetable-osc.js';
 const WAVE_SIZE = 2048;
-// samples of a spectrum, the render plays this many more before it (the start of the note is left out)
-const SIZE = 65536;
+// the render plays this many more samples before those of a spectrum (the start of the note is left out)
 const LEAD = 8192;
 const BLOCK = 128;
 
 type Frames = number[][];
-
-// a band-limited saw of 2048 samples, every harmonic at 1/k
-const sawFrame = () => {
-  const frame = new Array<number>(WAVE_SIZE).fill(0);
-  for (let k = 1; k < WAVE_SIZE / 2; k++)
-    for (let n = 0; n < WAVE_SIZE; n++) frame[n] += Math.sin((2 * Math.PI * k * n) / WAVE_SIZE) / k;
-  return frame;
-};
 
 const loadTable = async (url: string): Promise<Frames> => {
   const { samples } = parseWav(await (await fetch(url)).arrayBuffer());
@@ -264,89 +255,6 @@ const dspRender = async (
 
 // --- analysis ---
 
-const besselI0 = (x: number) => {
-  let sum = 1;
-  let term = 1;
-  for (let k = 1; term > sum * 1e-17; k++) {
-    term *= (x / (2 * k)) ** 2;
-    sum += term;
-  }
-  return sum;
-};
-// a Kaiser window of β = 38: its sidelobes are far below any aliasing (−300 dB), its main lobe ±12 bins
-const BETA = 38;
-const BAND = 14;
-const windows = new Map<number, Float64Array>();
-const kaiser = (n: number) => {
-  const cached = windows.get(n);
-  if (cached) return cached;
-  const window = Float64Array.from(
-    { length: n },
-    (_, i) => besselI0(BETA * Math.sqrt(1 - ((2 * i) / (n - 1) - 1) ** 2)) / besselI0(BETA)
-  );
-  windows.set(n, window);
-  return window;
-};
-
-const powerSpectrum = (signal: Float32Array) => {
-  const window = kaiser(SIZE);
-  const fft = new FFT(SIZE);
-  const input = new Float64Array(SIZE);
-  const from = signal.length - SIZE;
-  for (let i = 0; i < SIZE; i++) input[i] = signal[from + i] * window[i];
-  const out = fft.createComplexArray();
-  fft.realTransform(out, input as unknown as number[]);
-  return Float64Array.from({ length: SIZE / 2 }, (_, k) => out[2 * k] ** 2 + out[2 * k + 1] ** 2);
-};
-
-// aliasing: the power outside the bands of the harmonics against their power; spur: the loudest bin
-// outside them against the fundamental; highest: the number of the highest harmonic played at half its
-// amplitude in the frame at least (against the loudest one; harmonics 80 dB below it don't count); rms of
-// the analysed samples
-const analyze = (signal: Float32Array, frequency: number, rate: number, frame: number[]) => {
-  const spectrum = powerSpectrum(signal);
-  const [real, imag] = wave.realWithImag(frame);
-  const expected = real.map((a, k) => Math.hypot(a, imag[k]));
-  const loudest = expected.indexOf(Math.max(...expected));
-  const bands: number[] = [];
-  const binsPerHz = SIZE / rate;
-  const inBand = new Uint8Array(spectrum.length);
-  let harmonics = 0;
-  let fundamentalPeak = 0;
-  let highest = 0;
-  for (let h = 1; h * frequency < rate / 2; h++) {
-    const center = Math.round(h * frequency * binsPerHz);
-    let power = 0;
-    for (let k = Math.max(0, center - BAND); k <= Math.min(spectrum.length - 1, center + BAND); k++) {
-      inBand[k] = 1;
-      power += spectrum[k];
-      if (h === 1) fundamentalPeak = Math.max(fundamentalPeak, spectrum[k]);
-    }
-    bands[h] = power;
-    harmonics += power;
-  }
-  for (let h = 1; h < bands.length && h < expected.length; h++) {
-    if (expected[h] < expected[loudest] * 1e-4) continue;
-    const played = Math.sqrt(bands[h] / bands[loudest]) / (expected[h] / expected[loudest]);
-    if (played >= 0.5) highest = h;
-  }
-  let other = 0;
-  let worst = 0;
-  for (let k = BAND + 1; k < spectrum.length; k++) {
-    if (inBand[k]) continue;
-    other += spectrum[k];
-    worst = Math.max(worst, spectrum[k]);
-  }
-  let squares = 0;
-  for (let i = signal.length - SIZE; i < signal.length; i++) squares += signal[i] ** 2;
-  return {
-    aliasing: 10 * Math.log10(other / harmonics),
-    spur: 10 * Math.log10(worst / fundamentalPeak),
-    highest,
-    rms: Math.sqrt(squares / SIZE),
-  };
-};
-
 // the phase of the tone at `frequency` over SIZE samples from `from` (time of the absolute sample)
 const tonePhase = (signal: Float32Array, from: number, frequency: number, rate: number) => {
   const window = kaiser(SIZE);
@@ -398,8 +306,6 @@ const db = (ratio: number) => 20 * Math.log10(ratio);
 
 // --- benchmarks ---
 
-// the frame of a table the sound is compared at: the saw, the middle frame of a real table
-const frameOf = (frames: Frames) => Math.floor((frames.length - 1) / 2);
 const positionOf = (frames: Frames) => (frames.length > 1 ? frameOf(frames) / (frames.length - 1) : 0);
 
 // the amplitude of the harmonics below nyquist · 2^(-2/3) together: every level a pitch reads keeps them, both

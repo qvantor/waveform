@@ -3,7 +3,7 @@
 //! the counters (VoiceStats, the perf build); and the params and outputs of the block the wrapper copies in and out
 
 use crate::lfo::{frac, Anchor, LfoGlobal, LfoState, KNOBS, LFOS, TABLE};
-use crate::store::FRAME_GUARD;
+use crate::store::{FRAME_GUARD, MAX_LEVEL_LENGTH};
 use alloc::{vec, vec::Vec};
 use jsmath::{ceil, max};
 
@@ -56,7 +56,8 @@ struct Phrase {
 pub struct Shared {
     size: usize,
     pub scratch: Scratch,
-    pool: Vec<(usize, Vec<Vec<f32>>)>,
+    // the mix tables no voice holds, each as long as the longest level can be (any of them holds any mix)
+    pool: Vec<Vec<f32>>,
     budget_frame: f64,
     spent: f64,
     pub counts: [f64; 10],
@@ -216,41 +217,35 @@ impl Shared {
         }
     }
 
-    /// a mix table of `length` (from the pool, or allocated); None: no memory for it, the voice plays directly, as
-    /// when the budget refuses a build (the same sound, more CPU)
+    /// a mix table of `length` (from the pool, or allocated room for the longest level: a mix of any level takes it
+    /// later, no size of the pool runs out while another one is kept); None: no memory for it, the voice plays
+    /// directly, as when the budget refuses a build (the same sound, more CPU)
     pub fn acquire_mix(&mut self, length: usize) -> Option<Vec<f32>> {
-        if let Some((_, free)) = self.pool.iter_mut().find(|(size, _)| *size == length) {
-            if let Some(mix) = free.pop() {
-                return Some(mix);
-            }
-        }
         let size = length.checked_add(FRAME_GUARD)?;
-        let mut mix = Vec::new();
+        let mut mix = match self.pool.pop() {
+            Some(mix) => mix,
+            None => {
+                let mut mix = Vec::new();
+                mix.try_reserve_exact(length.max(MAX_LEVEL_LENGTH) + FRAME_GUARD)
+                    .ok()?;
+                if cfg!(feature = "perf") {
+                    self.counts[MIXES] += 1.0;
+                    self.counts[MIX_BYTES] += 4.0 * mix.capacity() as f64;
+                }
+                mix
+            }
+        };
+        // (within its room: no allocation)
+        mix.clear();
         mix.try_reserve_exact(size).ok()?;
         mix.resize(size, 0.0f32);
-        if cfg!(feature = "perf") {
-            self.counts[MIXES] += 1.0;
-            self.counts[MIX_BYTES] += 4.0 * mix.len() as f64;
-        }
         Some(mix)
     }
 
     /// a mix table back to the pool (freed when the pool has no memory to keep it: the end of a voice never traps)
     pub fn release_mix(&mut self, mix: Vec<f32>) {
-        let length = mix.len() - FRAME_GUARD;
-        match self.pool.iter_mut().find(|(size, _)| *size == length) {
-            Some((_, free)) => {
-                if free.try_reserve(1).is_ok() {
-                    free.push(mix);
-                }
-            }
-            None => {
-                let mut free = Vec::new();
-                if free.try_reserve(1).is_ok() && self.pool.try_reserve(1).is_ok() {
-                    free.push(mix);
-                    self.pool.push((length, free));
-                }
-            }
+        if self.pool.try_reserve(1).is_ok() {
+            self.pool.push(mix);
         }
     }
 

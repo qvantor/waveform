@@ -34,6 +34,11 @@ pub(crate) const LEVEL_BAND: f64 = 0.2;
 // a mix plays the pitches within this many levels (x of `segment`, a level a third of an octave) of the one it was
 // built at: the gain of every harmonic within as much of the one it has directly (each moves at most 1 a level)
 const MIX_REACH: f64 = 0.25;
+// the pitches a level read alone plays while the pitch moves: half a level each way, the next one alone from the
+// middle of a crossfade on (no build: a vibrato over a crossfade read two levels directly most of the time), the gain
+// of the harmonics one has and the other lacks (0.76..1 × the nyquist) within 0.5 of the one they have directly; a
+// still pitch builds its own mix (MIX_REACH)
+const LEVEL_REACH: f64 = 0.5;
 // the band of pitches a moving pitch holds to get a mix (PitchBand): the reach (and the rounding of the log2s of a
 // swing of exactly the reach, ±10 cents over a crossfade)
 const MIX_BAND: f64 = MIX_REACH + 1e-9;
@@ -963,17 +968,28 @@ impl SourceFade {
     // (the x of its mix, None: its pitch). It glides there from what it reads at t (from the middle of a glide too),
     // but takes it at once where that reads the levels `to` does there (a mix of the pitch the voice played
     // directly: the sound of before, to the bit) or where its reach no longer holds the pitch (one that stepped: its
-    // levels would sound duller, read up there they would alias). A call of the voices whose mix changes only (out
-    // of the loops of render_voices)
+    // levels would sound duller, read up there they would alias; the reach of a level alone or of the middle of a
+    // glide half a level: a pitch that moves takes the next level alone there). A pitch that moves `speed` (x a
+    // sample) glides no slower than it moves the levels itself, as reading them directly does (a kick crosses a
+    // crossfade in 2 ms, a glide of a period of it took 5). A call of the voices whose mix changes only (out of the
+    // loops of render_voices)
     #[cold]
     #[inline(never)]
-    fn at_block(&mut self, to: Option<f64>, x: f64, t: f64, inc: f64, limit: f64) {
+    fn at_block(&mut self, to: Option<f64>, x: f64, speed: f64, t: f64, inc: f64, limit: f64) {
         let now = self.x_at(t, x);
         // (the keys of any frame: the voice reads its own)
         let (key, next) = (MixKey::at(0, now), MixKey::at(0, to.unwrap_or(x)));
-        let (low, high) = key.reach();
+        let reach = if self.fading(t) {
+            LEVEL_REACH
+        } else {
+            key.moving_reach()
+        };
+        let (low, high) = key.reach(reach);
         *self = if key != next && x >= low - SOURCE_SLACK && x <= high + SOURCE_SLACK {
-            let length = fade_length(inc, limit);
+            let mut length = fade_length(inc, limit);
+            if speed > 0.0 {
+                length = min(length, max(1.0, (to.unwrap_or(x) - now).abs() / speed));
+            }
             SourceFade {
                 from: if self.to.is_none() && !self.fading(t) {
                     None
@@ -1038,17 +1054,23 @@ impl MixKey {
         w: 0.0,
     };
 
-    // the pitches it plays, as the x of `segment`: within MIX_REACH of the x it was built at (under level 0 alone
-    // none is richer), below where the richest of its levels, `level`, reaches the nyquist: the next one (it would
-    // alias; from there the next level alone, a whole x most of its third of an octave: `holds` keeps below it)
-    fn reach(&self) -> (f64, f64) {
+    // the pitches it plays, as the x of `segment`: within `reach` of the x it was built at (MIX_REACH; a level alone
+    // under a moving pitch LEVEL_REACH; under level 0 alone none is richer), below where the richest of its levels,
+    // `level`, reaches the nyquist: the next one (it would alias; from there the next level alone, a whole x most of
+    // its third of an octave: `holds` keeps below it)
+    fn reach(&self, reach: f64) -> (f64, f64) {
         let x = self.level as f64 + self.w;
-        let low = if x == 0.0 {
-            f64::NEG_INFINITY
+        let low = if x == 0.0 { f64::NEG_INFINITY } else { x - reach };
+        (low, min(x + reach, self.level as f64 + 1.0))
+    }
+
+    // its reach under a moving pitch: a level alone LEVEL_REACH, a mix MIX_REACH
+    fn moving_reach(&self) -> f64 {
+        if self.w == 0.0 {
+            LEVEL_REACH
         } else {
-            x - MIX_REACH
-        };
-        (low, min(x + MIX_REACH, self.level as f64 + 1.0))
+            MIX_REACH
+        }
     }
 
     // the x of `segment` it was built at
@@ -1056,22 +1078,22 @@ impl MixKey {
         self.level as f64 + self.w
     }
 
-    // whether it plays frame `frame` at the pitches low..high (x of `segment`)
-    fn holds(&self, frame: i32, low: f64, high: f64) -> bool {
-        let (from, to) = self.reach();
+    // whether it plays frame `frame` at the pitches low..high (x of `segment`) within `reach`
+    fn holds(&self, frame: i32, low: f64, high: f64, reach: f64) -> bool {
+        let (from, to) = self.reach(reach);
         self.frame == frame && low >= from && high <= to && high < self.level as f64 + 1.0
     }
 
     // the frame of a level a voice reads alone at the pitches low..high: of the level nearest to them, if its reach
     // holds them (None: none does, or the silent one)
-    fn level_at(frame: i32, low: f64, high: f64, silent: usize) -> Option<MixKey> {
+    fn level_at(frame: i32, low: f64, high: f64, silent: usize, reach: f64) -> Option<MixKey> {
         let level = floor((low + high) / 2.0 + 0.5);
         let key = MixKey {
             frame,
             level: level as usize,
             w: 0.0,
         };
-        (level >= 0.0 && level < silent as f64 && key.holds(frame, low, high)).then_some(key)
+        (level >= 0.0 && level < silent as f64 && key.holds(frame, low, high, reach)).then_some(key)
     }
 
     // the mix of pitch x: its level and the weight of the next as `segment` reads them there
@@ -1152,8 +1174,10 @@ struct Osc {
     cached: bool,
     last: [f64; 4],
     last_entry: Option<EntryRef>,
-    // the mix table of each voice and what it was built of (a steady block plays the one of its key)
+    // the mix table of each voice and what it was built of (kept while the voice reads a level alone: a pitch that
+    // comes back takes it again), and the table it reads: its mix, or a level alone (a key of w 0)
     mixes: [Option<Vec<f32>>; MAX_UNISON],
+    built: [MixKey; MAX_UNISON],
     mix_keys: [MixKey; MAX_UNISON],
     bands: [PitchBand; MAX_UNISON],
     // the levels each voice reads in the version it plays: of its pitch, of its mix, a glide between them
@@ -1312,6 +1336,7 @@ impl Voice {
                 last: [f64::NAN; 4],
                 last_entry: None,
                 mixes: Default::default(),
+                built: [MixKey::NONE; MAX_UNISON],
                 mix_keys: [MixKey::NONE; MAX_UNISON],
                 bands: [PitchBand::NONE; MAX_UNISON],
                 sources: [SourceFade::NONE; MAX_UNISON],
@@ -1871,20 +1896,14 @@ fn build_cost(levels: &Levels, level: usize, w: f64) -> f64 {
 // the mix of voice v for the constant pitch and position of the block
 fn build_mix(osc: &mut Osc, v: usize, levels: &Levels, level: usize, w: f64, k: usize, shared: &mut Shared) {
     let length = mix_length(levels, level);
-    let mut mix = match osc.mixes[v].take() {
-        Some(mix) if mix.len() == length + FRAME_GUARD => mix,
-        other => {
-            if let Some(mix) = other {
-                shared.release_mix(mix);
-            }
-            // no memory for it: the voice plays directly (it has no mix, a later block tries again)
-            let Some(mix) = shared.acquire_mix(length) else {
-                return;
-            };
-            mix
-        }
+    // (the one it had back to the pool: the last one in, it is taken again, zeroed to this length)
+    if let Some(mix) = osc.mixes[v].take() {
+        shared.release_mix(mix);
+    }
+    // no memory for it: the voice plays directly (it has no mix, a later block tries again)
+    let Some(mut mix) = shared.acquire_mix(length) else {
+        return;
     };
-    mix.fill(0.0);
     let silent = levels.lengths.len() - 1;
     let weights = &mut shared.upsamplers;
     if w < 1.0 && level < silent {
@@ -1896,40 +1915,38 @@ fn build_mix(osc: &mut Osc, v: usize, levels: &Levels, level: usize, w: f64, k: 
     mix[0] = mix[length];
     mix[length + 1] = mix[1];
     mix[length + 2] = mix[2];
-    osc.mixes[v] = Some(mix);
-    osc.mix_keys[v] = MixKey {
+    let key = MixKey {
         frame: k as i32,
         level,
         w,
     };
+    osc.mixes[v] = Some(mix);
+    osc.built[v] = key;
+    osc.mix_keys[v] = key;
 }
 
-// voice v reads the frame of a level alone (a key of w 0): no mix, the one it had back to the pool
-fn take_level(osc: &mut Osc, v: usize, key: MixKey, shared: &mut Shared) {
-    if let Some(mix) = osc.mixes[v].take() {
-        shared.release_mix(mix);
-    }
-    osc.mix_keys[v] = key;
+// the mix voice v keeps (what it was built of), whatever it reads
+fn kept(osc: &Osc, v: usize) -> Option<MixKey> {
+    osc.mixes[v].is_some().then_some(osc.built[v])
 }
 
 // whether voice v has a table of its key: its mix, or a level alone (a mix without memory for it has none)
 fn has_source(osc: &Osc, v: usize) -> bool {
-    osc.mixes[v].is_some() || (osc.mix_keys[v].frame >= 0 && osc.mix_keys[v].w == 0.0)
+    let key = osc.mix_keys[v];
+    key.frame >= 0 && (key.w == 0.0 || osc.mixes[v].is_some())
 }
 
 // the table voice v reads (has_source): its mix, or the data of the levels from the frame of its level; the sample
 // 0 of the cycle in it and its length
 fn source<'a>(osc: &'a Osc, levels: &'a Levels, v: usize) -> (&'a [f32], usize, f64) {
+    let key = osc.mix_keys[v];
     match &osc.mixes[v] {
-        Some(mix) => (mix, 1, (mix.len() - FRAME_GUARD) as f64),
-        None => {
-            let key = osc.mix_keys[v];
-            (
-                &levels.data,
-                frame_start(levels, key.level, key.frame as usize),
-                levels.lengths[key.level] as f64,
-            )
-        }
+        Some(mix) if key.w != 0.0 => (mix, 1, (mix.len() - FRAME_GUARD) as f64),
+        _ => (
+            &levels.data,
+            frame_start(levels, key.level, key.frame as usize),
+            levels.lengths[key.level] as f64,
+        ),
     }
 }
 
@@ -2278,16 +2295,16 @@ fn render_voices(
     };
     // the voices that play one table over the block (a mix, or the frame of a level alone: a key of w 0, no build),
     // decided first, in their order (the budget and the counters as the TS decides them voice by voice), so two
-    // neighbours that both play theirs render in one loop (render11_pair). A steady block (one segment): its level
-    // alone, or the mix of its pitch, built now if the budget allows, or the one a voice still has of it (a pitch
-    // that came back), else the table whose reach holds it until it is built (a bend held still under a chord: the
-    // budget builds a few a block). Another pitch: the table whose reach holds the pitch of the voice at every point,
-    // its weights of the levels kept (MIX_REACH): the one it has, or a level;
-    // for a pitch that moves a mix is built at the middle of the band it holds (PitchBand) once it has held it as long
-    // as the build costs played directly (MIX_PAYBACK) and is as far from leaving the reach at the speed it moved over
-    // the band: a turn of a wide vibrato holds one for a moment, it plays directly, as a faster pitch does. A voice
-    // glides from the levels it read to those of the table it plays now, or of its pitch (SourceFade), played
-    // directly, its table after it
+    // neighbours that both play theirs render in one loop (render11_pair). A voice keeps its mix while it reads a
+    // level alone. A steady block (one segment): its level alone, or the mix of its pitch, the one it keeps (a pitch
+    // that came back) or built now if the budget allows, else the table whose reach holds it until it is built (a
+    // bend held still under a chord: the budget builds a few a block). Another pitch: the table whose reach holds the
+    // pitch of the voice at every point: the one it reads, the mix it keeps (MIX_REACH), or for a pitch that moves a
+    // level alone within half a level (LEVEL_REACH: the next one from the middle of a crossfade on); one that
+    // crosses the middle of a crossfade builds a mix at the middle of the band it holds (PitchBand) once it has held
+    // it as long as the build costs played directly (MIX_PAYBACK) and is as far from leaving the reach at the speed
+    // it moved over the band, else it plays directly. A voice glides from the levels it read to those of the table it
+    // plays now, or of its pitch (SourceFade), played directly, its table after it
     let t1 = ctx.block_frame + b as f64;
     let mut on_mix = [false; MAX_UNISON];
     let mut paired = [false; MAX_UNISON];
@@ -2307,19 +2324,28 @@ fn render_voices(
                 };
                 let key = MixKey { frame, level, w: w0 };
                 if w0 == 0.0 {
-                    if osc.mix_keys[v] != key || osc.mixes[v].is_some() {
-                        take_level(osc, v, key, shared);
+                    if osc.mix_keys[v] != key {
+                        osc.mix_keys[v] = key;
                     }
                     on_mix[v] = true;
                     continue;
                 }
-                if !(osc.mixes[v].is_some() && osc.mix_keys[v] == key)
+                if kept(osc, v) != Some(key)
                     && shared.take_build(ctx.block_frame, build_cost(levels, level, w0))
                 {
                     build_mix(osc, v, levels, level, w0, frame as usize, shared);
                 }
-                on_mix[v] =
-                    has_source(osc, v) && (osc.mix_keys[v] == key || osc.mix_keys[v].holds(frame, x, x));
+                // the mix of its pitch (kept, or built now), else the table it reads or the mix it keeps while its
+                // reach holds the pitch
+                if kept(osc, v) == Some(key) {
+                    osc.mix_keys[v] = key;
+                } else if !(has_source(osc, v) && osc.mix_keys[v].holds(frame, x, x, MIX_REACH)) {
+                    if let Some(mix) = kept(osc, v).filter(|mix| mix.holds(frame, x, x, MIX_REACH)) {
+                        osc.mix_keys[v] = mix;
+                    }
+                }
+                on_mix[v] = has_source(osc, v)
+                    && (osc.mix_keys[v] == key || osc.mix_keys[v].holds(frame, x, x, MIX_REACH));
                 continue;
             }
             // the pitch of the voice over the block (x of `segment`), none above the nyquist of its fundamental (a
@@ -2350,21 +2376,32 @@ fn render_voices(
             band.extend(low / LEVEL_BAND, high / LEVEL_BAND, t, t1);
             let band = *band;
             let low = level_x(low);
-            if has_source(osc, v) && osc.mix_keys[v].holds(frame, low, ahead) {
+            let reads = osc.mix_keys[v];
+            if has_source(osc, v) && reads.holds(frame, low, ahead, reads.moving_reach()) {
                 on_mix[v] = true;
                 continue;
             }
-            // a level alone, no build: a pitch on the flat of a level, or one that moves within the reach of one (a
-            // still pitch builds its own mix in the next block: one read until then would glide into it)
-            let level = MixKey::level_at(frame, low, ahead, silent).filter(|key| {
-                mixing == (Mixing::Reach { build: true }) || (low == ahead && ahead == key.level as f64)
-            });
+            // the mix it keeps (a pitch that came back), no build
+            if let Some(mix) = kept(osc, v).filter(|mix| mix.holds(frame, low, ahead, MIX_REACH)) {
+                osc.mix_keys[v] = mix;
+                on_mix[v] = true;
+                continue;
+            }
+            // a level alone, no build: a pitch that moves within half a level of one, a still one on its flat (it
+            // builds its own mix in the next block: one read until then would glide into it)
+            let moving = mixing == (Mixing::Reach { build: true });
+            let level = if moving {
+                MixKey::level_at(frame, low, ahead, silent, LEVEL_REACH)
+            } else {
+                MixKey::level_at(frame, low, ahead, silent, MIX_REACH)
+                    .filter(|key| low == ahead && ahead == key.level as f64)
+            };
             if let Some(key) = level {
-                take_level(osc, v, key, shared);
+                osc.mix_keys[v] = key;
                 on_mix[v] = true;
                 continue;
             }
-            if mixing != (Mixing::Reach { build: true }) {
+            if !moving {
                 continue;
             }
             // the samples it held the band, its width; a glide as fast leaves the reach of the middle after
@@ -2380,7 +2417,7 @@ fn render_voices(
             let payback = MIX_PAYBACK * cost;
             if key.w > 0.0
                 && key.level + 1 < silent
-                && key.holds(frame, low, ahead)
+                && key.holds(frame, low, ahead, MIX_REACH)
                 && held >= payback
                 && (MIX_REACH - width / 2.0) * held >= payback * width
                 && shared.take_build(ctx.block_frame, cost)
@@ -2401,7 +2438,9 @@ fn render_voices(
                 };
             } else if to != osc.sources[v].to {
                 let x = pitch(osc, v, 0);
-                osc.sources[v].at_block(to, x, t, osc.incs[v * points_length], ctx.frame_fade_limit);
+                // (the x of its levels a sample over the block: 0 over the flat of a level)
+                let speed = (pitch(osc, v, count - 1) - x).abs() / (b - a) as f64;
+                osc.sources[v].at_block(to, x, speed, t, osc.incs[v * points_length], ctx.frame_fade_limit);
             }
         }
     }
@@ -2581,6 +2620,7 @@ fn release_mixes(osc: &mut Osc, shared: &mut Shared) {
         if let Some(mix) = osc.mixes[v].take() {
             shared.release_mix(mix);
         }
+        osc.built[v] = MixKey::NONE;
         osc.mix_keys[v] = MixKey::NONE;
     }
 }

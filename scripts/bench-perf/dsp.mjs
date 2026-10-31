@@ -338,9 +338,9 @@ const createCases = (dsp) => {
   });
   // a u8 voice LFO 1 moves a param of (a sine of 0.5 s on its position: the direct path, a frame at a time; on its
   // gain: the gain per sample, the voice on its mix tables; a vibrato of 5 Hz on its Fine: the pitch moves all
-  // along)
+  // along, at 220 Hz over the flat of a level, `crossfade` over the middle of a crossfade)
   const lfoVoiceOf =
-    (param, amount, route = { min: 0, max: 1 }, period = 0.5) =>
+    (param, amount, route = { min: 0, max: 1 }, period = 0.5, values = held) =>
     () => {
       const flat = { attack: 0, hold: 0, decay: 0, sustain: 1, release: 0 };
       const shared = createShared.wasm();
@@ -359,10 +359,12 @@ const createCases = (dsp) => {
       );
       let frameAt = 0;
       return () => {
-        voiceDsp.process(frameAt, held, outL, outR);
+        voiceDsp.process(frameAt, values, outL, outR);
         frameAt += BLOCK;
       };
     };
+  // the middle of the crossfade of a level into the next (x 1.9 of the levels of the table, 64 harmonics: base 128)
+  const crossfade = constant({ ...BASE, frequency: (RATE / 2 / 128) * 2 ** ((1.9 - 1) / 3) });
   // the chord of `scope chord attack` with a lowpass LFO 1 moves around its cutoff (bipolar, ±1 octave, 4 Hz),
   // the coefficients of every voice worked out again every 32 samples
   const scopeChordLfo = () => {
@@ -544,6 +546,13 @@ const createCases = (dsp) => {
         'voice u8 lfo gain': lfoVoiceOf('gain1', -0.5),
         ...(pitchRoutes && {
           'voice u8 lfo fine': lfoVoiceOf('fine1', 100, { min: -100, max: 100, bipolar: true }, 0.2),
+          'voice u8 lfo fine, crossfade': lfoVoiceOf(
+            'fine1',
+            100,
+            { min: -100, max: 100, bipolar: true },
+            0.2,
+            crossfade
+          ),
         }),
         'scope chord lfo cutoff': scopeChordLfo,
       }),

@@ -84,10 +84,11 @@ const warmLfos = (at: number, phase: number, shape: 'square' | 'triangle', insta
 const prewarm = () => {
   const warmStore = createTableStoreWasm(scope);
   // two frames of silence of 32 harmonics, on levels of 1024 samples, of 512 from level 6: by the pitch a fade
-  // between them reads one level (x = 1 + 3·log2(base·f / nyquist) below 0), two of one length (0.5) or of two
-  // lengths (5.5)
+  // between them reads one level (x = 1 + 3·log2(base·f / nyquist) below 0), two of one length (0.9) or of two
+  // lengths (5.9), and the steady blocks at 5.9 build a mix of both (the short one upsampled: `add_to_mix`);
+  // two only in the top LEVEL_BAND of a third of an octave (`level_x` of the core), below it a level alone
   warmStore.set('warm', 1, createLevels(2, 32));
-  const pitches = [-1, 0.5, 5.5].map((x) => (sampleRate / 2 / levelBase(32)) * 2 ** ((x - 1) / 3));
+  const pitches = [-1, 0.9, 5.9].map((x) => (sampleRate / 2 / levelBase(32)) * 2 ** ((x - 1) / 3));
   const warmShared = createVoiceSharedWasm(scope);
   warmShared.setLfos(warmLfos(0, 0, 'square', true));
   const voice = createVoiceWasm(scope, sampleRate, WARM_VOICE, warmStore, Math.random, warmShared);

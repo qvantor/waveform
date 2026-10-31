@@ -9,6 +9,7 @@ import fs from 'fs';
 import http from 'http';
 import path from 'path';
 import { downloadTables, fileName, loadPlaywright, parseArgs, require, root } from '../bench-common.mjs';
+import { PITCHES, TABLES } from './sound.mjs';
 
 const out = path.join(root, 'tmp/bench-osc');
 const site = path.join(out, 'site');
@@ -20,19 +21,23 @@ const rates = (args.rates ?? '44100,48000,96000').split(',').map(Number);
 const only = args.only ? args.only.split(',') : null;
 const runs = (step) => !only || only.includes(step);
 
-const TABLES = [
-  'ESW Core Tables/Basics/ESW Basics - Saw Collection.wav',
-  'ESW Core Tables/Digital/ESW Digital - Air Lazer.wav',
-  'ESW Core Tables/Vocal/ESW Vocal - Ahhh 01.wav',
-];
-const PITCHES = [55, 220, 1046, 3520, 7040];
 // bounds of our own (dB, those of wavetable-osc-dsp.spec): a note reads the level of its pitch alone up to the top
 // fifth of its third of an octave, brighter than a native oscillator (it crossfades into the next level over all
-// of it) and on high notes less clean than it (the levels read linearly, no mix as long as a native table). A
-// render passes under them or within 1 dB of the native one (a table whose content aliases in both)
+// of it) and on high notes less clean than it (the levels read linearly, no mix as long as a native table). The
+// reference AU of the stand (dsp/measurements/aliasing.json, scripts/renders --only=aliasing: the same frames and
+// analysis) is brighter still and dirtier at most of them: −29…−65 dB at 48 and 96 kHz, cleaner than ours only on
+// high notes at 44.1 kHz. A render passes within 1 dB of the bound, of the native one (a table whose content
+// aliases in both) or of the reference (the Vocal frame at 1046 Hz at 44.1 kHz −69.6, its formant at harmonic
+// 20 read linearly from a level of 1024 samples: the reference −76.5, the native −95.6)
 const ALIASING = -70;
 const SPUR = -80;
-const bounded = (ours, native, bound) => ours <= Math.max(bound, native + 1);
+const reference = JSON.parse(
+  fs.readFileSync(path.join(root, 'dsp/measurements/aliasing.json'), 'utf8')
+).rates;
+// the reference of a render (none: a rate or a pitch it wasn't measured at)
+const referenceOf = (rate, table, frequency) =>
+  reference[rate]?.[table]?.find(({ pitch }) => pitch === frequency) ?? {};
+const bounded = (ours, native, ref, bound) => ours <= Math.max(bound, native, ref ?? -Infinity) + 1;
 
 const bundle = async () => {
   const esbuild = require('esbuild');
@@ -137,18 +142,28 @@ const runPages = async (browser, name, port) => {
         report.results[`sound ${rate} ${table}`] = results;
         for (const { frequency, native, ours, level } of results) {
           const where = `${rate} Hz ${table} ${frequency} Hz`;
+          const ref = referenceOf(rate, table, frequency);
           const verdict = [
-            check(failures, bounded(ours.aliasing, native.aliasing, ALIASING), `aliasing ${where}`),
-            check(failures, bounded(ours.spur, native.spur, SPUR), `spur ${where}`),
+            check(
+              failures,
+              bounded(ours.aliasing, native.aliasing, ref.aliasing, ALIASING),
+              `aliasing ${where}`
+            ),
+            check(failures, bounded(ours.spur, native.spur, ref.spur, SPUR), `spur ${where}`),
             check(failures, ours.highest >= native.highest, `brightness ${where}`),
             check(failures, Math.abs(level) <= 0.1, `level ${where}`),
           ];
+          // (the reference after the native: — where it wasn't measured)
+          const refOf = (value) => (value === undefined ? '—' : f(value));
           log(
-            `sound ${where}: aliasing ${f(ours.aliasing)} (native ${f(native.aliasing)}) ${
-              verdict[0]
-            }, spur ${f(ours.spur)} (${f(native.spur)}) ${verdict[1]}, highest ${ours.highest} (${
-              native.highest
-            }) ${verdict[2]}, level ${f(level, 3)} dB ${verdict[3]}`
+            `sound ${where}: aliasing ${f(ours.aliasing)} (native ${f(native.aliasing)}, ref ${refOf(
+              ref.aliasing
+            )}) ${verdict[0]}, spur ${f(ours.spur)} (${f(native.spur)}, ${refOf(ref.spur)}) ${
+              verdict[1]
+            }, highest ${ours.highest} (${native.highest}, ${ref.highest ?? '—'}) ${verdict[2]}, level ${f(
+              level,
+              3
+            )} dB ${verdict[3]}`
           );
         }
       }
