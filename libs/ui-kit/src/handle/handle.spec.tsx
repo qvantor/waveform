@@ -128,6 +128,30 @@ describe('Handle', () => {
     expect(onActiveChange.mock.calls).toEqual([[true], [false]]);
   });
 
+  it('is let go when its pointerup is lost: the window loses focus, the mouse moves without a button', () => {
+    const onActiveChange = jest.fn();
+    const onChange = jest.fn();
+    const { container } = render(<Handle value={35} onChange={onChange} onActiveChange={onActiveChange} />);
+    const knob = container.firstElementChild as Element;
+    pointer('pointerdown', knob);
+    act(() => {
+      window.dispatchEvent(new Event('blur'));
+    });
+    expect(onActiveChange.mock.calls).toEqual([[true], [false]]);
+    // the next press is followed; a move without a button lets it go and moves nothing
+    pointer('pointerdown', knob);
+    const move = new MouseEvent('pointermove', { bubbles: true, clientY: -50, buttons: 0 });
+    Object.defineProperty(move, 'pointerId', { value: 1 });
+    act(() => {
+      document.dispatchEvent(move);
+    });
+    expect(onActiveChange.mock.calls).toEqual([[true], [false], [true], [false]]);
+    expect(onChange).not.toHaveBeenCalled();
+    // (a pointerup after it changes nothing)
+    pointer('pointerup', document);
+    expect(onActiveChange).toHaveBeenCalledTimes(4);
+  });
+
   it('that takes modulations shows its travel on its edge under the arc of the selected route, no fill', () => {
     const { container, rerender } = render(
       <Handle min={-1} max={1} value={0.5} fillFrom={0} modulations={[]} />

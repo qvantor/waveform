@@ -34,7 +34,14 @@ const setup = () => {
 // jsdom has no PointerEvent: a mouse event with a pointerId works for React and the document listeners of the
 // pointer tracker
 const pointer = (type: string, target: EventTarget, clientX: number) => {
-  const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX, clientY: 0, button: 0 });
+  const event = new MouseEvent(type, {
+    bubbles: true,
+    cancelable: true,
+    clientX,
+    clientY: 0,
+    button: 0,
+    buttons: 1,
+  });
   Object.defineProperty(event, 'pointerId', { value: 1 });
   act(() => {
     target.dispatchEvent(event);
