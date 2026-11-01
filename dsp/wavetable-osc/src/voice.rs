@@ -6,14 +6,14 @@ use crate::envelope::{EnvelopeBlock, EnvelopeParams};
 use crate::filter::{FilterOptions, VoiceFilter};
 use crate::lfo::{LfoBlock, LfoGlobal, DELAY, KNOBS, LFOS, RATE, RISE, SMOOTH};
 use crate::modulation::{
-    lfo_target, Modulation, Sources, VoiceRoute, CUTOFF, FILTER_GAIN, FINE1, GAIN1, LFO, OSC_TARGETS, PITCH1,
-    POSITION1, RESONANCE, SPREAD1, TARGET_PARAMS, VOICE_TARGETS,
+    lfo_target, Modulation, Sources, VoiceRoute, BLEND1, CUTOFF, FILTER_GAIN, FINE1, GAIN1, LFO, OSC_TARGETS,
+    PITCH1, POSITION1, RESONANCE, SPREAD1, TARGET_PARAMS, VOICE_TARGETS,
 };
 use crate::shared::{Scratch, Shared, DIRECT_SAMPLES, MIX_SAMPLES, PARAMS, UNISON, VOICES};
 use crate::store::{EntryRef, Levels, Store, FRAME_GUARD};
 use crate::velocity::{Velocity, VoiceVelocity, Volume};
 use alloc::{vec, vec::Vec};
-use jsmath::{ceil, cos, floor, log2, max, min, pow, round, sin, sqrt, PI};
+use jsmath::{ceil, cos, floor, log2, max, min, pow, round, sin, PI};
 
 pub const MAX_UNISON: usize = 8;
 const SEGMENT: usize = 32;
@@ -24,6 +24,17 @@ const CROSSFADE: f64 = 0.01;
 // a change of frame fades in over a period of the voice, at most this (dsp/measurements/frame-fades.json), as a
 // change of the mix a voice plays glides the levels it reads (SourceFade)
 const FRAME_FADE: f64 = 0.005;
+// the position spread moves unison voice v (from the lowest of the detune) by this share of the table × the spread,
+// whatever the count, the detune mode or a stack: the lowest stays, the next one goes half the table the other way,
+// then each pair a quarter, an eighth… either way (dsp/measurements/spread.json)
+const SPREAD_OFFSETS: [f64; MAX_UNISON] = [0.0, -0.5, 0.25, -0.25, 0.125, -0.125, 0.0625, -0.0625];
+// the level of a voice of a unison of n voices against one alone (dsp/measurements/blend.json, as the renders): of 2
+// (no blend), of 3..8 one hard left or right of the centre at the blend 0 (the others and the blends: blend_gains;
+// unison-levels.ts of the app has them too, for the voices it draws)
+const UNISON_LEVELS: [f64; MAX_UNISON] = [1.0, 0.8077, 1.1041, 1.0738, 1.0416, 1.0126, 0.98410, 0.95426];
+// the middle voice of an odd count of 3 or more in each channel against one hard left or right (-8.02 dB: the renders
+// play a voice in the middle so, at Width 0 too)
+const CENTRE_PAN: f64 = 0.39718;
 // the top of the third of an octave of a level its pitches crossfade it into the next one over (a share of it): below
 // it a pitch reads its level alone, every harmonic of which is below the nyquist over the whole third of an octave
 // (the "+1" of the grid: its top from nyquist · 2^(-1/3) up), no mix to build; the crossfade only keeps the harmonics
@@ -55,17 +66,18 @@ const HELD_GATE: f64 = 1.0;
 const RELEASE_GATE: f64 = 2.0;
 const RELEASE_LEAD: f64 = 0.05;
 
-// the params of a block in the order of VOICE_PARAMETERS: frequency, gate, then position, detune, spread, gain of
-// each oscillator
+// the params of a block in the order of VOICE_PARAMETERS: frequency, gate, then position, detune, spread, gain,
+// blend of each oscillator
 const FREQUENCY: usize = 0;
 const GATE: usize = 1;
 // the params of the oscillators, OSC_PARAMS each, from OSC_PARAMS_AT
 const OSC_PARAMS_AT: usize = GATE + 1;
-const OSC_PARAMS: usize = 4;
+const OSC_PARAMS: usize = 5;
 const OSC_PARAM_POSITION: usize = 0;
 const OSC_PARAM_DETUNE: usize = 1;
 const OSC_PARAM_SPREAD: usize = 2;
 const OSC_PARAM_GAIN: usize = 3;
+const OSC_PARAM_BLEND: usize = 4;
 /// the detune of each oscillator among the params of a block (detune1, detune2)
 pub const DETUNES: [usize; 2] = [
     OSC_PARAMS_AT + OSC_PARAM_DETUNE,
@@ -74,13 +86,14 @@ pub const DETUNES: [usize; 2] = [
 
 pub type Params<'a> = [&'a [f32]; PARAMS];
 
-// the param of a block a route of an oscillator moves (POSITION1, SPREAD1, GAIN1: OSC_PARAM_POSITION…), none for
-// the offsets of its pitch (PITCH1, FINE1: of base 0, added to its detune)
+// the param of a block a route of an oscillator moves (POSITION1, SPREAD1, GAIN1, BLEND1: OSC_PARAM_POSITION…), none
+// for the offsets of its pitch (PITCH1, FINE1: of base 0, added to its detune)
 fn base_param(kind: usize) -> Option<usize> {
     match kind {
         POSITION1 => Some(OSC_PARAM_POSITION),
         SPREAD1 => Some(OSC_PARAM_SPREAD),
         GAIN1 => Some(OSC_PARAM_GAIN),
+        BLEND1 => Some(OSC_PARAM_BLEND),
         _ => None,
     }
 }
@@ -169,27 +182,24 @@ const DETUNE_EXP: u32 = 2;
 const DETUNE_INV: u32 = 3;
 const DETUNE_RANDOM: u32 = 4;
 
-/// how the unison voices of an oscillator sound (UnisonShape): the defaults (blend 0.5, width 1,
-/// no stack, linear, no position spread) play as the voice did before them, bit for bit
+/// how the unison voices of an oscillator sound (UnisonShape): the defaults (width 1, no stack, linear, no
+/// position spread) play as the voice did before them, bit for bit (the blend is a param of the oscillator)
 #[derive(Clone, Copy, Debug)]
 pub struct UnisonShape {
-    // 0 only the centre voices (the middle one of an odd count, the middle two of an even one), 0.5 all at one
-    // level, 1 only the others; the power of the unison stays
-    pub blend: f64,
     // the stereo of the side voices: 1 hard left and right, 0 mono (equal power)
     pub width: f64,
     pub stack: u32,
     // how the voices share the spread: linear, super, exp, inv or at random (drawn per note)
     pub detune: u32,
     pub detune_random: [f64; MAX_UNISON],
-    // the voices play the position spread over this share of the table, as they are spread in pitch
+    // the position spread, -1..1 (A Uni WT Pos of the Audio Unit, -100..+100%): each voice moves by its
+    // SPREAD_OFFSETS × it
     pub position_spread: f64,
 }
 
 impl Default for UnisonShape {
     fn default() -> UnisonShape {
         UnisonShape {
-            blend: 0.5,
             width: 1.0,
             stack: STACK_OFF,
             detune: 0,
@@ -1185,13 +1195,17 @@ struct Osc {
     // the index of the oscillator in VoiceOptions.osc: its params
     index: usize,
     shape: UnisonShape,
-    // per unison voice (set at the start): its share of the spread (-0.5..0.5), the cents of its stack, its gain
-    // (the blend)
+    // per unison voice (set at the start): its share of the spread (-0.5..0.5), the cents of its stack; its gain
+    // (of the blend `blend_at` × its pan; none yet, or its pan while the blend moves: mix_blend gives the gains of the
+    // groups)
     shares: [f64; MAX_UNISON],
     stack_cents: [f64; MAX_UNISON],
     gains: [f64; MAX_UNISON],
+    blend_at: Option<f64>,
     // a width below 1: each side channel takes the other one × sin, itself × cos (of the pan)
     width: Option<(f64, f64)>,
+    // the position spread of its options within -1..1, read at the note on
+    position_spread: f64,
 }
 
 impl Osc {
@@ -1202,10 +1216,59 @@ impl Osc {
     fn target(&self, kind: usize) -> usize {
         OSC_TARGETS * self.index + kind
     }
+    // a unison of 3 or more: centre voices and others (one of 1 or 2 is all centre)
+    fn blends(&self) -> bool {
+        self.voices > 2
+    }
+}
+
+// the position spread of the options of an oscillator within -1..1, none for a NaN (a caller that left it out)
+fn position_spread_of(shape: &UnisonShape) -> f64 {
+    if shape.position_spread.is_nan() {
+        0.0
+    } else {
+        min(1.0, max(-1.0, shape.position_spread))
+    }
+}
+
+// the gains of the centre voices (pair 0: the middle one of an odd count, the middle two of an even one) and of the
+// others at a blend b, against the centre at 0 (dsp/measurements/blend.json: the curves of the renders for 3..8
+// voices, within 0.04 dB): the centre 1 - 0.5549·b², the others 0.04453 + 1.2887·b² - 0.74024·b⁴ (27 dB under it
+// at 0, 8.6 dB at 0.5, as loud at 0.86, the loudest at 0.93); neither is ever silent, the level of the unison moves
+// with them. A unison of 1 or 2 has none (all centre, at 1 whatever the blend)
+#[inline(always)]
+fn blend_gains(blend: f64) -> (f64, f64) {
+    let b = min(1.0, max(0.0, blend));
+    let b2 = b * b;
+    (1.0 - 0.554903 * b2, 0.0445334 + b2 * (1.28871 - 0.740236 * b2))
+}
+
+// the pan of voice v of n in each of its channels: the middle one of an odd count of 3 or more at CENTRE_PAN
+fn pan_of_voice(v: usize, n: usize) -> f64 {
+    if n > 1 && n % 2 == 1 && pair_of_voice(v, n) == 0 {
+        CENTRE_PAN
+    } else {
+        1.0
+    }
+}
+
+// the gains of the voices of an oscillator at a blend (blend_gains), each × its pan
+fn set_blend(osc: &mut Osc, blend: f64) {
+    let n = osc.voices;
+    let (center, side) = if osc.blends() {
+        blend_gains(blend)
+    } else {
+        (1.0, 1.0)
+    };
+    for v in 0..n {
+        osc.gains[v] = pan_of_voice(v, n) * if pair_of_voice(v, n) == 0 { center } else { side };
+    }
+    osc.blend_at = Some(blend);
 }
 
 // the voices of the unison of an oscillator at the start: their shares of the spread (by the detune mode from
-// the lowest, or at random sorted from it), the cents of the stack, the gains of the blend and the pan of the width
+// the lowest, or at random sorted from it), the cents of the stack and the pan of the width (render_osc sets the
+// gains of the blend)
 fn shape_unison(osc: &mut Osc) {
     let n = osc.voices;
     let shape = osc.shape;
@@ -1221,19 +1284,9 @@ fn shape_unison(osc: &mut Osc) {
     if shape.detune == DETUNE_RANDOM {
         osc.shares[..n].sort_unstable_by(f64::total_cmp);
     }
-    let sides = ceil(n as f64 / 2.0) - 1.0;
-    let blend = min(1.0, max(0.0, shape.blend));
-    let (center, side) = if sides == 0.0 || blend == 0.5 {
-        (1.0, 1.0)
-    } else {
-        // each channel has one centre voice and `sides` others: the power of all of them at 1
-        let (c, s) = (min(1.0, 2.0 * (1.0 - blend)), min(1.0, 2.0 * blend));
-        let k = sqrt((1.0 + sides) / (c * c + sides * s * s));
-        (c * k, s * k)
-    };
+    osc.blend_at = None;
     for v in 0..n {
         osc.stack_cents[v] = 100.0 * stack_semitones(shape.stack, v, n);
-        osc.gains[v] = if pair_of_voice(v, n) == 0 { center } else { side };
     }
     let width = min(1.0, max(0.0, shape.width));
     osc.width = (width < 1.0).then(|| {
@@ -1311,7 +1364,8 @@ impl Voice {
         let mut oscs = Vec::with_capacity(2);
         for (index, config) in options.osc.iter().enumerate() {
             let Some(config) = config else { continue };
-            let unison = min(MAX_UNISON as f64, max(1.0, round(config.unison))) as usize;
+            // (a unison that isn't a number is one voice: NaN passes min and max)
+            let unison = (min(MAX_UNISON as f64, max(1.0, round(config.unison))) as usize).max(1);
             oscs.push(Osc {
                 table: config.table,
                 phase: config.phase,
@@ -1345,7 +1399,9 @@ impl Voice {
                 shares: [0.0; MAX_UNISON],
                 stack_cents: [0.0; MAX_UNISON],
                 gains: [1.0; MAX_UNISON],
+                blend_at: None,
                 width: None,
+                position_spread: position_spread_of(&config.shape),
             });
         }
         // the params the routes move: those of the oscillators on, the knobs of the filter
@@ -1466,11 +1522,11 @@ impl Voice {
             if read(spread, i) as f64 <= 0.0
                 && !self.modulation.raises(osc.target(SPREAD1))
                 && osc.shape.stack == STACK_OFF
-                && osc.shape.position_spread == 0.0
+                && osc.position_spread == 0.0
             {
                 osc.voices = 1;
             }
-            osc.level = 1.0 / sqrt(ceil(osc.voices as f64 / 2.0));
+            osc.level = UNISON_LEVELS[osc.voices - 1];
             shape_unison(osc);
             for v in 0..osc.voices {
                 let share = if v == 0 { note_share } else { osc.random[v] };
@@ -2104,7 +2160,8 @@ impl Channels {
     }
 }
 
-// channel 0 left, 1 right, 2 center of the channels, and `fading`
+// channel 0 left, 1 right, 2 center of the channels (3 mid left, 4 mid right: of the oscillator only, while its
+// blend moves), and `fading`
 fn channel_of(s: &mut Scratch, channels: Channels, channel: usize) -> (&mut [f32], &mut [f32]) {
     let Scratch {
         left,
@@ -2116,6 +2173,10 @@ fn channel_of(s: &mut Scratch, channels: Channels, channel: usize) -> (&mut [f32
         b_left,
         b_right,
         b_center,
+        a_mid_left,
+        a_mid_right,
+        b_mid_left,
+        b_mid_right,
         fading,
         ..
     } = s;
@@ -2125,15 +2186,19 @@ fn channel_of(s: &mut Scratch, channels: Channels, channel: usize) -> (&mut [f32
         (Channels::Voice, _) => center,
         (Channels::A, 0) => a_left,
         (Channels::A, 1) => a_right,
+        (Channels::A, 3) => a_mid_left,
+        (Channels::A, 4) => a_mid_right,
         (Channels::A, _) => a_center,
         (Channels::B, 0) => b_left,
         (Channels::B, 1) => b_right,
+        (Channels::B, 3) => b_mid_left,
+        (Channels::B, 4) => b_mid_right,
         (Channels::B, _) => b_center,
     };
     (out, fading)
 }
 
-// channels ca and cb of the channels (0 left, 1 right, 2 center): the same one is one buffer (None for b)
+// channels ca and cb of the channels (channel_of): the same one is one buffer (None for b)
 fn two_channels(
     s: &mut Scratch,
     channels: Channels,
@@ -2150,14 +2215,30 @@ fn two_channels(
         b_left,
         b_right,
         b_center,
+        a_mid_left,
+        a_mid_right,
+        b_mid_left,
+        b_mid_right,
         ..
     } = s;
-    let [l, r, c] = match channels {
-        Channels::Voice => [left, right, center],
-        Channels::A => [a_left, a_right, a_center],
-        Channels::B => [b_left, b_right, b_center],
+    // (the voice has no mid channels: those of the oscillator, while its blend moves)
+    let mut slots = match channels {
+        Channels::Voice => [Some(left), Some(right), Some(center), None, None],
+        Channels::A => [
+            Some(a_left),
+            Some(a_right),
+            Some(a_center),
+            Some(a_mid_left),
+            Some(a_mid_right),
+        ],
+        Channels::B => [
+            Some(b_left),
+            Some(b_right),
+            Some(b_center),
+            Some(b_mid_left),
+            Some(b_mid_right),
+        ],
     };
-    let mut slots = [Some(l), Some(r), Some(c)];
     let first = slots[ca].take().expect("a channel");
     let second = if cb == ca {
         None
@@ -2195,6 +2276,7 @@ fn render_voices(
     g: f64,
     mixing: Mixing,
     counted: bool,
+    split: bool,
     store: &Store,
     shared: &mut Shared,
 ) {
@@ -2204,17 +2286,13 @@ fn render_voices(
     let points_length = ctx.points_length;
     let (voices, slot) = (osc.voices, channels.version());
     // the position as q = its share × the frames at each point: frame ceil(q) - 1 plays, within the table (q in
-    // (k, k + 1] is frame k); the position spread moves voice v by its share of the spread × the spread (a share of
-    // the table). A voice plays one frame, two only while it fades from one into another (FrameFade)
+    // (k, k + 1] is frame k); the position spread (-1..1) moves voice v by its SPREAD_OFFSETS × the spread, within
+    // the table. A voice plays one frame, two only while it fades from one into another (FrameFade)
     let frames_q = n as f64;
-    let spread_q = if n > 1 {
-        osc.shape.position_spread * frames_q
-    } else {
-        0.0
-    };
+    let spread_q = osc.position_spread * frames_q;
     // the frame of voice v at a point (q: the position there)
-    let frame_at = |osc: &Osc, v: usize, q: f64| {
-        let q = min(frames_q, max(0.0, q + spread_q * osc.shares[v]));
+    let frame_at = |v: usize, q: f64| {
+        let q = min(frames_q, max(0.0, q + spread_q * SPREAD_OFFSETS[v]));
         min(frames_q - 1.0, max(0.0, ceil(q) - 1.0)) as usize
     };
     let t = ctx.block_frame + a as f64;
@@ -2241,7 +2319,7 @@ fn render_voices(
         // (the frames of the version the voices play: those of a crossfade to the next one never settle)
         let mut still = constant_position && slot == 0;
         for v in 0..voices {
-            let frame = frame_at(osc, v, q);
+            let frame = frame_at(v, q);
             let fade = &mut osc.frame_fades[slot][v];
             fade.at_point(frame, t, osc.incs[v * points_length], ctx.frame_fade_limit);
             targets[v] = frame;
@@ -2269,18 +2347,26 @@ fn render_voices(
     } else {
         -1
     };
+    // (a blend that moves: the middle two of an even count in the mid channels, 3 left and 4 right, apart from the
+    // others; the middle one of an odd count is apart in the centre channel)
+    let mid_pair = split && middle < 0;
     let channel_of_voice = |v: usize| {
         let side = if middle >= 0 && v as i64 > middle {
             v - 1
         } else {
             v
         };
-        if v as i64 == middle {
+        let channel = if v as i64 == middle {
             2
         } else if side % 2 == 0 {
             1
         } else {
             0
+        };
+        if mid_pair && pair_of_voice(v, voices) == 0 {
+            channel + 3
+        } else {
+            channel
         }
     };
     // the pitch of voice v at point p, as the x of the levels it reads
@@ -2527,7 +2613,7 @@ fn render_voices(
                 let frame = if constant_position {
                     targets[v]
                 } else {
-                    frame_at(osc, v, shared.scratch.positions[p])
+                    frame_at(v, shared.scratch.positions[p])
                 };
                 osc.frame_fades[slot][v].at_point(frame, t0, inc0, ctx.frame_fade_limit);
             }
@@ -2667,6 +2753,21 @@ fn render_osc(
     let gain = modulation
         .moved(osc.target(GAIN1))
         .unwrap_or(params[osc.param(OSC_PARAM_GAIN)]);
+    let blend = modulation
+        .moved(osc.target(BLEND1))
+        .unwrap_or(params[osc.param(OSC_PARAM_BLEND)]);
+    // a blend that moves in the block: the voices at their pans, the centre ones apart from the others (split), each
+    // group × its gain, at the points of the modulation and linear between them (mix_blend); a still one: the gains
+    // of the voices, worked out when it changes (a unison of 1 or 2 is all centre, at 1 whatever the blend)
+    let split = osc.blends() && !is_constant(blend);
+    if split {
+        for v in 0..osc.voices {
+            osc.gains[v] = pan_of_voice(v, osc.voices);
+        }
+        osc.blend_at = None;
+    } else if osc.blend_at != Some(blend[0] as f64) {
+        set_blend(osc, blend[0] as f64);
+    }
     let constant_spread = is_constant(spread);
     let constant_pitch = is_constant(frequency) && detune.constant(a, b) && constant_spread;
     // (a table of one frame is played at any position)
@@ -2749,7 +2850,7 @@ fn render_osc(
     };
     let next = osc.next;
     let constant_gain = is_constant(gain);
-    if next.is_none() && constant_gain && osc.width.is_none() {
+    if next.is_none() && constant_gain && osc.width.is_none() && !split {
         // straight into the channels of the voice
         let g = gain[0] as f64 * osc.level;
         render_voices(
@@ -2767,6 +2868,7 @@ fn render_osc(
             g,
             mixing,
             true,
+            false,
             store,
             shared,
         );
@@ -2778,6 +2880,10 @@ fn render_osc(
         s.a_left[a..b].fill(0.0);
         s.a_right[a..b].fill(0.0);
         s.a_center[a..b].fill(0.0);
+        if split {
+            s.a_mid_left[a..b].fill(0.0);
+            s.a_mid_right[a..b].fill(0.0);
+        }
     }
     if next.is_some() {
         osc.saved_phases = osc.phases;
@@ -2799,6 +2905,7 @@ fn render_osc(
         level,
         mixing,
         true,
+        split,
         store,
         shared,
     );
@@ -2811,6 +2918,10 @@ fn render_osc(
             s.b_left[a..b].fill(0.0);
             s.b_right[a..b].fill(0.0);
             s.b_center[a..b].fill(0.0);
+            if split {
+                s.b_mid_left[a..b].fill(0.0);
+                s.b_mid_right[a..b].fill(0.0);
+            }
         }
         render_voices(
             ctx,
@@ -2827,17 +2938,22 @@ fn render_osc(
             level,
             Mixing::Off,
             false,
+            split,
             store,
             shared,
         );
         let mut done = osc.crossfade;
         let s = &mut shared.scratch;
+        let fade = |a: f32, b: f32, share: f64| (a as f64 + (b as f64 - a as f64) * share) as f32;
         for i in a..b {
             let share = min(1.0, done / ctx.crossfade_length);
-            s.a_left[i] = (s.a_left[i] as f64 + (s.b_left[i] as f64 - s.a_left[i] as f64) * share) as f32;
-            s.a_right[i] = (s.a_right[i] as f64 + (s.b_right[i] as f64 - s.a_right[i] as f64) * share) as f32;
-            s.a_center[i] =
-                (s.a_center[i] as f64 + (s.b_center[i] as f64 - s.a_center[i] as f64) * share) as f32;
+            s.a_left[i] = fade(s.a_left[i], s.b_left[i], share);
+            s.a_right[i] = fade(s.a_right[i], s.b_right[i], share);
+            s.a_center[i] = fade(s.a_center[i], s.b_center[i], share);
+            if split {
+                s.a_mid_left[i] = fade(s.a_mid_left[i], s.b_mid_left[i], share);
+                s.a_mid_right[i] = fade(s.a_mid_right[i], s.b_mid_right[i], share);
+            }
             done += 1.0;
         }
         osc.crossfade = done;
@@ -2853,7 +2969,9 @@ fn render_osc(
             osc.sources = [SourceFade::NONE; MAX_UNISON];
         }
     }
-    if constant_gain {
+    if split {
+        mix_blend(&mut shared.scratch, a, b, osc.width, blend, gain);
+    } else if constant_gain {
         let g = gain[0] as f64;
         mix_osc(&mut shared.scratch, a, b, osc.width, |_| g);
     } else {
@@ -2897,6 +3015,62 @@ fn mix_osc(s: &mut Scratch, a: usize, b: usize, width: Option<(f64, f64)>, gain:
                 center[i] = (center[i] as f64 + ac[i] as f64 * g) as f32;
             }
         }
+    }
+}
+
+// mix_osc of a blend that moves (the values of the block): the centre voices (the centre channel, the mid ones) × the
+// gain of the centre at i, the others (left, right) × the one of the sides, then the width over left and right (the
+// middle two of an even count are in them as they are while it is still; without one left and right as they are),
+// × the gain (one value or one a sample). The gains of the groups are those of the blend (blend_gains) at the points
+// of the modulation (every SEGMENT samples from a, then the last one: the routes move the blend linearly between
+// them), linear between them: the curves a point, not a sample. Not inlined: one copy of the loop, called by the
+// blocks of a moving blend only
+#[inline(never)]
+fn mix_blend(s: &mut Scratch, a: usize, b: usize, width: Option<(f64, f64)>, blend: &[f32], gain: &[f32]) {
+    let Scratch {
+        left,
+        right,
+        center,
+        a_left,
+        a_right,
+        a_center,
+        a_mid_left,
+        a_mid_right,
+        ..
+    } = s;
+    let n = b - a;
+    let (left, right, center) = (&mut left[a..b], &mut right[a..b], &mut center[a..b]);
+    let (al, ar, ac) = (&a_left[a..b], &a_right[a..b], &a_center[a..b]);
+    let (ml, mr, blend) = (&a_mid_left[a..b], &a_mid_right[a..b], &blend[a..b]);
+    let (cos, sin) = width.unwrap_or((1.0, 0.0));
+    // (the segment p0..p1, the last one with p1 = n - 1 in it; a span of one sample is one point)
+    let mut p0 = 0;
+    let (mut c0, mut s0) = blend_gains(blend[0] as f64);
+    loop {
+        let p1 = (p0 + SEGMENT).min(n - 1);
+        let (c1, s1) = blend_gains(blend[p1] as f64);
+        let end = if p1 == n - 1 { n } else { p1 };
+        let length = (p1 - p0).max(1) as f64;
+        let (dc, ds) = ((c1 - c0) / length, (s1 - s0) / length);
+        for i in p0..end {
+            let k = (i - p0) as f64;
+            let g = read(gain, a + i) as f64;
+            let (gc, gs) = ((c0 + dc * k) * g, (s0 + ds * k) * g);
+            let l = al[i] as f64 * gs + ml[i] as f64 * gc;
+            let r = ar[i] as f64 * gs + mr[i] as f64 * gc;
+            if width.is_some() {
+                left[i] = (left[i] as f64 + l * cos + r * sin) as f32;
+                right[i] = (right[i] as f64 + r * cos + l * sin) as f32;
+            } else {
+                left[i] = (left[i] as f64 + l) as f32;
+                right[i] = (right[i] as f64 + r) as f32;
+            }
+            center[i] = (center[i] as f64 + ac[i] as f64 * gc) as f32;
+        }
+        if end == n {
+            break;
+        }
+        (p0, c0, s0) = (p1, c1, s1);
     }
 }
 

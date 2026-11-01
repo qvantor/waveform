@@ -123,7 +123,20 @@ describe('normalizePreset', () => {
     const normalized = normalizePreset({ ...preset, filter: { ...preset.filter, cut: 1234.5678 } });
     expect(normalized.filter.cut).toBe(1235);
     expect(Object.keys(normalized)).toEqual(['env', 'filter', 'fx', 'lfo', 'mod', 'osc1', 'osc2', 'v']);
-    expect(Object.keys(normalized.osc1)).toEqual(['a', 'd', 'f', 'g', 'o', 'p', 'ph', 'pr', 's', 'u', 'w']);
+    expect(Object.keys(normalized.osc1)).toEqual([
+      'a',
+      'b',
+      'd',
+      'f',
+      'g',
+      'o',
+      'p',
+      'ph',
+      'pr',
+      's',
+      'u',
+      'w',
+    ]);
   });
 
   it('fills each envelope with its own defaults, takes stages up to 32 s and drops the old adsr', () => {
@@ -231,7 +244,7 @@ describe('normalizePreset', () => {
 
   it('gives the defaults of an empty preset', () => {
     expect(PRESET_DEFAULTS).toEqual(normalizePreset({}));
-    expect(PRESET_DEFAULTS.osc1).toMatchObject({ g: 0.5, w: 0, d: 5, u: 2, o: 0, s: 0, f: 0 });
+    expect(PRESET_DEFAULTS.osc1).toMatchObject({ g: 0.5, w: 0, d: 5, b: 0.75, u: 2, o: 0, s: 0, f: 0 });
     expect(PRESET_DEFAULTS.filter).toMatchObject({ cut: 440, res: 0, gain: 1 });
     expect(PRESET_DEFAULTS.v).toMatchObject({ port: 0, max: 8 });
   });

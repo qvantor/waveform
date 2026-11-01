@@ -13,13 +13,15 @@ export const formatWavePosition = (position: number) =>
 interface Props {
   // Phase or Phase rand is held (true) or let go (false)
   onPhaseActiveChange: (active: boolean) => void;
+  // Unison is held or let go: the chart shows the voices of the unison
+  onUnisonActiveChange: (active: boolean) => void;
   // narrow: the values smaller
   compact: boolean;
 }
 
 // under the wave, on its background: the frame it plays of the frames played, Phase, Phase rand and Unison
 // dragged to change them
-export const WaveInfo = ({ onPhaseActiveChange, compact }: Props) => {
+export const WaveInfo = ({ onPhaseActiveChange, onUnisonActiveChange, compact }: Props) => {
   const [{ $position, $frames, $osc, ranges }, { setOscValue }] = useOscillatorContext();
   const position = useBehaviorSubject($position);
   // the frames played, as the Wave knob: of a table with a morph mark its 256
@@ -60,6 +62,7 @@ export const WaveInfo = ({ onPhaseActiveChange, compact }: Props) => {
         arrows
         defaultValue={OSC_DEFAULTS.u}
         onChange={(value) => setOscValue('unison', value)}
+        onActiveChange={onUnisonActiveChange}
       />
     </Strip>
   );

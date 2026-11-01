@@ -8,7 +8,7 @@ export const STORE_PROCESSOR = 'waveform-wavetable-store';
 
 // the continuous controls of an oscillator, each a param of the voice per oscillator (position1, position2…): the
 // knob is its value, automated by the events of the main thread; the envelopes move it in the voice (its routes)
-export const OSC_PARAMS = ['position', 'detune', 'spread', 'gain'] as const;
+export const OSC_PARAMS = ['position', 'detune', 'spread', 'gain', 'blend'] as const;
 export type OscParam = typeof OSC_PARAMS[number];
 export type VoiceParam = 'frequency' | 'gate' | `${OscParam}${1 | 2}`;
 
@@ -49,8 +49,10 @@ export const releaseStart = (seen: number, held: number, lead: number) =>
 // RELEASE_GATE + h: released after h seconds, 0: released at that sample, below 0 fades it out (a stolen
 // voice): automated with setValueAtTime, exact to the sample from its time on (its event may come later: from the
 // block it comes in); position: share of the table (frame k of N at k / (N - 1)); detune: cents (1200 · octave +
-// pitch modulation); spread: cents from the lowest unison voice to the highest; gain: linear. The timeline clamps
-// a value to min/max, the voice clamps the pitch of a unison voice to 0..nyquist
+// pitch modulation); spread: cents from the lowest unison voice to the highest; gain: linear; blend: the level of
+// the centre voices of the unison against the others (0 the centre, the others 27 dB under it; 1 the others, the
+// centre under them: the curves of dsp/measurements/blend.json, the level of the unison moves with it). The timeline
+// clamps a value to min/max, the voice clamps the pitch of a unison voice to 0..nyquist
 const oscDescriptors = (osc: number): ParamDescriptor[] => [
   {
     name: oscParamName('position', osc),
@@ -62,6 +64,13 @@ const oscDescriptors = (osc: number): ParamDescriptor[] => [
   { name: oscParamName('detune', osc), defaultValue: 0, automationRate: 'a-rate' },
   { name: oscParamName('spread', osc), defaultValue: 0, minValue: 0, automationRate: 'a-rate' },
   { name: oscParamName('gain', osc), defaultValue: 0.5, automationRate: 'a-rate' },
+  {
+    name: oscParamName('blend', osc),
+    defaultValue: 0.75,
+    minValue: 0,
+    maxValue: 1,
+    automationRate: 'a-rate',
+  },
 ];
 
 export const VOICE_PARAMETERS: ParamDescriptor[] = [

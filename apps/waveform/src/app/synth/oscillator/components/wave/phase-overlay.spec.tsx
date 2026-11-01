@@ -1,11 +1,12 @@
 import React from 'react';
+import { BehaviorSubject, of } from 'rxjs';
 import { act, render, screen } from '@testing-library/react';
 import { theme } from '@waveform/ui-kit';
 import { drawn, svgPath, withElementSize } from '@waveform/ui-kit/test-utils';
 import { createOscillator } from '../../../../../test-utils/models';
 import { OscillatorContext } from '../../hooks';
 import { Chart } from './chart';
-import { PHASE_FADE } from './phase-overlay';
+import { OVERLAY_FADE } from './fade-overlay';
 
 // the chart pads x by -1 and y by 2: the wave spans 400 × 100
 const [WIDTH, HEIGHT] = [400, 100];
@@ -17,12 +18,12 @@ const waveLine = () =>
 const setup = (phaseVisible = true) => {
   const oscillator = createOscillator();
   const [, actions] = oscillator;
-  const chart = (visible: boolean) => (
+  const $visible = new BehaviorSubject(phaseVisible);
+  const result = render(
     <OscillatorContext.Provider value={oscillator}>
-      <Chart phaseVisible={visible} />
+      <Chart $phaseVisible={$visible} />
     </OscillatorContext.Provider>
   );
-  const result = render(chart(phaseVisible));
   const set = (phase: number, phaseRand: number) =>
     act(() => {
       actions.setOscValue('phase', phase);
@@ -45,7 +46,7 @@ const setup = (phaseVisible = true) => {
     attr,
     dot,
     bands,
-    rerender: (visible: boolean) => result.rerender(chart(visible)),
+    show: (visible: boolean) => act(() => $visible.next(visible)),
   };
 };
 
@@ -137,12 +138,12 @@ describe('Chart of the wave', () => {
 
   it('fades out once let go, then is not rendered', () => {
     jest.useFakeTimers();
-    const { rerender } = setup();
+    const { show } = setup();
     expect(screen.getByTestId('phase-overlay').style.opacity).toBe('1');
-    rerender(false);
+    show(false);
     expect(screen.getByTestId('phase-overlay').style.opacity).toBe('0');
     act(() => {
-      jest.advanceTimersByTime(PHASE_FADE - 1);
+      jest.advanceTimersByTime(OVERLAY_FADE - 1);
     });
     expect(screen.getByTestId('phase-overlay')).toBeDefined();
     act(() => {
@@ -153,11 +154,11 @@ describe('Chart of the wave', () => {
 
   it('shows again when dragged during the fade', () => {
     jest.useFakeTimers();
-    const { rerender } = setup();
-    rerender(false);
-    rerender(true);
+    const { show } = setup();
+    show(false);
+    show(true);
     act(() => {
-      jest.advanceTimersByTime(PHASE_FADE);
+      jest.advanceTimersByTime(OVERLAY_FADE);
     });
     expect(screen.getByTestId('phase-overlay').style.opacity).toBe('1');
   });
@@ -175,7 +176,7 @@ describe('Chart of the wave', () => {
     const route = { id: 'env2', color: '#fff', amount: 1, level: () => 0.5, live: true };
     const chart = (modulations?: typeof route[]) => (
       <OscillatorContext.Provider value={oscillator}>
-        <Chart phaseVisible modulations={modulations} />
+        <Chart $phaseVisible={of(true)} modulations={modulations} />
       </OscillatorContext.Provider>
     );
     act(() => actions.setOscValue('phase', 0.25));

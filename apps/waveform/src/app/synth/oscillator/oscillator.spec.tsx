@@ -31,7 +31,14 @@ jest.mock('./components/oscillator-status', () => ({ OscillatorStatus: () => nul
 // jsdom has no PointerEvent: a mouse event with the pointer type name and a pointerId works for React and
 // the document listeners of the pointer tracker
 const pointer = (type: string, target: EventTarget, [clientX, clientY]: [number, number]) => {
-  const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX, clientY, button: 0 });
+  const event = new MouseEvent(type, {
+    bubbles: true,
+    cancelable: true,
+    clientX,
+    clientY,
+    button: 0,
+    buttons: 1,
+  });
   Object.defineProperty(event, 'pointerId', { value: 1 });
   act(() => {
     target.dispatchEvent(event);
@@ -76,11 +83,12 @@ describe('Oscillator', () => {
   afterEach(() => (Handle as jest.Mock).mockClear());
 
   describe('modulation', () => {
-    it('Gain, Wave and Detune take the envelopes, with their own targets', () => {
+    it('Gain, Wave, Detune and Blend take the envelopes, with their own targets', () => {
       const { knob } = setup({ target: 'osc2' });
       expect(knob('Gain').modTarget).toBe('osc2.gain');
       expect(knob('Wave').modTarget).toBe('osc2.wave');
       expect(knob('Detune').modTarget).toBe('osc2.detune');
+      expect(knob('Blend').modTarget).toBe('osc2.blend');
     });
 
     it('with 64 routes the knobs take no envelope, their routes stay', () => {
@@ -227,13 +235,58 @@ describe('Oscillator', () => {
     });
   });
 
-  it('has the knobs Gain, Wave and Detune: Oct, Semi and Fine are over the wave, Phase, Phase rand and Unison under it', () => {
+  it('has the knobs Gain, Wave, Detune and Blend: Oct, Semi and Fine are over the wave, Phase, Phase rand and Unison under it', () => {
     setup();
     const labels = (Handle as jest.Mock).mock.calls.map(([props]) => (props as HandleProps).label);
-    expect([...new Set(labels)]).toEqual(['Gain', 'Wave', 'Detune']);
+    expect([...new Set(labels)]).toEqual(['Gain', 'Wave', 'Detune', 'Blend']);
     const sliders = screen.getAllByRole('slider').map((slider) => slider.getAttribute('aria-label'));
     expect(sliders).toEqual(['Oct', 'Semi', 'Fine', 'Phase', 'Phase rand', 'Unison']);
     expect(useWavetables).toHaveBeenCalled();
+  });
+
+  it('has Blend in percents set on the model, its default 75% (the init patch of the reference AU)', () => {
+    const { model, knob } = setup();
+    expect(knob('Blend')).toMatchObject({
+      name: 'Unison blend',
+      value: 0.75,
+      min: 0,
+      max: 1,
+      defaultValue: 0.75,
+    });
+    expect(knob('Blend').formatValue?.(0.25)).toBe('25%');
+    act(() => knob('Blend').onChange?.(0.8));
+    expect(model.$osc.value.blend).toBe(0.8);
+    expect(model.$params.value.blend).toBe(0.8);
+    expect(knob('Blend').value).toBe(0.8);
+  });
+
+  // the fade and the voices drawn are in the spec of the overlay
+  it('shows the voices of the unison over the wave while Detune, Blend or Unison is held', () => {
+    const restore = withElementSize(200, 100);
+    try {
+      const { knob } = setup();
+      const opacity = () => screen.getByTestId('unison-overlay').style.opacity;
+      expect(screen.queryByTestId('unison-overlay')).toBeNull();
+      act(() => knob('Blend').onActiveChange?.(true));
+      expect(opacity()).toBe('1');
+      // both at once (two fingers): shown until both are let go
+      act(() => knob('Detune').onActiveChange?.(true));
+      act(() => knob('Blend').onActiveChange?.(false));
+      expect(opacity()).toBe('1');
+      act(() => knob('Detune').onActiveChange?.(false));
+      expect(opacity()).toBe('0');
+      // Unison dragged under the wave: the voices added are seen
+      const unison = screen.getByRole('slider', { name: 'Unison' });
+      pointer('pointerdown', unison, [100, 100]);
+      expect(opacity()).toBe('1');
+      act(() => knob('Detune').onActiveChange?.(true));
+      pointer('pointerup', document, [100, 100]);
+      expect(opacity()).toBe('1');
+      act(() => knob('Detune').onActiveChange?.(false));
+      expect(opacity()).toBe('0');
+    } finally {
+      restore();
+    }
   });
 
   it('has Oct, Semi and Fine in a strip on top of the block of the wave, the table over the block', () => {

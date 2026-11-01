@@ -48,8 +48,9 @@ const WASM_CORES = [
     core: 'wavetable-osc',
     facade: 'apps/waveform/src/app/synth/common/wavetable/wavetable-osc-wasm',
     create: 'createOscScope, createTableStoreWasm, createVoiceSharedWasm, createVoiceWasm',
-    // (a tree of the voices node: its scope too)
-    optional: 'createVoiceScopeWasm',
+    // (a tree of the voices node: its scope too; the params of a block in their order: a tree whose oscillators
+    // have the blend of their unison as a param has blend1)
+    optional: ['createVoiceScopeWasm', 'VOICE_PARAM_ORDER'],
   },
 ];
 
@@ -70,13 +71,11 @@ const loadDsp = async (source = root, name) => {
   const instantiate = cores.length > 0 && fs.existsSync(path.join(source, `${WASM_CORE}.ts`));
   const contents = `${ENTRY}${[
     ...ts.map(({ module, create }) => [module, create]),
-    ...cores.map(({ facade, create, optional }) => [
-      facade,
-      optional &&
-      fs.readFileSync(path.join(source, `${facade}.ts`), 'utf8').includes(`export const ${optional} `)
-        ? `${create}, ${optional}`
-        : create,
-    ]),
+    ...cores.map(({ facade, create, optional = [] }) => {
+      const code = fs.readFileSync(path.join(source, `${facade}.ts`), 'utf8');
+      const present = optional.filter((name) => new RegExp(`export const ${name}\\b`).test(code));
+      return [facade, [create, ...present].join(', ')];
+    }),
     ...(instantiate ? [[WASM_CORE, 'instantiateCore']] : []),
     ...(fs.existsSync(path.join(source, `${LFO_CURVE}.ts`)) ? [[LFO_CURVE, 'lfoTable']] : []),
   ]
@@ -170,6 +169,8 @@ const BASE = {
   spread2: 20,
   gain1: 0.5,
   gain2: 0.5,
+  blend1: 0.5,
+  blend2: 0.5,
 };
 const REVERB = {
   lowcut: 20,
@@ -511,9 +512,9 @@ const createCases = (dsp) => {
       store && voiceOf('ts')
     ),
     // blend, width (the channels of the oscillator and their pan), a stack and a position spread (a frame per
-    // voice); its cost over `voice u8 held`
+    // voice); its cost over `voice u8 held` (the blend a param of the oscillator, of a tree before it in the shape)
     ...withTs(
-      { 'voice u8 shaped unison': [[8, null], held] },
+      { 'voice u8 shaped unison': [[8, null], constant({ ...BASE, blend1: 0.75 })] },
       oscScope &&
         voiceOf('wasm', { blend: 0.75, width: 0.5, stack: '12+7x2', detune: 'linear', positionSpread: 0.3 }),
       null
@@ -544,6 +545,10 @@ const createCases = (dsp) => {
       dsp.lfoTable && {
         'voice u8 lfo wave': lfoVoiceOf('position1', 1),
         'voice u8 lfo gain': lfoVoiceOf('gain1', -0.5),
+        // (the centre voices apart from the others, each group × its gain per sample: on their mix tables)
+        ...(dsp.VOICE_PARAM_ORDER?.includes('blend1') && {
+          'voice u8 lfo blend': lfoVoiceOf('blend1', 1, { min: 0, max: 1, bipolar: true }),
+        }),
         ...(pitchRoutes && {
           'voice u8 lfo fine': lfoVoiceOf('fine1', 100, { min: -100, max: 100, bipolar: true }, 0.2),
           'voice u8 lfo fine, crossfade': lfoVoiceOf(

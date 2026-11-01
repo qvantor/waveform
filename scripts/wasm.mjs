@@ -21,7 +21,7 @@ const CORES = [
   { crate: 'reverb', name: 'reverb', budget: 25500 },
   { crate: 'distortion', name: 'distortion', budget: 25500 },
   // (the voices of one node: their timelines and their scope, +5.8 KB; the fades of a frame, +1.3 KB; the LFOs and
-  // the routes of their knobs, +6.3 KB)
+  // the routes of their knobs, +6.3 KB; the blend a param, its blocks that move it, +1.2 KB)
   { crate: 'wavetable-osc', name: 'wavetable-osc', budget: 66000 },
   // jsmath exported to the specs (not bundled)
   { crate: 'jsmath-check', name: 'jsmath-check', budget: null },

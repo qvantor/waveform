@@ -220,31 +220,32 @@ const runPages = async (browser, name, port) => {
     }
 
   if (runs('stereo')) {
-    const { u3, u8 } = await call('stereo', { rate });
+    const { u3, u8, expected3, expected8 } = await call('stereo', { rate });
     report.results.stereo = { u3, u8 };
     // the middle voice of an odd count both channels, the others right and left in turn from the lowest (the
-    // measurements of dsp/measurements/unison.json); each at 1/√⌈n/2⌉
-    const level = 1 / Math.sqrt(2);
-    const expected3 = [
-      [0, level],
-      [level, level],
-      [level, 0],
-    ];
-    const ok3 = u3.every((pair, i) => pair.every((value, c) => Math.abs(value - expected3[i][c]) < 0.01));
-    const ok8 = u8.every(([l, r], j) => Math.abs((j % 2 ? l : r) - 0.5) < 0.01 && (j % 2 ? r : l) < 0.01);
+    // measurements of dsp/measurements/unison.json), each at its level (blend.json: `voiceLevel` of the app)
+    const near = (measured, expected) =>
+      measured.every((pair, i) => pair.every((value, c) => Math.abs(value - expected[i][c]) < 0.01));
+    const ok3 = near(u3, expected3);
+    const ok8 = near(u8, expected8);
     log(`stereo: u3 ${check(failures, ok3, 'stereo u3')}, u8 ${check(failures, ok8, 'stereo u8')}`);
   }
 
   if (runs('unison')) {
     const results = await call('unisonLevel', { rate, notes: 400 });
     report.results.unison = results;
-    for (const { unison, rms, peak } of results)
+    // the power of the levels of its voices (blend.json), the peak against it
+    for (const { unison, rms, peak, expected } of results)
       log(
-        `unison u${unison} vs u1: rms ${f(rms, 2)} dB ${check(
+        `unison u${unison} vs u1: rms ${f(rms, 2)} dB (its voices ${f(expected, 2)}) ${check(
           failures,
-          Math.abs(rms) <= 0.3,
+          Math.abs(rms - expected) <= 0.3,
           `unison rms u${unison}`
-        )}, peak ${f(peak, 2)} dB ${check(failures, peak >= -1 && peak <= 4, `unison peak u${unison}`)}`
+        )}, peak ${f(peak, 2)} dB ${check(
+          failures,
+          peak - expected >= -1 && peak - expected <= 4,
+          `unison peak u${unison}`
+        )}`
       );
   }
 

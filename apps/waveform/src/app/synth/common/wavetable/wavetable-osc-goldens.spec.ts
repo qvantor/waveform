@@ -88,6 +88,8 @@ const DEFAULTS: Record<VoiceParam, number> = {
   spread2: 0,
   gain1: 0.5,
   gain2: 0.5,
+  blend1: 0.75,
+  blend2: 0.75,
 };
 const PARAM_NAMES = Object.keys(DEFAULTS) as VoiceParam[];
 
@@ -820,14 +822,13 @@ const GOLDEN: [string, Scenario][] = [
                 unison: 7,
                 phaseRand: 1,
                 unisonShape: {
-                  blend: 0.8,
                   width: 0.4,
                   stack: '12+7x2',
                   detune: 'random',
                   positionSpread: 0.6,
                 },
               }),
-              osc({ unison: 4, unisonShape: { ...UNISON_SHAPE, blend: 0.1, stack: 'center-12' } }),
+              osc({ unison: 4, unisonShape: { ...UNISON_SHAPE, stack: 'center-12' } }),
             ],
           }),
           params: {
@@ -835,10 +836,45 @@ const GOLDEN: [string, Scenario][] = [
             spread2: constant(0),
             position1: perSample((frame) => 0.5 + 0.4 * Math.sin(frame / 2000)),
             gain2: perSample((frame) => 0.5 + 0.5 * Math.cos(frame / 700)),
+            blend1: constant(0.8),
+            blend2: constant(0.1),
           },
         },
       ],
       seed: 8,
+    },
+  ],
+  [
+    'a blend that moves: the knob glides (u5), ENV 2 moves it (u4 at a width); into a new version',
+    {
+      rate: RATE,
+      blocks: quanta(0.15),
+      tables: { a: [SAW, SQUARE] },
+      versions: { 25: [['a', [SQUARE, SAW]]] },
+      voices: [
+        {
+          at: 0,
+          options: note({
+            osc: [
+              osc({ unison: 5, phaseRand: 1 }),
+              osc({ unison: 4, unisonShape: { ...UNISON_SHAPE, width: 0.5 } }),
+            ],
+            envelopes: [ENV, { attack: 0.02, hold: 0, decay: 0.08, sustain: 0.3, release: 0.1 }, FLAT],
+            routes: [{ source: 1, param: 'blend2', amount: -0.8, min: 0, max: 1 }],
+          }),
+          params: {
+            spread1: constant(30),
+            spread2: constant(20),
+            detune2: constant(-1200),
+            // the knob from 0.5 to 0.9 as the synth glides it (a target of 3.3 ms, then set there)
+            blend1: perSample((frame) =>
+              frame < 2048 ? 0.5 : frame < 3008 ? 0.9 - 0.4 * Math.exp(-(frame - 2048) / 160) : 0.9
+            ),
+            blend2: constant(0.9),
+          },
+        },
+      ],
+      seed: 26,
     },
   ],
   [
@@ -950,6 +986,8 @@ const KNOBS: [string, number, number, ('log' | 'pow')?][] = [
   ['position2', 0, 1],
   ['spread2', 0, 100],
   ['gain2', 0, 1],
+  ['blend1', 0, 1],
+  ['blend2', 0, 1],
   ['cutoff', 20, 20000, 'log'],
   ['resonance', -12, 24],
   ['gain', -24, 24],
@@ -1118,11 +1156,10 @@ const randomScenario = (random: Random, seed: number): Scenario => {
             phaseRand: random() < 0.5 ? 0 : random(),
             ...(random() < 0.3 && {
               unisonShape: {
-                blend: random(),
                 width: random(),
                 stack: pick(random, [...UNISON_STACKS]),
                 detune: pick(random, [...UNISON_DETUNES]),
-                positionSpread: random() < 0.5 ? 0 : random(),
+                positionSpread: random() < 0.5 ? 0 : between(random, -1, 1),
               },
             }),
           };
@@ -1158,6 +1195,8 @@ const randomScenario = (random: Random, seed: number): Scenario => {
         spread2: randomParam(random, 0, 60),
         gain1: randomParam(random, 0, 1),
         gain2: randomParam(random, 0, 1),
+        blend1: randomParam(random, 0, 1),
+        blend2: randomParam(random, 0, 1),
       },
       routes: message,
       filters,

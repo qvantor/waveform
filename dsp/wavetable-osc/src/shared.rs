@@ -16,7 +16,7 @@ use jsmath::{ceil, max};
 /// heavy chord at 48 kHz are built by block 3
 pub const MIX_BUDGET_WASM: f64 = 360000.0;
 const SEGMENT: f64 = 32.0;
-pub const PARAMS: usize = 10;
+pub const PARAMS: usize = 12;
 
 pub const VOICES: usize = 0;
 pub const UNISON: usize = 1;
@@ -40,6 +40,12 @@ pub struct Scratch {
     pub b_left: Vec<f32>,
     pub b_right: Vec<f32>,
     pub b_center: Vec<f32>,
+    // the centre voices of an even unison (its middle two, left and right) apart from the others, while its blend
+    // moves (of the version a crossfade goes to: b_mid_*)
+    pub a_mid_left: Vec<f32>,
+    pub a_mid_right: Vec<f32>,
+    pub b_mid_left: Vec<f32>,
+    pub b_mid_right: Vec<f32>,
     pub fading: Vec<f32>,
     pub points: Vec<i32>,
     pub positions: Vec<f64>,
@@ -62,7 +68,7 @@ pub struct Shared {
     spent: f64,
     pub counts: [f64; 10],
     phrases: Vec<Phrase>,
-    // the params of the block (lengths, then 10 × frames values) and the outputs (left, right)
+    // the params of the block (lengths, then PARAMS × frames values) and the outputs (left, right)
     pub params: Vec<f32>,
     pub lengths: [f32; PARAMS],
     pub output: Vec<f32>,
@@ -205,6 +211,10 @@ impl Shared {
                 &mut s.b_left,
                 &mut s.b_right,
                 &mut s.b_center,
+                &mut s.a_mid_left,
+                &mut s.a_mid_right,
+                &mut s.b_mid_left,
+                &mut s.b_mid_right,
                 &mut s.fading,
             ] {
                 *buffer = vec![0.0; length];

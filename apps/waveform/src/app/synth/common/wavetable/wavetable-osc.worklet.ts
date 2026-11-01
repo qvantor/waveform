@@ -39,11 +39,12 @@ const scope = createOscScope(instantiateCore<OscExports>(new WebAssembly.Module(
 // the functions of a block compile lazily, on their first call: while the module loads, a voice of both
 // oscillators (a table of 2 frames and the placeholder sine) on a store and a shared of its own renders a moving
 // position (the direct path, the fades from a frame into the other at three pitches, the filter, a route of an
-// envelope, of the velocity and of an LFO, its amp, the routes of the knobs of the LFO: a new Phase glides, a new
-// shape crossfades), then a steady one (the mix builds, the pairs), and is freed with them (the first block of the
-// first note 0.014 ms instead of 0.93 in Node, the module 2 ms longer: before the first note); then the same voice
-// in a scope of voices, its params from events (a step, a target and ramps: the curves of the timelines), its
-// velocity gliding to another one, bent (the pitch bend of the node, gliding), stolen at its end
+// envelope (on the blends too: their centre voices apart), of the velocity and of an LFO, its amp, the routes of the
+// knobs of the LFO: a new Phase glides, a new shape crossfades), then a steady one (the mix builds, the pairs), and
+// is freed with them (the first block of the first note 0.014 ms instead of 0.93 in Node, the module 2 ms longer:
+// before the first note); then the same voice in a scope of voices, its params from events (a step, a target and
+// ramps: the curves of the timelines), its velocity gliding to another one, bent (the pitch bend of the node,
+// gliding), stolen at its end
 const WARM_ENVELOPE = { attack: 0.001, hold: 0, decay: 0.01, sustain: 0.5, release: 0.01 };
 const WARM_VOICE: VoiceOptions = {
   osc: [
@@ -59,6 +60,9 @@ const WARM_VOICE: VoiceOptions = {
     { source: 3, param: 'gain2', amount: 0.25, min: 0, max: 1 },
     // (LFO 1 on a gain: the voice stays on its mix tables)
     { source: 4, param: 'gain1', amount: 0.25, min: 0, max: 1 },
+    // (ENV 2 on the blends: they move, the centre voices apart from the others, of an even unison and an odd one)
+    { source: 1, param: 'blend1', amount: 0.5, min: 0, max: 1 },
+    { source: 1, param: 'blend2', amount: -0.25, min: 0, max: 1 },
     { source: 1, param: 'lfo1.rate', amount: 0.5, min: 1 / 32, max: 100, scale: 'log' },
     { source: 1, param: 'lfo1.smooth', amount: 0.25, min: 0, max: 1, scale: 'pow' },
     { source: 1, param: 'lfo1.phase', amount: 0.25, min: 0, max: 1 },

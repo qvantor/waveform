@@ -14,7 +14,14 @@ const pointer = (
   [clientX, clientY]: [number, number] = [0, 0],
   pointerType = 'mouse'
 ) => {
-  const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX, clientY, button: 0 });
+  const event = new MouseEvent(type, {
+    bubbles: true,
+    cancelable: true,
+    clientX,
+    clientY,
+    button: 0,
+    buttons: 1,
+  });
   Object.defineProperty(event, 'pointerId', { value: 1 });
   Object.defineProperty(event, 'pointerType', { value: pointerType });
   act(() => {

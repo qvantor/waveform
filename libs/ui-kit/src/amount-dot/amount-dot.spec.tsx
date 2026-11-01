@@ -5,7 +5,14 @@ import { AmountDot } from './index';
 // jsdom has no PointerEvent: a mouse event with the pointer type name and a pointerId works for React and
 // the document listeners of the pointer tracker
 const pointer = (type: string, target: EventTarget, [clientX, clientY]: [number, number]) => {
-  const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX, clientY, button: 0 });
+  const event = new MouseEvent(type, {
+    bubbles: true,
+    cancelable: true,
+    clientX,
+    clientY,
+    button: 0,
+    buttons: 1,
+  });
   Object.defineProperty(event, 'pointerId', { value: 1 });
   act(() => {
     target.dispatchEvent(event);

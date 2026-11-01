@@ -565,10 +565,12 @@ fn play(
             &[0.0],
             &[0.0],
             &[1.0],
+            &[0.5],
             &[0.0],
             &[0.0],
             &[0.0],
             &[1.0],
+            &[0.5],
         ];
         let end = (frame + 128).min(frames);
         voice.process(
@@ -691,8 +693,9 @@ fn a_still_position_moved_between_blocks_fades_from_the_block_its_mix_after() {
 fn each_voice_of_a_unison_fades_on_its_own() {
     let mut store = Store::default();
     constant_frames(&mut store, 1.0, &[0.0, 1.0, 2.0, 3.0]);
-    // u2 spread over 0.6 of the table: the lower voice (right) 1.2 frames below the position, the higher one
-    // (left) 1.2 above. q 1 (frames 0 and 2), q 2 at 256 (the higher one to 3), q 2.4 at 512 (the lower one to 1)
+    // u2 at a spread of 0.6: the lower voice (right) on the position, the higher one (left) half of 0.6 of the table
+    // (1.2 frames) below it. q 1 (frames 0 and 0), q 2 at 256 (the lower one to 1), q 2.4 at 512 (the lower one to 2,
+    // the higher one to 1); each at the level of a voice of u2
     let shape = UnisonShape {
         position_spread: 0.6,
         ..UnisonShape::default()
@@ -710,8 +713,48 @@ fn each_voice_of_a_unison_fades_on_its_own() {
         },
         |_, _| (),
     );
-    expect_fade(&left, 0, 768, 256, 100.0, 2.0, 3.0);
-    expect_fade(&right, 0, 768, 512, 100.0, 0.0, 1.0);
+    expect_fade(&right, 0, 512, 256, 100.0, 0.0, U2);
+    expect_fade(&right, 512, 768, 512, 100.0, U2, 2.0 * U2);
+    expect_fade(&left, 0, 768, 512, 100.0, 0.0, U2);
+}
+
+#[test]
+fn a_position_spread_is_taken_within_its_range_a_nan_as_none() {
+    let mut store = Store::default();
+    constant_frames(&mut store, 1.0, &[0.0, 1.0, 2.0, 3.0]);
+    let mut spread = |unison: f64, position_spread: f64, position: f32| {
+        let shape = UnisonShape {
+            position_spread,
+            ..UnisonShape::default()
+        };
+        play(&mut store, unison, shape, 256, |_| 480.0, |_| position, |_, _| ())
+    };
+    // u3 at a quarter of the table (q 1, frame 0): at a spread of 2 the third voice a quarter of the spread up would
+    // play frame 2, at 1 it plays frame 1; at -2 the second one half of it up past the end (frame 3), at -1 frame 2
+    assert_eq!(spread(3.0, 2.0, 0.25), spread(3.0, 1.0, 0.25));
+    assert_eq!(spread(3.0, -2.0, 0.25), spread(3.0, -1.0, 0.25));
+    // a NaN: the voices on the position (frame 2), not on frame 0; a unison of 2 one voice, as at 0
+    for unison in [1.0, 2.0] {
+        assert_eq!(spread(unison, f64::NAN, 0.75), spread(unison, 0.0, 0.75));
+    }
+}
+
+#[test]
+fn a_unison_that_is_not_a_number_is_one_voice() {
+    let mut store = Store::default();
+    constant_frames(&mut store, 1.0, &[0.5]);
+    let mut unison = |unison: f64| {
+        play(
+            &mut store,
+            unison,
+            UnisonShape::default(),
+            256,
+            |_| 480.0,
+            |_| 0.0,
+            |_, _| (),
+        )
+    };
+    assert_eq!(unison(f64::NAN), unison(1.0));
 }
 
 #[test]
@@ -993,10 +1036,12 @@ fn the_gain_of_a_voice_follows_an_lfo_of_the_shared_from_its_note_on() {
             &[0.0],
             &[0.0],
             &[0.5],
+            &[0.5],
             &[0.0],
             &[0.0],
             &[0.0],
             &[1.0],
+            &[0.5],
         ];
         voice.process(
             frame as f64,
@@ -1129,9 +1174,11 @@ fn the_routes_on_the_pitch_add_their_offsets_to_the_detune_within_their_bounds()
                 d.as_slice(),
                 &[20.0],
                 &[0.5],
+                &[0.5],
                 &[0.0],
                 &[0.0],
                 &[0.0],
+                &[0.5],
                 &[0.5],
             ];
             voice.process(
@@ -1158,4 +1205,153 @@ fn the_routes_on_the_pitch_add_their_offsets_to_the_detune_within_their_bounds()
     assert_eq!(routed, given);
     // (not the note alone)
     assert_ne!(routed, play(Vec::new(), &|_| vec![-700.0]));
+}
+
+// --- the blend of a unison (a param of the oscillator: still, the gains of its voices; moving, those of the centre
+// and of the others at the points of every 32 samples, linear between them) ---
+
+// a voice of osc 1 of `unison` voices at a spread of 20 cents (and `shape`) on table 1 of one frame of 1 at every
+// sample (each voice plays its gain × the level of the unison), its blend at each sample; its left and right
+// channels (`frames` a multiple of 128)
+fn play_blend(
+    unison: f64,
+    shape: UnisonShape,
+    frames: usize,
+    blend: impl Fn(usize) -> f32,
+) -> (Vec<f32>, Vec<f32>) {
+    let (mut store, mut shared) = (Store::default(), Shared::default());
+    constant_frames(&mut store, 1.0, &[1.0]);
+    let osc = OscOptions {
+        table: 1,
+        unison,
+        phase: 0.0,
+        phase_rand: 0.0,
+        random: [0.0; 8],
+        shape,
+    };
+    let mut voice = Voice::new(
+        RATE,
+        VoiceOptions {
+            osc: [Some(osc), None],
+            ..note()
+        },
+        &mut shared,
+    );
+    voice.attach(&mut store, &mut shared);
+    let (mut left, mut right) = (vec![0.0f32; frames], vec![0.0f32; frames]);
+    for frame in (0..frames).step_by(128) {
+        let values: Vec<f32> = (frame..frame + 128).map(&blend).collect();
+        let params: [&[f32]; PARAMS] = [
+            &[480.0],
+            &[1.0],
+            &[0.0],
+            &[0.0],
+            &[20.0],
+            &[1.0],
+            values.as_slice(),
+            &[0.0],
+            &[0.0],
+            &[0.0],
+            &[1.0],
+            &[0.5],
+        ];
+        voice.process(
+            frame as f64,
+            &params,
+            &mut left[frame..frame + 128],
+            &mut right[frame..frame + 128],
+            &mut store,
+            &mut shared,
+        );
+    }
+    voice.end(&mut store, &mut shared);
+    (left, right)
+}
+
+// the gains of the centre voices and of the others at a blend against the centre at 0, the levels of a voice of u2,
+// u4 and u5 and the middle one of an odd count in each channel against one hard left or right: the curves of the
+// renders (dsp/measurements/blend.json)
+fn blend_gains(blend: f64) -> (f64, f64) {
+    let b2 = blend * blend;
+    (1.0 - 0.554903 * b2, 0.0445334 + 1.28871 * b2 - 0.740236 * b2 * b2)
+}
+const U2: f64 = 0.8077;
+const U4: f64 = 1.0738;
+const U5: f64 = 1.0416;
+const CENTRE_PAN: f64 = 0.39718;
+
+// the gains of a moving blend between the points of its modulation, linear, against those of each sample: 2.2% off
+// at most where it sweeps the whole range in 256 samples (5.3 ms; near 1, where the gain of the others curves the
+// most), less by the square of the speed (h²/8 · |g''| over a segment); the bound 2.5%
+const BETWEEN_POINTS: f64 = 0.025;
+
+#[test]
+fn a_blend_moves_the_centre_voices_against_the_others_at_the_points_of_its_modulation() {
+    // still at 0.25, up to 1, still at 1, down to 0, still at 0: the blocks that move it mix the centre and the
+    // others at the gains of the blend at the points of the modulation, linear between them (within
+    // BETWEEN_POINTS), the still ones play the gains of the voices
+    let blend = |i: usize| -> f32 {
+        let i = i as f64;
+        (if i < 128.0 {
+            0.25
+        } else if i < 640.0 {
+            0.25 + 0.75 * (i - 128.0) / 512.0
+        } else if i < 768.0 {
+            1.0
+        } else if i < 1024.0 {
+            1.0 - (i - 768.0) / 256.0
+        } else {
+            0.0
+        }) as f32
+    };
+    // u5: the middle one in both channels at its pan (its centre one: a width leaves it), two others in each; u4:
+    // one of the middle two and one other in each. Each voice at the level of the unison, a width below 1 adds the
+    // other channel × sin to it × cos (both alike here)
+    for (unison, level, middle, others) in [(5.0, U5, true, 2.0), (4.0, U4, false, 1.0)] {
+        for width in [1.0, 0.5] {
+            let shape = UnisonShape {
+                width,
+                ..UnisonShape::default()
+            };
+            let (left, right) = play_blend(unison, shape, 1152, blend);
+            let pan = (1.0 - width) * jsmath::PI / 4.0;
+            let stereo = if width < 1.0 {
+                jsmath::cos(pan) + jsmath::sin(pan)
+            } else {
+                1.0
+            };
+            for i in 0..1152 {
+                let (c, s) = blend_gains(blend(i) as f64);
+                let expected = if middle {
+                    level * (c * CENTRE_PAN + others * s * stereo)
+                } else {
+                    level * (c + others * s) * stereo
+                };
+                // the points of the modulation in a block: every 32 samples, then the last one
+                let bound = if matches!(i % 128, 0 | 32 | 64 | 96 | 127) {
+                    1e-5
+                } else {
+                    BETWEEN_POINTS * expected
+                };
+                for out in [&left, &right] {
+                    assert!(
+                        (out[i] as f64 - expected).abs() < bound,
+                        "u{unison} width {width} at {i}: {} against {expected}",
+                        out[i]
+                    );
+                }
+            }
+            // a still blend after a moving one plays as a blend always still there
+            let still = play_blend(unison, shape, 1152, |_| 0.0);
+            assert_eq!(left[1024..], still.0[1024..]);
+        }
+    }
+}
+
+#[test]
+fn a_unison_of_one_or_two_is_all_centre_whatever_its_blend() {
+    for unison in [1.0, 2.0] {
+        let moving = play_blend(unison, UnisonShape::default(), 512, |i| (i as f64 / 512.0) as f32);
+        assert_eq!(moving, play_blend(unison, UnisonShape::default(), 512, |_| 0.5));
+    }
 }

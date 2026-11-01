@@ -12,11 +12,16 @@
 //   sine of harmonic j + 1: the frame a position plays, how a table with a morph mark is expanded to 256 frames
 //   (the shares of the source frames in each), the morph marks 1..4 on frames of other phases
 // - frame-fades.json: how a moving position (A WT Pos automated by host.swift) goes from one frame to another:
-//   the length of the fade by note and rate, sweeps, two unison voices, a pitch bend during a fade
+//   the length of the fade by note and rate, sweeps, two unison voices (a position spread with and without a
+//   detune), a pitch bend during a fade
 // - aliasing.json: the sound criteria of the oscillator benchmark (scripts/bench-osc: its tables, pitches and rates,
 //   the frame it compares as a table of one frame), which it checks ours against
+// - spread.json: the position spread of a unison (A Uni WT Pos, bipolar) on a table of ours of 64 frames of one
+//   harmonic each: the frames each channel plays by the unison, the spread, the position, a detune mode, a stack
+// - blend.json: the blend of a unison (A Uni Blend) of 2..8 voices on a sine: the level of each voice in each
+//   channel by the knob, by Macro 1 routed to it (a mod slot of the state), and while either moves it
 // Its knobs are 0..1: the times are 32 s · v⁵, the sustain v² (-12 dB at 0.5), the voices 1 + 15v.
-// `--only=envelopes,unison,unison-modes,phases,frames,frame-fades,aliasing` renders some of them
+// `--only=envelopes,unison,unison-modes,phases,frames,frame-fades,aliasing,spread,blend` renders some of them
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -83,6 +88,13 @@ execFileSync(host, ['state', init]);
 
 // osc A of the init patch at the phase 0 of every voice, ENV 1 open
 const FLAT = { 'A Rand Phase': 0, 'A Phase': 0, 'Env 1 Attack': 0, 'Env 1 Sustain': 1 };
+// the init state with its oscillators on `oscs` (editedState: their tables, plain params) and its mod slots `slots`
+// in a file of its own
+const stateOf = (name, oscs, slots) => {
+  const state = join(work, `state-${name}.bin`);
+  writeFileSync(state, editedState(init, oscs, slots));
+  return state;
+};
 // a table of ours (frames of 2048 samples, its mark) written into User of the tables of the Audio Unit, and the
 // init state with its first `oscs` oscillators on it (A alone by default); `removeTables` removes them
 const written = [];
@@ -90,20 +102,17 @@ const tableState = (name, frames, flags = '00000000', oscs = 1) => {
   const file = join(tables(), 'User', `waveform-test-${name}.wav`);
   writeTable(file, frames, flags);
   written.push(file);
-  const state = join(work, `state-${name}.bin`);
   const path = `User/waveform-test-${name}.wav`;
-  writeFileSync(
-    state,
-    editedState(
-      init,
-      Array.from({ length: oscs }, () => ({ path, frames: frames.length }))
-    )
+  return stateOf(
+    name,
+    Array.from({ length: oscs }, () => ({ path, frames: frames.length }))
   );
-  return state;
 };
 const removeTables = () => written.splice(0).forEach((file) => rmSync(file, { force: true }));
 // a frame of 2048 samples: a sine of harmonic h (-1: inverted)
 const sine = (h = 1) => Array.from({ length: 2048 }, (_, i) => Math.sin((2 * Math.PI * h * i) / 2048));
+// `count` frames, frame j a sine of harmonic j + 1
+const sines = (count) => Array.from({ length: count }, (_, j) => sine(j + 1));
 // the middle value (the upper one of an even count)
 const median = (values) => {
   const sorted = [...values].sort((a, b) => a - b);
@@ -136,6 +145,15 @@ const tone = (x, frequency, from, n) => {
     sum += w;
   }
   return { amplitude: (2 * Math.hypot(re, im)) / sum, phase: (Math.atan2(im, re) * 180) / Math.PI };
+};
+// the shares of the harmonics 1..count of f0 in x over 0.15..0.45 s (their amplitudes, summing to 1)
+const harmonicShares = (x, f0, count) => {
+  const amplitudes = Array.from(
+    { length: count },
+    (_, j) => tone(x, f0 * (j + 1), Math.round(0.15 * RATE), Math.round(0.3 * RATE)).amplitude
+  );
+  const total = amplitudes.reduce((a, b) => a + b, 0);
+  return amplitudes.map((a) => a / total);
 };
 
 // --- envelopes ---
@@ -273,11 +291,8 @@ if (runs('unison-modes')) {
   const table = join(tables(), 'User', 'waveform-test-sine.wav');
   writeTable(table, [sine()], '00000000');
   const C4 = 440 * 2 ** ((60 - 69) / 12);
-  const stateOf = (name, params) => {
-    const file = join(work, `state-${name}.bin`);
-    writeFileSync(file, editedState(init, [{ path: 'User/waveform-test-sine.wav', frames: 1, params }]));
-    return file;
-  };
+  const sineState = (name, params) =>
+    stateOf(name, [{ path: 'User/waveform-test-sine.wav', frames: 1, params }]);
   // the peaks from `low` to `high` cents of C4, the cents refined by the parabola of their three bins
   const peaks = (channels, low, high) => {
     const [l, r] = channels.map(spectrum);
@@ -321,7 +336,7 @@ if (runs('unison-modes')) {
   try {
     const jobs = [];
     for (const mode of ['kDetuneLinear', 'kDetuneSuper', 'kDetuneExp', 'kDetuneInv']) {
-      const state = stateOf(mode, { kParamDetuneMode: mode });
+      const state = sineState(mode, { kParamDetuneMode: mode });
       for (const count of [3, 4, 5, 6, 7, 8, 9, 10, 12, 16])
         jobs.push(
           note(`${mode}-${count}`, state, { 'A Unison': (count - 1) / 15, 'A Uni Detune': 1 }).then((x) => {
@@ -331,7 +346,7 @@ if (runs('unison-modes')) {
           })
         );
     }
-    const linear = stateOf('linear', { kParamDetuneMode: 'kDetuneLinear' });
+    const linear = sineState('linear', { kParamDetuneMode: 'kDetuneLinear' });
     STACKS.forEach((name, i) => {
       for (const count of [1, 2, 3, 4, 5, 6, 7, 8, 16])
         jobs.push(
@@ -504,15 +519,9 @@ if (runs('frames')) {
     )[0];
   // the complex amplitude of harmonic h over 0.15..0.45 s, its phase against a sine from the note on
   const harmonic = (x, h) => tone(x, FRAMES_F0 * h, Math.round(0.15 * RATE), Math.round(0.3 * RATE));
-  // `count` frames, frame j a sine of harmonic j + 1
-  const sines = (count) => Array.from({ length: count }, (_, j) => sine(j + 1));
   // the shares of the source frames (the amplitudes of their harmonics, summing to 1) at a position
-  const shares = async (name, state, count, position) => {
-    const x = await renderAsync(name, state, { 'A WT Pos': position });
-    const amplitudes = Array.from({ length: count }, (_, j) => harmonic(x, j + 1).amplitude);
-    const total = amplitudes.reduce((a, b) => a + b, 0);
-    return amplitudes.map((a) => a / total);
-  };
+  const shares = async (name, state, count, position) =>
+    harmonicShares(await renderAsync(name, state, { 'A WT Pos': position }), FRAMES_F0, count);
   const lower = (row) => row.findIndex((share) => share > 0.0005);
   try {
     // the frame a position plays: just below and above k / N (no mark)
@@ -650,6 +659,12 @@ if (runs('frame-fades')) {
     const off = Math.max(...mid.map(([n, m]) => Math.abs(m - (n - start) * slope)));
     return { start: Math.round(start), length: Number((1 / slope).toFixed(1)), off: Number(off.toFixed(3)) };
   };
+  // the sine of frequency f of a channel (fitted over 0.1..0.4 s, refined within ±cents) and the fade of its first
+  // change from 0.45 s on
+  const fadeAt = (x, f, cents = 0, rate = RATE) => {
+    const s = fit(x, rate, f, Math.round(0.1 * rate), Math.round(0.4 * rate), cents);
+    return [s, fadeOf(against(x, s, Math.round(0.45 * rate), x.length))];
+  };
   try {
     const flip = tableState('flip', [sine(1), sine(-1)]);
     // the step by note and rate: the start of the fade and its length
@@ -668,8 +683,7 @@ if (runs('frame-fades')) {
             automation: [STEP],
             notes: [{ note: key, on: 0, off: 1 }],
           }).then(([left]) => {
-            const s = fit(left, rate, f, Math.round(0.1 * rate), Math.round(0.4 * rate));
-            const { start, length } = fadeOf(against(left, s, Math.round(0.45 * rate), left.length));
+            const [, { start, length }] = fadeAt(left, f, 0, rate);
             lengths[rate].push({ note: key, period: Number((rate / f).toFixed(1)), start, length });
           })
         );
@@ -710,10 +724,18 @@ if (runs('frame-fades')) {
         })
       );
     // two voices (A Unison 2: one right, one left): at Detune 1 (±200 cents) both fade at one step, each over
-    // its own period; Detune 0 and A Uni WT Pos 0.75 (the left voice lower in the table), the right one crosses
-    // into frame 1 at 0.5 s, the left one at 0.7 s
+    // its own period; A Uni WT Pos 0.75 (+50%) at Detune 0 and at Detune 1 (the right voice on the position, the
+    // left one, the higher, a quarter of the table below it: spread.json), the right one crosses into frame 1 at
+    // 0.5 s, the left one at 0.7 s
     const unison = {};
     const two = { ...FLAT, 'A Unison': 1 / 15 };
+    const SPREAD = wtPos([0, 0.1], [0.5, 0.1], [0.5, 0.6], [0.7, 0.6], [0.7, 0.9]);
+    // channel c of a note of 440 Hz at Detune 1 (the left voice 200 cents up, the right one 200 down): its period
+    // and its fade
+    const detunedFade = (x, c) => {
+      const [s, fade] = fadeAt(x, 440 * 2 ** ((c ? -200 : 200) / 1200), 3);
+      return { period: Number(((2 * Math.PI) / s.w).toFixed(1)), ...fade };
+    };
     jobs.push(
       note('fade-detuned', {
         seconds: 1,
@@ -722,24 +744,25 @@ if (runs('frame-fades')) {
         automation: [STEP],
         notes: [{ note: 69, on: 0, off: 1 }],
       }).then((channels) => {
-        unison.detuned = channels.map((x, c) => {
-          const f = 440 * 2 ** ((c ? -200 : 200) / 1200);
-          const s = fit(x, RATE, f, 4800, 19200, 3);
-          const period = Number(((2 * Math.PI) / s.w).toFixed(1));
-          return { period, ...fadeOf(against(x, s, Math.round(0.45 * RATE), x.length)) };
-        });
+        unison.detuned = channels.map(detunedFade);
       }),
       note('fade-spread', {
         seconds: 1,
         state: flip,
         params: { ...two, 'A Uni Detune': 0, 'A Uni WT Pos': 0.75 },
-        automation: [wtPos([0, 0.1], [0.5, 0.1], [0.5, 0.6], [0.7, 0.6], [0.7, 0.9])],
+        automation: [SPREAD],
         notes: [{ note: 57, on: 0, off: 1 }],
       }).then((channels) => {
-        unison.spread = channels.map((x) => {
-          const s = fit(x, RATE, 220, 4800, 19200);
-          return fadeOf(against(x, s, Math.round(0.45 * RATE), x.length));
-        });
+        unison.spread = channels.map((x) => fadeAt(x, 220)[1]);
+      }),
+      note('fade-spread-detuned', {
+        seconds: 1,
+        state: flip,
+        params: { ...two, 'A Uni Detune': 1, 'A Uni WT Pos': 0.75 },
+        automation: [SPREAD],
+        notes: [{ note: 69, on: 0, off: 1 }],
+      }).then((channels) => {
+        unison.spreadDetuned = channels.map(detunedFade);
       })
     );
     // a pitch bend of 12 semitones up and down (Pitch Bend 0.5 → 0.75 or 0.25 over 0.49..0.53 s) while the right
@@ -793,7 +816,7 @@ if (runs('frame-fades')) {
       `${JSON.stringify(
         {
           about:
-            'Osc A of the init patch of the Audio Unit playing tables of ours (frame j (-1)^j · a sine: the sign of the output tells the frame, between two frames it is (1 - 2m) · the sine, m the share of the new one) while A WT Pos is automated (set every 16 samples; the AU glides it, its fades start some ms after a step): `lengths` a step from frame 0 to 1 by rate and note: the sample the fade starts at and its length in samples (the line of m through 0.15..0.85); `sweeps` 256 frames swept from 0.3 s over 4, 1 and 0.25 s at 220 Hz: each change of sign [start, samples, sign before, sign after]; `unison` A Unison 2 (one voice right, one left): `detuned` at Detune 1 (±200 cents) each channel its period and its fade, `spread` Detune 0 and A Uni WT Pos 0.75: the right voice crosses at 0.5 s, the left one at 0.7 s; `bends` a pitch bend of 12 semitones up and down over 0.49..0.53 s while the right voice fades (m against the left one, on frame 0): the fade, the most a sample of it is off its line (`off`) and the periods of the left voice at its start and its end; scripts/renders/run.mjs --only=frame-fades',
+            'Osc A of the init patch of the Audio Unit playing tables of ours (frame j (-1)^j · a sine: the sign of the output tells the frame, between two frames it is (1 - 2m) · the sine, m the share of the new one) while A WT Pos is automated (set every 16 samples; the AU glides it, its fades start some ms after a step): `lengths` a step from frame 0 to 1 by rate and note: the sample the fade starts at and its length in samples (the line of m through 0.15..0.85); `sweeps` 256 frames swept from 0.3 s over 4, 1 and 0.25 s at 220 Hz: each change of sign [start, samples, sign before, sign after]; `unison` A Unison 2 (one voice right, one left): `detuned` at Detune 1 (±200 cents) each channel its period and its fade, `spread` Detune 0 and A Uni WT Pos 0.75: the right voice crosses at 0.5 s, the left one at 0.7 s, `spreadDetuned` the same at Detune 1 (as `detuned`): the right voice (the lower) crosses at 0.5 s, the left one (the higher) at 0.7 s; `bends` a pitch bend of 12 semitones up and down over 0.49..0.53 s while the right voice fades (m against the left one, on frame 0): the fade, the most a sample of it is off its line (`off`) and the periods of the left voice at its start and its end; scripts/renders/run.mjs --only=frame-fades',
           lengths,
           sweeps,
           unison,
@@ -807,6 +830,252 @@ if (runs('frame-fades')) {
       `dsp/measurements: frame fades of ${Object.keys(lengths).length} rates, ${
         Object.keys(sweeps).length
       } sweeps`
+    );
+  } finally {
+    removeTables();
+  }
+}
+
+// --- the position spread of a unison ---
+// A Uni WT Pos (bipolar: 0 is -100%, 0.5 none, 1 +100%) on a table of ours of 64 frames, frame j a sine of harmonic
+// j + 1, at a still A WT Pos: every voice at Detune 0 and the phase 0, so each channel is the frames of its voices,
+// each harmonic the share of the voices on its frame
+if (runs('spread')) {
+  const COUNT = 64;
+  const NOTE = 24;
+  const F0 = 440 * 2 ** ((NOTE - 69) / 12);
+  // 0, the middle of frames 16, 32 and 48 (an edge between two frames would not tell the one played), 1
+  const POSITIONS = [0, 16.5 / COUNT, 32.5 / COUNT, 48.5 / COUNT, 1];
+  const AMOUNTS = [-1, -0.5, -0.25, 0.25, 0.5, 1];
+  const name = 'spread';
+  // a case (its unison, spread, position, a detune mode or the stack 12 (1x)) on `state`: each channel [frame,
+  // share] of the frames its voices play (below 1% left out; a stacked voice plays them at their harmonic doubled)
+  const play = (state, c) =>
+    hostRender(`spread-${Object.values(c).join('-')}`, {
+      seconds: 0.5,
+      state,
+      params: {
+        ...FLAT,
+        'A Unison': (c.unison - 1) / 15,
+        'A Uni Detune': 0,
+        'A Uni WT Pos': 0.5 + c.spread / 2,
+        'A WT Pos': c.position,
+        ...(c.stack && { 'A Uni Stack': 1.5 / 9 }),
+      },
+      notes: [{ note: NOTE, on: 0, off: 0.5 }],
+    }).then((x) => {
+      const [left, right] = x.map((channel) =>
+        harmonicShares(channel, F0, c.stack ? 2 * COUNT : COUNT).flatMap((share, j) =>
+          share > 0.01 ? [[j, Number(share.toFixed(3))]] : []
+        )
+      );
+      return { ...c, left, right };
+    });
+  try {
+    const plain = tableState(name, sines(COUNT));
+    const jobs = [];
+    for (const unison of [2, 3, 4, 5, 8])
+      for (const spread of AMOUNTS)
+        for (const position of POSITIONS) jobs.push(play(plain, { unison, spread, position }));
+    // the detune modes: do the voices follow their shares of the detune or their order
+    for (const mode of ['kDetuneLinear', 'kDetuneSuper', 'kDetuneExp', 'kDetuneInv']) {
+      const state = stateOf(`${name}-${mode}`, [
+        { path: `User/waveform-test-${name}.wav`, frames: COUNT, params: { kParamDetuneMode: mode } },
+      ]);
+      for (const spread of [-1, 1])
+        jobs.push(
+          play(state, { unison: 8, spread, position: POSITIONS[2], mode: mode.slice(7).toLowerCase() })
+        );
+    }
+    // a stack (12 (1x): voices 0 and 2 of 3 an octave up): their order or their pitch
+    jobs.push(play(plain, { unison: 3, spread: 1, position: POSITIONS[2], stack: '12x1' }));
+    const cases = await Promise.all(jobs);
+    writeFileSync(
+      join(out, 'spread.json'),
+      `${JSON.stringify(
+        {
+          about: `Osc A of the init patch of the Audio Unit on a table of ours of ${COUNT} frames (frame j a sine of harmonic j + 1) at note ${NOTE}, Detune 0 and the phase 0 of every voice, A WT Pos still at \`position\`, A Uni WT Pos at \`spread\` (-1..1: -100..+100%): \`left\` and \`right\` [frame, share] of the frames the voices of each channel play (the amplitudes of their harmonics, summing to 1; below 1% left out); \`mode\` a detune mode (kParamDetuneMode), \`stack\` 12 (1x) (the frames of the stacked voices at their harmonic doubled); scripts/renders/run.mjs --only=spread`,
+          cases,
+        },
+        null,
+        1
+      )}\n`
+    );
+    console.log(`dsp/measurements: the position spread of ${cases.length} unisons`);
+  } finally {
+    removeTables();
+  }
+}
+
+// --- the blend of a unison ---
+// A Uni Blend (0..1, its knob) of a unison of 2..8 voices on a sine (a table of ours) at C4, Detune 1 (linear: voice
+// j of n at 200 · (2j / (n - 1) - 1) cents), Width 1, the phase 0 of every voice: each voice its level in each
+// channel by the blend; Macro 1 routed to it (a mod slot: kParamDetuneWid, the param of A Uni Blend) from the knob by
+// an amount, uni and bipolar; the blend moved over 2 s up and back by the knob (automated) and by Macro 1, at C7
+// (the voices 125 Hz apart at least: windows of 40 ms tell them apart)
+if (runs('blend')) {
+  const C4 = 440 * 2 ** ((60 - 69) / 12);
+  const name = 'blend-sine';
+  const path = `User/waveform-test-${name}.wav`;
+  const cents = (j, n) => (n === 1 ? 0 : 200 * ((2 * j) / (n - 1) - 1));
+  const db = (amplitude) => (amplitude > 3e-5 ? Number((20 * Math.log10(amplitude)).toFixed(2)) : null);
+  // the voices of n: each [cents, left, right] (dB against one voice: the main lobe of a Hann at its peak, null not
+  // heard)
+  const voices = (channels, n, one = 1) => {
+    const [l, r] = channels.map(spectrum);
+    const bin = (c) => (C4 * 2 ** (c / 1200) * N) / RATE;
+    return Array.from({ length: n }, (_, j) => {
+      let best = Math.round(bin(cents(j, n)));
+      for (let k = Math.floor(bin(cents(j, n) - 8)); k <= Math.ceil(bin(cents(j, n) + 8)); k++)
+        if (l[k] + r[k] > l[best] + r[best]) best = k;
+      const amplitude = (s) => Math.hypot(s[best - 1], s[best], s[best + 1]) / one;
+      return [Math.round(cents(j, n)), db(amplitude(l)), db(amplitude(r))];
+    });
+  };
+  const play = (job, state, params, { seconds = 6, note = 60, automation } = {}) =>
+    hostRender(`blend-${job}`, {
+      seconds,
+      state,
+      params: { ...FLAT, 'A Uni Detune': 1, ...params },
+      automation,
+      notes: [{ note, on: 0, off: seconds }],
+    });
+  // a render measured, again while a voice of it isn't heard (now and then the AU plays a job at the params of its
+  // state, one voice: it loaded the state after them)
+  const measured = async (render, measure, tries = 3) => {
+    const result = measure(await render());
+    const heard = (result.voices ?? result).every((row) => row.slice(1).some((v) => v !== null));
+    if (heard || tries === 1) return result;
+    return measured(render, measure, tries - 1);
+  };
+  const MACRO = { source: 25, osc: 0, param: 27, name: 'kParamDetuneWid' };
+  const BLENDS = Array.from({ length: 21 }, (_, i) => i / 20);
+  const ROUTES = [
+    { blend: 0, amount: 1, bipolar: false },
+    { blend: 0.5, amount: 0.5, bipolar: false },
+    { blend: 0.5, amount: 1, bipolar: false },
+    { blend: 0.5, amount: 1, bipolar: true },
+    { blend: 1, amount: -1, bipolar: false },
+  ];
+  const POINTS = [
+    [0.5, 0],
+    [2.5, 1],
+    [4.5, 0],
+  ];
+  try {
+    writeTable(join(tables(), path), [sine()], '00000000');
+    written.push(join(tables(), path));
+    const plain = stateOf(name, [{ path, frames: 1 }]);
+    const [one] = (await play('u1', plain, { 'A Unison': 0 })).map((x) => {
+      const s = spectrum(x);
+      const k = Math.round((C4 * N) / RATE);
+      return Math.hypot(s[k - 1], s[k], s[k + 1]);
+    });
+    const levels = {};
+    const routes = [];
+    const moving = {};
+    const jobs = [];
+    for (let n = 2; n <= 8; n++)
+      for (const blend of BLENDS)
+        jobs.push(
+          measured(
+            () => play(`u${n}-${blend}`, plain, { 'A Unison': (n - 1) / 15, 'A Uni Blend': blend }),
+            (x) => voices(x, n, one)
+          ).then((result) => {
+            levels[`u${n} ${blend}`] = result;
+          })
+        );
+    ROUTES.forEach((route, i) => {
+      const state = stateOf(
+        `${name}-route${i}`,
+        [{ path, frames: 1 }],
+        [{ ...MACRO, amount: 100 * route.amount, bipolar: route.bipolar }]
+      );
+      for (const level of [0, 0.25, 0.5, 0.75, 1])
+        jobs.push(
+          measured(
+            () =>
+              play(`route${i}-${level}`, state, {
+                'A Unison': 4 / 15,
+                'A Uni Blend': route.blend,
+                'Macro 1': level,
+              }),
+            (x) => ({ ...route, level, voices: voices(x, 5, one) })
+          ).then((result) => routes.push(result))
+        );
+    });
+    // the level of a centre voice (u5 its middle one, u4 the lower of its middle two: left) and of the lowest one
+    // (right) every 50 ms, over 40 ms (Hann), against one voice at C7
+    const macro = stateOf(`${name}-macro`, [{ path, frames: 1 }], [{ ...MACRO, amount: 100 }]);
+    const C7 = 8 * C4;
+    const window = Math.round(0.04 * RATE);
+    const amplitude = (x, frequency, from) => {
+      let re = 0;
+      let im = 0;
+      let sum = 0;
+      for (let i = 0; i < window; i++) {
+        const w = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (window - 1));
+        const phase = (2 * Math.PI * frequency * (from + i)) / RATE;
+        re += x[from + i] * w * Math.sin(phase);
+        im += x[from + i] * w * Math.cos(phase);
+        sum += w;
+      }
+      return (2 * Math.hypot(re, im)) / sum;
+    };
+    const [high] = await play('u1-c7', plain, { 'A Unison': 0 }, { seconds: 1, note: 96 });
+    const highOne = amplitude(high, C7, Math.round(0.5 * RATE));
+    for (const n of [4, 5])
+      for (const [how, state, param] of [
+        ['knob', plain, 'A Uni Blend'],
+        ['macro', macro, 'Macro 1'],
+      ])
+        jobs.push(
+          measured(
+            () =>
+              play(
+                `moving-u${n}-${how}`,
+                state,
+                { 'A Unison': (n - 1) / 15, 'A Uni Blend': 0 },
+                { seconds: 5, note: 96, automation: [{ name: param, points: POINTS }] }
+              ),
+            ([l, r]) => {
+              const centre = cents((n - 1) >> 1, n);
+              return Array.from({ length: 89 }, (_, k) => {
+                const t = Number((0.3 + 0.05 * k).toFixed(2));
+                const from = Math.round(t * RATE) - window / 2;
+                return [
+                  t,
+                  db(amplitude(l, C7 * 2 ** (centre / 1200), from) / highOne),
+                  db(amplitude(r, C7 * 2 ** (cents(0, n) / 1200), from) / highOne),
+                ];
+              });
+            }
+          ).then((result) => {
+            moving[`u${n} ${how}`] = result;
+          })
+        );
+    await Promise.all(jobs);
+    const sorted = (o) =>
+      Object.fromEntries(Object.entries(o).sort(([a], [b]) => a.localeCompare(b, 'en', { numeric: true })));
+    routes.sort(
+      (a, b) => a.blend - b.blend || a.amount - b.amount || a.bipolar - b.bipolar || a.level - b.level
+    );
+    writeFileSync(
+      join(out, 'blend.json'),
+      `${JSON.stringify(
+        {
+          about:
+            'Osc A of the init patch of the Audio Unit on a sine (a table of ours) at C4, Detune 1 (linear: voice j of n at 200 · (2j / (n - 1) - 1) cents), Width 1, the phase 0 of every voice: `levels` each voice of `u<n> <A Uni Blend>` [cents, left, right] (dB against one voice: the main lobe of a Hann at its peak; null not heard); `routes` u5 with Macro 1 routed to A Uni Blend (a mod slot of its state: kParamDetuneWid) at `amount` of its travel (uni, or `bipolar`) from the knob at `blend`, the macro at `level`; `moving` the blend from 0 up to 1 over 0.5..2.5 s and back to 0 at 4.5 s by the knob (automated) or Macro 1 (amount 1 from 0), at C7: [seconds, a centre voice in its left (u5 the middle one, u4 the lower of the middle two), the lowest one in its right] every 50 ms over 40 ms (Hann) against one voice; scripts/renders/run.mjs --only=blend',
+          levels: sorted(levels),
+          routes,
+          moving: sorted(moving),
+        },
+        null,
+        1
+      )}\n`
+    );
+    console.log(
+      `dsp/measurements: the blend of ${Object.keys(levels).length} unisons, ${routes.length} routes`
     );
   } finally {
     removeTables();
