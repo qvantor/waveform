@@ -536,8 +536,8 @@ export const useControlMenu = (props: ControlMenuProps) => {
   );
 
   // a press of the control from its pointerdown, followed while it is held (one pointer, the main button): `onMove`
-  // while it moves the control, `onEnd` when it is let go (`tapped`: a finger let go where it was pressed, the menu
-  // didn't open). A press the menu opened from moves the control no more, a finger moves it only once past STILL px
+  // while it moves the control, `onEnd` when it is let go or lost (`tapped`: a finger let go where it was pressed, the
+  // menu didn't open). A press the menu opened from moves the control no more, a finger moves it only once past STILL px
   // (`waits`: held still it changes nothing before the menu opens). Shift+Alt+click switches the polarity of the
   // selected route, the control doesn't move. False when the press isn't followed
   const track = (
@@ -565,10 +565,10 @@ export const useControlMenu = (props: ControlMenuProps) => {
         }
         if (!still) onMove(move);
       },
-      () => {
+      (lost) => {
         window.clearTimeout(timer);
         if (held.current === press) held.current = null;
-        onEnd?.(still && !press.taken);
+        onEnd?.(!lost && still && !press.taken);
       }
     );
     if (!tracked) return false;

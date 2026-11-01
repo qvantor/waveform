@@ -14,7 +14,15 @@ const pointer = (
   button = 0,
   init: MouseEventInit = {}
 ) => {
-  const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX, clientY, button, ...init });
+  const event = new MouseEvent(type, {
+    bubbles: true,
+    cancelable: true,
+    clientX,
+    clientY,
+    button,
+    buttons: 1,
+    ...init,
+  });
   Object.defineProperty(event, 'pointerId', { value: 1 });
   act(() => {
     target.dispatchEvent(event);

@@ -11,7 +11,7 @@ const HEIGHT = 64;
 // jsdom has no PointerEvent: a mouse event with the pointer type name and a pointerId works for React and
 // the document listeners of the pointer tracker
 const pointer = (type: string, target: EventTarget, clientY: number) => {
-  const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientY, button: 0 });
+  const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientY, button: 0, buttons: 1 });
   Object.defineProperty(event, 'pointerId', { value: 1 });
   act(() => {
     target.dispatchEvent(event);
