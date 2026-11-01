@@ -117,7 +117,8 @@ describe('synth', () => {
       [0, -1, 0, 1],
     ]);
     osc2[1].setPosition(1);
-    osc2[1].setUnisonShape({ blend: 0.8, stack: '12+7x2' });
+    osc2[1].setUnisonShape({ stack: '12+7x2' });
+    osc2[1].setOscValue('blend', 0.8);
 
     onPress([4, 'A']);
 
@@ -130,13 +131,15 @@ describe('synth', () => {
         phase: 0.5,
         phaseRand: 1,
         // the shape of its unison as it is at the note on
-        unisonShape: { ...UNISON_SHAPE, blend: 0.8, stack: '12+7x2' },
+        unisonShape: { ...UNISON_SHAPE, stack: '12+7x2' },
       },
     ]);
-    // the octave in cents, the position as a share of the table
+    // the octave in cents, the position as a share of the table, the blend of the unison a param
     expect(param(voice, 'detune2').value).toBe(-1200);
     expect(param(voice, 'gain2').value).toBe(f32(0.3));
     expect(param(voice, 'position2').value).toBe(0.5);
+    expect(param(voice, 'blend2').value).toBe(f32(0.8));
+    expect(param(voice, 'blend1').value).toBe(0.75);
   });
 
   it('creates no native oscillators and no gains: the volume is in the processor', async () => {
@@ -192,10 +195,12 @@ describe('synth', () => {
         detune1: 0,
         spread1: 5,
         gain1: 0.5,
+        blend1: 0.75,
         position2: 0,
         detune2: 0,
         spread2: 5,
         gain2: 0.5,
+        blend2: 0.75,
       },
     });
     expect(events[2]).toEqual({
@@ -906,14 +911,16 @@ describe('synth', () => {
       onPress([4, 'C']);
       expect(voices()).toHaveLength(3);
       expect(options(voices()[2]).osc[0]).toMatchObject({ unison: 4 });
-      osc2[1].setUnisonShape({ blend: 0.8 });
+      osc2[1].setUnisonShape({ width: 0.5 });
       onPress([4, 'D']);
       expect(voices()).toHaveLength(4);
       expect(stolen(2)).toBe(-1);
-      // the phases only start a voice: taken over, it goes on with them
+      // the phases only start a voice, the blend is a param (it glides there): taken over, it goes on with them
       osc1[1].setOscValue('phase', 0.2);
+      osc2[1].setOscValue('blend', 0.8);
       onPress([4, 'E']);
       expect(voices()).toHaveLength(4);
+      expect(calls(param(voices()[3], 'blend2'), 'setTargetAtTime').at(-1)?.[0]).toBe(f32(0.8));
       // in legato its envelopes go on: the voice glides on with its unison
       synthActions.setLegato(true);
       osc1[1].setOscValue('unison', 3);
@@ -1120,7 +1127,7 @@ describe('synth', () => {
   });
 
   describe('playing notes follow the knobs', () => {
-    it('gain, detune and wave glide to the knob, the octave is set at once', async () => {
+    it('gain, detune, blend and wave glide to the knob, the octave is set at once', async () => {
       const { onPress, voices, param, osc1, audioCtx } = await setup();
       osc1[1].setWaveTable([
         [0, 1, 0, -1],
@@ -1133,11 +1140,13 @@ describe('synth', () => {
 
       osc1[1].setGain(0.1);
       osc1[1].setOscValue('detune', 30);
+      osc1[1].setOscValue('blend', 0.25);
       osc1[1].setPosition(2);
       osc1[1].setOscValue('octave', 1);
 
       expect(calls(param(voice, 'gain1'), 'setTargetAtTime')).toEqual([[f32(0.1), now, expect.any(Number)]]);
       expect(calls(param(voice, 'spread1'), 'setTargetAtTime')).toEqual([[30, now, expect.any(Number)]]);
+      expect(calls(param(voice, 'blend1'), 'setTargetAtTime')).toEqual([[0.25, now, expect.any(Number)]]);
       expect(calls(param(voice, 'position1'), 'setTargetAtTime')).toEqual([[1, now, expect.any(Number)]]);
       expect(calls(param(voice, 'detune1'), 'setTargetAtTime')).toEqual([]);
       expect(calls(param(voice, 'detune1'), 'setValueAtTime').at(-1)).toEqual([1200, now]);
@@ -1324,6 +1333,7 @@ describe('synth', () => {
       addRoute('env1', 'osc1.detune', -0.25);
       addRoute('env3', 'osc1.gain', 0.2);
       setAmount('env3', 'osc1.gain', 0);
+      addRoute('lfo1', 'osc1.blend', 0.5);
       // osc2 is off for the note
       addRoute('env2', 'osc2.gain', 1);
       expect(osc2[0].$active.value).toBe(false);
@@ -1333,6 +1343,7 @@ describe('synth', () => {
       expect(options(voices()[0]).routes).toEqual([
         { source: 1, param: 'position1', amount: 0.5, min: 0, max: 1 },
         { source: 0, param: 'spread1', amount: -25, min: 0, max: 100 },
+        { source: 4, param: 'blend1', amount: 0.5, min: 0, max: 1 },
       ]);
     });
 

@@ -4,10 +4,11 @@ import styled from 'styled-components';
 import { theme, Modal, Deactivated, HandleModulation } from '@waveform/ui-kit';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
 import WaveTableEditor from '../../../wave-table-editor';
-import { useCompact, useOscillatorContext } from '../../hooks';
+import { useCompact, useHeld, useOscillatorContext } from '../../hooks';
 import { OscillatorStatus } from '../oscillator-status';
 import { Chart } from './chart';
 import { PitchInfo } from './pitch-info';
+import type { UnisonView } from './unison-overlay';
 import { WaveInfo } from './wave-info';
 
 // the wave, over it Oct, Semi and Fine, under it its frame, Phase, Phase rand and Unison: one dark block
@@ -48,13 +49,18 @@ interface Props {
   modulations?: HandleModulation[];
   // the prefix of the modulation targets of the oscillator (osc1.pitch…)
   target: 'osc1' | 'osc2';
+  // Detune, Blend or Unison is turned: the chart shows the voices of the unison, where the routes of Detune and Blend
+  // move them
+  unison?: UnisonView;
+  // Unison (under the wave) is held or let go
+  onUnisonActiveChange: (active: boolean) => void;
 }
 
-export const Wave = ({ modulations, target }: Props) => {
+export const Wave = ({ modulations, target, unison, onUnisonActiveChange }: Props) => {
   const [{ $active }] = useOscillatorContext();
   const [editorOpen, setEditorOpen] = React.useState(false);
   // Phase and Phase rand held under the wave (both at once with two fingers): the chart shows them
-  const [phaseHeld, setPhaseHeld] = React.useState(0);
+  const [$phaseHeld, holdPhase] = useHeld();
   const toggleEditorOpen = () => setEditorOpen(!editorOpen);
   const active = useBehaviorSubject($active);
   // narrow: the values of both strips smaller (they are as wide as the block)
@@ -71,11 +77,12 @@ export const Wave = ({ modulations, target }: Props) => {
             <WaveTableEditor />
           </Modal>
         ) : (
-          <Chart phaseVisible={phaseHeld > 0} modulations={modulations} />
+          <Chart $phaseVisible={$phaseHeld} modulations={modulations} unison={unison} />
         )}
       </ChartArea>
       <WaveInfo
-        onPhaseActiveChange={(active) => setPhaseHeld((held) => held + (active ? 1 : -1))}
+        onPhaseActiveChange={holdPhase}
+        onUnisonActiveChange={onUnisonActiveChange}
         compact={compact}
       />
     </Root>

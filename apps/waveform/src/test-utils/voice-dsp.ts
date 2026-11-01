@@ -50,6 +50,8 @@ export const VOICE_DEFAULTS: Record<VoiceParam, number> = {
   spread2: 0,
   gain1: 1,
   gain2: 1,
+  blend1: 0.75,
+  blend2: 0.75,
 };
 
 // a param of a block: a number (constant over the block) or a function of the frame (one value per sample)

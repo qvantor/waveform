@@ -1,28 +1,18 @@
 import React from 'react';
-import styled from 'styled-components';
-import { BehaviorSubject } from 'rxjs';
+import { BehaviorSubject, Observable } from 'rxjs';
 import { ChartSvg, strokePath, theme, tracePath, useLineChartContext, useLiveCanvas } from '@waveform/ui-kit';
-import { useBehaviorSubject } from '@waveform/rxjs-react';
+import { useBehaviorSubject, useObservable } from '@waveform/rxjs-react';
 import { useOscillatorContext } from '../../hooks';
+import { FadeRoot, useFadeOut } from './fade-overlay';
 import { DrawnWave, periodX } from './period';
 
 interface Props {
   // the samples of the wave at the knob and the wave drawn (also where the routes of the Wave knob move it)
   length: number;
   $drawn: BehaviorSubject<DrawnWave | null>;
-  visible: boolean;
+  // Phase or Phase rand is held: only the overlay renders, not the chart
+  $visible: Observable<boolean>;
 }
-
-// ms the overlay fades out in once Phase and Phase rand are let go
-export const PHASE_FADE = 300;
-
-// over the wave (the overlay of the chart)
-const Root = styled.div`
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  transition: opacity ${PHASE_FADE}ms;
-`;
 
 const DOT_RADIUS = 3.5;
 
@@ -52,7 +42,7 @@ const randBands = (phase: number, phaseRand: number): [number, number][] => {
 // over the wave while Phase or Phase rand is dragged: the point every voice starts at (phase) and the band
 // Phase rand spreads their starts over, the wave in it highlighted; fades out once let go. The highlight and the
 // point are on a canvas, drawn again with the wave drawn ($drawn): they follow it without a render
-export const PhaseOverlay = ({ length, $drawn, visible }: Props) => {
+export const PhaseOverlay = ({ length, $drawn, $visible }: Props) => {
   const {
     height,
     padding: [, paddingY],
@@ -62,17 +52,9 @@ export const PhaseOverlay = ({ length, $drawn, visible }: Props) => {
   const [{ $osc }] = useOscillatorContext();
   const { phase, phaseRand } = useBehaviorSubject($osc);
   const [canvas, begin] = useLiveCanvas('phase-wave');
+  const visible = useObservable($visible, false);
   // kept while it fades out, then not rendered at all: no work while the wave morphs
-  const [shown, setShown] = React.useState(visible);
-  React.useEffect(() => {
-    if (visible) {
-      setShown(true);
-      return;
-    }
-    const timeout = setTimeout(() => setShown(false), PHASE_FADE);
-    return () => clearTimeout(timeout);
-  }, [visible]);
-  const rendered = (visible || shown) && length > 0;
+  const rendered = useFadeOut(visible) && length > 0;
 
   const x = React.useCallback((share: number) => scaleX(periodX(share, length)), [scaleX, length]);
   const top = -paddingY;
@@ -121,7 +103,7 @@ export const PhaseOverlay = ({ length, $drawn, visible }: Props) => {
   // a line across the chart at a phase
   const across = (share: number) => ({ x1: x(share), x2: x(share), y1: top, y2: top + height });
   return (
-    <Root data-testid='phase-overlay' style={{ opacity: visible ? 1 : 0 }}>
+    <FadeRoot data-testid='phase-overlay' style={{ opacity: visible ? 1 : 0 }}>
       <ChartSvg>
         {bands.map((band) => (
           <rect
@@ -143,6 +125,6 @@ export const PhaseOverlay = ({ length, $drawn, visible }: Props) => {
         <line data-testid='phase-marker' {...across(phase)} stroke={theme.colors.white} strokeWidth={1.5} />
       </ChartSvg>
       {canvas}
-    </Root>
+    </FadeRoot>
   );
 };

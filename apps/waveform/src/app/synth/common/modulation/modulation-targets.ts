@@ -31,7 +31,7 @@ export type ModScale = 'linear' | 'log' | 'pow';
 interface OscTarget {
   kind: 'osc';
   osc: number;
-  param: 'position' | 'spread' | 'gain' | 'pitch' | 'fine';
+  param: 'position' | 'spread' | 'gain' | 'pitch' | 'fine' | 'blend';
   label: string;
   scale: ModScale;
   range: [number, number];
@@ -97,6 +97,8 @@ const oscTargets = (osc: number): Record<string, OscTarget> => {
     [id('wave')]: { kind: 'osc', osc, param: 'position', label: 'Wave', scale: 'linear', range: [0, 1] },
     // the unison detune: the spread of the voices in cents
     [id('detune')]: { kind: 'osc', osc, param: 'spread', label: 'Detune', scale: 'linear', range: [0, 100] },
+    // the blend of the unison: the level of its centre voices against the others
+    [id('blend')]: { kind: 'osc', osc, param: 'blend', label: 'Blend', scale: 'linear', range: [0, 1] },
     // the pitch over Oct, Semi and Fine: Pitch on Semi smoothly (no steps of semitones), Fine; an amount of 1 their
     // whole range, 48 semitones, 200 cents
     [id('pitch')]: {

@@ -17,6 +17,7 @@ import {
 } from '../../apps/waveform/src/app/synth/common/wavetable/wavetable-osc-wasm';
 import {
   STORE_PROCESSOR,
+  VOICE_PARAMETERS,
   VOICES_PROCESSOR,
   VoiceParam,
 } from '../../apps/waveform/src/app/synth/common/wavetable/wavetable-osc-params';
@@ -24,6 +25,7 @@ import type {
   VoiceAutomation,
   VoiceEvent,
 } from '../../apps/waveform/src/app/synth/common/wavetable/voice-options';
+import { unisonPower, voiceLevel } from '../../apps/waveform/src/app/synth/common/wavetable/unison-levels';
 import { parseWav } from '../../apps/waveform/src/app/synth/services/wav';
 import { analyze, frameOf, kaiser, sawFrame, SIZE } from './sound.mjs';
 
@@ -222,22 +224,12 @@ const dspRender = async (
     Math.random,
     createVoiceSharedWasm(scope)
   );
+  // the defaults of the params, the gains at 1
   const values = Object.fromEntries(
-    [
-      'frequency',
-      'gate',
-      'position1',
-      'detune1',
-      'spread1',
-      'gain1',
-      'position2',
-      'detune2',
-      'spread2',
-      'gain2',
-    ].map((name) => [
+    VOICE_PARAMETERS.map(({ name, defaultValue }) => [
       name,
       Float32Array.of(
-        (params as Record<string, number>)[name] ?? (name.startsWith('gain') || name === 'gate' ? 1 : 0)
+        (params as Record<string, number>)[name] ?? (name.startsWith('gain') ? 1 : defaultValue)
       ),
     ])
   ) as Record<VoiceParam, Float32Array>;
@@ -433,8 +425,13 @@ const tableSwitch = async ({ rate, name }: { rate: number; name: string }) => {
   return { step: maxStep(switched) / stationary, afterCrossfade: after };
 };
 
+// the blend the voices play (the default of its param) and the level of voice v of n at it in each of its channels
+const BLEND = VOICE_PARAMETERS.find(({ name }) => name === 'blend1')?.defaultValue ?? 0;
+const levelOf = (v: number, n: number) => voiceLevel(v, n, BLEND);
+
 // u3 (spread 2400 cents: an octave below, the note, an octave above) and u8 (1400 cents): the amplitude of
-// each voice in each channel
+// each voice in each channel, and the one of its level there (the middle one of an odd count in both, the others
+// right and left in turn from the lowest)
 const stereo = async ({ rate }: { rate: number }) => {
   const sine = buildLevels([
     Array.from({ length: WAVE_SIZE }, (_, n) => Math.sin((2 * Math.PI * n) / WAVE_SIZE)),
@@ -456,10 +453,17 @@ const stereo = async ({ rate }: { rate: number }) => {
     const f = 400 * 2 ** (((j / 7 - 0.5) * 1400) / 1200);
     return [toneAmplitude(l8, f, rate), toneAmplitude(r8, f, rate)];
   });
-  return { u3, u8 };
+  const expected3 = [
+    [0, levelOf(0, 3)],
+    [levelOf(1, 3), levelOf(1, 3)],
+    [levelOf(2, 3), 0],
+  ];
+  const expected8 = Array.from({ length: 8 }, (_, j) => (j % 2 ? [levelOf(j, 8), 0] : [0, levelOf(j, 8)]));
+  return { u3, u8, expected3, expected8 };
 };
 
-// many notes of a saw at 220 Hz, detune 5, Phase rand 1: the power and the peak of the first 100 ms against u1
+// many notes of a saw at 220 Hz, detune 5, Phase rand 1: the power and the peak of the first 100 ms against u1, and
+// the power of the levels of the voices (a channel: its voices, the middle one of an odd count in both)
 const unisonLevel = async ({ rate, notes }: { rate: number; notes: number }) => {
   const levels = buildLevels(await table('saw'));
   const measure = async (unison: number) => {
@@ -501,7 +505,13 @@ const unisonLevel = async ({ rate, notes }: { rate: number; notes: number }) => 
   const results = [];
   for (const unison of [2, 3, 4, 8]) {
     const many = await measure(unison);
-    results.push({ unison, rms: db(many.rms / one.rms), peak: db(many.peak / one.peak) });
+    const power = unisonPower(unison, BLEND);
+    results.push({
+      unison,
+      rms: db(many.rms / one.rms),
+      peak: db(many.peak / one.peak),
+      expected: 10 * Math.log10(power),
+    });
   }
   return results;
 };

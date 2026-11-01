@@ -107,16 +107,18 @@ export const VOICE_PARAM_ORDER: readonly VoiceParam[] = [
   'detune1',
   'spread1',
   'gain1',
+  'blend1',
   'position2',
   'detune2',
   'spread2',
   'gain2',
+  'blend2',
 ];
 // the params a route moves, by their id in the core (another name: none, the route is left out): those of each
-// oscillator (position, spread, gain, the offsets of its pitch: Semi in cents, Fine), the knobs of the filter,
-// then the knobs of each LFO (lfo_target of modulation.rs)
+// oscillator (position, spread, gain, the offsets of its pitch: Semi in cents, Fine, the blend of its unison), the
+// knobs of the filter, then the knobs of each LFO (lfo_target of modulation.rs)
 const LFO_KNOBS = ['rate', 'delay', 'rise', 'smooth', 'phase'];
-const OSC_ROUTE_PARAMS = ['position', 'spread', 'gain', 'pitch', 'fine'];
+const OSC_ROUTE_PARAMS = ['position', 'spread', 'gain', 'pitch', 'fine', 'blend'];
 const ROUTE_PARAMS = [
   ...[1, 2].flatMap((osc) => OSC_ROUTE_PARAMS.map((param) => `${param}${osc}`)),
   'cutoff',
@@ -453,7 +455,6 @@ const writeVoiceOptions = (
     command[at++] = osc?.phaseRand ?? 0;
     for (let v = 0; v < MAX_UNISON; v++) command[at++] = osc ? random() : 0;
     const shape = osc?.unisonShape ?? UNISON_SHAPE;
-    command[at++] = shape.blend;
     command[at++] = shape.width;
     command[at++] = UNISON_STACKS.indexOf(shape.stack);
     command[at++] = UNISON_DETUNES.indexOf(shape.detune);

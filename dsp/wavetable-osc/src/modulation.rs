@@ -4,7 +4,7 @@
 //! for a glide to the velocity of a note that takes the voice over; sources 4–7 its LFOs (lfo.rs). A bipolar
 //! route moves a param by amount × (level - ½) (a uni one: amount × level, to the bit). The pitch of an
 //! oscillator (Semi, Fine) is two params of base 0 (an offset of its detune within the bounds of its routes: the
-//! range of the knob from its value). The knobs of the LFOs are params too (targets 13–32: a Modulation of their
+//! range of the knob from its value). The knobs of the LFOs are params too (targets 15–34: a Modulation of their
 //! own in the voice, sources ENV 1–3 and VELO): the times by a share of their travel (pow: the knob is max ·
 //! share⁴), Phase around the cycle (not clamped)
 
@@ -16,14 +16,16 @@ use alloc::{vec, vec::Vec};
 use jsmath::{max, min, pow, sqrt};
 
 // the params a route moves, by id (the facade sends their names as these): the knobs of each oscillator
-// (position, spread, gain, then the offsets of its detune: Semi in cents, Fine), then the knobs of the filter
+// (position, spread, gain, then the offsets of its detune: Semi in cents, Fine, then the blend of its unison), then
+// the knobs of the filter
 pub const POSITION1: usize = 0;
 pub const SPREAD1: usize = 1;
 pub const GAIN1: usize = 2;
 pub const PITCH1: usize = 3;
 pub const FINE1: usize = 4;
+pub const BLEND1: usize = 5;
 /// the params of each oscillator
-pub const OSC_TARGETS: usize = 5;
+pub const OSC_TARGETS: usize = 6;
 pub const CUTOFF: usize = 2 * OSC_TARGETS;
 pub const RESONANCE: usize = CUTOFF + 1;
 pub const FILTER_GAIN: usize = CUTOFF + 2;

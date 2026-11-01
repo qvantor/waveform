@@ -1,5 +1,5 @@
 import React from 'react';
-import { BehaviorSubject } from 'rxjs';
+import { BehaviorSubject, Observable, of } from 'rxjs';
 import { HandleModulation, LineChart, LiveKnob, theme, useLiveDraw, useLiveLine } from '@waveform/ui-kit';
 import { useBehaviorSubject, useObservable } from '@waveform/rxjs-react';
 import {
@@ -10,6 +10,7 @@ import {
 } from '../../../common/wavetable/wavetable-frames';
 import { useOscillatorContext } from '../../hooks';
 import { PhaseOverlay } from './phase-overlay';
+import { UnisonOverlay, UnisonView } from './unison-overlay';
 import { DrawnWave, periodX, usePeriodLine } from './period';
 
 const PADDING: [number, number] = [-1, 2];
@@ -69,16 +70,21 @@ const WaveLine = ({ wave, table, morph, knobs, active, $drawn }: LineProps) => {
   return canvas;
 };
 
+const HIDDEN = of(false);
+const NO_UNISON: UnisonView = { $visible: HIDDEN };
+
 interface Props {
   // Phase or Phase rand is dragged: show them over the wave
-  phaseVisible?: boolean;
+  $phaseVisible?: Observable<boolean>;
   // the routes of the Wave knob
   modulations?: HandleModulation[];
+  // Detune or Blend is turned: the voices of the unison over the wave, where the routes of those knobs move them
+  unison?: UnisonView;
 }
 
 // the wave the position plays (one frame of those played); while the routes of the Wave knob sound, the
 // wave where they move it
-export const Chart = ({ phaseVisible = false, modulations }: Props) => {
+export const Chart = ({ $phaseVisible = HIDDEN, modulations, unison = NO_UNISON }: Props) => {
   const [{ $playedWave, $waveTable, $morph, $position, $active }] = useOscillatorContext();
   const wave = useObservable($playedWave, []);
   const table = useBehaviorSubject($waveTable);
@@ -96,7 +102,8 @@ export const Chart = ({ phaseVisible = false, modulations }: Props) => {
       overlay={
         <>
           <WaveLine wave={wave} table={table} morph={morph} knobs={knobs} active={active} $drawn={$drawn} />
-          <PhaseOverlay length={wave.length} $drawn={$drawn} visible={phaseVisible} />
+          <PhaseOverlay length={wave.length} $drawn={$drawn} $visible={$phaseVisible} />
+          <UnisonOverlay {...unison} />
         </>
       }
     />

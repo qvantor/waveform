@@ -75,6 +75,8 @@ const PARAMS = Object.fromEntries(
     spread2: 0,
     gain1: 0.25,
     gain2: 0,
+    blend1: 0.5,
+    blend2: 0.5,
   }).map(([name, value]) => [name, Float32Array.of(value)])
 ) as Record<VoiceParam, Float32Array>;
 

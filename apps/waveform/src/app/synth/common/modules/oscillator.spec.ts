@@ -48,6 +48,7 @@ describe('oscillator', () => {
     expect(model.$osc.value).toEqual({
       unison: 2,
       detune: 5,
+      blend: 0.75,
       phase: 0.5,
       phaseRand: 1,
       octave: 0,
@@ -58,17 +59,18 @@ describe('oscillator', () => {
     expect(model.$position.value).toBe(0);
   });
 
-  it('gives the voices the base of their params: position share, pitch in cents, detune, gain', () => {
+  it('gives the voices the base of their params: position share, pitch in cents, detune, gain, blend', () => {
     const [{ $params }, { setWaveTable, setPosition, setOscValue, setGain }] = createOscillator();
-    expect($params.value).toEqual({ position: 0, detune: 0, spread: 5, gain: 0.5 });
+    expect($params.value).toEqual({ position: 0, detune: 0, spread: 5, gain: 0.5, blend: 0.75 });
 
     setWaveTable([saw, square, saw, square, saw]);
     setPosition(1);
     setOscValue('octave', -2);
     setOscValue('detune', 30);
+    setOscValue('blend', 0.8);
     setGain(0.2);
 
-    expect($params.value).toEqual({ position: 0.25, detune: -2400, spread: 30, gain: 0.2 });
+    expect($params.value).toEqual({ position: 0.25, detune: -2400, spread: 30, gain: 0.2, blend: 0.8 });
   });
 
   it('pitches the oscillator by Oct, Semi and Fine: 1200·Oct + 100·Semi + Fine cents', () => {
@@ -350,6 +352,7 @@ describe('oscillator', () => {
       actions.setOscValue('fine', -7);
       actions.setOscValue('phase', 0.25);
       actions.setOscValue('phaseRand', 0.5);
+      actions.setOscValue('blend', 0.25);
       actions.setGain(0.7);
       actions.setPosition(3);
       actions.setWaveTablePath(['a', 1]);
@@ -362,6 +365,7 @@ describe('oscillator', () => {
         s: 7,
         f: -7,
         d: 5,
+        b: 0.25,
         u: 2,
         ph: 0.25,
         pr: 0.5,
@@ -387,7 +391,7 @@ describe('oscillator', () => {
       actions.setOscValue('phaseRand', 0.5);
       actions.setOscValue('semi', 5);
       actions.setOscValue('fine', 5);
-      applySnapshot({ osc1: { a: false, w: 0, g: 0, o: 0, s: 0, f: 0, d: 0, u: 1, ph: 0, pr: 0 } });
+      applySnapshot({ osc1: { a: false, w: 0, g: 0, o: 0, s: 0, f: 0, d: 0, b: 0, u: 1, ph: 0, pr: 0 } });
 
       expect(model.$active.value).toBe(false);
       expect(model.$position.value).toBe(0);
@@ -397,6 +401,7 @@ describe('oscillator', () => {
         semi: 0,
         fine: 0,
         detune: 0,
+        blend: 0,
         unison: 1,
         phase: 0,
         phaseRand: 0,
@@ -406,6 +411,7 @@ describe('oscillator', () => {
     it('restores default settings for missing keys and keeps the wavetable', () => {
       const [model, actions] = createOscillator();
       actions.setOscValue('detune', 50);
+      actions.setOscValue('blend', 1);
       actions.setOscValue('semi', 7);
       actions.setOscValue('fine', -7);
       actions.setOscValue('phase', 0.25);
@@ -418,6 +424,7 @@ describe('oscillator', () => {
         semi: 0,
         fine: 0,
         detune: 5,
+        blend: 0.75,
         unison: 2,
         phase: 0.5,
         phaseRand: 1,
