@@ -691,8 +691,9 @@ fn a_still_position_moved_between_blocks_fades_from_the_block_its_mix_after() {
 fn each_voice_of_a_unison_fades_on_its_own() {
     let mut store = Store::default();
     constant_frames(&mut store, 1.0, &[0.0, 1.0, 2.0, 3.0]);
-    // u2 spread over 0.6 of the table: the lower voice (right) 1.2 frames below the position, the higher one
-    // (left) 1.2 above. q 1 (frames 0 and 2), q 2 at 256 (the higher one to 3), q 2.4 at 512 (the lower one to 1)
+    // u2 at a spread of 0.6: the lower voice (right) on the position, the higher one (left) half of 0.6 of the table
+    // (1.2 frames) below it. q 1 (frames 0 and 0), q 2 at 256 (the lower one to 1), q 2.4 at 512 (the lower one to 2,
+    // the higher one to 1)
     let shape = UnisonShape {
         position_spread: 0.6,
         ..UnisonShape::default()
@@ -710,8 +711,30 @@ fn each_voice_of_a_unison_fades_on_its_own() {
         },
         |_, _| (),
     );
-    expect_fade(&left, 0, 768, 256, 100.0, 2.0, 3.0);
-    expect_fade(&right, 0, 768, 512, 100.0, 0.0, 1.0);
+    expect_fade(&right, 0, 512, 256, 100.0, 0.0, 1.0);
+    expect_fade(&right, 512, 768, 512, 100.0, 1.0, 2.0);
+    expect_fade(&left, 0, 768, 512, 100.0, 0.0, 1.0);
+}
+
+#[test]
+fn a_position_spread_is_taken_within_its_range_a_nan_as_none() {
+    let mut store = Store::default();
+    constant_frames(&mut store, 1.0, &[0.0, 1.0, 2.0, 3.0]);
+    let mut spread = |unison: f64, position_spread: f64, position: f32| {
+        let shape = UnisonShape {
+            position_spread,
+            ..UnisonShape::default()
+        };
+        play(&mut store, unison, shape, 256, |_| 480.0, |_| position, |_, _| ())
+    };
+    // u3 at a quarter of the table (q 1, frame 0): at a spread of 2 the third voice a quarter of the spread up would
+    // play frame 2, at 1 it plays frame 1; at -2 the second one half of it up past the end (frame 3), at -1 frame 2
+    assert_eq!(spread(3.0, 2.0, 0.25), spread(3.0, 1.0, 0.25));
+    assert_eq!(spread(3.0, -2.0, 0.25), spread(3.0, -1.0, 0.25));
+    // a NaN: the voices on the position (frame 2), not on frame 0; a unison of 2 one voice, as at 0
+    for unison in [1.0, 2.0] {
+        assert_eq!(spread(unison, f64::NAN, 0.75), spread(unison, 0.0, 0.75));
+    }
 }
 
 #[test]
