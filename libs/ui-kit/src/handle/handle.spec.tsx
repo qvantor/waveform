@@ -119,6 +119,15 @@ describe('Handle', () => {
     pointer('pointerup', document);
   });
 
+  it('tells it is held from its press to its release', () => {
+    const onActiveChange = jest.fn();
+    const { container } = render(<Handle value={35} onActiveChange={onActiveChange} />);
+    pointer('pointerdown', container.firstElementChild as Element);
+    expect(onActiveChange.mock.calls).toEqual([[true]]);
+    pointer('pointerup', document);
+    expect(onActiveChange.mock.calls).toEqual([[true], [false]]);
+  });
+
   it('that takes modulations shows its travel on its edge under the arc of the selected route, no fill', () => {
     const { container, rerender } = render(
       <Handle min={-1} max={1} value={0.5} fillFrom={0} modulations={[]} />

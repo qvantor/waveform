@@ -212,9 +212,19 @@ impl Timeline {
     }
 
     /// the values of a block of out.len() frames from `frame`: one (out[0]) when it doesn't change in the block, as
-    /// a browser gives a param without automation, or one a frame; their count
-    #[inline(never)]
+    /// a browser gives a param without automation, or one a frame; their count. A param without events (most of
+    /// those of a voice in most blocks: the knobs it was given, its blend) is its value, without a call
+    #[inline]
     pub fn render(&mut self, frame: f64, out: &mut [f32]) -> usize {
+        if self.events.is_empty() {
+            out[0] = self.clamp(self.base);
+            return 1;
+        }
+        self.render_events(frame, out)
+    }
+
+    #[inline(never)]
+    fn render_events(&mut self, frame: f64, out: &mut [f32]) -> usize {
         self.forget(frame);
         let n = out.len();
         let mut reached = self.events.partition_point(|event| event.frame <= frame);

@@ -79,6 +79,8 @@ export interface HandleProps {
   defaultValue?: number;
   // removes every route on it at once (the menu of the knob)
   onClearModulations?: () => void;
+  // pressed and let go (a chart shows what it changes while it is held)
+  onActiveChange?: (active: boolean) => void;
 }
 
 interface StyledProps {
@@ -291,6 +293,7 @@ export const Handle = ({
   wrap = false,
   defaultValue,
   onClearModulations,
+  onActiveChange,
 }: HandleProps) => {
   const { svg, arc: travelRadii } = sizes[size];
   const { ring, track, travel, dot } = shapes[size];
@@ -355,22 +358,27 @@ export const Handle = ({
     const initialPosition = vector2d.fromMouseEvent(e);
     // the value now (set meanwhile by a preset or Default): a drag back to the last one it set changes it
     if (!step) prevValue.current = value;
-    menu.track(e, (e) => {
-      const current = vector2d.fromMouseEvent(e);
-      const diff = vector2d.addition(vector2d.invertY(vector2d.subtract(current, initialPosition)));
-      const currValue = step ? scaleMouse(step.indexOf(value * precision)) : scaleMouse(value * precision);
-      const currValueAbs = Math.abs(currValue);
-      const tDiff = number.thresholds(diff, -plotSize - currValueAbs, plotSize + currValueAbs);
-      const result = number.thresholds(
-        Math.round(scaleMouse.invert(currValue + tDiff)) / precision,
-        min,
-        max
-      );
-      if (prevValue.current === result) return;
-      prevValue.current = result;
+    const tracked = menu.track(
+      e,
+      (e) => {
+        const current = vector2d.fromMouseEvent(e);
+        const diff = vector2d.addition(vector2d.invertY(vector2d.subtract(current, initialPosition)));
+        const currValue = step ? scaleMouse(step.indexOf(value * precision)) : scaleMouse(value * precision);
+        const currValueAbs = Math.abs(currValue);
+        const tDiff = number.thresholds(diff, -plotSize - currValueAbs, plotSize + currValueAbs);
+        const result = number.thresholds(
+          Math.round(scaleMouse.invert(currValue + tDiff)) / precision,
+          min,
+          max
+        );
+        if (prevValue.current === result) return;
+        prevValue.current = result;
 
-      onChange?.(step ? step[result] : result);
-    });
+        onChange?.(step ? step[result] : result);
+      },
+      () => onActiveChange?.(false)
+    );
+    if (tracked) onActiveChange?.(true);
   };
 
   return (

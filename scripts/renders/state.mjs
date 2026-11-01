@@ -5,7 +5,9 @@
 // RENDERS_TABLES) and has its `plainParams` ("default", or a map of the ones not at their default:
 // kParamDetuneMode…).
 // A state with them swapped plays a table of ours, written into User of that folder (the tables of its
-// user), with the params we set
+// user), with the params we set. A mod slot (`ModSlot<i>`) routes a source (its index: 25 Macro 1) to a param of a
+// module (its id and name: A Uni Blend is 27, kParamDetuneWid, of `Oscillator` 0) by `kParamAmount` (-100..100% of
+// the travel of the knob) and `kParamBipolar`
 import crypto from 'node:crypto';
 import { readFileSync, writeFileSync } from 'node:fs';
 import zlib from 'node:zlib';
@@ -18,9 +20,13 @@ export const tables = () => {
   return process.env.RENDERS_TABLES;
 };
 
+// a small unsigned integer of CBOR as the states have it (one of 24 and up is encoded on a byte of its own)
+const uint = (n) => (n < 24 ? n : { uint: n, info: 24 });
+
 // the init state (`host state`) with oscillator i of `oscs` (A, B: `Oscillator<i>`) on `Tables/<path>` (a table of
-// `frames` frames of 2048 samples) and with its plain params `params`; one not listed keeps the init's
-export const editedState = (initFile, oscs) => {
+// `frames` frames of 2048 samples) and with its plain params `params`; one not listed keeps the init's. Mod slot i
+// of `slots` routes `source` to `param` (its id) named `name` of `Oscillator<osc>` by `amount` (%), `bipolar`
+export const editedState = (initFile, oscs, slots = []) => {
   const init = readFileSync(initFile);
   const length = Number(init.readBigUInt64LE(9));
   const header = JSON.parse(init.subarray(17, 17 + length).toString());
@@ -33,6 +39,20 @@ export const editedState = (initFile, oscs) => {
       set(table, 'numFrames', frames * 2048);
     }
     if (params) set(osc, 'plainParams', { map: Object.entries(params) });
+  });
+  slots.forEach(({ source, osc, param, name, amount, bipolar }, i) => {
+    const params = [['kParamAmount', { f64: amount }], ...(bipolar ? [['kParamBipolar', { f32: 1 }]] : [])];
+    set(doc, `ModSlot${i}`, {
+      map: [
+        ['destModuleID', uint(osc)],
+        ['destModuleParamID', uint(param)],
+        ['destModuleParamName', name],
+        ['destModuleTypeString', 'Oscillator'],
+        ['plainParams', { map: params, info: params.length }],
+        ['source', { array: [uint(source), 0], info: 2 }],
+      ],
+      info: 6,
+    });
   });
   const payload = encode(doc);
   const zstd = zlib.zstdCompressSync(payload);

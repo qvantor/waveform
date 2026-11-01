@@ -45,11 +45,8 @@ export const UNISON_DETUNES = ['linear', 'super', 'exp', 'inv', 'random'] as con
 export type UnisonDetune = typeof UNISON_DETUNES[number];
 
 // the unison of an oscillator (in the engine: no knobs, not in the presets yet; a type: an ObjectBS
-// holds it)
+// holds it). Its blend is a param of the oscillator (blend1, blend2: the Blend knob, the routes move it)
 export type UnisonShape = {
-  // the level of the centre voices against the others: 0 only the centre, 0.5 all at one level, 1 only the others;
-  // the power of the unison stays
-  blend: number;
   // the stereo of the side voices: 1 hard left and right in turn, 0 mono (equal power: as loud)
   width: number;
   stack: UnisonStack;
@@ -63,7 +60,6 @@ export type UnisonShape = {
 
 // the unison as it was before its shape: the same sound bit for bit
 export const UNISON_SHAPE: UnisonShape = {
-  blend: 0.5,
   width: 1,
   stack: 'off',
   detune: 'linear',

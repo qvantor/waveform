@@ -124,7 +124,8 @@ const OSC_SCENES = [
       )
     ),
   }),
-  // (a linear detune: the worklet draws the shares of a random one with Math.random)
+  // (a linear detune: the worklet draws the shares of a random one with Math.random; ENV 2 moves the blend of osc 2:
+  // its middle two apart from the others)
   oscScene('wavetable, a shaped unison', {
     frames: OSC_RATE / 2,
     tables: { a: [saw(2048, 400), saw(2048, 60, 0.3), saw(1024, 200, 0.6)] },
@@ -136,17 +137,31 @@ const OSC_SCENES = [
             unison: 7,
             phase: 0.2,
             phaseRand: 0,
-            unisonShape: { blend: 0.8, width: 0.35, stack: '12+7x2', detune: 'super', positionSpread: 0.5 },
+            unisonShape: { width: 0.35, stack: '12+7x2', detune: 'super', positionSpread: 0.5 },
           },
           {
             table: 'a',
             unison: 4,
             phase: 0,
             phaseRand: 0,
-            unisonShape: { blend: 0.2, width: 1, stack: 'center-12', detune: 'linear', positionSpread: 0 },
+            unisonShape: { width: 1, stack: 'center-12', detune: 'linear', positionSpread: 0 },
           },
         ],
-        { frequency: 147, spread1: 30, spread2: 0, position1: 0.5, gain1: 0.4, gain2: 0.3 }
+        {
+          frequency: 147,
+          spread1: 30,
+          spread2: 0,
+          position1: 0.5,
+          gain1: 0.4,
+          gain2: 0.3,
+          blend1: 0.8,
+          blend2: 0.2,
+        },
+        [],
+        {
+          envelopes: [FLAT, ENV, FLAT],
+          routes: [{ source: 1, param: 'blend2', amount: 0.6, min: 0, max: 1 }],
+        }
       ),
     ],
   }),

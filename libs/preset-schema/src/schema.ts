@@ -166,6 +166,10 @@ const oscillatorSchema = (active: boolean) =>
           f: intRange(-FINE_MAX, FINE_MAX).default(0),
           d: range(0, 100).default(5),
           u: intRange(1, 8).default(2),
+          // the blend of the unison: the level of its centre voices against the others (0 the centre, the others
+          // 27 dB under it; 1 the others, the centre under them), the curves of the reference AU; 0.75 as its init
+          // patch (a preset saved before the blend gets it)
+          b: range(0, 1).default(0.75),
           // the start phase of every unison voice and the most of its random shift (0: all in phase, 1: any
           // phase): shares of a period
           ph: range(0, 1).default(DEFAULT_PHASE),

@@ -104,7 +104,7 @@ fn read_velocity(reader: &mut Reader) -> VoiceVelocity {
 // (one copy for osc_voice_new and osc_scope_on)
 #[inline(never)]
 // VoiceOptions: start, envStart, phrase; per oscillator present, table, unison, phase, phaseRand and its 8 random
-// shares, its UnisonShape (blend, width, stack, detune, position spread and the 8 random shares of a random
+// shares, its UnisonShape (width, stack, detune, position spread and the 8 random shares of a random
 // detune); the envelopes (count, then 8 each: the stages and the curves), the velocity (VELO, amp), the filter,
 // the routes
 fn read_voice_options(reader: &mut Reader) -> VoiceOptions {
@@ -119,7 +119,6 @@ fn read_voice_options(reader: &mut Reader) -> VoiceOptions {
         let phase_rand = reader.next();
         let random: [f64; MAX_UNISON] = core::array::from_fn(|_| reader.next());
         let shape = UnisonShape {
-            blend: reader.next(),
             width: reader.next(),
             stack: reader.next() as u32,
             detune: reader.next() as u32,
@@ -756,5 +755,5 @@ pub unsafe extern "C" fn osc_voice_start_frame(voice: *mut Voice) -> f64 {
 #[cfg(test)]
 mod tests;
 
-// the number of params of a block (frequency, gate, 4 per oscillator)
-const _: () = assert!(PARAMS == 10);
+// the number of params of a block (frequency, gate, 5 per oscillator)
+const _: () = assert!(PARAMS == 12);
