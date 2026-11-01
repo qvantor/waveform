@@ -24,6 +24,10 @@ const CROSSFADE: f64 = 0.01;
 // a change of frame fades in over a period of the voice, at most this (dsp/measurements/frame-fades.json), as a
 // change of the mix a voice plays glides the levels it reads (SourceFade)
 const FRAME_FADE: f64 = 0.005;
+// the position spread moves unison voice v (from the lowest of the detune) by this share of the table × the spread,
+// whatever the count, the detune mode or a stack: the lowest stays, the next one goes half the table the other way,
+// then each pair a quarter, an eighth… either way (dsp/measurements/spread.json)
+const SPREAD_OFFSETS: [f64; MAX_UNISON] = [0.0, -0.5, 0.25, -0.25, 0.125, -0.125, 0.0625, -0.0625];
 // the top of the third of an octave of a level its pitches crossfade it into the next one over (a share of it): below
 // it a pitch reads its level alone, every harmonic of which is below the nyquist over the whole third of an octave
 // (the "+1" of the grid: its top from nyquist · 2^(-1/3) up), no mix to build; the crossfade only keeps the harmonics
@@ -182,7 +186,8 @@ pub struct UnisonShape {
     // how the voices share the spread: linear, super, exp, inv or at random (drawn per note)
     pub detune: u32,
     pub detune_random: [f64; MAX_UNISON],
-    // the voices play the position spread over this share of the table, as they are spread in pitch
+    // the position spread, -1..1 (A Uni WT Pos of the Audio Unit, -100..+100%): each voice moves by its
+    // SPREAD_OFFSETS × it
     pub position_spread: f64,
 }
 
@@ -1192,6 +1197,8 @@ struct Osc {
     gains: [f64; MAX_UNISON],
     // a width below 1: each side channel takes the other one × sin, itself × cos (of the pan)
     width: Option<(f64, f64)>,
+    // the position spread of its options within -1..1, read at the note on
+    position_spread: f64,
 }
 
 impl Osc {
@@ -1201,6 +1208,15 @@ impl Osc {
     // the param a route moves of this oscillator: `kind` that of osc 1 (POSITION1…)
     fn target(&self, kind: usize) -> usize {
         OSC_TARGETS * self.index + kind
+    }
+}
+
+// the position spread of the options of an oscillator within -1..1, none for a NaN (a caller that left it out)
+fn position_spread_of(shape: &UnisonShape) -> f64 {
+    if shape.position_spread.is_nan() {
+        0.0
+    } else {
+        min(1.0, max(-1.0, shape.position_spread))
     }
 }
 
@@ -1346,6 +1362,7 @@ impl Voice {
                 stack_cents: [0.0; MAX_UNISON],
                 gains: [1.0; MAX_UNISON],
                 width: None,
+                position_spread: position_spread_of(&config.shape),
             });
         }
         // the params the routes move: those of the oscillators on, the knobs of the filter
@@ -1466,7 +1483,7 @@ impl Voice {
             if read(spread, i) as f64 <= 0.0
                 && !self.modulation.raises(osc.target(SPREAD1))
                 && osc.shape.stack == STACK_OFF
-                && osc.shape.position_spread == 0.0
+                && osc.position_spread == 0.0
             {
                 osc.voices = 1;
             }
@@ -2204,17 +2221,13 @@ fn render_voices(
     let points_length = ctx.points_length;
     let (voices, slot) = (osc.voices, channels.version());
     // the position as q = its share × the frames at each point: frame ceil(q) - 1 plays, within the table (q in
-    // (k, k + 1] is frame k); the position spread moves voice v by its share of the spread × the spread (a share of
-    // the table). A voice plays one frame, two only while it fades from one into another (FrameFade)
+    // (k, k + 1] is frame k); the position spread (-1..1) moves voice v by its SPREAD_OFFSETS × the spread, within
+    // the table. A voice plays one frame, two only while it fades from one into another (FrameFade)
     let frames_q = n as f64;
-    let spread_q = if n > 1 {
-        osc.shape.position_spread * frames_q
-    } else {
-        0.0
-    };
+    let spread_q = osc.position_spread * frames_q;
     // the frame of voice v at a point (q: the position there)
-    let frame_at = |osc: &Osc, v: usize, q: f64| {
-        let q = min(frames_q, max(0.0, q + spread_q * osc.shares[v]));
+    let frame_at = |v: usize, q: f64| {
+        let q = min(frames_q, max(0.0, q + spread_q * SPREAD_OFFSETS[v]));
         min(frames_q - 1.0, max(0.0, ceil(q) - 1.0)) as usize
     };
     let t = ctx.block_frame + a as f64;
@@ -2241,7 +2254,7 @@ fn render_voices(
         // (the frames of the version the voices play: those of a crossfade to the next one never settle)
         let mut still = constant_position && slot == 0;
         for v in 0..voices {
-            let frame = frame_at(osc, v, q);
+            let frame = frame_at(v, q);
             let fade = &mut osc.frame_fades[slot][v];
             fade.at_point(frame, t, osc.incs[v * points_length], ctx.frame_fade_limit);
             targets[v] = frame;
@@ -2527,7 +2540,7 @@ fn render_voices(
                 let frame = if constant_position {
                     targets[v]
                 } else {
-                    frame_at(osc, v, shared.scratch.positions[p])
+                    frame_at(v, shared.scratch.positions[p])
                 };
                 osc.frame_fades[slot][v].at_point(frame, t0, inc0, ctx.frame_fade_limit);
             }

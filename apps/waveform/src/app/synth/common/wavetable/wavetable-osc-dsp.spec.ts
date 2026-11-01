@@ -24,6 +24,7 @@ import { levelHarmonics, type WavetableLevels } from './wavetable-levels';
 import {
   TableStoreStats,
   UNISON_SHAPE,
+  UnisonDetune,
   UnisonShape,
   UnisonStack,
   VoiceFilterOptions,
@@ -132,11 +133,26 @@ interface MeasuredFade {
 const MEASURED_FADES: {
   lengths: Record<string, (MeasuredFade & { note: number; period: number })[]>;
   sweeps: Record<string, { changes: [number, number, number, number][] }>;
-  unison: { detuned: (MeasuredFade & { period: number })[]; spread: MeasuredFade[] };
+  unison: {
+    detuned: (MeasuredFade & { period: number })[];
+    spread: MeasuredFade[];
+    spreadDetuned: (MeasuredFade & { period: number })[];
+  };
   bends: Record<'up' | 'down', MeasuredFade & { off: number; periods: [number, number] }>;
 } = JSON.parse(
   readFileSync(join(__dirname, '../../../../../../../dsp/measurements/frame-fades.json'), 'utf8')
 );
+const MEASURED_SPREAD: {
+  cases: {
+    unison: number;
+    spread: number;
+    position: number;
+    mode?: UnisonDetune;
+    stack?: UnisonStack;
+    left: [number, number][];
+    right: [number, number][];
+  }[];
+} = JSON.parse(readFileSync(join(__dirname, '../../../../../../../dsp/measurements/spread.json'), 'utf8'));
 
 const cycle = (size: number, harmonics: [number, number, number?][]) =>
   Array.from({ length: size }, (_, n) =>
@@ -274,18 +290,38 @@ const maxStep = (signal: Float32Array, from = 1, to = signal.length) => {
   return max;
 };
 
-// the amplitude of a tone of `frequency` in a signal (a Hann windowed DFT at that frequency)
+// the Hann windows of the lengths toneAmplitude has seen, with their sums
+const hannWindows = new Map<number, { window: Float64Array; sum: number }>();
+const hannOf = (n: number) => {
+  let hann = hannWindows.get(n);
+  if (!hann) {
+    const window = Float64Array.from(
+      { length: n },
+      (_, i) => 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (n - 1))
+    );
+    hann = { window, sum: window.reduce((a, b) => a + b, 0) };
+    hannWindows.set(n, hann);
+  }
+  return hann;
+};
+// the amplitude of a tone of `frequency` in a signal (a Hann windowed DFT at that frequency; the phasor of the tone
+// turned sample by sample: the 159 cases of spread.json read 64 harmonics each)
 const toneAmplitude = (signal: Float32Array, frequency: number, rate = RATE) => {
+  const { window, sum } = hannOf(signal.length);
+  const step = (2 * Math.PI * frequency) / rate;
+  const dc = Math.cos(step);
+  const ds = Math.sin(step);
   let re = 0;
   let im = 0;
-  let sum = 0;
-  const n = signal.length;
-  for (let i = 0; i < n; i++) {
-    const w = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (n - 1));
-    const phase = (2 * Math.PI * frequency * i) / rate;
-    re += signal[i] * w * Math.cos(phase);
-    im -= signal[i] * w * Math.sin(phase);
-    sum += w;
+  let c = 1;
+  let s = 0;
+  for (let i = 0; i < signal.length; i++) {
+    const v = signal[i] * window[i];
+    re += v * c;
+    im -= v * s;
+    const next = c * dc - s * ds;
+    s = s * dc + c * ds;
+    c = next;
   }
   return (2 * Math.hypot(re, im)) / sum;
 };
@@ -651,7 +687,20 @@ describe('the wavetable voice', () => {
       }
     );
 
+    // the steps of a position at 0.5 s and 0.7 s (inside a block)
     const step = Math.round(0.5 * RATE) + 17;
+    const second = Math.round(0.7 * RATE) + 17;
+    // a channel of a unison of u2 against the same channel of the renders (`frequency` its voice): it crosses at
+    // `at` (`step` or `second`), a point after it at most, over as many samples as the renders cross after theirs
+    // (0.5 s and 0.7 s; they glide the position: their fades start some ms after a step, within 50 ms)
+    const expectFade = (channel: Float32Array, frequency: number, measured: MeasuredFade, at: number) => {
+      expect(measured.start - at).toBeGreaterThan(-32);
+      expect(measured.start - at).toBeLessThan(0.05 * RATE);
+      const fade = fadeOf(against(channel, frequency, RATE, at - 64));
+      expect(fade.start - at).toBeGreaterThanOrEqual(0);
+      expect(fade.start - at).toBeLessThan(32);
+      expect(Math.abs(fade.length - measured.length)).toBeLessThan(1);
+    };
 
     it('fades each voice of a unison over its own period', () => {
       const { store } = core.storeWith({ a: [sine, inverted] });
@@ -663,22 +712,18 @@ describe('the wavetable voice', () => {
         frames: Math.round(0.6 * RATE),
       });
       const [higher, lower] = MEASURED_FADES.unison.detuned;
-      const expectFade = (channel: Float32Array, cents: number, measured: MeasuredFade) => {
-        const fade = fadeOf(against(channel, 440 * 2 ** (cents / 1200), RATE, step - 64));
-        expect(Math.abs(fade.length - measured.length)).toBeLessThan(1);
-      };
-      expectFade(left, 200, higher);
-      expectFade(right, -200, lower);
+      expectFade(left, 440 * 2 ** (200 / 1200), higher, step);
+      expectFade(right, 440 * 2 ** (-200 / 1200), lower, step);
     });
 
-    // u2 at one pitch and phase, the voices half a frame below and above the position (a position spread of
-    // 0.5): the lower one (right) and the higher one (left) cross into frame 1 when their own position does; a
-    // voice that holds frame 0 is the phase of the other: a = left / right
-    const spreadPlay = (position1: ParamValue, frequency: ParamValue = 220) =>
+    // u2 at a position spread of 0.5: the lower voice (right) on the position, the higher one (left) a quarter of
+    // the table below it; each crosses into frame 1 when its own position does; at one pitch and phase a voice that
+    // holds frame 0 is the phase of the other: a = right / left
+    const spreadPlay = (position1: ParamValue, frequency: ParamValue = 220, spread1?: number) =>
       render({
         store: core.storeWith({ a: [sine, inverted] }).store,
         oscs: [osc({ unison: 2, unisonShape: { ...UNISON_SHAPE, positionSpread: 0.5 } })],
-        params: { frequency, position1 },
+        params: { frequency, position1, spread1 },
         frames: Math.round(0.8 * RATE),
       });
     const ratio = (x: Float32Array, reference: Float32Array, from: number) => {
@@ -688,20 +733,24 @@ describe('the wavetable voice', () => {
       return out;
     };
 
-    it('fades each voice of a unison when its own frame changes, as the renders', () => {
-      // the higher voice crosses at the first step, the lower one at the second
-      const second = Math.round(0.7 * RATE) + 17;
-      const { left, right } = spreadPlay((frame) => (frame < step ? 0.1 : frame < second ? 0.3 : 0.8));
-      const [lower, higher] = MEASURED_FADES.unison.spread;
-      expect(lower.start).toBeGreaterThan(higher.start);
-      const leftFade = fadeOf(against(left, 220, RATE, step - 64));
-      const rightFade = fadeOf(against(right, 220, RATE, step - 64));
-      expect(leftFade.start - step).toBeLessThan(32);
-      expect(rightFade.start - second).toBeGreaterThanOrEqual(0);
-      expect(rightFade.start - second).toBeLessThan(32);
-      expect(Math.abs(leftFade.length - higher.length)).toBeLessThan(1);
-      expect(Math.abs(rightFade.length - lower.length)).toBeLessThan(1);
-    });
+    it.each([
+      ['spread', 220, 0],
+      ['spreadDetuned', 440, 400],
+    ] as const)(
+      'fades each voice of a spread unison when its own frame changes, as the renders (%s)',
+      (measurement, frequency, spread1) => {
+        // the positions of the renders: 0.1, 0.6 at the step, 0.9 at the second; the lower voice (right, on the
+        // position) crosses at the step, the higher one (left) at the second, each over its own period
+        const { left, right } = spreadPlay(
+          (frame) => (frame < step ? 0.1 : frame < second ? 0.6 : 0.9),
+          frequency,
+          spread1
+        );
+        const [measuredLeft, measuredRight] = MEASURED_FADES.unison[measurement];
+        expectFade(left, frequency * 2 ** (spread1 / 2400), measuredLeft, second);
+        expectFade(right, frequency * 2 ** (-spread1 / 2400), measuredRight, step);
+      }
+    );
 
     it('keeps the length of a fade from its start under a bend, linear, as the renders', () => {
       // an octave up over 40 ms from the step; the renders: as long as a period near its start, on its line
@@ -710,8 +759,9 @@ describe('the wavetable voice', () => {
       expect(Math.abs(up.length - up.periods[0])).toBeLessThan(Math.abs(up.length - up.periods[1]));
       const frequency = (frame: number) =>
         220 * 2 ** Math.min(1, Math.max(0, (frame - step) / (0.04 * RATE)));
-      const { left, right } = spreadPlay((frame) => (frame < step ? 0.1 : 0.3), frequency);
-      const fade = fadeOf(ratio(left, right, step - 64));
+      // (0.1 to 0.6, as the renders: the right voice fades, the left one holds frame 0)
+      const { left, right } = spreadPlay((frame) => (frame < step ? 0.1 : 0.6), frequency);
+      const fade = fadeOf(ratio(right, left, step - 64));
       expect(fade.off).toBeLessThan(0.01);
       expect(Math.abs(fade.length - RATE / Math.fround(frequency(Math.round(fade.start))))).toBeLessThan(1);
     });
@@ -1210,10 +1260,11 @@ describe('the wavetable voice', () => {
       // frame 0 the fundamental, 1 the 2nd harmonic, 2 the 3rd
       const table = [cycle(2048, [[1, 1]]), cycle(2048, [[2, 1]]), cycle(2048, [[3, 1]])];
 
-      it('plays the positions of the voices spread as their pitch, within the table', () => {
+      it('plays each voice at its offset of the position, within the table', () => {
         const { store } = core.storeWith({ a: table });
-        // u3 at frame 1 and a spread of the whole table: voice 0 (right) frame 0, the middle one 1, voice 2 (left)
-        // frame 2; at frame 2 voice 2 stays on the last frame
+        // u3 at a spread of 1, in the middle of the table (q 1.5): voice 0 (right) on the position, frame 1; voice
+        // 1 (the middle one, both channels) half the table below, frame 0; voice 2 (left) a quarter above, frame 2;
+        // at its end voice 2 stays on the last frame, voice 1 goes to frame 1
         const level = 1 / Math.sqrt(2);
         const at = (position: number) =>
           render({
@@ -1223,15 +1274,61 @@ describe('the wavetable voice', () => {
             frames: RATE,
           });
         expectVoices(at(0.5), [
-          [400, 0, level],
-          [800, level, level],
+          [400, level, level],
+          [800, 0, level],
           [1200, level, 0],
         ]);
         expectVoices(at(1), [
           [400, 0, 0],
-          [800, 0, level],
-          [1200, 2 * level, level],
+          [800, level, level],
+          [1200, level, level],
         ]);
+      });
+
+      // dsp/measurements/spread.json: a table of 64 frames (frame j a sine of harmonic j + 1) at note 24, every
+      // voice at one pitch and phase: the frames each channel plays, read as the renders read them
+      describe('as the renders', () => {
+        const COUNT = 64;
+        const f0 = 440 * 2 ** ((24 - 69) / 12);
+        const frames = Array.from({ length: COUNT }, (_, j) => cycle(2048, [[j + 1, 1]]));
+        let built: ReturnType<typeof core.storeWith> | undefined;
+        const store = () => (built ??= core.storeWith({ a: frames })).store;
+        const from = Math.round(0.15 * RATE);
+        const n = Math.round(0.3 * RATE);
+        // the frames of a channel: its harmonics over 0.15..0.45 s above 1% of their sum (a stacked voice plays
+        // those of its frame doubled)
+        const framesOf = (x: Float32Array, harmonics: number) => {
+          const window = x.subarray(from, from + n);
+          const amplitudes = Array.from({ length: harmonics }, (_, j) => toneAmplitude(window, f0 * (j + 1)));
+          const total = amplitudes.reduce((a, b) => a + b, 0);
+          return amplitudes.flatMap((a, j) => (a / total > 0.01 ? [j] : []));
+        };
+        it.each(
+          MEASURED_SPREAD.cases.map((c) => [
+            `u${c.unison} at ${c.spread} from ${c.position}${c.mode ? `, ${c.mode}` : ''}${
+              c.stack ? `, ${c.stack}` : ''
+            }`,
+            c,
+          ])
+        )('%s', (_, c) => {
+          const { left, right } = render({
+            store: store(),
+            oscs: [
+              shaped(c.unison, {
+                positionSpread: c.spread,
+                detune: c.mode ?? 'linear',
+                stack: c.stack ?? 'off',
+              }),
+            ],
+            params: { frequency: f0, position1: c.position },
+            frames: from + n,
+          });
+          const harmonics = c.stack ? 2 * COUNT : COUNT;
+          expect([framesOf(left, harmonics), framesOf(right, harmonics)]).toEqual([
+            c.left.map(([frame]) => frame),
+            c.right.map(([frame]) => frame),
+          ]);
+        });
       });
 
       it('spreads a moving position the same way', () => {

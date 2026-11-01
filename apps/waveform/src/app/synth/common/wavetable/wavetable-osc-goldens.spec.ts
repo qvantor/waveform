@@ -1122,7 +1122,7 @@ const randomScenario = (random: Random, seed: number): Scenario => {
                 width: random(),
                 stack: pick(random, [...UNISON_STACKS]),
                 detune: pick(random, [...UNISON_DETUNES]),
-                positionSpread: random() < 0.5 ? 0 : random(),
+                positionSpread: random() < 0.5 ? 0 : between(random, -1, 1),
               },
             }),
           };

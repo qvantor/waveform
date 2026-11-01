@@ -54,8 +54,10 @@ export type UnisonShape = {
   width: number;
   stack: UnisonStack;
   detune: UnisonDetune;
-  // the voices play positions spread over this share of the table (0..1) as they are spread in pitch: the lowest
-  // at the position - half of it, the highest + half (within the table)
+  // the positions of the voices around the one of the oscillator, -1..1 (A Uni WT Pos of the Audio Unit of the
+  // renders, -100..+100%): voice v (in the order of the detune, from the lowest; a stack moves no one) at the
+  // position + its share × this, within the table: 0, -1/2, +1/4, -1/4, +1/8, -1/8, +1/16, -1/16
+  // (SPREAD_OFFSETS of voice.rs, dsp/measurements/spread.json)
   positionSpread: number;
 };
 
