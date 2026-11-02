@@ -10,7 +10,7 @@ import {
 } from 'rxjs';
 import { PrimitiveBS, rxModel, rxModelReact } from '@waveform/rxjs-react';
 import { divisionSeconds, TEMPO_DEFAULT, TEMPO_MAX, TEMPO_MIN, tempoOf } from '@waveform/preset-schema';
-import { readStored, writeStored } from '../../../common/services';
+import { contextTimeAt, readStored, writeStored } from '../../../common/services';
 import { LFO_LEAD, LFO_STATE_INTERVAL } from '../lfo/lfo-curve';
 import {
   beatAt,
@@ -87,6 +87,8 @@ export const transport = ({ synthCore: [{ audioCtx }] }: Deps) =>
       timeAt: (beat: number) => timeAt($segments.value, beat),
       // seconds of a division (TEMPO_DIVISIONS) at the tempo in effect
       secondsOf: (division: number) => divisionSeconds(division, $tempo.value),
+      // the time of the context the output plays at `ms` of performance.now() (an event, a MIDI Clock)
+      contextTimeAt: (ms: number) => contextTimeAt(audioCtx, ms),
     };
   })
     .actions((model) => {

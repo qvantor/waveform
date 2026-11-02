@@ -18,3 +18,12 @@ export const contextTimeAt = (audioCtx: BaseAudioContext, ms: number) => {
   const latency = (context.baseLatency || 0) + (context.outputLatency || 0);
   return audioCtx.currentTime - latency + (ms - performance.now()) / 1000;
 };
+
+// ms of the age of a message past which its time stamp is no time of its own
+const MESSAGE_AGE = 1000;
+// the time a message came at (ms, on the clock of performance.now()): its time stamp where it is one (not later than
+// now, at most MESSAGE_AGE ago), else now: Chrome stamps a MIDI message 0
+export const messageTime = (timeStamp: number, now = performance.now()) => {
+  const stamped = eventTime(timeStamp, now);
+  return stamped !== null && stamped > 0 && stamped <= now && now - stamped <= MESSAGE_AGE ? stamped : now;
+};

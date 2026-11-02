@@ -3,11 +3,19 @@ import {
   createMidiAccess as createAccess,
   createMidiInput as createInput,
   midiMessage as message,
+  timedMidiMessage as timed,
   midiStateChange as stateChange,
   provideMidiAccess,
   removeMidiAccess,
 } from '../../../../test-utils/midi';
-import { createSpiedInputController, initModel, stopModels } from '../../../../test-utils/models';
+import {
+  createSpiedInputController,
+  createTransport,
+  initModel,
+  stopModels,
+} from '../../../../test-utils/models';
+import { CLOCK_LOST_MS, PPQN } from '../transport/midi-clock';
+import type { TempoSegment } from '../transport/tempo-map';
 import { midiBend, midiController, midiToNote } from './midi-controller';
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -16,9 +24,10 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 const setup = async (access?: WebMidi.MIDIAccess | Promise<never>) => {
   if (access) provideMidiAccess(access);
   const { module, onPress, onRelease } = createSpiedInputController();
-  const midi = initModel(midiController({ inputController: module }), 'midiController', undefined);
+  const transport = createTransport();
+  const midi = initModel(midiController({ inputController: module, transport }), 'midiController', undefined);
   await flush();
-  return { midi, onPress, onRelease, input: module[0], inputActions: module[1] };
+  return { midi, onPress, onRelease, input: module[0], inputActions: module[1], transport };
 };
 
 afterEach(removeMidiAccess);
@@ -101,7 +110,8 @@ describe('midiController', () => {
     const { onPress, onRelease } = await setup(createAccess([input]));
 
     message(input, 176, 1, 64); // control change
-    message(input, 248); // clock
+    message(input, 248); // clock: the tempo, not a note
+    message(input, 242, 0, 0); // song position: not a message of channel 2
 
     expect(onPress).not.toHaveBeenCalled();
     expect(onRelease).not.toHaveBeenCalled();
@@ -484,6 +494,127 @@ describe('midiController channel', () => {
       const { midi } = await setup(createAccess([createInput('a'), createInput('b')]));
       expect(midi[0].$selectedInputId.value).toBe('a');
       expect(midi[0].$selectedChannel.value).toBeNull();
+    });
+  });
+
+  describe('MIDI Clock', () => {
+    // the clock of performance.now() at `now` ms; Chrome stamps a MIDI message 0: its time is the moment the page
+    // takes it
+    const NOW = 10000;
+    let now = NOW;
+    beforeEach(() => {
+      now = NOW;
+      jest.spyOn(performance, 'now').mockImplementation(() => now);
+      // the output plays the time 0 of the context at NOW (the mock has no getOutputTimestamp)
+      Object.defineProperty(AudioContext.prototype, 'getOutputTimestamp', {
+        configurable: true,
+        value: () => ({ contextTime: 0, performanceTime: NOW }),
+      });
+    });
+    afterEach(() => {
+      jest.useRealTimers();
+      Reflect.deleteProperty(AudioContext.prototype, 'getOutputTimestamp');
+    });
+    // `count` clocks at `bpm` from `from` ms, each taken `delay()` ms late, stamped 0 (Chrome) or at its time
+    const clocks = (
+      input: WebMidi.MIDIInput,
+      bpm: number,
+      from: number,
+      count: number,
+      { delay = (): number => 0, stamped = false } = {}
+    ) => {
+      const step = 60000 / bpm / PPQN;
+      for (let i = 0; i < count; i++) {
+        now = from + i * step + delay();
+        timed(input, stamped ? from + i * step : 0, 248);
+      }
+      return from + count * step;
+    };
+    // a delay of up to 70 ms now and then (a busy main thread), up to 2 ms else
+    const jitter = () => {
+      let seed = 7;
+      const random = () => (seed = (seed * 1103515245 + 12345) % 2 ** 31) / 2 ** 31;
+      return () => (random() < 0.3 ? random() * 70 : random() * 2);
+    };
+
+    it('a clock of the input leads the tempo of the transport', async () => {
+      const input = createInput('a');
+      const { transport } = await setup(createAccess([input]));
+      clocks(input, 128, NOW, 3 * PPQN);
+      expect(transport[0].$source.value).toBe('midi');
+      expect(transport[0].$tempo.value).toBeCloseTo(128, 6);
+      // not kept: the field keeps its own
+      expect(transport[0].$bpm.value).toBe(120);
+    });
+
+    it('takes its tempo through the delays of the main thread: within 0.1 BPM', async () => {
+      const input = createInput('a');
+      const { transport } = await setup(createAccess([input]));
+      clocks(input, 110, NOW, 16 * PPQN, { delay: jitter() });
+      expect(Math.abs(transport[0].$tempo.value - 110)).toBeLessThan(0.1);
+    });
+
+    it('takes the time stamp of a message where it is one: a clock taken late counts at its own time', async () => {
+      const input = createInput('a');
+      const { transport } = await setup(createAccess([input]));
+      clocks(input, 110, NOW, 4 * PPQN, { delay: jitter(), stamped: true });
+      expect(transport[0].$tempo.value).toBeCloseTo(110, 6);
+    });
+
+    it('Start takes the transport to beat 0 at the next clock, Stop and Continue play it', async () => {
+      const input = createInput('a');
+      const { transport } = await setup(createAccess([input]));
+      const at = clocks(input, 120, NOW, 2 * PPQN);
+      message(input, 250);
+      expect(transport[0].$playing.value).toBe(true);
+      clocks(input, 120, at, 1);
+      // the transport at beat 0 at the time the output plays the moment the clock came
+      expect(transport[0].beatAt(transport[0].contextTimeAt(now))).toBeCloseTo(0, 3);
+      message(input, 252);
+      expect(transport[0].$playing.value).toBe(false);
+      message(input, 251);
+      expect(transport[0].$playing.value).toBe(true);
+    });
+
+    it('a Song Position takes the transport there, whatever channel is selected', async () => {
+      const input = createInput('a');
+      const { midi, transport, onPress } = await setup(createAccess([input]));
+      midi[1].selectMidiChannel(5);
+      const changes: boolean[] = [];
+      transport[0].$changes.subscribe(({ locate }) => changes.push(locate));
+      // 32 sixteenths: beat 8
+      timed(input, 0, 242, 32, 0);
+      expect(changes).toEqual([true]);
+      // at the moment it came: the segment from now + LFO_LEAD on is on that line (2 beats a second)
+      const segment = transport[0].$segments.value.at(-1) as TempoSegment;
+      expect(segment.beat - (segment.time - transport[0].contextTimeAt(now)) * 2).toBeCloseTo(8, 9);
+      expect(onPress).not.toHaveBeenCalled();
+    });
+
+    it(`is lost after ${CLOCK_LOST_MS} ms without a clock: the tempo of the field leads again`, async () => {
+      const input = createInput('a');
+      const { transport } = await setup(createAccess([input]));
+      jest.useFakeTimers({ doNotFake: ['performance'] });
+      clocks(input, 90, NOW, 2 * PPQN);
+      expect(transport[0].$tempo.value).toBeCloseTo(90, 6);
+      jest.advanceTimersByTime(CLOCK_LOST_MS - 10);
+      expect(transport[0].$source.value).toBe('midi');
+      jest.advanceTimersByTime(20);
+      expect(transport[0].$source.value).toBe('internal');
+      expect(transport[0].$tempo.value).toBe(120);
+      expect(transport[0].$playing.value).toBe(false);
+    });
+
+    it('is lost on another input; the clock of an input not selected leads nothing', async () => {
+      const a = createInput('a');
+      const b = createInput('b');
+      const { midi, transport } = await setup(createAccess([a, b]));
+      clocks(b, 90, NOW, 2 * PPQN);
+      expect(transport[0].$source.value).toBe('internal');
+      clocks(a, 90, NOW, 2 * PPQN);
+      expect(transport[0].$source.value).toBe('midi');
+      midi[1].selectMidiInput('b');
+      expect(transport[0].$source.value).toBe('internal');
     });
   });
 });

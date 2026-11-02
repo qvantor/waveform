@@ -1,2 +1,2 @@
 export { canStore, readStored, writeStored } from './storage';
-export { contextTimeAt, eventTime } from './clock';
+export { contextTimeAt, eventTime, messageTime } from './clock';

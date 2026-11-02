@@ -1,5 +1,6 @@
 import React from 'react';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { withElementSize } from '../common/test-utils/element-size';
 import { formatTempo, TempoField } from './index';
 
 // jsdom has no PointerEvent: a mouse event with a pointerId works for React and the pointer tracker
@@ -43,6 +44,10 @@ const drag = (moves: [number, number][], init = {}) => {
 };
 
 describe('TempoField', () => {
+  let restoreSize: () => void;
+  beforeEach(() => (restoreSize = withElementSize(130, 40)));
+  afterEach(() => restoreSize());
+
   it('shows the tempo with up to 2 decimals and its label', () => {
     expect([formatTempo(120), formatTempo(128.5), formatTempo(93.756)]).toEqual(['120', '128.5', '93.76']);
     setup({ value: 128.25 });
@@ -106,6 +111,28 @@ describe('TempoField', () => {
     fireEvent.contextMenu(field());
     fireEvent.click(screen.getByRole('button', { name: /default/i }));
     expect(onChange).toHaveBeenLastCalledWith(120);
+  });
+
+  it('has its arrows where they fit, its label under the value where it is narrower still', () => {
+    // arrows, the label under the value
+    restoreSize();
+    restoreSize = withElementSize(110, 40);
+    render(<TempoField value={120} min={20} max={300} label='BPM' onChange={jest.fn()} />);
+    expect(screen.getByRole('button', { name: 'Faster' })).toBeTruthy();
+    expect(field().classList.contains('stacked')).toBe(true);
+    cleanup();
+    // no arrows, the label beside the value
+    restoreSize();
+    restoreSize = withElementSize(90, 40);
+    const { rerender } = render(
+      <TempoField value={120} min={20} max={300} label='BPM' onChange={jest.fn()} />
+    );
+    expect(screen.queryByRole('button', { name: 'Faster' })).toBeNull();
+    expect(field().classList.contains('stacked')).toBe(false);
+    restoreSize();
+    restoreSize = withElementSize(60, 40);
+    rerender(<TempoField key='narrow' value={120} min={20} max={300} label='BPM' onChange={jest.fn()} />);
+    expect(field().classList.contains('stacked')).toBe(true);
   });
 
   it('is only shown without onChange', () => {

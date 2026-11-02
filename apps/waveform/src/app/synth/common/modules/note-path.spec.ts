@@ -31,7 +31,11 @@ const setup = async () => {
     'keyboardController',
     undefined
   );
-  initModel(midiController({ inputController: modules.inputController }), 'midiController', undefined);
+  initModel(
+    midiController({ inputController: modules.inputController, transport: modules.transport }),
+    'midiController',
+    undefined
+  );
   await flush();
   const [{ audioCtx, wavetables }] = modules.synthCore;
   const { voices } = voiceEvents(audioCtx, wavetables);

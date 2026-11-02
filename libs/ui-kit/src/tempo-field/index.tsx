@@ -6,6 +6,7 @@ import { number } from '@waveform/math';
 import { text10 } from '../common/styles';
 import { theme } from '../common/constants';
 import { useControlMenu } from '../control-menu';
+import { useElementSize } from '../common/hooks';
 
 interface Props {
   value: number;
@@ -28,10 +29,17 @@ const PRECISION = 100;
 const PX_PER_STEP = 4;
 const PAGE_STEP = 10;
 
-// a screen in its cell of the panel: ◀ the value and its label ▶
+// px of the field its arrows show from; px its arrows take, and its screen with the label beside the value (else
+// under it)
+const ARROWS_FROM = 100;
+const ARROWS_WIDTH = 44;
+const INLINE_WIDTH = 82;
+
+// a screen in its cell of the panel, a little wider than the keys next to it, ◀ the value and its label ▶ where
+// they fit (narrower: no arrows, then the label under the value)
 const Root = styled.div`
-  flex: 1 1 0;
-  min-width: 0;
+  flex: 1.5 1 0;
+  min-width: 56px;
   height: 100%;
   display: flex;
   align-items: center;
@@ -66,6 +74,13 @@ const Screen = styled.div`
     color: ${theme.colors.accent};
   }
 
+  &.stacked {
+    flex-direction: column;
+    justify-content: center;
+    gap: 1px;
+    line-height: 1;
+  }
+
   &:focus,
   &:focus-visible {
     outline: none;
@@ -77,6 +92,11 @@ const Value = styled.span`
   font-size: 13px;
   font-variant-numeric: tabular-nums;
   text-align: right;
+
+  .stacked > & {
+    font-size: 12px;
+    line-height: 1;
+  }
 `;
 
 const Label = styled.span`
@@ -84,6 +104,11 @@ const Label = styled.span`
   font-weight: 600;
   letter-spacing: 1px;
   color: ${theme.colors.primaryDarkHighContrast};
+
+  .stacked > & {
+    font-size: 8px;
+    line-height: 1;
+  }
 `;
 
 const Input = styled.input`
@@ -128,8 +153,8 @@ const Arrow = styled.button`
 // a value with up to 2 decimals: 120, 128.5, 93.75
 export const formatTempo = (value: number) => `${number.round(value, PRECISION)}`;
 
-// the tempo of the synth: dragged up or right (1 a step every 4 px, Shift 0.01 every px), ◀ ▶ and the arrow keys
-// step by 1 (Shift 0.01), page up/down by 10; a double click types it (Enter or a click elsewhere takes it,
+// the tempo of the synth: dragged up or right (1 a step every 4 px, Shift 0.01 every px), ◀ ▶ (where they fit) and
+// the arrow keys step by 1 (Shift 0.01), page up/down by 10; a double click types it (Enter or a click elsewhere takes it,
 // Escape doesn't); its menu (a right click, a long press) sets the default. Without onChange only shown
 export const TempoField = ({
   value,
@@ -143,6 +168,9 @@ export const TempoField = ({
 }: Props) => {
   const [active, setActive] = React.useState(false);
   const [typing, setTyping] = React.useState<string | null>(null);
+  const [rootRef, [width]] = useElementSize<HTMLDivElement>();
+  const arrows = width >= ARROWS_FROM;
+  const stacked = width - (arrows ? ARROWS_WIDTH : 0) < INLINE_WIDTH;
   const lastValue = React.useRef(value);
   const editable = !!onChange;
   const toValue = (raw: number) => number.thresholds(number.round(raw, PRECISION), min, max);
@@ -207,17 +235,17 @@ export const TempoField = ({
   };
 
   const formatted = formatTempo(value);
-  const width = `${Math.max(formatTempo(min).length, formatTempo(max).length) + 3}ch`;
+  const valueWidth = `${Math.max(formatTempo(min).length, formatTempo(max).length) + 3}ch`;
   return (
-    <Root className={className}>
-      {editable && (
+    <Root ref={rootRef} className={className}>
+      {editable && arrows && (
         <Arrow type='button' aria-label='Slower' tabIndex={-1} onClick={() => step(-1)}>
           <LeftOutlined />
         </Arrow>
       )}
       <Screen
         ref={menu.anchorRef}
-        className={cls({ editable, active })}
+        className={cls({ editable, active, stacked })}
         onContextMenu={menu.onContextMenu}
         {...(editable && {
           role: 'slider',
@@ -249,11 +277,11 @@ export const TempoField = ({
             }}
           />
         ) : (
-          <Value style={{ width }}>{formatted}</Value>
+          <Value style={{ width: stacked ? undefined : valueWidth }}>{formatted}</Value>
         )}
         <Label>{label}</Label>
       </Screen>
-      {editable && (
+      {editable && arrows && (
         <Arrow type='button' aria-label='Faster' tabIndex={-1} onClick={() => step(1)}>
           <RightOutlined />
         </Arrow>

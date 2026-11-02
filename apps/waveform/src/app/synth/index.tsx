@@ -289,9 +289,10 @@ const Internal = () => {
   const app = useApp();
   const synthCore = useSynthCore();
   const inputController = useInputController();
+  const transport = useTransport();
 
   return (
-    <MidiControllerProvider initial={{}} inputController={inputController}>
+    <MidiControllerProvider initial={{}} inputController={inputController} transport={transport}>
       <FilterProvider initial={{}} synthCore={synthCore}>
         <VoicesInternal>
           <KeyboardControllerProvider initial={{}} app={app} inputController={inputController}>
