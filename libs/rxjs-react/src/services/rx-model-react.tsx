@@ -6,7 +6,7 @@ export const rxModelReact = <
   D extends Record<any, any>, // dependencies
   M extends Record<any, any>, // model
   A, // actions
-  I = undefined // initial values
+  I = undefined, // initial values
 >(
   name: string,
   model: (deps: D) => ModelFactory<M, A, I>

@@ -59,7 +59,9 @@ const Drum = styled.div`
     ${theme.colors.primaryDarkMediumContrast} 50%,
     ${theme.colors.primaryDark}
   );
-  box-shadow: inset 0 4px 4px -2px rgb(0 0 0 / 60%), inset 0 -4px 4px -2px rgb(0 0 0 / 60%);
+  box-shadow:
+    inset 0 4px 4px -2px rgb(0 0 0 / 60%),
+    inset 0 -4px 4px -2px rgb(0 0 0 / 60%);
 
   svg {
     display: block;

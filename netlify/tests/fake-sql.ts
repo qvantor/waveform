@@ -16,7 +16,10 @@ export interface JsonValue {
 
 // a query or a fragment: awaiting it runs the query
 class Fragment implements PromiseLike<unknown[]> {
-  constructor(readonly parts: Part[], private readonly run: (fragment: Fragment) => Promise<unknown[]>) {}
+  constructor(
+    readonly parts: Part[],
+    private readonly run: (fragment: Fragment) => Promise<unknown[]>
+  ) {}
 
   then<A = unknown[], B = never>(
     onFulfilled?: ((rows: unknown[]) => A | PromiseLike<A>) | null,
@@ -49,7 +52,7 @@ export const createFakeSql = () => {
     const query = { ...render(fragment.parts), transaction };
     queries.push(query);
     const handler = handlers.find(({ matcher }) => matcher.test(query.text));
-    const result = typeof handler?.result === 'function' ? handler.result(query) : handler?.result ?? [];
+    const result = typeof handler?.result === 'function' ? handler.result(query) : (handler?.result ?? []);
     if (result instanceof Error) throw result;
     return result;
   };

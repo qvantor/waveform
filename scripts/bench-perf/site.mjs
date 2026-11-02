@@ -102,8 +102,8 @@ export const serve = ({ keys, site = siteDir }) =>
         pathname === '/perf/probe.js'
           ? probeFile
           : pathname.startsWith('/tables/')
-          ? path.join(tablesDir, pathname.slice('/tables/'.length))
-          : path.join(site, pathname);
+            ? path.join(tablesDir, pathname.slice('/tables/'.length))
+            : path.join(site, pathname);
       // within one of the served folders, not a sibling of one (waveform-perf-old)
       const inside = [site, tablesDir, path.dirname(probeFile)].some(
         (dir) => file === dir || file.startsWith(dir + path.sep)
@@ -114,8 +114,8 @@ export const serve = ({ keys, site = siteDir }) =>
         fs.existsSync(file) && fs.statSync(file).isFile()
           ? file
           : path.extname(file)
-          ? null
-          : path.join(site, 'index.html');
+            ? null
+            : path.join(site, 'index.html');
       if (!target) return send(404);
       res.writeHead(200, {
         ...HEADERS,

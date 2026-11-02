@@ -66,7 +66,10 @@ const Key = styled.button`
   letter-spacing: 1.5px;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  transition: box-shadow 80ms ease-out, background 80ms ease-out, color 150ms;
+  transition:
+    box-shadow 80ms ease-out,
+    background 80ms ease-out,
+    color 150ms;
 
   & > * {
     transition: transform 80ms ease-out;

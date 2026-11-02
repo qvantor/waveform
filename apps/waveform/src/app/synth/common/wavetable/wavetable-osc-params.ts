@@ -9,7 +9,7 @@ export const STORE_PROCESSOR = 'waveform-wavetable-store';
 // the continuous controls of an oscillator, each a param of the voice per oscillator (position1, position2…): the
 // knob is its value, automated by the events of the main thread; the envelopes move it in the voice (its routes)
 export const OSC_PARAMS = ['position', 'detune', 'spread', 'gain', 'blend'] as const;
-export type OscParam = typeof OSC_PARAMS[number];
+export type OscParam = (typeof OSC_PARAMS)[number];
 export type VoiceParam = 'frequency' | 'gate' | `${OscParam}${1 | 2}`;
 
 // AudioParamDescriptor (not in the dom lib of TypeScript 4.8): a param of a voice is one, its timeline in the

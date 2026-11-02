@@ -39,9 +39,7 @@ export interface VoiceView {
   params: Record<VoiceParam, AudioParam>;
   // the routes, the filters and the velocities sent to it, in order
   messages: (
-    | { routes: VoiceRoute[] }
-    | { filter: VoiceFilterOptions | null }
-    | { velocity: VoiceVelocity }
+    { routes: VoiceRoute[] } | { filter: VoiceFilterOptions | null } | { velocity: VoiceVelocity }
   )[];
   // the node it plays in
   node: VoicesNodeStub;
@@ -115,8 +113,8 @@ export const voiceEvents = (context: BaseAudioContext, engine: { flush: () => vo
         event.kind === 'routes'
           ? { routes: event.routes }
           : event.kind === 'filter'
-          ? { filter: event.filter }
-          : { velocity: event.velocity };
+            ? { filter: event.filter }
+            : { velocity: event.velocity };
       event.voices.forEach((id) => byId.get(id)?.messages.push(message));
       return;
     }

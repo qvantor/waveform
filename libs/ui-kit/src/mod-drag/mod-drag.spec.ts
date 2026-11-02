@@ -171,7 +171,7 @@ describe('startModDrag', () => {
     const container = byId('scroll');
     container.style.overflowY = 'auto';
     Object.defineProperties(container, { scrollHeight: { value: 2000 }, clientHeight: { value: 500 } });
-    container.getBoundingClientRect = () => ({ top: 0, bottom: 500 } as DOMRect);
+    container.getBoundingClientRect = () => ({ top: 0, bottom: 500 }) as DOMRect;
     drag();
     over(byId('plain'));
     pointer('pointermove', [20, 490]);

@@ -18,13 +18,13 @@ const setup = async ({ running = true } = {}) => {
     get: () => (running ? 'running' : 'suspended'),
     configurable: true,
   });
-  const synthActions = modules.synth[1] as Pick<typeof modules.synth[1], 'pause' | 'resume'>;
+  const synthActions = modules.synth[1] as Pick<(typeof modules.synth)[1], 'pause' | 'resume'>;
   // the voices of the notes played; the voices node tells one has ended
   const { voices, end } = voiceEvents(audioCtx, wavetables);
   const [, { onPress }] = modules.inputController;
   const pause = jest.spyOn(synthActions, 'pause');
   const resume = jest.spyOn(synthActions, 'resume');
-  const clear = jest.spyOn(fx[1] as Pick<typeof fx[1], 'clear'>, 'clear');
+  const clear = jest.spyOn(fx[1] as Pick<(typeof fx)[1], 'clear'>, 'clear');
   const clearLimiter = jest.spyOn(masterLimiter, 'clear');
   const [osc1, osc2] = [modules.osc1[0], modules.osc2[0]];
   // the tables of both oscillators in the store (createSynth loads none: a loader that never resolves)

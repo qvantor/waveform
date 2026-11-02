@@ -40,7 +40,9 @@ const Tab = styled.button`
   cursor: pointer;
   touch-action: none;
   -webkit-tap-highlight-color: transparent;
-  transition: background 120ms, color 120ms;
+  transition:
+    background 120ms,
+    color 120ms;
 
   &:hover {
     background: rgba(255, 255, 255, 0.25);

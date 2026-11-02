@@ -125,7 +125,9 @@ const Cap = styled.div`
   border-radius: ${theme.borderRadius.s};
   background: ${theme.colors.primary}
     linear-gradient(180deg, rgb(255 255 255 / 70%), rgb(255 255 255 / 0%) 55%, rgb(0 0 0 / 6%));
-  box-shadow: inset 0 1px 0 rgb(255 255 255 / 90%), inset 0 -2px 0 rgb(0 0 0 / 10%),
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 90%),
+    inset 0 -2px 0 rgb(0 0 0 / 10%),
     0 3px 6px rgb(0 0 0 / 30%);
 
   &::before {

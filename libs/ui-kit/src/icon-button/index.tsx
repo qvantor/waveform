@@ -13,7 +13,9 @@ export const IconButton = styled.button`
 
   &:active {
     background: ${theme.colors.secondAccent};
-    box-shadow: inset 0 0 0 1px #99cbec, 0 0 3px 2px rgba(153, 203, 236, 0.5);
+    box-shadow:
+      inset 0 0 0 1px #99cbec,
+      0 0 3px 2px rgba(153, 203, 236, 0.5);
   }
 
   svg {

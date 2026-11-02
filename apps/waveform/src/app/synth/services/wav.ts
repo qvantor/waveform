@@ -75,7 +75,7 @@ export const parseWav = (buffer: ArrayBuffer): Wav => {
   let fmt: Format | undefined;
   let data: { offset: number; size: number } | undefined;
   let mark: WavetableMark | undefined;
-  for (let offset = 12; offset + 8 <= buffer.byteLength && !data; ) {
+  for (let offset = 12; offset + 8 <= buffer.byteLength && !data;) {
     const id = text(view, offset);
     // a truncated file still has the bytes it has
     const size = Math.min(view.getUint32(offset + 4, true), buffer.byteLength - offset - 8);

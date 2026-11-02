@@ -867,7 +867,7 @@ describe('fx', () => {
       const [model, actions] = fx;
       const setModulation = FX_TYPES.reduce(
         (spies, type) => ({ ...spies, [type]: jest.spyOn(model.slots[type], 'setModulation') }),
-        {} as Record<typeof FX_TYPES[number], jest.SpyInstance>
+        {} as Record<(typeof FX_TYPES)[number], jest.SpyInstance>
       );
       return { model, actions, modulation, lfos, $fxNote, setModulation, transport };
     };

@@ -38,7 +38,10 @@ const Root = styled.button`
   white-space: nowrap;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  transition: background 120ms, color 120ms, box-shadow 80ms ease-out;
+  transition:
+    background 120ms,
+    color 120ms,
+    box-shadow 80ms ease-out;
 
   svg {
     flex: 0 0 auto;

@@ -139,7 +139,7 @@ describe('outputTime', () => {
       baseLatency: 0.01,
       outputLatency: 0.02,
       getOutputTimestamp: output && (() => output),
-    } as unknown as AudioContext);
+    }) as unknown as AudioContext;
 
   it('the time the output plays a time of the context at, from getOutputTimestamp', () => {
     expect(outputTime(context({ contextTime: 0.99, performanceTime: 1010 }), 1.5)).toBeCloseTo(1520);

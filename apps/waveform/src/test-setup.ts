@@ -95,7 +95,11 @@ class AudioWorkletNodeStub extends AudioWorkletNodeMock<AudioContextMock> {
   onprocessorerror: ((event: Event) => void) | null = null;
   readonly parameters = new Map<string, AudioParam>();
 
-  constructor(context: AudioContextMock, readonly name: string, readonly options: AudioWorkletNodeOptions) {
+  constructor(
+    context: AudioContextMock,
+    readonly name: string,
+    readonly options: AudioWorkletNodeOptions
+  ) {
     super({
       context,
       channelCount: options.channelCount ?? 2,

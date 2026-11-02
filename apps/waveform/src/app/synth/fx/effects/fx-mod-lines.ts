@@ -38,10 +38,13 @@ export const createFxModLines = (sampleRate: number, options?: FxModOptions) => 
   const glide = Math.max(1, Math.round(FX_MOD_GLIDE * sampleRate));
   const lfos = createNoteLfos(sampleRate);
   let note: FxNote | null = null;
-  const lines = Array.from(
-    { length: FX_MOD_LINES },
-    (): Line => ({ line: null, last: 0, from: 0, done: Infinity, idle: true })
-  );
+  const lines = Array.from({ length: FX_MOD_LINES }, (): Line => ({
+    line: null,
+    last: 0,
+    from: 0,
+    done: Infinity,
+    idle: true,
+  }));
   const start = (line: Line) => {
     line.from = NaN;
     line.done = 0;
@@ -87,8 +90,8 @@ export const createFxModLines = (sampleRate: number, options?: FxModOptions) => 
       const level = isLfoSource(route.source)
         ? levels[route.source - LFO_SOURCE][j]
         : note
-        ? noteLevel(note, route.source, t - note.start)
-        : 0;
+          ? noteLevel(note, route.source, t - note.start)
+          : 0;
       sum += routeTerm(route, level);
     }
     return mapKnob(map, clampTo(movedBy(base, sum, routes[0]), routes[0])) - mapKnob(map, base);

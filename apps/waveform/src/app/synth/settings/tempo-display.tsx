@@ -56,7 +56,9 @@ const Screen = styled.div`
 
   &.active,
   &.typing {
-    box-shadow: inset 0 1px 3px rgb(0 0 0 / 70%), 0 0 0 1px ${theme.colors.accent};
+    box-shadow:
+      inset 0 1px 3px rgb(0 0 0 / 70%),
+      0 0 0 1px ${theme.colors.accent};
   }
 
   // the value as it was, all of it selected: it blinks until the first key replaces it

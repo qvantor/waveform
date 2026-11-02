@@ -7,10 +7,10 @@ export const tempoOf = (bpm: number) =>
   Number.isFinite(bpm)
     ? Math.round(Math.min(TEMPO_MAX, Math.max(TEMPO_MIN, bpm)) * 100) / 100
     : bpm === Infinity
-    ? TEMPO_MAX
-    : bpm === -Infinity
-    ? TEMPO_MIN
-    : TEMPO_DEFAULT;
+      ? TEMPO_MAX
+      : bpm === -Infinity
+        ? TEMPO_MIN
+        : TEMPO_DEFAULT;
 
 // a length of a note the times of the LFOs, the envelopes and the delay take in their BPM mode: quarters of a
 // bar of 4/4, straight, a triplet (2/3 of it) or dotted (1.5 of it); off is no time at all
@@ -46,22 +46,18 @@ const variant = (id: string, suffix: string) => (id.includes('bar') ? `${id} ${s
 export const TEMPO_DIVISIONS: readonly TempoDivision[] = [
   { id: 'Off', quarters: 0, kind: 'off', of: 0 },
   ...STRAIGHT.map(([id, quarters]): TempoDivision => ({ id, quarters, kind: 'straight', of: quarters })),
-  ...STRAIGHT.map(
-    ([id, quarters]): TempoDivision => ({
-      id: variant(id, 'T'),
-      quarters: (quarters * 2) / 3,
-      kind: 'triplet',
-      of: quarters,
-    })
-  ),
-  ...STRAIGHT.map(
-    ([id, quarters]): TempoDivision => ({
-      id: variant(id, 'D'),
-      quarters: quarters * 1.5,
-      kind: 'dotted',
-      of: quarters,
-    })
-  ),
+  ...STRAIGHT.map(([id, quarters]): TempoDivision => ({
+    id: variant(id, 'T'),
+    quarters: (quarters * 2) / 3,
+    kind: 'triplet',
+    of: quarters,
+  })),
+  ...STRAIGHT.map(([id, quarters]): TempoDivision => ({
+    id: variant(id, 'D'),
+    quarters: quarters * 1.5,
+    kind: 'dotted',
+    of: quarters,
+  })),
   // appended after them: the shortest step of the envelopes (3.9 ms at 120)
   { id: '1/512', quarters: 1 / 128, kind: 'straight', of: 1 / 128 },
 ];

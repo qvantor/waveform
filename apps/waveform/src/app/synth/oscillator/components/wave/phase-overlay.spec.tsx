@@ -174,7 +174,7 @@ describe('Chart of the wave', () => {
       ])
     );
     const route = { id: 'env2', color: '#fff', amount: 1, level: () => 0.5, live: true };
-    const chart = (modulations?: typeof route[]) => (
+    const chart = (modulations?: (typeof route)[]) => (
       <OscillatorContext.Provider value={oscillator}>
         <Chart $phaseVisible={of(true)} modulations={modulations} />
       </OscillatorContext.Provider>

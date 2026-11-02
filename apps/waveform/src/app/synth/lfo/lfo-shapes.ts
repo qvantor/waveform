@@ -8,8 +8,7 @@ import type { LfoParams } from '../common/modules/lfos';
 export type LfoShapeGroup = 'Basic' | 'Sidechain' | 'Rhythm' | 'Steps';
 
 export type LfoShapeOption = { id: string; name: string; group: LfoShapeGroup } & (
-  | { shape: LfoShape }
-  | { points: LfoPoint[] }
+  { shape: LfoShape } | { points: LfoPoint[] }
 );
 
 // points of its own that are none of the list (a preset made by hand)

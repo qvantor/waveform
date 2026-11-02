@@ -253,9 +253,9 @@ const reportPreset = async (id: string, context: Context) => {
     UPDATE presets SET hidden = true
     WHERE id = ${presetId} AND NOT hidden
       AND (SELECT count(*) FROM reports WHERE preset_id = ${presetId}) >= ${envNumber(
-    'REPORT_HIDE_THRESHOLD',
-    5
-  )}`;
+        'REPORT_HIDE_THRESHOLD',
+        5
+      )}`;
   return empty();
 };
 

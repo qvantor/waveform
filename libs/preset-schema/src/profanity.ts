@@ -19,7 +19,7 @@ const normalizeRussian = (value: string) =>
   value
     .toLowerCase()
     .replace(/ё/g, 'е')
-    .replace(/[a-z]/g, (char) => ({ a: 'а', e: 'е', o: 'о', p: 'р', c: 'с', y: 'у', x: 'х' }[char] ?? char))
+    .replace(/[a-z]/g, (char) => ({ a: 'а', e: 'е', o: 'о', p: 'р', c: 'с', y: 'у', x: 'х' })[char] ?? char)
     .replace(/[^а-я\s]/g, '');
 
 export const isProfane = (name: string) =>

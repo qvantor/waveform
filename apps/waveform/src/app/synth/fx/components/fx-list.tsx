@@ -42,7 +42,10 @@ const Row = styled.div`
   border-radius: ${theme.borderRadius.m};
   user-select: none;
   cursor: pointer;
-  transition: background 150ms, border-color 150ms, color 150ms;
+  transition:
+    background 150ms,
+    border-color 150ms,
+    color 150ms;
 
   &:hover {
     filter: brightness(1.05);
@@ -80,7 +83,9 @@ const IconBadge = styled.div`
   border-radius: ${theme.borderRadius.m};
   background: ${theme.colors.primary};
   color: ${theme.colors.primaryHighContrast};
-  transition: background 150ms, color 150ms;
+  transition:
+    background 150ms,
+    color 150ms;
 
   .on > & {
     background: var(--fx-color);

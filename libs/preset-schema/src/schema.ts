@@ -31,7 +31,7 @@ export const FILTER_TYPES = [
 
 // effects of the fx rack, the order is the default chain order
 export const FX_TYPES = ['distortion', 'delay', 'reverb'] as const;
-export type FxType = typeof FX_TYPES[number];
+export type FxType = (typeof FX_TYPES)[number];
 
 // known types only, no duplicates (presets from a newer client may contain effect types this one doesn't
 // know); a missing type (saved before it existed) takes its default place: before the first effect that
@@ -216,7 +216,7 @@ const filterSchema = z
 
 // the envelopes ENV 1–3; ENV 1 is the volume of a note, all three modulate the knobs they are assigned to
 export const ENVELOPES = ['env1', 'env2', 'env3'] as const;
-export type EnvelopeId = typeof ENVELOPES[number];
+export type EnvelopeId = (typeof ENVELOPES)[number];
 // the key of each one in the preset: env: { e1, e2, e3 }
 export const ENVELOPE_KEYS: Record<EnvelopeId, string> = { env1: 'e1', env2: 'e2', env3: 'e3' };
 export type EnvelopeStage = 'attack' | 'hold' | 'decay' | 'sustain' | 'release';
@@ -332,15 +332,15 @@ const envSchema = z
 // seconds (its period), per note: from the end of its Delay (retrig) or on a clock of its own all notes share
 // (free); its knobs are targets of the envelopes (lfo1.rate…), not of the LFOs
 export const LFOS = ['lfo1', 'lfo2', 'lfo3', 'lfo4'] as const;
-export type LfoId = typeof LFOS[number];
+export type LfoId = (typeof LFOS)[number];
 // the key of each one in the preset: lfo: { l1, l2, l3, l4 }
 export const LFO_KEYS: Record<LfoId, string> = { lfo1: 'l1', lfo2: 'l2', lfo3: 'l3', lfo4: 'l4' };
 // the shapes a cycle of an LFO takes (levels 0..1, the left point is the level at its start), or points of its own
 export const LFO_SHAPES = ['sine', 'triangle', 'saw-up', 'saw-down', 'square'] as const;
-export type LfoShape = typeof LFO_SHAPES[number];
+export type LfoShape = (typeof LFO_SHAPES)[number];
 // retrig: its phase starts with every note (at the end of its Delay), free: one phase of every note
 export const LFO_MODES = ['retrig', 'free'] as const;
-export type LfoMode = typeof LFO_MODES[number];
+export type LfoMode = (typeof LFO_MODES)[number];
 // seconds of the period: 10 ms (100 Hz) to 32 s; the knob goes by the frequency, right faster
 export const LFO_RATE_MIN = 0.01;
 export const LFO_RATE_MAX = 32;
@@ -615,7 +615,7 @@ export const usageRequestSchema = z.object({
 export type UsageRequest = z.input<typeof usageRequestSchema>;
 
 export const PRESET_SORTS = ['new', 'name', 'popular'] as const;
-export type PresetSort = typeof PRESET_SORTS[number];
+export type PresetSort = (typeof PRESET_SORTS)[number];
 
 export const listPresetsQuerySchema = z.object({
   q: z.string().trim().max(PRESET_NAME_MAX_LENGTH).optional(),

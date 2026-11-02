@@ -4,7 +4,10 @@ import type { Context } from '@netlify/functions';
 import { env } from './env';
 
 export class HttpError extends Error {
-  constructor(readonly status: number, message: string) {
+  constructor(
+    readonly status: number,
+    message: string
+  ) {
     super(message);
   }
 }

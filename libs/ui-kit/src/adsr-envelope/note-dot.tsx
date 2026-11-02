@@ -39,13 +39,11 @@ export const dotKeyframes = (
   [paddingX, paddingY]: Vector2D
 ) => {
   const length = corners[corners.length - 1][0];
-  const keyframes = corners.map(
-    ([time, x, level], i): Keyframe => ({
-      offset: i === corners.length - 1 ? 1 : length > 0 ? time / length : 0,
-      transform: `translate(${paddingX + scaleX(x)}px, ${paddingY + scaleY(level)}px)`,
-      opacity: 1,
-    })
-  );
+  const keyframes = corners.map(([time, x, level], i): Keyframe => ({
+    offset: i === corners.length - 1 ? 1 : length > 0 ? time / length : 0,
+    transform: `translate(${paddingX + scaleX(x)}px, ${paddingY + scaleY(level)}px)`,
+    opacity: 1,
+  }));
   return { keyframes, duration: length * 1000 };
 };
 

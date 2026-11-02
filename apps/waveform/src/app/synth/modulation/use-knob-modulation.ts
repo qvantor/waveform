@@ -71,13 +71,13 @@ export const useKnobModulation = (target: string, knob?: KnobScale): KnobModulat
             distinctUntilChanged()
           )
         : effect
-        ? LIVE
-        : $voices && routed
-        ? $voices.pipe(
-            map((count) => count > 0),
-            distinctUntilChanged()
-          )
-        : NOT_LIVE,
+          ? LIVE
+          : $voices && routed
+            ? $voices.pipe(
+                map((count) => count > 0),
+                distinctUntilChanged()
+              )
+            : NOT_LIVE,
     [$voices, routed, effect, fx]
   );
   const live = useObservable(
@@ -109,30 +109,28 @@ export const useKnobModulation = (target: string, knob?: KnobScale): KnobModulat
       scale && min !== undefined && max !== undefined
         ? { scale, range: [min, max] }
         : definition.kind === 'osc' || definition.kind === 'lfo'
-        ? definition
-        : undefined;
+          ? definition
+          : undefined;
     // in the order of the sources: each has its section of the dot in the same place
     const modulations = routes
       .filter((route) => route.target === target)
       .sort((a, b) => MOD_SOURCES.indexOf(a.source) - MOD_SOURCES.indexOf(b.source))
-      .map(
-        ({ source, amount, bipolar, off }): HandleModulation => ({
-          id: source,
-          color: SOURCE_COLORS[source],
-          amount,
-          label: SOURCE_LABELS[source],
-          onChange: (value) => actions?.setAmount(source, target, value),
-          onRemove: () => actions?.removeRoute(source, target),
-          formatAmount: units && ((value) => formatAmount(value, units.scale, units.range)),
-          level: level(source),
-          live,
-          selected: source === selected,
-          ...(bipolar && { bipolar }),
-          onPolarity: (value) => actions?.setPolarity(source, target, value),
-          ...(off && { off }),
-          onOff: (value) => actions?.setOff(source, target, value),
-        })
-      );
+      .map(({ source, amount, bipolar, off }): HandleModulation => ({
+        id: source,
+        color: SOURCE_COLORS[source],
+        amount,
+        label: SOURCE_LABELS[source],
+        onChange: (value) => actions?.setAmount(source, target, value),
+        onRemove: () => actions?.removeRoute(source, target),
+        formatAmount: units && ((value) => formatAmount(value, units.scale, units.range)),
+        level: level(source),
+        live,
+        selected: source === selected,
+        ...(bipolar && { bipolar }),
+        onPolarity: (value) => actions?.setPolarity(source, target, value),
+        ...(off && { off }),
+        onOff: (value) => actions?.setOff(source, target, value),
+      }));
     const full = routesFull(routes) || knobFull(routes, target);
     return {
       modTarget: full ? undefined : target,

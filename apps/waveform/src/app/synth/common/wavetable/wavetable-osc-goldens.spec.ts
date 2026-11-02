@@ -459,19 +459,17 @@ const LFO_GOLDEN: [string, Scenario][] = [
       rate: RATE,
       blocks: quanta(0.3),
       tables: { a: [SAW] },
-      voices: [0, 30].map(
-        (at): ScenarioVoice => ({
-          at,
-          options: note({
-            osc: [osc({ unison: 3 }), null],
-            start: (at * 128) / RATE,
-            envStart: (at * 128) / RATE,
-            phrase: at,
-            routes: [lfoRoute(6, 'spread1', 60, { max: 100 })],
-          }),
-          params: { frequency: constant(at === 0 ? 220 : 330) },
-        })
-      ),
+      voices: [0, 30].map((at): ScenarioVoice => ({
+        at,
+        options: note({
+          osc: [osc({ unison: 3 }), null],
+          start: (at * 128) / RATE,
+          envStart: (at * 128) / RATE,
+          phrase: at,
+          routes: [lfoRoute(6, 'spread1', 60, { max: 100 })],
+        }),
+        params: { frequency: constant(at === 0 ? 220 : 330) },
+      })),
       lfos: {
         0: lfosAtOnce([
           {},
@@ -1105,12 +1103,12 @@ const randomGate = (random: Random, frames: number): ParamBlock => {
       kind < 0.3
         ? RELEASE_GATE + random() * 0.2
         : kind < 0.45
-        ? 0
-        : kind < 0.65
-        ? HELD_AGAIN_GATE
-        : kind < 0.8
-        ? 1
-        : -1;
+          ? 0
+          : kind < 0.65
+            ? HELD_AGAIN_GATE
+            : kind < 0.8
+              ? 1
+              : -1;
     events.push([at, value]);
     at += Math.floor(random() * frames);
   }

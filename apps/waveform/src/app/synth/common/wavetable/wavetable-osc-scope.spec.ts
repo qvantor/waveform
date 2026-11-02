@@ -82,9 +82,13 @@ describe('the voices of one node', () => {
     const knob = 500 / RATE;
     const events: VoiceEvent[] = [
       { kind: 'set', voice: 1, param: 'frequency', value: Math.fround(220), time: t0 },
-      ...glide.map(
-        ([time, value]): VoiceEvent => ({ kind: 'ramp', voice: 1, param: 'frequency', value, time })
-      ),
+      ...glide.map(([time, value]): VoiceEvent => ({
+        kind: 'ramp',
+        voice: 1,
+        param: 'frequency',
+        value,
+        time,
+      })),
       { kind: 'cancel', voice: 1, param: 'gain1', time: knob },
       { kind: 'target', voice: 1, param: 'gain1', value: Math.fround(0.2), time: knob, constant: 0.0033 },
       { kind: 'set', voice: 1, param: 'gain1', value: Math.fround(0.2), time: knob + 0.0198 },
@@ -107,8 +111,8 @@ describe('the voices of one node', () => {
         t < knob
           ? 0.5
           : t < knob + 0.0198
-          ? f32(f32(0.2) + (0.5 - f32(0.2)) * Math.exp(-(t - knob) / 0.0033))
-          : f32(0.2),
+            ? f32(f32(0.2) + (0.5 - f32(0.2)) * Math.exp(-(t - knob) / 0.0033))
+            : f32(0.2),
       detune1: (t) => (t < 900.5 / RATE ? 0 : -1200),
       gate: (t) => (t < 1500 / RATE ? 1 : f32(RELEASE_GATE + 0.031)),
     };

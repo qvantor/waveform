@@ -27,13 +27,11 @@ export const noteCorners = (
   const stagePoints = (curve: number, [time, x, level]: Point, [toTime, toX, toLevel]: Point) =>
     curve === 0
       ? []
-      : shares.map(
-          (share): Point => [
-            time + (toTime - time) * share,
-            x + (toX - x) * share,
-            level + (toLevel - level) * curveShape(curve, share),
-          ]
-        );
+      : shares.map((share): Point => [
+          time + (toTime - time) * share,
+          x + (toX - x) * share,
+          level + (toLevel - level) * curveShape(curve, share),
+        ]);
   // the attack from the point of its level `from` on the chart to the top: on the chart's curve
   const attackPoints = ([, x]: Point) =>
     k.attack === 0
