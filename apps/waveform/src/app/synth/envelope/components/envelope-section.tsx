@@ -1,5 +1,6 @@
 import React from 'react';
-import { AdsrEnvelope, Section, SwitchKey } from '@waveform/ui-kit';
+import styled from 'styled-components';
+import { AdsrEnvelope, Section, SwitchKey, SwitchKeys } from '@waveform/ui-kit';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
 import {
   ENVELOPE_CURVE_MAX,
@@ -9,18 +10,38 @@ import {
   ENVELOPE_TIME_MAX,
   ENVELOPES,
   EnvelopeId,
+  ENVELOPE_TIME_DIVISIONS,
   TEMPO_DIVISIONS,
-  TIME_DIVISIONS,
 } from '@waveform/preset-schema';
 import { useEnvelopes, useTransport } from '../../common/modules';
 import { envelopeSeconds } from '../../common/modules/envelopes';
 import { SourceTabs } from '../../modulation/source-tabs';
 import { EnvelopeDot } from './envelope-dot';
 
+// BPM alone on a plate as large as the knob of Release, right of it (the plate of the delay beside Time)
+const Plate = styled(SwitchKeys)`
+  width: 100%;
+`;
+
+// memoized: the chart renders on every move of a knob, a key is a tooltip
+const TempoKey = React.memo(
+  ({ id, bpm, setBpm }: { id: EnvelopeId; bpm: boolean; setBpm: (id: EnvelopeId, on: boolean) => void }) => (
+    <Plate aria-label='Tempo' stack>
+      <SwitchKey
+        label='BPM'
+        name='Tempo sync'
+        hint='The times in note values'
+        on={bpm}
+        onChange={(on) => setBpm(id, on)}
+      />
+    </Plate>
+  )
+);
+
 const formatDivision = (division: number) => TEMPO_DIVISIONS[division]?.id ?? '';
 
 // the envelope of a tab: its stages and their curves, the shape the voices play; in BPM its times step through the
-// divisions of the tempo (Off, 1/256 … 32 bar), the chart and the dot draw their seconds at the tempo now
+// divisions of the tempo (Off, 1/512 … 32 bar), the chart and the dot draw their seconds at the tempo now
 const EnvelopeChart = ({ id }: { id: EnvelopeId }) => {
   const [{ $envelopes }, { setEnvelopeValue, setEnvelopeCurve, setEnvelopeBpm, setEnvelopeDivision }] =
     useEnvelopes();
@@ -37,7 +58,7 @@ const EnvelopeChart = ({ id }: { id: EnvelopeId }) => {
       timeSteps={
         knobs.bpm
           ? {
-              steps: TIME_DIVISIONS,
+              steps: ENVELOPE_TIME_DIVISIONS,
               values: knobs.divs,
               format: formatDivision,
               defaults: ENVELOPE_DIVISIONS[id],
@@ -45,9 +66,7 @@ const EnvelopeChart = ({ id }: { id: EnvelopeId }) => {
             }
           : undefined
       }
-      corner={
-        <SwitchKey label='BPM' name='Tempo sync' on={knobs.bpm} onChange={(on) => setEnvelopeBpm(id, on)} />
-      }
+      aside={<TempoKey id={id} bpm={knobs.bpm} setBpm={setEnvelopeBpm} />}
       // the points on the curves: a double click gives a stage its default curve again
       curveMax={ENVELOPE_CURVE_MAX}
       defaultCurves={ENVELOPE_CURVES}

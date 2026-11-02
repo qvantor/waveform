@@ -180,6 +180,23 @@ export const centered = (id: string) => {
 export const amountInUnits = (amount: number, scale: ModScale, [min, max]: [number, number]) =>
   scale === 'log' ? amount * Math.log2(max / min) : scale === 'pow' ? amount : amount * (max - min);
 
+// the amount of a route on the wire: in the units of the param over `range`, the knob within `bounds`. The cores
+// move a pow one by max · (its share of max + Σ)⁴ (movedBy of fx-modulation.ts, moved_value of modulation.rs):
+// the bound is its travel. Over another bound (Delay and Rise of an LFO in BPM: 32 bars at the tempo) the amount
+// is (range / bound)^¼ of itself: M·((x/M)^¼ + kΣ)⁴ = T·((x/T)^¼ + Σ)⁴ for k = (T/M)^¼, the knob moves as over
+// the range (a share of the travel of HZ whatever the tempo), clamped to the bound
+export const routeAmount = (
+  amount: number,
+  scale: ModScale,
+  range: [number, number],
+  bounds: [number, number] = range
+) => {
+  const units = amountInUnits(amount, scale, range);
+  return scale === 'pow' && bounds[1] !== range[1] && bounds[1] > 0
+    ? units * Math.sqrt(Math.sqrt(range[1] / bounds[1]))
+    : units;
+};
+
 // a route of the modulation in the units of the knob it moves (its amount a share of `range`), within `bounds` (by
 // default the range: a knob in BPM moves within its divisions at the tempo); the scale only when it isn't linear,
 // bipolar only when it is
@@ -192,7 +209,7 @@ export const fxRoute = (
 ): FxRoute => ({
   param,
   source: MOD_SOURCES.indexOf(source),
-  amount: amountInUnits(amount, scale, range),
+  amount: routeAmount(amount, scale, range, bounds),
   min: bounds[0],
   max: bounds[1],
   ...(scale !== 'linear' && { scale }),

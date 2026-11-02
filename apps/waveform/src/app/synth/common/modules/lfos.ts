@@ -147,29 +147,53 @@ const lfoFrom = (snap: unknown): LfoParams => {
 const lfosFrom = (snap: Record<string, unknown>) =>
   Object.fromEntries(LFOS.map((id) => [id, lfoFrom(snap[LFO_KEYS[id]])])) as Lfos;
 
-// the seconds of Rate, Delay and Rise the LFO plays: in BPM of their divisions at the tempo (the period at least
-// LFO_RATE_MIN: 1/256 is shorter above 187.5 BPM)
+// a division of Rate as long as LFO_RATE_MIN at least at a tempo (within a rounding: 1/128 at 187.5 BPM is 10 ms)
+const fits = (division: number, bpm: number) => divisionSeconds(division, bpm) >= LFO_RATE_MIN * (1 - 1e-9);
+// the steps of Rate at a tempo, from the shortest: those of TRIP and DOT as long as LFO_RATE_MIN at least there
+// (1/256 is shorter above 93.75 BPM, 1/256T above 62.5); the same steps are the same array (a memoized knob, the
+// travel of its routes). 32 bars always fit
+const RATE_STEPS = new Map<string, number[]>();
+export const rateStepsAt = ({ trip, dot }: Pick<LfoSync, 'trip' | 'dot'>, bpm: number) => {
+  const steps = rateDivisions(trip, dot);
+  const first = Math.max(
+    0,
+    steps.findIndex((division) => fits(division, bpm))
+  );
+  const key = `${+trip}${+dot}${first}`;
+  const cached = RATE_STEPS.get(key);
+  if (cached) return cached;
+  const fitting = steps.slice(first);
+  RATE_STEPS.set(key, fitting);
+  return fitting;
+};
+// the division Rate plays at a tempo: its own, else (shorter than LFO_RATE_MIN there) the shortest of its steps
+// there; the preset keeps its own (a slower tempo plays it again)
+export const lfoDivision = (lfo: Pick<LfoSync, 'div' | 'trip' | 'dot'>, bpm: number) =>
+  fits(lfo.div, bpm) ? lfo.div : rateStepsAt(lfo, bpm)[0];
+
+// the seconds of Rate, Delay and Rise the LFO plays: in BPM of their divisions at the tempo (Rate the division it
+// plays there: LFO_RATE_MIN at least)
 export const lfoSeconds = (lfo: LfoParams, bpm: number): Record<LfoTimeKnob, number> =>
   lfo.bpm
     ? {
-        rate: Math.max(LFO_RATE_MIN, divisionSeconds(lfo.div, bpm)),
+        rate: divisionSeconds(lfoDivision(lfo, bpm), bpm),
         delay: divisionSeconds(lfo.delayDiv, bpm),
         rise: divisionSeconds(lfo.riseDiv, bpm),
       }
     : { rate: lfo.rate, delay: lfo.delay, rise: lfo.rise };
 
 // the bounds of the routes to the knobs of the LFOs in BPM at a tempo, by target (lfo1.rate…): Rate from the
-// longest to the shortest of its steps (by the frequency), Delay and Rise up to 32 bars; those of the others are
-// the ranges of their knobs (modulation-targets.ts)
+// longest to the shortest of its steps there (by the frequency), Delay and Rise up to 32 bars; those of the others
+// are the ranges of their knobs (modulation-targets.ts)
 export type LfoRanges = Partial<Record<string, [number, number]>>;
 export const lfoRanges = (lfos: Lfos, bpm: number): LfoRanges =>
   Object.fromEntries(
     LFOS.flatMap((id) => {
       const lfo = lfos[id];
       if (!lfo.bpm) return [];
-      const steps = rateDivisions(lfo.trip, lfo.dot);
+      const steps = rateStepsAt(lfo, bpm);
       const longest = divisionSeconds(steps[steps.length - 1], bpm);
-      const shortest = Math.max(LFO_RATE_MIN, divisionSeconds(steps[0], bpm));
+      const shortest = divisionSeconds(steps[0], bpm);
       const times: [number, number] = [0, divisionSeconds(TIME_DIVISIONS[TIME_DIVISIONS.length - 1], bpm)];
       return [
         [`${id}.rate`, [1 / longest, 1 / shortest]],
@@ -229,24 +253,28 @@ export const lfos = ({ synthCore: [{ audioCtx, wavetables }], transport: [transp
           $lfos.next({ ...$lfos.value, [id]: valid ? { ...lfo, points: valid } : lfo });
         },
         setMode: (id: LfoId, mode: LfoMode) => update(id, { mode }),
-        // BPM: each knob of a time takes the division nearest to its seconds at the tempo; HZ: the seconds of its
-        // division (within the range of its knob)
+        // BPM: each knob of a time takes the division nearest to its seconds at the tempo (Rate of its steps
+        // there); HZ: the seconds of its division as it plays (within the range of its knob)
         setBpm: (id: LfoId, bpm: boolean) => {
           const lfo = $lfos.value[id];
           if (lfo.bpm === bpm) return;
           const tempo = transport.$tempo.value;
           if (bpm) {
             const nearest = (knob: LfoTimeKnob) =>
-              nearestDivision(quartersOf(lfo[knob], tempo), divisionsOf(knob, lfo));
+              nearestDivision(
+                quartersOf(lfo[knob], tempo),
+                knob === 'rate' ? rateStepsAt(lfo, tempo) : divisionsOf(knob, lfo)
+              );
             update(id, { bpm, div: nearest('rate'), delayDiv: nearest('delay'), riseDiv: nearest('rise') });
             return;
           }
           const within = (value: number, [min, max]: [number, number]) => Math.min(max, Math.max(min, value));
+          const seconds = lfoSeconds(lfo, tempo);
           update(id, {
             bpm,
-            rate: within(divisionSeconds(lfo.div, tempo), KNOB_RANGES.rate),
-            delay: within(divisionSeconds(lfo.delayDiv, tempo), KNOB_RANGES.delay),
-            rise: within(divisionSeconds(lfo.riseDiv, tempo), KNOB_RANGES.rise),
+            rate: within(seconds.rate, KNOB_RANGES.rate),
+            delay: within(seconds.delay, KNOB_RANGES.delay),
+            rise: within(seconds.rise, KNOB_RANGES.rise),
           });
         },
         // a division of Rate, Delay or Rise (one of the steps of the knob, else the nearest)
@@ -271,16 +299,17 @@ export const lfos = ({ synthCore: [{ audioCtx, wavetables }], transport: [transp
       let previous: Lfos | null = null;
       const tables = {} as Record<LfoId, Float32Array>;
       // the anchor of the clock of an LFO from `at` on at `period`: a free one with HOST in BPM on the grid of the
-      // beats (the newest one if it is there already), in HZ from the position of the transport when it moved
-      // (locate); else the newest one at the same period, or one where the phase goes on
+      // beats of the division it plays (the newest one if it is there already), in HZ from the position of the
+      // transport when it moved (locate); else the newest one at the same period, or one where the phase goes on
       const anchorOf = (lfo: LfoParams, global: LfoGlobal, at: number, period: number, locate: boolean) => {
         const { anchors } = global;
         const newest = anchors[anchors.length - 1];
         if (lfo.mode === 'free' && lfo.host && (lfo.bpm || locate)) {
           const beat = transport.beatAt(at);
+          const tempo = transport.tempoAt(at);
           const phase = lfo.bpm
-            ? frac(beat / TEMPO_DIVISIONS[lfo.div].quarters)
-            : frac((beat * 60) / transport.tempoAt(at) / period);
+            ? frac(beat / TEMPO_DIVISIONS[lfoDivision(lfo, tempo)].quarters)
+            : frac((beat * 60) / tempo / period);
           if (newest.period === period && samePhase(phaseAt(anchors, at), phase)) return newest;
           return { time: at, phase, period } as LfoAnchor;
         }

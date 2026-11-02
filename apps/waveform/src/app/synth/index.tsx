@@ -44,7 +44,7 @@ import {
 import { FilterProvider, FilterSection, useFilter } from './filter';
 import { Oscillator1, Oscillator2, MasterHandle, LimiterStatus } from './synth/components';
 import { VoicingSection } from './voicing';
-import { MidiInput, SettingsButton, Tempo } from './settings';
+import { MidiInput, SettingsButton } from './settings';
 import { PitchBend } from './pitch-bend';
 import { EnvelopeSection, VelocitySection } from './envelope';
 import { LfoSection } from './lfo';
@@ -372,7 +372,6 @@ const HeaderInternal = ({ screen, onScreenChange }: ScreenProps) => (
       <PresetSection
         actions={
           <>
-            <Tempo />
             <MidiInput />
             <SettingsButton />
           </>

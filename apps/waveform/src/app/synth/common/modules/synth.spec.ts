@@ -931,6 +931,18 @@ describe('synth', () => {
       expect(options(c).envelopes[0].hold).toBe(2 * options(a).envelopes[0].hold);
     });
 
+    it('in BPM the same voice at a tempo moved by a hair (a MIDI Clock follows its clocks), its envelopes again', async () => {
+      const { onPress, voices, envelopeModel, transport, param } = await mono(100, false);
+      envelopeModel[1].setEnvelopeBpm('env1', true);
+      onPress([4, 'A']);
+      // 0.4%: the stages of its envelopes within 1%
+      transport[1].setBpm(transport[0].$tempo.value * 1.004);
+      onPress([4, 'B']);
+      expect(voices()).toHaveLength(1);
+      // started again: the gate held at its other value
+      expect(calls(param(voices()[0], 'gate'), 'setValueAtTime').at(-1)?.[0]).toBe(1.5);
+    });
+
     it('a new voice for a note that would play other oscillators than the knobs, a glide keeps it', async () => {
       const { onPress, voices, param, synthActions, osc1, osc2, options } = await mono(100, false);
       const stolen = (index: number) => calls(param(voices()[index], 'gate'), 'setValueAtTime').at(-1)?.[0];
@@ -1482,19 +1494,22 @@ describe('synth', () => {
       lfos[1].setBpm('lfo1', true);
       onPress([4, 'C']);
       const [c] = voices();
-      // the amount in the octaves of HZ, the bounds from 32 bars to 1/256 (10 ms at least) at 120: 64 s
+      // the amount in the octaves of HZ, the bounds from 32 bars to 1/128 at 120 (1/256 is shorter than 10 ms
+      // there): 64 s, 15.6 ms; a pow one a share of the travel of HZ (32 s): the core takes the bound as its
+      // travel, (32 / bound)^¼ of it
       const rate = { source: 1, param: 'lfo1.rate', amount: 0.5 * Math.log2(3200), scale: 'log' };
-      const rise = { source: 1, param: 'lfo1.rise', amount: 0.25, min: 0, scale: 'pow' };
+      const rise = { source: 1, param: 'lfo1.rise', min: 0, scale: 'pow' };
+      const share = (bound: number) => 0.25 * Math.sqrt(Math.sqrt(32 / bound));
       expect(options(c).routes).toEqual([
-        { ...rate, min: 1 / 64, max: 100 },
-        { ...rise, max: 64 },
+        { ...rate, min: 1 / 64, max: 64 },
+        { ...rise, amount: share(64), max: 64 },
       ]);
       transport[1].setBpm(60);
       expect(voices()[0].messages).toEqual([
         {
           routes: [
             { ...rate, min: 1 / 128, max: 64 },
-            { ...rise, max: 128 },
+            { ...rise, amount: share(128), max: 128 },
           ],
         },
       ]);
@@ -1503,7 +1518,7 @@ describe('synth', () => {
       expect(voices()[0].messages?.at(-1)).toEqual({
         routes: [
           { ...rate, min: 1 / 32, max: 100 },
-          { ...rise, max: 32 },
+          { ...rise, amount: 0.25, max: 32 },
         ],
       });
     });

@@ -176,6 +176,49 @@ describe('fx', () => {
     expect(delayNode.delayTime.setTargetAtTime).toHaveBeenLastCalledWith(1, 0, 0.1);
   });
 
+  it('BPM of the delay takes the division nearest to Time at the tempo, MS the seconds of its division', () => {
+    const { model, actions, delayNode } = setup();
+    const params = () => model.$effects.value.delay.params;
+    actions.setParam('delay', 'time', 0.4);
+    // 0.8 quarters at 120: 1/4
+    actions.setParam('delay', 'sync', 1);
+    expect(params()).toMatchObject({ sync: 1, div: divisionIndex('1/4'), time: 0.4 });
+    expect(delayNode.delayTime.setTargetAtTime).toHaveBeenLastCalledWith(0.5, 0, 0.1);
+    // on again: nothing changes
+    actions.setParam('delay', 'sync', 1);
+    expect(params()['div']).toBe(divisionIndex('1/4'));
+    actions.setParam('delay', 'div', divisionIndex('1/16'));
+    actions.setParam('delay', 'sync', 0);
+    expect(params()).toMatchObject({ sync: 0, div: divisionIndex('1/16'), time: 0.125 });
+    expect(delayNode.delayTime.setTargetAtTime).toHaveBeenLastCalledWith(0.125, 0, 0.1);
+    // a bar is 2 s at 120: Time within its range (1 s)
+    actions.setParam('delay', 'sync', 1);
+    actions.setParam('delay', 'div', divisionIndex('1 bar'));
+    actions.setParam('delay', 'sync', 0);
+    expect(params()).toMatchObject({ sync: 0, time: FX_PARAMS.delay.time.max });
+  });
+
+  it('TRIP or DOT of the delay switched off takes the straight division of a triplet or a dotted one', () => {
+    const { model, actions, delayNode } = setup();
+    const params = () => model.$effects.value.delay.params;
+    actions.setParam('delay', 'sync', 1);
+    actions.setParam('delay', 'trip', 1);
+    actions.setParam('delay', 'div', divisionIndex('1/8T'));
+    actions.setParam('delay', 'trip', 0);
+    expect(params()).toMatchObject({ trip: 0, div: divisionIndex('1/8') });
+    expect(delayNode.delayTime.setTargetAtTime).toHaveBeenLastCalledWith(0.25, 0, 0.1);
+    // on again: the straight one stays
+    actions.setParam('delay', 'trip', 1);
+    expect(params()['div']).toBe(divisionIndex('1/8'));
+    actions.setParam('delay', 'dot', 1);
+    actions.setParam('delay', 'div', divisionIndex('1/4D'));
+    actions.setParam('delay', 'dot', 0);
+    expect(params()).toMatchObject({ dot: 0, div: divisionIndex('1/4') });
+    // a preset sets its params as they are
+    actions.applyPreset('delay', DELAY_PRESETS[0].id);
+    expect(params()).toEqual(DELAY_PRESETS[0].params);
+  });
+
   it('gives the meters the longest gap between two echoes of the delay while it sounds', () => {
     const { model, actions, transport } = setup();
     const gaps: number[] = [];
@@ -881,7 +924,8 @@ describe('fx', () => {
         note: null,
         routes: [
           { param: 'size', source: 5, amount: 0.5, min: 0, max: 1 },
-          expect.objectContaining({ param: 'lfo2.rate', min: 1 / 64, max: 100, scale: 'log' }),
+          // 32 bar to 1/128 at 120 (1/256 is shorter than 10 ms there)
+          expect.objectContaining({ param: 'lfo2.rate', min: 1 / 64, max: 64, scale: 'log' }),
         ],
       });
     });

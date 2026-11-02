@@ -129,10 +129,13 @@ export const transport = ({ synthCore: [{ audioCtx }] }: Deps) =>
         .pipe(
           filter(([, source]) => source === 'internal'),
           map(([bpm]) => bpm),
-          // (the first emission is the tempo of the newest segment: it would hold back the first change)
-          filter((bpm) => newest(model.$segments.value).bpm !== bpm),
+          // (the first emission is the tempo of the first segment: it would hold back the first change). Not a
+          // filter of the tempo in effect before the throttle: a last value equal to it would leave the one
+          // between them waiting, applied after it
+          skip(1),
           throttleTime(LFO_STATE_INTERVAL * 1000, asyncScheduler, { leading: true, trailing: true })
         )
+        // (a value equal to the tempo in effect, the last one of a drag back to it, changes nothing)
         .subscribe((bpm) => {
           const segments = model.$segments.value;
           if (newest(segments).bpm === bpm) return;

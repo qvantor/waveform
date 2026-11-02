@@ -165,8 +165,14 @@ export const fx = ({
         },
         setOn: (type: FxType, on: boolean) => update(type, { on }),
         setMix: (type: FxType, mix: number) => update(type, { mix }),
-        setParam: (type: FxType, key: string, value: number) =>
-          update(type, { params: { ...$effects.value[type].params, [key]: value } }),
+        // a change of the user: with the params it sets at the tempo (the delay in BPM: paramChange)
+        setParam: (type: FxType, key: string, value: number) => {
+          const { params } = $effects.value[type];
+          const change = FX_REGISTRY[type].paramChange?.(params, key, value, $tempo.value) ?? {
+            [key]: value,
+          };
+          update(type, { params: { ...params, ...change } });
+        },
         // unknown id: nothing changes
         applyPreset: (type: FxType, id: string) => {
           const preset = FX_REGISTRY[type].presets.find((item) => item.id === id);

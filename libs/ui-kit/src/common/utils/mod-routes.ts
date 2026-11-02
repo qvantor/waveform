@@ -24,17 +24,27 @@ export const QUANTUM = 1000;
 const toTravel = (share: number, wrap: boolean) =>
   wrap ? share - Math.floor(share) : number.thresholds(share, 0, 1);
 
+// a control whose routes move it in a scale of their own (a knob of steps, divisions in BPM: its routes move the
+// value in the units of HZ): its position as a share of that scale, and a share of it to a share of the travel of
+// the control (rising)
+export interface ModTravel {
+  position: number;
+  travel: (share: number) => number;
+}
+
 // the spans of the travel a route moves a control over from `position` (shares, the lower first): up to position +
 // amount, a bipolar one position ± amount / 2; clamped to the travel, or around it (`wrap`: a span over an end is
-// two, from the other end on); none: it doesn't move it
+// two, from the other end on); none: it doesn't move it. With `travel` the shares are of the scale of the routes
+// (ModTravel), its ends mapped to the travel before they are clamped
 export const routeSpans = (
   position: number,
   { amount, bipolar }: Route,
-  wrap = false
+  wrap = false,
+  travel?: ModTravel['travel']
 ): [number, number][] => {
   const [a, b] = bipolar ? [position - amount / 2, position + amount / 2] : [position, position + amount];
-  const [low, high] = [Math.min(a, b), Math.max(a, b)];
-  if (!wrap || (low >= 0 && high <= 1)) {
+  const [low, high] = [Math.min(a, b), Math.max(a, b)].map((end) => (travel ? travel(end) : end));
+  if (!wrap || travel || (low >= 0 && high <= 1)) {
     const [from, to] = [number.thresholds(low, 0, 1), number.thresholds(high, 0, 1)];
     return from === to ? [] : [[from, to]];
   }
@@ -53,8 +63,14 @@ export const liveRoutes = <R extends Route>(routes: R[]) =>
 
 // where the routes move a control from `position` (a share of its travel): the sum of amount × level of each
 // (a bipolar one amount × (level - ½)), clamped to the travel or around it (`wrap`), in steps of QUANTUM; null
-// while none of them has a level
-export const routedShare = (position: number, routes: Route[], wrap = false) => {
+// while none of them has a level. With `travel` `position` is a share of the scale of the routes (ModTravel),
+// the share they move it to mapped to the travel
+export const routedShare = (
+  position: number,
+  routes: Route[],
+  wrap = false,
+  travel?: ModTravel['travel']
+) => {
   let sum = 0;
   let heard = false;
   for (const { amount, level, bipolar } of routes) {
@@ -63,5 +79,7 @@ export const routedShare = (position: number, routes: Route[], wrap = false) => 
     heard = true;
     sum += amount * (bipolar ? value - 0.5 : value);
   }
-  return heard ? number.round(toTravel(position + sum, wrap), QUANTUM) : null;
+  if (!heard) return null;
+  const share = travel ? number.thresholds(travel(position + sum), 0, 1) : toTravel(position + sum, wrap);
+  return number.round(share, QUANTUM);
 };

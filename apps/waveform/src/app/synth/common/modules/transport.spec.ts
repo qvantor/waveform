@@ -95,6 +95,18 @@ describe('transport', () => {
     expect(model.$bpm.value).toBe(150);
   });
 
+  it('plays the last tempo of the field: one back to the tempo in effect leaves none between them waiting', async () => {
+    const { model, actions, changes } = setup();
+    actions.setBpm(130);
+    actions.setBpm(140);
+    actions.setBpm(130);
+    expect(changes.map(({ segment }) => segment.bpm)).toEqual([130]);
+    await interval();
+    expect(changes.map(({ segment }) => segment.bpm)).toEqual([130]);
+    expect(model.$bpm.value).toBe(130);
+    expect(model.$tempo.value).toBe(130);
+  });
+
   it('locates the transport at a beat: not before now + LFO_LEAD, on its line from there', () => {
     const { model, actions, changes, audioCtx, travel } = setup();
     travel(2);

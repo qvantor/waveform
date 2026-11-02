@@ -174,14 +174,15 @@ describe('normalizePreset', () => {
     expect(normalizePreset({ adsr: { attack: 0.5 } })).not.toHaveProperty('adsr');
   });
 
-  it('keeps the tempo of an envelope: its divisions Off and 1/256 … 32 bar', () => {
-    const divs = { attack: 0, hold: divisionIndex('32 bar'), decay: divisionIndex('1/4'), release: 14 };
+  it('keeps the tempo of an envelope: its divisions Off and 1/512 … 32 bar', () => {
+    const divs = { attack: 0, hold: divisionIndex('32 bar'), decay: divisionIndex('1/4'), release: 43 };
     expect(normalizePreset({ env: { e3: { bpm: true, divs } } }).env.e3).toMatchObject({ bpm: true, divs });
     // a triplet: its straight one
     expect(
       normalizePreset({ env: { e1: { divs: { decay: divisionIndex('1/4T') } } } }).env.e1.divs.decay
     ).toBe(divisionIndex('1/4'));
-    expect(ENVELOPE_DIVISIONS.env2).toEqual({ attack: 14, hold: 0, decay: divisionIndex('1/4'), release: 9 });
+    // a fresh one: 5 ms at 120 is a 1/512
+    expect(ENVELOPE_DIVISIONS.env2).toEqual({ attack: 43, hold: 0, decay: divisionIndex('1/4'), release: 9 });
   });
 
   it('curves the stages of an envelope by default, keeps its own up to ±10, 0 too', () => {
@@ -261,6 +262,13 @@ describe('normalizePreset', () => {
     const l2 = { div: divisionIndex('1/8T'), delayDiv: divisionIndex('1/8D') };
     expect(normalizePreset({ lfo: { l2 } }).lfo.l2).toMatchObject({ div: divisionIndex('1/8'), delayDiv: 9 });
     expect(normalizePreset({ lfo: { l3: { div: 0 } } }).lfo.l3.div).toBe(divisionIndex('1/256'));
+    // 1/512 is a step of the envelopes only: 1/256 here
+    const l4 = {
+      div: divisionIndex('1/512'),
+      delayDiv: divisionIndex('1/512'),
+      riseDiv: divisionIndex('1/512'),
+    };
+    expect(normalizePreset({ lfo: { l4 } }).lfo.l4).toMatchObject({ div: 14, delayDiv: 14, riseDiv: 14 });
   });
 
   it('keeps the knobs of an LFO within their ranges: a period of 10 ms to 32 s, times up to 32 s, Smooth 0.5 s', () => {
@@ -481,10 +489,10 @@ describe('normalizePreset', () => {
     ['an LFO phase over 1', { ...preset, lfo: { l2: { phase: 1.1 } } }],
     ['an unknown LFO shape', { ...preset, lfo: { l3: { shape: 'noise' } } }],
     ['an unknown LFO mode', { ...preset, lfo: { l3: { mode: 'env' } } }],
-    ['an LFO division out of the list', { ...preset, lfo: { l1: { div: 43 } } }],
+    ['an LFO division out of the list', { ...preset, lfo: { l1: { div: 44 } } }],
     ['an LFO division not whole', { ...preset, lfo: { l1: { delayDiv: 1.5 } } }],
     ['an LFO BPM not a flag', { ...preset, lfo: { l1: { bpm: 1 } } }],
-    ['an envelope division out of the list', { ...preset, env: { e1: { divs: { attack: 43 } } } }],
+    ['an envelope division out of the list', { ...preset, env: { e1: { divs: { attack: 44 } } } }],
     ['an envelope BPM not a flag', { ...preset, env: { e1: { bpm: 'yes' } } }],
     [
       'LFO points not from 0',
@@ -557,7 +565,7 @@ describe('normalizePreset', () => {
     ['delay BPM not 0 or 1', { ...preset, fx: { ...preset.fx, delay: { ...preset.fx.delay, sync: 2 } } }],
     [
       'delay division out of the list',
-      { ...preset, fx: { ...preset.fx, delay: { ...preset.fx.delay, div: 43 } } },
+      { ...preset, fx: { ...preset.fx, delay: { ...preset.fx.delay, div: 44 } } },
     ],
     ['delay q out of range', { ...preset, fx: { ...preset.fx, delay: { ...preset.fx.delay, q: 0.001 } } }],
     ['not an object', 'preset'],

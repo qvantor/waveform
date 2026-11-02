@@ -30,9 +30,10 @@ const POINTS = 257;
 const DOMAIN_X: [number, number] = [0, 1];
 // levels up
 const DOMAIN_Y: [number, number] = [1, 0];
-// the line from edge to edge (the cycle goes on past them), the levels 0 and 1 a point of the editor in (its
-// radius in whole px; the dot of a note is smaller)
-const PADDING: [number, number] = [0, Math.ceil(POINT_RADIUS)];
+// a point of the editor in on every side (its radius in whole px; the dot of a note is smaller): the points at the
+// start of the cycle and at the levels 0 and 1 whole
+const INSET = Math.ceil(POINT_RADIUS);
+const PADDING: [number, number] = [INSET, INSET];
 
 const NO_ROUTES = new BehaviorSubject<ModRoute[]>([]);
 const NO_VOICES = new BehaviorSubject(0);

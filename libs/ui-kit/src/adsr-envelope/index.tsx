@@ -2,7 +2,7 @@ import React from 'react';
 import styled from 'styled-components';
 import { number, vector2d } from '@waveform/math';
 import { LineChart, useLineChartContext, Line, XAxis, YAxis } from '../line-chart';
-import { Handle } from '../handle';
+import { Handle, knobGeometry } from '../handle';
 import { theme } from '../common/constants';
 import { text12 } from '../common/styles';
 import { AdsrCurves, envelopeLine, LineProps } from './envelope-line';
@@ -40,14 +40,16 @@ const HandleValue = styled.p`
   margin-top: 7px;
 `;
 
-// a control in the top right corner of the chart (the switch of the units of its times)
-const Corner = styled.div`
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  height: 18px;
+// a control right of Release (the switch of the units of its times): as large as the knob with its arc (its knobs
+// take no routes: a knob of size m, its label 15 px under it), level with it, 5 px from the arc
+const KNOB = knobGeometry('m');
+const KNOB_LABEL = 15;
+const Aside = styled.div`
+  align-self: flex-end;
   display: flex;
-  gap: 2px;
+  width: ${KNOB.arc}px;
+  height: ${KNOB.arc}px;
+  margin: 0 0 ${KNOB_LABEL + (KNOB.box - KNOB.arc) / 2}px -9px;
 `;
 
 const CustomLine = ({ curves, ...stages }: LineProps & { curves?: AdsrCurves }) => {
@@ -117,8 +119,8 @@ type Props = LineProps & {
   children?: React.ReactNode;
   // the time knobs in steps (a tempo)
   timeSteps?: AdsrSteps;
-  // in the top right corner of the chart
-  corner?: React.ReactNode;
+  // right of Release, as large as its knob (the switch of the units of the times)
+  aside?: React.ReactNode;
 };
 
 // the chart scales to the whole envelope; the time knobs are nonlinear (pow): short times get most of their
@@ -132,7 +134,7 @@ export const AdsrEnvelope = ({
   defaultValues,
   children,
   timeSteps,
-  corner,
+  aside,
   ...rest
 }: Props) => {
   const { attack, hold, decay, sustain, release } = rest;
@@ -169,17 +171,7 @@ export const AdsrEnvelope = ({
 
   return (
     <Root>
-      <Chart
-        domainX={[0, Math.max(length * 1.1, 0.5)]}
-        domainY={[1, 0]}
-        padding={[10, 5]}
-        overlay={
-          <>
-            {children}
-            {corner && <Corner>{corner}</Corner>}
-          </>
-        }
-      >
+      <Chart domainX={[0, Math.max(length * 1.1, 0.5)]} domainY={[1, 0]} padding={[10, 5]} overlay={children}>
         <YAxis ticks={2} />
         <XAxis ticks={4} formatText={formatTime} />
         <CustomLine {...rest} />
@@ -219,10 +211,13 @@ export const AdsrEnvelope = ({
           </div>
         </HandlersGroup>
 
-        <div>
-          <HandleValue>{timeValue('release')}</HandleValue>
-          <Handle label='Release' name='Release time' {...timeKnob('release')} />
-        </div>
+        <HandlersGroup>
+          <div>
+            <HandleValue>{timeValue('release')}</HandleValue>
+            <Handle label='Release' name='Release time' {...timeKnob('release')} />
+          </div>
+          {aside && <Aside>{aside}</Aside>}
+        </HandlersGroup>
       </Handlers>
     </Root>
   );

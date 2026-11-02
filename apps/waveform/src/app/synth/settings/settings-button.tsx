@@ -1,12 +1,12 @@
 import { MdSettings } from 'react-icons/md';
 import styled from 'styled-components';
-import { Label, Select, PanelButton, theme } from '@waveform/ui-kit';
+import { Label, Lamp, Select, PanelButton, theme } from '@waveform/ui-kit';
 import { useEffect, useState } from 'react';
 import { Popover } from 'antd';
 import toast from 'react-hot-toast';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
 import { ToastActions, ToastBody, ToastButton } from '../../common/components';
-import { useSynthCore } from '../common/modules';
+import { useMidiController, useSynthCore } from '../common/modules';
 import { canCountDropouts } from '../common/latency/dropouts';
 import {
   autoLatency,
@@ -19,6 +19,7 @@ import {
   setLatencyMode,
   switchToNormalLatency,
 } from '../common/latency/latency';
+import { TempoDisplay } from './tempo-display';
 
 const Content = styled.div`
   width: 300px;
@@ -50,6 +51,16 @@ const NoteButton = styled.button`
   cursor: pointer;
 `;
 
+// the lamp and its name: a press anywhere on it switches it (the lamp's click bubbles to it: once, keyboard too)
+const Switch = styled.div`
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 2px;
+  user-select: none;
+  cursor: pointer;
+`;
+
 // a square key of the icon alone, as ◀ ▶ of the presets above it
 const GearButton = styled(PanelButton)`
   flex: 0 0 40px;
@@ -67,6 +78,23 @@ const latencyOptions = (mode: LatencyMode, auto: Latency): { name: string; value
   { name: LATENCY_NAMES.low, value: 'low' },
   { name: LATENCY_NAMES.normal, value: 'normal' },
 ];
+
+const CLOCK_SYNC = 'Sync to MIDI Clock';
+
+// the tempo, Start and Stop of the MIDI input lead the synth, or the tempo of the display plays; none without
+// WebMIDI (or its permission)
+const ClockSync = () => {
+  const [{ $midiAccess, $clockSync }, { setClockSync }] = useMidiController();
+  const access = useBehaviorSubject($midiAccess);
+  const on = useBehaviorSubject($clockSync);
+  if (!access) return null;
+  return (
+    <Switch onClick={() => setClockSync(!on)}>
+      <Lamp on={on} label={CLOCK_SYNC} />
+      <Label>{CLOCK_SYNC}</Label>
+    </Switch>
+  );
+};
 
 export const SettingsButton = () => {
   const [open, setOpen] = useState(false);
@@ -144,6 +172,11 @@ export const SettingsButton = () => {
       placement='bottom'
       content={
         <Content>
+          <Field>
+            <Label>Tempo</Label>
+            <TempoDisplay />
+            <ClockSync />
+          </Field>
           <Field>
             <Label>Latency</Label>
             {latencyField()}

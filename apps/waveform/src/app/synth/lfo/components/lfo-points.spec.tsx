@@ -50,7 +50,7 @@ const pointer = (type: string, target: EventTarget, [clientX, clientY]: [number,
 const setup = (points: LfoPoint[] = triangle) => {
   const onChange = jest.fn();
   const element = (points: LfoPoint[]) => (
-    // a chart of 300 × 60 with the padding of the LFO chart: the cycle over 300 px, the levels over 52 (up)
+    // a chart of 300 × 60, the levels a point in: the cycle over 300 px, the levels over 52 (up)
     <LineChart domainX={[0, 1]} domainY={[1, 0]} padding={[0, 4]}>
       <LfoPoints points={points} line={lineOf(points)} onChange={onChange} />
     </LineChart>

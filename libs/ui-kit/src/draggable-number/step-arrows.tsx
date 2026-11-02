@@ -25,9 +25,10 @@ const Root = styled.div`
   }
 `;
 
-// a value that steps by whole numbers: up and down carets, in the accent while it is held
-export const StepArrows = ({ active }: { active: boolean }) => (
-  <Root className={cls({ active })}>
+// a value that steps by whole numbers: up and down carets of the color of its text (a className may give them the
+// one of its label), in the accent while it is held
+export const StepArrows = ({ active, className }: { active: boolean; className?: string }) => (
+  <Root className={cls(className, { active })}>
     <CaretUpOutlined className='up' />
     <CaretDownOutlined className='down' />
   </Root>

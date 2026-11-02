@@ -1,3 +1,4 @@
+import { TEMPO_MAX, TEMPO_MIN } from '@waveform/preset-schema';
 import type { TempoSegment } from './tempo-map';
 
 // clocks a quarter note (MIDI Clock)
@@ -12,6 +13,9 @@ export const CLOCK_LOST_MS = 500;
 // tempo by more than this share (each one a state of the LFOs in BPM to five threads)
 const BEAT_TOLERANCE = 0.001;
 const TEMPO_TOLERANCE = 0.0005;
+// a tempo of the clocks over this is none: a window of clocks the page took at once (a stall of the main thread
+// took them in one task: 10⁴–10⁵ BPM, Infinity for one time); no DAW goes there (their tops are 999)
+const CLOCK_TEMPO_MAX = 4 * TEMPO_MAX;
 
 // what the clock leads: the transport model (its times seconds of the context), and the time of the context the
 // output plays at a time of the page (seconds of performance.now())
@@ -58,9 +62,17 @@ const fit = (times: readonly number[]) => {
   return { step, last };
 };
 
+// the tempo of a line of clocks of `step` seconds: within the range of the field (a DAW at 400 BPM plays at 300);
+// none when it isn't one (not above 0, not finite, over CLOCK_TEMPO_MAX)
+const lineTempo = (step: number) => {
+  const bpm = 60 / (PPQN * step);
+  return bpm > 0 && bpm <= CLOCK_TEMPO_MAX ? Math.min(TEMPO_MAX, Math.max(TEMPO_MIN, bpm)) : null;
+};
+
 // a MIDI Clock leading the transport: the tempo the slope of the last CLOCK_WINDOW clocks (24 a quarter), the
 // position the clocks since Start (or a Song Position, in 16ths: 6 clocks each). Start and Continue take the
-// transport there at the next clock, Stop holds the position (the transport and the LFOs go on); a segment of the
+// transport there at the next clock, Stop holds the position (the transport and the LFOs go on), each starts the
+// line again; lost, the position of the next Continue is kept, another input forgets it (reset); a segment of the
 // tempo is set where the transport is off the clocks (BEAT_TOLERANCE, TEMPO_TOLERANCE), once a beat at most. The
 // times of the clocks are seconds of the page (performance.now(): the clock of the context stands while it is
 // suspended, and its time of the output moves by quanta), those of the transport of the context (contextTime)
@@ -74,19 +86,31 @@ export const createMidiClock = (transport: ClockTransport) => {
   // the beat of the last segment set (null: none since the clock came)
   let followed: number | null = null;
 
-  const tempo = () => {
+  // the line of the clocks and its tempo (null: fewer than a beat of them, or no tempo: lineTempo)
+  const clockLine = () => {
     const line = times.length >= CLOCK_MIN_TICKS ? fit(times) : null;
-    return line ? 60 / (PPQN * line.step) : null;
+    const bpm = line && lineTempo(line.step);
+    return line && bpm !== null ? { bpm, last: line.last } : null;
+  };
+  // the clock is lost (CLOCK_LOST_MS without one): its clocks, a Start or a Continue without them are forgotten,
+  // the position of the next Continue is kept (where it stopped or a Song Position: a DAW stopped sends no clocks)
+  const lose = () => {
+    times = [];
+    running = false;
+    pending = false;
+    followed = null;
+    transport.setPlaying(false);
   };
 
   return {
-    // the tempo of the clocks (null: fewer than a beat of them)
-    tempo,
+    // the tempo of the clocks (null: fewer than a beat of them, or none: lineTempo)
+    tempo: () => clockLine()?.bpm ?? null,
     tick: (time: number) => {
       times.push(time);
       if (times.length > CLOCK_WINDOW) times.shift();
-      const bpm = tempo();
-      const at = transport.contextTime(bpm === null ? time : (fit(times) as { last: number }).last);
+      const line = clockLine();
+      const bpm = line?.bpm ?? null;
+      const at = transport.contextTime(line?.last ?? time);
       if (pending) {
         pending = false;
         running = true;
@@ -106,16 +130,22 @@ export const createMidiClock = (transport: ClockTransport) => {
       transport.follow({ time: at, beat, bpm });
       followed = beat;
     },
+    // Start, Continue and Stop start the line again: a DAW starts its clocks again there (after a pause when it
+    // sends none while stopped, or at another phase), the clocks before are not on the line of those after (its
+    // lower envelope would put them a pause early); the first beat of them plays at the tempo of the transport
     start: () => {
+      times = [];
       next = 0;
       pending = true;
       transport.setPlaying(true);
     },
     continue: () => {
+      times = [];
       pending = true;
       transport.setPlaying(true);
     },
     stop: () => {
+      times = [];
       running = false;
       pending = false;
       transport.setPlaying(false);
@@ -128,14 +158,11 @@ export const createMidiClock = (transport: ClockTransport) => {
       followed = next / PPQN;
       transport.locate(followed, transport.contextTime(at));
     },
-    // the clock is lost: nothing of it is kept
+    lose,
+    // another input: nothing of the clock is kept, its position neither
     reset: () => {
-      times = [];
+      lose();
       next = 0;
-      running = false;
-      pending = false;
-      followed = null;
-      transport.setPlaying(false);
     },
   };
 };

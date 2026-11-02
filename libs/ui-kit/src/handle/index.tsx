@@ -10,7 +10,7 @@ import { Tooltip } from '../tooltip';
 import { ValueTooltip } from '../tooltip/value-tooltip';
 import { Label } from '../label';
 import { MarkCanvas, useModulations } from '../common/utils/use-mod-mark';
-import { OFF_OPACITY } from '../common/utils/mod-routes';
+import { ModTravel, OFF_OPACITY } from '../common/utils/mod-routes';
 import { AMOUNT_DOT_SIZE, RoutesDot } from '../amount-dot';
 import { MOD_TARGET_ATTR } from '../mod-drag';
 import { modDragHighlight } from '../mod-drag/highlight';
@@ -74,6 +74,9 @@ export interface HandleProps {
   modTarget?: string;
   // a knob around a cycle (the Phase of an LFO): the routes move it around, not clamped (its mark, the arc)
   wrap?: boolean;
+  // its routes move it in a scale of their own (a knob of steps in BPM: the units of HZ): its arc and mark go
+  // where they move it on its steps
+  modTravel?: ModTravel;
   // the value of an empty preset: the menu of the knob (a right click, a long press on a touch screen) sets it,
   // within min..max
   defaultValue?: number;
@@ -200,6 +203,12 @@ const Dot = styled(RoutesDot)`
 
 // the ring of the travel on the edge of the knob, the arc of the selected route covers it
 const TRACK_WIDTH = 6;
+
+// px of a knob of a size: its box, the diameters of its ring (it takes modulations) and of its arc (it takes none)
+export const knobGeometry = (size: Size) => {
+  const { wrapper, handleOuter, arc } = sizes[size];
+  return { box: wrapper, ring: handleOuter + 2 * TRACK_WIDTH, arc: 2 * arc[1] };
+};
 const TRACK_OPACITY = 0.4;
 // px the dot of the routes goes into the ring: it sticks to it, at the top left
 const DOT_OVERLAP = 1;
@@ -291,6 +300,7 @@ export const Handle = ({
   modulations: routes,
   modTarget,
   wrap = false,
+  modTravel,
   defaultValue,
   onClearModulations,
   onActiveChange,
@@ -321,7 +331,14 @@ export const Handle = ({
     live,
     shown,
     spans,
-  } = useModulations(routes, disabled, share, markCanvases[size], wrap);
+  } = useModulations(
+    routes,
+    disabled,
+    modTravel?.position ?? share,
+    markCanvases[size],
+    wrap,
+    modTravel?.travel
+  );
 
   // a knob that takes no modulations: on the arc of its travel the fill, from fillFrom (min by default) to the
   // value, none between them
@@ -356,8 +373,9 @@ export const Handle = ({
 
   const onPointerDown = (e: React.PointerEvent) => {
     const initialPosition = vector2d.fromMouseEvent(e);
-    // the value now (set meanwhile by a preset or Default): a drag back to the last one it set changes it
-    if (!step) prevValue.current = value;
+    // the value now (set meanwhile by a preset or Default; of a stepped knob its index): a drag back to the last
+    // one it set changes it
+    prevValue.current = step ? step.indexOf(value) : value;
     const tracked = menu.track(
       e,
       (e) => {
@@ -366,10 +384,11 @@ export const Handle = ({
         const currValue = step ? scaleMouse(step.indexOf(value * precision)) : scaleMouse(value * precision);
         const currValueAbs = Math.abs(currValue);
         const tDiff = number.thresholds(diff, -plotSize - currValueAbs, plotSize + currValueAbs);
+        // a stepped knob within its steps (its min and max are the values of the menu, not the indexes)
         const result = number.thresholds(
           Math.round(scaleMouse.invert(currValue + tDiff)) / precision,
-          min,
-          max
+          step ? 0 : min,
+          step ? step.length - 1 : max
         );
         if (prevValue.current === result) return;
         prevValue.current = result;

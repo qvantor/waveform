@@ -4,6 +4,7 @@ import {
   DIVISION_OFF,
   divisionIndex,
   divisionWithin,
+  ENVELOPE_TIME_DIVISIONS,
   nearestDivision,
   quartersOf,
   rateDivisions,
@@ -249,7 +250,7 @@ const curveRange = (k: number) =>
 // the stages of an envelope with a time
 export type EnvelopeTimeStage = 'attack' | 'hold' | 'decay' | 'release';
 export const ENVELOPE_TIME_STAGES: readonly EnvelopeTimeStage[] = ['attack', 'hold', 'decay', 'release'];
-// in BPM (`bpm`) the times are divisions (`divs`: indexes into TEMPO_DIVISIONS, Off and 1/256 … 32 bar) at the tempo
+// in BPM (`bpm`) the times are divisions (`divs`: indexes into TEMPO_DIVISIONS, Off and 1/512 … 32 bar) at the tempo
 // of the synth, the seconds those of MS; a fresh envelope has the divisions nearest to its seconds at 120 (MS: a
 // preset saved before the tempo plays as it did)
 export const ENVELOPE_DIVISIONS = ENVELOPES.reduce(
@@ -258,7 +259,10 @@ export const ENVELOPE_DIVISIONS = ENVELOPES.reduce(
     [id]: ENVELOPE_TIME_STAGES.reduce(
       (divs, stage) => ({
         ...divs,
-        [stage]: nearestDivision(quartersOf(ENVELOPE_DEFAULTS[id][stage], TEMPO_DEFAULT), TIME_DIVISIONS),
+        [stage]: nearestDivision(
+          quartersOf(ENVELOPE_DEFAULTS[id][stage], TEMPO_DEFAULT),
+          ENVELOPE_TIME_DIVISIONS
+        ),
       }),
       {} as Record<EnvelopeTimeStage, number>
     ),
@@ -266,10 +270,10 @@ export const ENVELOPE_DIVISIONS = ENVELOPES.reduce(
   {} as Record<EnvelopeId, Record<EnvelopeTimeStage, number>>
 );
 
-const timeDivision = (division: number) =>
+const envelopeDivision = (division: number) =>
   intRange(0, DIVISION_MAX)
     .default(division)
-    .transform((index) => divisionWithin(index, TIME_DIVISIONS));
+    .transform((index) => divisionWithin(index, ENVELOPE_TIME_DIVISIONS));
 
 const envelopeSchema = (id: EnvelopeId) => {
   const { attack, hold, decay, sustain, release } = ENVELOPE_DEFAULTS[id];
@@ -291,10 +295,10 @@ const envelopeSchema = (id: EnvelopeId) => {
       bpm: z.boolean().default(false),
       divs: z
         .object({
-          attack: timeDivision(divs.attack),
-          hold: timeDivision(divs.hold),
-          decay: timeDivision(divs.decay),
-          release: timeDivision(divs.release),
+          attack: envelopeDivision(divs.attack),
+          hold: envelopeDivision(divs.hold),
+          decay: envelopeDivision(divs.decay),
+          release: envelopeDivision(divs.release),
         })
         .default({}),
     })

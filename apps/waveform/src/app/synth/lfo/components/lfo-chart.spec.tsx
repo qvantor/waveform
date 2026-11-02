@@ -13,7 +13,7 @@ import { noteLfosOf } from '../../modulation/note-lfos';
 import { LfoChart } from './lfo-chart';
 
 const RATE = 48000;
-// the chart is 300 × 60, its levels padded by 4 px for the points: a cycle over 300 px, the levels over 52
+// the chart is 308 × 60, padded by 4 px on every side for the points: a cycle over 300 px, the levels over 52
 const [WIDTH, HEIGHT] = [300, 52];
 
 // the chart of LFO 1 with the models it reads: the routes, the LFOs, the last note of the synth and its voices, the
@@ -76,7 +76,7 @@ describe('LfoChart', () => {
   let restoreSize: () => void;
   beforeEach(() => {
     jest.useFakeTimers();
-    restoreSize = withElementSize(300, 60);
+    restoreSize = withElementSize(308, 60);
   });
   afterEach(() => {
     restoreSize();

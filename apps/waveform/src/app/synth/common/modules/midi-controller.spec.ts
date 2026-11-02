@@ -605,6 +605,36 @@ describe('midiController channel', () => {
       expect(transport[0].$playing.value).toBe(false);
     });
 
+    it('lost, a Continue goes on where the clock stopped: a DAW stopped sends no clocks', async () => {
+      const input = createInput('a');
+      const { transport } = await setup(createAccess([input]));
+      jest.useFakeTimers({ doNotFake: ['performance'] });
+      let at = clocks(input, 120, NOW, PPQN);
+      message(input, 250);
+      at = clocks(input, 120, at, 2 * PPQN + 1);
+      message(input, 252);
+      jest.advanceTimersByTime(CLOCK_LOST_MS + 10);
+      expect(transport[0].$source.value).toBe('internal');
+      message(input, 251);
+      clocks(input, 120, at + 1000, 1);
+      // the 2 beats and one clock after Start
+      expect(transport[0].beatAt(transport[0].contextTimeAt(now))).toBeCloseTo(2 + 1 / PPQN, 3);
+    });
+
+    it('another input forgets where the clock of the one before stopped: its Continue goes on from beat 0', async () => {
+      const a = createInput('a');
+      const b = createInput('b');
+      const { midi, transport } = await setup(createAccess([a, b]));
+      let at = clocks(a, 120, NOW, PPQN);
+      message(a, 250);
+      at = clocks(a, 120, at, 2 * PPQN + 1);
+      message(a, 252);
+      midi[1].selectMidiInput('b');
+      message(b, 251);
+      clocks(b, 120, at + 1000, 1);
+      expect(transport[0].beatAt(transport[0].contextTimeAt(now))).toBeCloseTo(0, 3);
+    });
+
     it('is lost on another input; the clock of an input not selected leads nothing', async () => {
       const a = createInput('a');
       const b = createInput('b');
@@ -615,6 +645,114 @@ describe('midiController channel', () => {
       expect(transport[0].$source.value).toBe('midi');
       midi[1].selectMidiInput('b');
       expect(transport[0].$source.value).toBe('internal');
+    });
+
+    it('forgets a Start without clocks on another input: the first clock of that one moves nothing', async () => {
+      const a = createInput('a');
+      const b = createInput('b');
+      const { midi, transport } = await setup(createAccess([a, b]));
+      const locates: boolean[] = [];
+      transport[0].$changes.subscribe(({ locate }) => locates.push(locate));
+      message(a, 250);
+      expect(transport[0].$playing.value).toBe(true);
+      midi[1].selectMidiInput('b');
+      expect(transport[0].$playing.value).toBe(false);
+      clocks(b, 90, NOW, 2 * PPQN);
+      expect(transport[0].$source.value).toBe('midi');
+      expect(transport[0].$playing.value).toBe(false);
+      expect(locates).not.toContain(true);
+    });
+
+    describe('switched off', () => {
+      it('follows the clock by default', async () => {
+        const { midi } = await setup(createAccess([createInput('a')]));
+        expect(midi[0].$clockSync.value).toBe(true);
+      });
+
+      it('the clock, Start, Stop and a Song Position of the input lead nothing; its notes play', async () => {
+        const input = createInput('a');
+        const { midi, transport, onPress } = await setup(createAccess([input]));
+        midi[1].setClockSync(false);
+        const changes: boolean[] = [];
+        transport[0].$changes.subscribe(({ locate }) => changes.push(locate));
+
+        const at = clocks(input, 128, NOW, 3 * PPQN);
+        message(input, 250);
+        clocks(input, 128, at, PPQN);
+        timed(input, 0, 242, 32, 0);
+        message(input, 251);
+        expect(transport[0].$source.value).toBe('internal');
+        expect(transport[0].$tempo.value).toBe(120);
+        expect(transport[0].$playing.value).toBe(false);
+        expect(changes).toEqual([]);
+
+        message(input, 144, 60, 100);
+        expect(onPress).toHaveBeenCalledWith([4, 'C'], 100);
+      });
+
+      it('while it leads: the tempo of the field leads again, the transport stops; on again, the next clocks lead', async () => {
+        const input = createInput('a');
+        const { midi, transport } = await setup(createAccess([input]));
+        jest.useFakeTimers({ doNotFake: ['performance'] });
+        let at = clocks(input, 90, NOW, PPQN);
+        message(input, 250);
+        at = clocks(input, 90, at, 2 * PPQN);
+        expect(transport[0].$source.value).toBe('midi');
+        expect(transport[0].$playing.value).toBe(true);
+
+        midi[1].setClockSync(false);
+        expect(transport[0].$source.value).toBe('internal');
+        expect(transport[0].$tempo.value).toBe(120);
+        expect(transport[0].$playing.value).toBe(false);
+        // the timer of a lost clock is gone with it
+        jest.advanceTimersByTime(CLOCK_LOST_MS + 10);
+        expect(transport[0].$source.value).toBe('internal');
+
+        midi[1].setClockSync(true);
+        expect(transport[0].$source.value).toBe('internal');
+        clocks(input, 100, at + 1000, 2 * PPQN);
+        expect(transport[0].$source.value).toBe('midi');
+        expect(transport[0].$tempo.value).toBeCloseTo(100, 6);
+      });
+
+      it('forgets where the clock stopped: a Continue after it goes on from beat 0', async () => {
+        const input = createInput('a');
+        const { midi, transport } = await setup(createAccess([input]));
+        let at = clocks(input, 120, NOW, PPQN);
+        message(input, 250);
+        at = clocks(input, 120, at, 2 * PPQN + 1);
+        message(input, 252);
+        midi[1].setClockSync(false);
+        midi[1].setClockSync(true);
+        message(input, 251);
+        clocks(input, 120, at + 1000, 1);
+        expect(transport[0].beatAt(transport[0].contextTimeAt(now))).toBeCloseTo(0, 3);
+      });
+
+      it('the browser keeps the switch', async () => {
+        const { midi } = await setup(createAccess([createInput('a')]));
+        expect(localStorage.getItem('midiClock')).toBeNull();
+        midi[1].setClockSync(false);
+        expect(localStorage.getItem('midiClock')).toBe('false');
+        stopModels();
+
+        const input = createInput('a');
+        const { midi: reloaded, transport } = await setup(createAccess([input]));
+        expect(reloaded[0].$clockSync.value).toBe(false);
+        clocks(input, 128, NOW, 2 * PPQN);
+        expect(transport[0].$source.value).toBe('internal');
+        reloaded[1].setClockSync(true);
+        expect(localStorage.getItem('midiClock')).toBe('true');
+      });
+
+      it.each([
+        ['a value that is no boolean', '"off"'],
+        ['broken json', 'broken'],
+      ])('follows the clock where the browser keeps %s', async (_, raw) => {
+        localStorage.setItem('midiClock', raw);
+        const { midi } = await setup(createAccess([createInput('a')]));
+        expect(midi[0].$clockSync.value).toBe(true);
+      });
     });
   });
 });

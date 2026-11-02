@@ -9,6 +9,7 @@ import {
   ENVELOPE_DEFAULTS,
   ENVELOPE_DIVISIONS,
   ENVELOPE_KEYS,
+  ENVELOPE_TIME_DIVISIONS,
   ENVELOPE_TIME_MAX,
   ENVELOPE_TIME_STAGES,
   ENVELOPES,
@@ -20,7 +21,6 @@ import {
   ModSource,
   nearestDivision,
   quartersOf,
-  TIME_DIVISIONS,
   VELOCITY_DEFAULTS,
   VelocityKnob,
 } from '@waveform/preset-schema';
@@ -81,7 +81,7 @@ const envelopesFrom = (snap: Partial<EnvSnap>) =>
           bpm: typeof values.bpm === 'boolean' ? values.bpm : false,
           divs: mapValues(ENVELOPE_DIVISIONS[id], (division, stage) => {
             const value = values.divs?.[stage as EnvelopeTimeStage];
-            return isDivision(value) ? divisionWithin(value, TIME_DIVISIONS) : division;
+            return isDivision(value) ? divisionWithin(value, ENVELOPE_TIME_DIVISIONS) : division;
           }),
         },
       ];
@@ -127,7 +127,10 @@ export const envelopes = ({ transport: [{ $tempo }] }: Deps) =>
               ...envelope,
               bpm,
               divs: mapValues(envelope.divs, (_, stage) =>
-                nearestDivision(quartersOf(envelope[stage as EnvelopeTimeStage], tempo), TIME_DIVISIONS)
+                nearestDivision(
+                  quartersOf(envelope[stage as EnvelopeTimeStage], tempo),
+                  ENVELOPE_TIME_DIVISIONS
+                )
               ),
             }
           : {
@@ -149,7 +152,7 @@ export const envelopes = ({ transport: [{ $tempo }] }: Deps) =>
           ...$envelopes.value,
           [id]: {
             ...envelope,
-            divs: { ...envelope.divs, [stage]: divisionWithin(division, TIME_DIVISIONS) },
+            divs: { ...envelope.divs, [stage]: divisionWithin(division, ENVELOPE_TIME_DIVISIONS) },
           },
         });
       },

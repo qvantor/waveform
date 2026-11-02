@@ -34,7 +34,7 @@ describe('AdsrEnvelope', () => {
     expect(onChange).toHaveBeenLastCalledWith('release', 1.2346);
   });
 
-  it('steps the times in steps of their own, the chart in seconds; a control in its corner', () => {
+  it('steps the times in steps of their own, the chart in seconds; a control right of Release', () => {
     const onChange = jest.fn();
     const timeSteps: AdsrSteps = {
       steps: [0, 1, 2, 3, 4],
@@ -49,7 +49,7 @@ describe('AdsrEnvelope', () => {
         maxTime={32}
         onChange={jest.fn()}
         timeSteps={timeSteps}
-        corner={<button type='button'>BPM</button>}
+        aside={<button type='button'>BPM</button>}
       />
     );
     expect(knob('Attack')).toMatchObject({ value: 2, step: [0, 1, 2, 3, 4], precision: 1, defaultValue: 1 });
@@ -60,6 +60,9 @@ describe('AdsrEnvelope', () => {
     expect(knob('Sustain').step).toBeUndefined();
     act(() => knob('Decay').onChange?.(1));
     expect(onChange).toHaveBeenLastCalledWith('decay', 1);
-    expect(screen.getByRole('button', { name: 'BPM' })).toBeTruthy();
+    // next to the knob of Release (its value: bar), out of the chart
+    const bpm = screen.getByRole('button', { name: 'BPM' });
+    expect(screen.getByText('bar').parentElement?.nextElementSibling?.contains(bpm)).toBe(true);
+    expect(bpm.closest('svg')).toBeNull();
   });
 });

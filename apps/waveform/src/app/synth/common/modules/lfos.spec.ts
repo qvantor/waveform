@@ -1,9 +1,10 @@
 import { registrar } from 'standardized-audio-context-mock';
-import { divisionIndex, LFO_DEFAULTS } from '@waveform/preset-schema';
+import { divisionIndex, LFO_DEFAULTS, rateDivisions, TEMPO_DIVISIONS } from '@waveform/preset-schema';
 import { applySnapshot, getSnapshot } from '../../../app';
 import { createLfos, createSynthCore, createTransport } from '../../../../test-utils/models';
 import { voiceEvents } from '../../../../test-utils/voice-events';
 import { FREE, LFO_LEAD, LFO_STATE_INTERVAL, lfoTable, phaseAt, RETRIG } from '../lfo/lfo-curve';
+import { lfoDivision, rateStepsAt } from './lfos';
 
 // the wavetable oscillator loads its module asynchronously
 const flush = () => new Promise((resolve) => setTimeout(resolve));
@@ -193,13 +194,70 @@ describe('lfos', () => {
       expect(lfos().at(-1)?.lfos[0]).toMatchObject({ delay: 0.25, rise: 2, anchor: { period: 0.5 } });
     });
 
-    it('keeps the period at 10 ms at least', async () => {
-      const { actions, lfos, transport } = await setup();
-      transport[1].setBpm(300);
+    it('steps Rate at the tempo through the divisions of 10 ms at least, the same steps as the same array', () => {
+      const ids = (steps: number[]) => steps.map((division) => TEMPO_DIVISIONS[division].id);
+      const straight = { trip: false, dot: false };
+      const triplets = { trip: true, dot: false };
+      // 1/256 at 120: 7.8 ms, 1/256T 5.2 ms
+      expect(ids(rateStepsAt(straight, 120)).slice(0, 2)).toEqual(['1/128', '1/64']);
+      expect(ids(rateStepsAt(triplets, 120)).slice(0, 2)).toEqual(['1/128T', '1/128']);
+      // 1/256 is 10 ms at 93.75; 1/128 at 187.5 (to the rounding)
+      expect(ids(rateStepsAt(straight, 93.75))[0]).toBe('1/256');
+      expect(ids(rateStepsAt(straight, 187.5))[0]).toBe('1/128');
+      expect(ids(rateStepsAt(straight, 300))[0]).toBe('1/64');
+      expect(rateStepsAt(straight, 20)).toEqual(rateDivisions(false, false));
+      expect(rateStepsAt(straight, 120)).toBe(rateStepsAt(straight, 150));
+      expect(rateStepsAt(straight, 120)).not.toBe(rateStepsAt(triplets, 120));
+    });
+
+    it('plays a division shorter than 10 ms at the tempo as the shortest of its steps there, keeps its own', async () => {
+      const { model, actions, lfos, transport } = await setup();
       actions.setBpm('lfo1', true);
       actions.setDivision('lfo1', 'rate', at('1/256'));
       await interval();
-      expect(lfos().at(-1)?.lfos[0].anchor.period).toBe(0.01);
+      // 1/128 at 120: 15.6 ms
+      expect(lfos().at(-1)?.lfos[0].anchor.period).toBe(0.015625);
+      expect(model.$lfos.value.lfo1.div).toBe(at('1/256'));
+      expect(lfoDivision(model.$lfos.value.lfo1, 120)).toBe(at('1/128'));
+      actions.setTrip('lfo1', true);
+      await interval();
+      // 1/128T: 10.4 ms
+      expect(lfos().at(-1)?.lfos[0].anchor.period).toBeCloseTo(0.0104167, 6);
+      transport[1].setBpm(300);
+      await interval();
+      // 1/64 at 300: 12.5 ms
+      expect(lfos().at(-1)?.lfos[0].anchor.period).toBe(0.0125);
+      // a slower tempo plays it again: 1/256 at 60
+      transport[1].setBpm(60);
+      await interval();
+      expect(lfos().at(-1)?.lfos[0].anchor.period).toBe(0.015625);
+      expect(model.$lfos.value.lfo1.div).toBe(at('1/256'));
+    });
+
+    it('free with HOST: a division shorter than 10 ms on the grid of the one it plays, no step at a new state', async () => {
+      const { model, actions, lfos, travel, transport } = await setup();
+      actions.setMode('lfo1', 'free');
+      actions.setBpm('lfo1', true);
+      actions.setDivision('lfo1', 'rate', at('1/256'));
+      await interval();
+      travel(1.3);
+      actions.setLfoValue('lfo1', 'smooth', 0.1);
+      await interval();
+      const [before, after] = lfos().slice(-2);
+      expect(before.lfos[0].anchor.period).toBe(0.015625);
+      // the same anchor: the clock goes on
+      expect(after.lfos[0].anchor).toEqual(before.lfos[0].anchor);
+      // on the grid of 1/128 (1/32 of a quarter)
+      const time = after.at + 0.01;
+      expect(model.globals.lfo1.clock(time)).toBeCloseTo((transport[0].beatAt(time) * 32) % 1, 9);
+    });
+
+    it('takes the division of Rate nearest to its seconds of those at the tempo', async () => {
+      const { model, actions } = await setup();
+      actions.setLfoValue('lfo1', 'rate', 0.01);
+      actions.setBpm('lfo1', true);
+      // 10 ms at 120: 1/256 is nearer (7.8 ms) but shorter than 10 ms
+      expect(model.$lfos.value.lfo1.div).toBe(at('1/128'));
     });
 
     it('steps through the straight divisions, with TRIP and DOT the triplets and the dotted ones', async () => {
@@ -315,9 +373,9 @@ describe('lfos', () => {
       const { model, actions, transport } = await setup();
       expect(model.$ranges.value).toEqual({});
       actions.setBpm('lfo2', true);
-      // 32 bar at 120: 64 s; 1/256: 7.8 ms, 10 ms at least
+      // 32 bar at 120: 64 s; 1/128: 15.6 ms (1/256 is shorter than 10 ms there)
       expect(model.$ranges.value).toEqual({
-        'lfo2.rate': [1 / 64, 100],
+        'lfo2.rate': [1 / 64, 64],
         'lfo2.delay': [0, 64],
         'lfo2.rise': [0, 64],
       });

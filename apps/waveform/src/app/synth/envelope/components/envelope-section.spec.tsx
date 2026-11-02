@@ -2,7 +2,12 @@ import React from 'react';
 import { BehaviorSubject } from 'rxjs';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { AdsrEnvelope, formatTime, VelocityCurve, VelocityDot } from '@waveform/ui-kit';
-import { divisionIndex, ENVELOPE_DIVISIONS, MOD_SOURCES, TIME_DIVISIONS } from '@waveform/preset-schema';
+import {
+  divisionIndex,
+  ENVELOPE_DIVISIONS,
+  ENVELOPE_TIME_DIVISIONS,
+  MOD_SOURCES,
+} from '@waveform/preset-schema';
 import { EnvelopesProvider, ModulationProvider, useEnvelopes, useModulation } from '../../common/modules';
 import { EnvelopesModule, envelopeSeconds } from '../../common/modules/envelopes';
 import { ModulationModule } from '../../common/modules/modulation';
@@ -119,13 +124,20 @@ describe('EnvelopeSection and VelocitySection', () => {
     const { envelopes, props, transport } = setup();
     const [{ $envelopes }] = envelopes;
     expect(props().timeSteps).toBeUndefined();
-    // the key in the corner of the chart
-    render(props().corner as React.ReactElement);
+    // the key right of Release: BPM alone on its plate
+    render(props().aside as React.ReactElement);
+    const plate = screen.getByRole('group', { name: 'Tempo' });
+    expect(plate).toHaveClass('stack');
+    expect(
+      within(plate)
+        .getAllByRole('button')
+        .map((key) => key.textContent)
+    ).toEqual(['BPM']);
     fireEvent.click(screen.getByRole('button', { name: 'Tempo sync' }));
     expect($envelopes.value.env1.bpm).toBe(true);
     const steps = props().timeSteps;
     expect(steps).toMatchObject({
-      steps: TIME_DIVISIONS,
+      steps: ENVELOPE_TIME_DIVISIONS,
       values: ENVELOPE_DIVISIONS.env1,
       defaults: ENVELOPE_DIVISIONS.env1,
     });

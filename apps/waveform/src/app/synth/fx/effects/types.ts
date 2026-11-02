@@ -66,6 +66,14 @@ export interface FxDefinition<K extends string = string> {
   // param keys are the preset snapshot keys of the effect
   params: Record<K, FxParamDef>;
   presets: FxPreset<K>[];
+  // the params a change of `key` to `value` by the user sets at a tempo (BPM), those of others with it (the delay
+  // in BPM: Time to a division and back); absent: only it. A preset and a snapshot set their params as they are
+  paramChange?: (
+    params: Record<string, number>,
+    key: string,
+    value: number,
+    bpm: number
+  ) => Record<string, number>;
   // (the knobs of native nodes follow their routes by the lines of `fxMod`)
   create: (audioCtx: BaseAudioContext, fxMod?: FxMod) => FxCore;
 }

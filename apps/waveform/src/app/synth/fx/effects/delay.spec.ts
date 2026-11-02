@@ -1,6 +1,6 @@
 import { mapValues } from 'lodash';
-import { divisionIndex, FX_PARAMS } from '@waveform/preset-schema';
-import { delay, DELAY_LINE_MAX, delayTime, delayTimeBounds } from './delay';
+import { divisionIndex, FX_PARAMS, TEMPO_DIVISIONS } from '@waveform/preset-schema';
+import { delay, DELAY_LINE_MAX, delayParamChange, delayStepsOf, delayTime, delayTimeBounds } from './delay';
 import type { FxMod } from './fx-mod';
 import { DELAY_LINES } from './fx-mod-params';
 
@@ -148,6 +148,43 @@ describe('delay', () => {
       // back to MS: Time
       core.setParam('sync', 0);
       expect(lastValue(lines[0].delayTime)).toBe(0.2);
+    });
+
+    it('steps Time through the same array for the same switches', () => {
+      const steps = delayStepsOf({ trip: 0, dot: 0 });
+      expect(delayStepsOf({ trip: 0, dot: 0, div: at('1/4') })).toBe(steps);
+      expect(steps.map((division) => TEMPO_DIVISIONS[division].id)).toEqual([
+        '1/64',
+        '1/32',
+        '1/16',
+        '1/8',
+        '1/4',
+        '1/2',
+        '1 bar',
+      ]);
+      expect(delayStepsOf({ trip: 1, dot: 0 })).not.toBe(steps);
+      expect(delayStepsOf({ trip: 1, dot: 1 })).toBe(delayStepsOf({ trip: 1, dot: 1 }));
+    });
+
+    it('a change of BPM, TRIP or DOT sets the division or the seconds of Time with it (delayParamChange)', () => {
+      const ms = { ...FX_DEFAULTS, time: 0.3 };
+      // 0.6 quarters at 120: 1/8; at 60 0.3 quarters: 1/16
+      expect(delayParamChange(ms, 'sync', 1, 120)).toEqual({ sync: 1, div: at('1/8') });
+      expect(delayParamChange(ms, 'sync', 1, 60)).toEqual({ sync: 1, div: at('1/16') });
+      // MS again: nothing else
+      expect(delayParamChange(ms, 'sync', 0, 120)).toEqual({ sync: 0 });
+      const bpm = { ...ms, sync: 1, div: at('1/4') };
+      expect(delayParamChange(bpm, 'sync', 0, 120)).toEqual({ sync: 0, time: 0.5 });
+      // within the range of Time
+      expect(delayParamChange({ ...bpm, div: at('1 bar') }, 'sync', 0, 60)).toEqual({ sync: 0, time: 1 });
+      expect(delayParamChange({ ...bpm, div: at('1/64') }, 'sync', 0, 300)).toEqual({
+        sync: 0,
+        time: 0.0125,
+      });
+      const triplet = { ...bpm, trip: 1, div: at('1/8T') };
+      expect(delayParamChange(triplet, 'trip', 0, 120)).toEqual({ trip: 0, div: at('1/8') });
+      expect(delayParamChange(triplet, 'dot', 1, 120)).toEqual({ dot: 1, div: at('1/8T') });
+      expect(delayParamChange(bpm, 'fb', 0.7, 120)).toEqual({ fb: 0.7 });
     });
 
     it('takes the straight division of a triplet or a dotted one its switch is off for', () => {

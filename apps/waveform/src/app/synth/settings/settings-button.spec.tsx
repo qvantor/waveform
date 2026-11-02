@@ -9,11 +9,21 @@ import { SettingsButton } from './settings-button';
 const mockDropouts = new BehaviorSubject<number | null>(null);
 const mockDropoutWarning = new BehaviorSubject(false);
 const mockDismissDropoutWarning = jest.fn(() => mockDropoutWarning.next(false));
+const mockTempo = new BehaviorSubject(120);
+const mockSource = new BehaviorSubject('internal');
+const mockMidiAccess = new BehaviorSubject<unknown>({});
+const mockClockSync = new BehaviorSubject(true);
+const mockSetClockSync = jest.fn();
 
 jest.mock('../common/modules', () => ({
   useSynthCore: () => [
     { $dropouts: mockDropouts, $dropoutWarning: mockDropoutWarning },
     { dismissDropoutWarning: mockDismissDropoutWarning },
+  ],
+  useTransport: () => [{ $bpm: mockTempo, $tempo: mockTempo, $source: mockSource }, { setBpm: jest.fn() }],
+  useMidiController: () => [
+    { $midiAccess: mockMidiAccess, $clockSync: mockClockSync },
+    { setClockSync: mockSetClockSync },
   ],
 }));
 
@@ -32,12 +42,44 @@ const open = async () => {
 beforeEach(() => {
   mockDropouts.next(null);
   mockDropoutWarning.next(false);
+  mockMidiAccess.next({});
+  mockClockSync.next(true);
 });
 
 describe('SettingsButton', () => {
   it('is a labeled key, lit while the popover is open', async () => {
     await open();
     expect(screen.getByRole('button', { name: 'Settings' }).classList.contains('active')).toBe(true);
+  });
+
+  it('lights the lamp of the MIDI Clock while the tempo follows it', async () => {
+    await open();
+    const lamp = screen.getByRole('button', { name: 'Sync to MIDI Clock' });
+    expect(lamp).toHaveAttribute('aria-pressed', 'true');
+
+    act(() => mockClockSync.next(false));
+    expect(lamp).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('switches the MIDI Clock by its lamp or its name, once a press', async () => {
+    await open();
+    fireEvent.click(screen.getByRole('button', { name: 'Sync to MIDI Clock' }));
+    expect(mockSetClockSync).toHaveBeenLastCalledWith(false);
+
+    act(() => mockClockSync.next(false));
+    // the name: the lamp's row
+    fireEvent.click(screen.getByText('Sync to MIDI Clock'));
+    expect(mockSetClockSync).toHaveBeenLastCalledWith(true);
+    expect(mockSetClockSync).toHaveBeenCalledTimes(2);
+  });
+
+  it('has no MIDI Clock to follow without WebMIDI', async () => {
+    mockMidiAccess.next(null);
+    await open();
+    expect(screen.queryByText('Sync to MIDI Clock')).not.toBeInTheDocument();
+
+    act(() => mockMidiAccess.next({}));
+    expect(screen.getByRole('button', { name: 'Sync to MIDI Clock' })).toBeInTheDocument();
   });
 
   it('has no latency to choose in a browser that sets its own', async () => {

@@ -9,10 +9,16 @@ import {
   Subject,
   throttleTime,
 } from 'rxjs';
-import { isEqual } from 'lodash';
+import { isEqual, pick } from 'lodash';
 import { Note } from '@waveform/ui-kit';
 import { PrimitiveBS, rxModel, rxModelReact } from '@waveform/rxjs-react';
-import { ENVELOPES, MOD_SOURCES, PITCH_BEND_DEFAULT, PITCH_BEND_MAX } from '@waveform/preset-schema';
+import {
+  ENVELOPE_TIME_STAGES,
+  ENVELOPES,
+  MOD_SOURCES,
+  PITCH_BEND_DEFAULT,
+  PITCH_BEND_MAX,
+} from '@waveform/preset-schema';
 import { getFq, stringToNote, noteToString } from '../../services';
 import { urlSnapshotPlugin } from '../../../app';
 import type {
@@ -26,13 +32,13 @@ import type { ParamAutomation, VoiceHandle } from '../wavetable/wavetable-engine
 import { EnvelopeParams, envelopeValue } from '../envelope/envelope-curve';
 import { velocityAmp, velocityLevel, velocityShare } from '../envelope/velocity';
 import {
-  amountInUnits,
   filterTargetScale,
   MOD_TARGETS,
   ModScale,
   movesLfoKnob,
   PITCH_KNOB_CENTS,
   PitchKnob,
+  routeAmount,
 } from '../modulation/modulation-targets';
 import type { FilterModule } from '../../filter/modules/filter';
 import type { FxNote } from '../../fx/effects/fx-modulation';
@@ -131,7 +137,8 @@ const movesPitch = (routes: ModRoute[], osc: number) =>
     return !off && definition?.kind === 'osc' && definition.osc === osc && definition.knob !== undefined;
   });
 
-// a route of a voice: the scale in it only when not linear, bipolar only when it is
+// a route of a voice (its amount a share of `range`, within `bounds`: routeAmount): the scale in it only when not
+// linear, bipolar only when it is
 const voiceRoute = (
   source: number,
   param: string,
@@ -139,13 +146,13 @@ const voiceRoute = (
   scale: ModScale,
   range: [number, number],
   bipolar: boolean | undefined,
-  [min, max]: [number, number] = range
+  bounds: [number, number] = range
 ): VoiceRoute => ({
   source,
   param,
-  amount: amountInUnits(amount, scale, range),
-  min,
-  max,
+  amount: routeAmount(amount, scale, range, bounds),
+  min: bounds[0],
+  max: bounds[1],
   ...(scale !== 'linear' && { scale }),
   ...(bipolar && { bipolar }),
 });
@@ -221,10 +228,23 @@ const phraseLevel = (
 ) =>
   envelopeValue(envelopes[env], now - started, release === null ? Infinity : release - started, from?.[env]);
 
+// the share of a stage an envelope in BPM may be off the seconds of its division at the tempo now: a MIDI Clock
+// moves the tempo by hundredths of a BPM as it follows its clocks, a stage 1% off is not heard (a voice of mono
+// starts its envelopes again as it read them at its note on), 120 → 60 BPM is another envelope
+const TEMPO_SLACK = 0.01;
+const nearTime = (a: number, b: number) => Math.abs(a - b) <= TEMPO_SLACK * Math.max(a, b);
 // the envelopes of a voice are those of the knobs and their curves at the tempo now (equal values: a preset
-// applied again makes new objects)
+// applied again makes new objects; in BPM their times within TEMPO_SLACK)
 const sameEnvelopes = (envelopes: EnvelopeParams[], knobs: Envelopes, bpm: number) =>
-  ENVELOPES.every((id, k) => isEqual(envelopes[k], envelopeSeconds(knobs[id], bpm)));
+  ENVELOPES.every((id, k) => {
+    const voice = envelopes[k];
+    const now = envelopeSeconds(knobs[id], bpm);
+    if (!knobs[id].bpm) return isEqual(voice, now);
+    return (
+      ENVELOPE_TIME_STAGES.every((stage) => nearTime(voice[stage], now[stage])) &&
+      isEqual({ ...voice, ...pick(now, ENVELOPE_TIME_STAGES) }, now)
+    );
+  });
 
 // the velocity of a note (MIDI 1..127) by the knobs of the velocity: VELO (the source of the routes after the
 // envelopes) and the amp of its voice (its volume after ENV 1); its share of 127 (the dot of the chart)

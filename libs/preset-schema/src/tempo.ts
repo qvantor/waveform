@@ -62,6 +62,8 @@ export const TEMPO_DIVISIONS: readonly TempoDivision[] = [
       of: quarters,
     })
   ),
+  // appended after them: the shortest step of the envelopes (3.9 ms at 120)
+  { id: '1/512', quarters: 1 / 128, kind: 'straight', of: 1 / 128 },
 ];
 export const DIVISION_OFF = 0;
 export const DIVISION_MAX = TEMPO_DIVISIONS.length - 1;
@@ -130,7 +132,9 @@ export const divisionWithin = (index: number, steps: readonly number[]) => {
   return steps.includes(straight) ? straight : nearestDivision(division.quarters, steps);
 };
 
-// the steps of the times of the envelopes and of Delay and Rise of an LFO: Off, then 1/256 … 32 bar
+// the steps of the times of the envelopes: Off, then 1/512 … 32 bar
+export const ENVELOPE_TIME_DIVISIONS = divisionSteps({ longest: '32 bar', shortest: '1/512', off: true });
+// the steps of Delay and Rise of an LFO: Off, then 1/256 … 32 bar
 export const TIME_DIVISIONS = divisionSteps({ longest: '32 bar', shortest: '1/256', off: true });
 // the steps of Rate of an LFO: 1/256 … 32 bar, with TRIP and DOT their triplets and dotted ones
 export const rateDivisions = (trip: boolean, dot: boolean) =>

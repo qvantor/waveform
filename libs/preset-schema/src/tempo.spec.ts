@@ -1,10 +1,12 @@
 import {
   delayDivisions,
+  DIVISION_MAX,
   DIVISION_OFF,
   divisionIndex,
   divisionSeconds,
   divisionSteps,
   divisionWithin,
+  ENVELOPE_TIME_DIVISIONS,
   nearestDivision,
   quartersOf,
   rateDivisions,
@@ -32,8 +34,8 @@ describe('tempo', () => {
 });
 
 describe('TEMPO_DIVISIONS', () => {
-  it('has Off, the straight divisions from 32 bars to 1/256, then their triplets and dotted ones', () => {
-    expect(TEMPO_DIVISIONS).toHaveLength(43);
+  it('has Off, the straight divisions from 32 bars to 1/256, their triplets and dotted ones, then 1/512', () => {
+    expect(TEMPO_DIVISIONS).toHaveLength(44);
     expect(TEMPO_DIVISIONS[DIVISION_OFF]).toEqual({ id: 'Off', quarters: 0, kind: 'off', of: 0 });
     expect(ids(TEMPO_DIVISIONS.slice(1, 15).map((_, i) => i + 1))).toEqual([
       '32 bar',
@@ -53,6 +55,8 @@ describe('TEMPO_DIVISIONS', () => {
     ]);
     // the indexes a preset keeps: the list is only appended to
     expect([at('1/4'), at('1/8D'), at('1/16T'), at('2 bar T'), at('1 bar D')]).toEqual([8, 37, 24, 19, 34]);
+    expect(TEMPO_DIVISIONS[43]).toEqual({ id: '1/512', quarters: 1 / 128, kind: 'straight', of: 1 / 128 });
+    expect(DIVISION_MAX).toBe(43);
   });
 
   it('is in quarters of a bar of 4/4: a triplet is 2/3 of the straight one, a dotted one 1.5', () => {
@@ -71,6 +75,7 @@ describe('TEMPO_DIVISIONS', () => {
     expect(divisionSeconds(at('1 bar'), 60)).toBe(4);
     expect(divisionSeconds(at('32 bar'), 20)).toBe(384);
     expect(divisionSeconds(at('1/8D'), 120)).toBe(0.375);
+    expect(divisionSeconds(at('1/512'), 120)).toBe(0.00390625);
     expect(divisionSeconds(DIVISION_OFF, 120)).toBe(0);
     expect(divisionSeconds(99, 120)).toBe(0);
     expect(quartersOf(0.5, 120)).toBe(1);
@@ -79,6 +84,8 @@ describe('TEMPO_DIVISIONS', () => {
 
 describe('divisionSteps', () => {
   it('steps from the shortest, Off first', () => {
+    // the envelopes from 1/512, Delay and Rise of an LFO from 1/256
+    expect(ids(ENVELOPE_TIME_DIVISIONS)).toEqual(['Off', '1/512', ...ids(TIME_DIVISIONS).slice(1)]);
     expect(ids(TIME_DIVISIONS)).toEqual([
       'Off',
       '1/256',
@@ -117,6 +124,7 @@ describe('divisionSteps', () => {
       '1 bar',
     ]);
     expect(ids(delayDivisions(false, true)).slice(-3)).toEqual(['1/2D', '1 bar', '1 bar D']);
+    // Rate from 1/256: no 1/512
     expect(rateDivisions(false, false)).toHaveLength(14);
     expect(rateDivisions(true, true)).toHaveLength(42);
     expect(ids(divisionSteps({ longest: '1/4', shortest: '1/8', dot: true }))).toEqual([
@@ -135,6 +143,9 @@ describe('nearestDivision', () => {
     expect(nearestDivision(quartersOf(0.2, 120), delayDivisions(true, false))).toBe(at('1/8T'));
     expect(nearestDivision(quartersOf(60, 120), TIME_DIVISIONS)).toBe(at('32 bar'));
     expect(nearestDivision(quartersOf(0.0001, 120), TIME_DIVISIONS)).toBe(at('1/256'));
+    // 5 ms at 120: 1/512 is 1.28 times shorter, 1/256 1.56 times longer
+    expect(nearestDivision(quartersOf(0.005, 120), ENVELOPE_TIME_DIVISIONS)).toBe(at('1/512'));
+    expect(nearestDivision(quartersOf(0.005, 120), TIME_DIVISIONS)).toBe(at('1/256'));
   });
 
   it('is Off for no time, the shortest step without Off', () => {

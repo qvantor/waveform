@@ -171,14 +171,15 @@ describe('envelopes', () => {
 
   describe('in BPM', () => {
     it('a fresh envelope has the divisions nearest to its seconds at 120', () => {
+      // 5 ms: a 1/512 (3.9 ms)
       expect(ENVELOPE_DIVISIONS.env1).toEqual({
-        attack: at('1/256'),
+        attack: at('1/512'),
         hold: at('1/16'),
         decay: 0,
-        release: at('1/256'),
+        release: at('1/512'),
       });
       expect(ENVELOPE_DIVISIONS.env2).toEqual({
-        attack: at('1/256'),
+        attack: at('1/512'),
         hold: 0,
         decay: at('1/4'),
         release: at('1/8'),
@@ -222,7 +223,8 @@ describe('envelopes', () => {
       const [{ $envelopes }, { setEnvelopeDivision }] = createEnvelopes();
       setEnvelopeDivision('env3', 'hold', at('1/8D'));
       setEnvelopeDivision('env3', 'decay', 0);
-      expect($envelopes.value.env3.divs).toMatchObject({ hold: at('1/8'), decay: 0 });
+      setEnvelopeDivision('env3', 'release', at('1/512'));
+      expect($envelopes.value.env3.divs).toMatchObject({ hold: at('1/8'), decay: 0, release: at('1/512') });
     });
 
     it('plays the seconds of its divisions at a tempo: longer than 32 s too', () => {
