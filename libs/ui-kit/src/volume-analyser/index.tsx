@@ -1,7 +1,7 @@
 import React from 'react';
 import styled from 'styled-components';
 import { theme } from '../common/constants';
-import { MeterLoop, meterLoop } from '../common/utils/meter-loop';
+import { MeterLoop, meterLoop, QUIET_MS } from '../common/utils/meter-loop';
 import { createPeakHold, dbToHeight, FFT_SIZE, levels, toDb, zoneStops } from './meter';
 
 const Root = styled.div`
@@ -31,6 +31,8 @@ interface Props {
   gap?: number;
   // a voice sounds: drawn every frame; else it sleeps once the output has been silent a while (meterLoop)
   active?: boolean;
+  // ms of silence it sleeps after (QUIET_MS by default: longer for a delay with longer gaps between its echoes)
+  quietMs?: number;
 }
 
 // the level of each channel in dBFS (meter.ts): the bar is the rms, the mark the held sample peak
@@ -41,9 +43,12 @@ export const VolumeAnalyser = ({
   height = 60,
   gap = 1,
   active = true,
+  quietMs = QUIET_MS,
 }: Props) => {
   const ref = React.useRef<HTMLCanvasElement>(null);
   const activeRef = React.useRef(active);
+  const quietRef = React.useRef(quietMs);
+  quietRef.current = quietMs;
   const loopRef = React.useRef<MeterLoop | null>(null);
 
   React.useEffect(() => {
@@ -100,7 +105,7 @@ export const VolumeAnalyser = ({
       }
       return any;
     };
-    const loop = meterLoop(draw);
+    const loop = meterLoop(draw, () => quietRef.current);
     loop.setAwake(activeRef.current);
     loopRef.current = loop;
 

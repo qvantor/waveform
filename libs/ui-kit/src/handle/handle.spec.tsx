@@ -180,6 +180,43 @@ describe('Handle', () => {
   });
 });
 
+describe('Handle steps', () => {
+  // the knobs in BPM: steps (divisions), min and max the values of the menu; up the travel of 100 px either way
+  const STEPS = [2, 5, 10, 20];
+
+  // a press at the origin, then moves `up` px up with the button held
+  const drag = (knob: Element, ...ups: number[]) => {
+    pointer('pointerdown', knob);
+    for (const up of ups) {
+      const move = new MouseEvent('pointermove', { bubbles: true, clientY: -up, buttons: 1 });
+      Object.defineProperty(move, 'pointerId', { value: 1 });
+      act(() => {
+        document.dispatchEvent(move);
+      });
+    }
+    pointer('pointerup', document);
+  };
+
+  it('stays within its steps dragged past its end, whatever its max', () => {
+    const onChange = jest.fn();
+    const { container } = render(
+      <Handle step={STEPS} precision={1} min={0} max={42} value={10} onChange={onChange} />
+    );
+    drag(container.firstElementChild as Element, 50, 300);
+    expect(onChange.mock.calls).toEqual([[20]]);
+  });
+
+  it('takes the index of its value at a press: a step to the one the last drag set changes it', () => {
+    const onChange = jest.fn();
+    // the value stays 5 (a preset set it back): each drag a step up sets 10
+    const { container } = render(<Handle step={STEPS} precision={1} value={5} onChange={onChange} />);
+    const knob = container.firstElementChild as Element;
+    drag(knob, 70);
+    drag(knob, 70);
+    expect(onChange.mock.calls).toEqual([[10], [10]]);
+  });
+});
+
 describe('Handle scales', () => {
   // the angle of the value from the start of the arc, as a share of its whole travel
   const share = (props: React.ComponentProps<typeof Handle>) => {
@@ -234,6 +271,22 @@ describe('Handle modulation', () => {
     // from the top (0.5) a quarter of the travel clockwise
     const start = startPoint(path.getAttribute('d') ?? '');
     expect(angleOf(start)).toBeCloseTo(0);
+  });
+
+  it('on a knob of steps draws the arc where its routes move it in the scale of modTravel', () => {
+    // the scale of the routes over half of the steps: from 0.25 by 0.125, the steps from 0.5 to 0.75
+    const stepped = render(
+      <Handle
+        step={[0, 1, 2, 3, 4]}
+        precision={1}
+        value={2}
+        modTravel={{ position: 0.25, travel: (share) => 2 * share }}
+        modulations={[modulation(0.125)]}
+      />
+    );
+    const plain = render(<Handle min={0} max={1} value={0.5} modulations={[modulation(0.25)]} />);
+    const [arc] = modArcs(stepped.container);
+    expect(arc.getAttribute('d')).toBe(modArcs(plain.container)[0].getAttribute('d'));
   });
 
   it('shows the arc of the selected route over the whole ring, a dot of all the routes that changes it', () => {
@@ -402,6 +455,22 @@ describe('Handle modulation', () => {
       level = 1;
       tick();
       expect(markAngle()).toBeCloseTo(MAX_ANGLE);
+    });
+
+    it('on a knob of steps follows the routes in the scale of modTravel', () => {
+      jest.useFakeTimers();
+      level = 1;
+      render(
+        <Handle
+          step={[0, 1, 2, 3, 4]}
+          precision={1}
+          value={2}
+          modTravel={{ position: 0.25, travel: (share) => 2 * share }}
+          modulations={[live(0.125)]}
+        />
+      );
+      // 2 × (0.25 + 0.125): three quarters of the travel, a quarter clockwise from the top
+      expect(markAngle()).toBeCloseTo(MAX_ANGLE / 2);
     });
 
     it('a bipolar route moves it around the value: amount × (level - ½)', () => {

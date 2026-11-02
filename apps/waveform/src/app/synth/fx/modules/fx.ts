@@ -1,16 +1,25 @@
 import { distinctUntilChanged, map, combineLatest, shareReplay } from 'rxjs';
 import { isEqual, mapValues, omit } from 'lodash';
-import { FX_MIX_PARAMS, FX_TYPES, FxType, fxSnapSchema, MOD_SOURCES } from '@waveform/preset-schema';
+import {
+  FX_MIX_PARAMS,
+  FX_PARAMS,
+  FX_TYPES,
+  FxType,
+  fxSnapSchema,
+  MOD_SOURCES,
+} from '@waveform/preset-schema';
 import { ArrayBS, ObjectBS, rxModel, rxModelReact } from '@waveform/rxjs-react';
 import { SynthCoreModule } from '../../common/modules/synth-core';
 import type { SynthModule } from '../../common/modules/synth';
 import type { ModRoute, ModulationModule } from '../../common/modules/modulation';
-import type { LfoModule } from '../../common/modules/lfos';
+import type { LfoModule, LfoRanges } from '../../common/modules/lfos';
+import type { TransportModule } from '../../common/modules/transport';
 import { fxRoute, lfoKnobRoutes, MOD_TARGETS } from '../../common/modulation/modulation-targets';
 import { urlSnapshotPlugin } from '../../../app';
 import { createFxSlot, FX_REGISTRY, FxSlot, FxStatus, isFxUsable } from '../effects';
 import { FxModulation, FxNote, FxRoute, isLfoSource } from '../effects/fx-modulation';
 import { createFxMod } from '../effects/fx-mod';
+import { delayTime, delayTimeBounds } from '../effects/delay';
 import { slotLines } from '../effects/fx-mod-params';
 
 // the source VELO (MOD_SOURCES)
@@ -18,6 +27,8 @@ const VELO = MOD_SOURCES.indexOf('velo');
 
 interface Dependencies {
   synthCore: SynthCoreModule;
+  // the tempo (the delay in BPM)
+  transport: TransportModule;
   // the envelopes of the last note, the LFOs and the routes the fx knobs follow
   synth: SynthModule;
   lfo: LfoModule;
@@ -43,15 +54,28 @@ const defaultFxState = (type: FxType): FxState => ({
 const defaultEffects = () =>
   Object.fromEntries(FX_TYPES.map((type) => [type, defaultFxState(type)])) as Record<FxType, FxState>;
 
-// the routes to the knobs of an effect, in the units of its params; an amount of 0 and a route switched off are left
-// out. With a route of an LFO those of the note to the knobs of the LFOs too
-const fxRoutes = (routes: ModRoute[], type: FxType): FxRoute[] => {
+// the bounds of the routes to the knobs of an effect at a tempo, by param: Time of the delay in BPM within its
+// divisions (the others: the ranges of their knobs)
+const fxBounds = (type: FxType, params: Record<string, number>, bpm: number) => {
+  const time = type === 'delay' ? delayTimeBounds(params, bpm) : undefined;
+  return time ? { time } : {};
+};
+
+// the routes to the knobs of an effect, in the units of its params (within `bounds`); an amount of 0 and a route
+// switched off are left out. With a route of an LFO those of the note to the knobs of the LFOs too (within
+// `lfoRanges` in BPM)
+const fxRoutes = (
+  routes: ModRoute[],
+  type: FxType,
+  lfoRanges: LfoRanges,
+  bounds: Partial<Record<string, [number, number]>> = {}
+): FxRoute[] => {
   const own = routes.flatMap((route) => {
     const definition = MOD_TARGETS[route.target];
     if (definition?.kind !== 'fx' || definition.fx !== type || route.amount === 0 || route.off) return [];
-    return [fxRoute(definition.param, route, definition.scale, definition.range)];
+    return [fxRoute(definition.param, route, definition.scale, definition.range, bounds[definition.param])];
   });
-  return own.some(({ source }) => isLfoSource(source)) ? [...own, ...lfoKnobRoutes(routes)] : own;
+  return own.some(({ source }) => isLfoSource(source)) ? [...own, ...lfoKnobRoutes(routes, lfoRanges)] : own;
 };
 
 // the note of an effect without its velocity unless a route of it reads VELO: a note of a legato phrase at
@@ -82,7 +106,8 @@ export const getChain = (
 export const fx = ({
   synthCore: [{ audioCtx, fxIn, fxOut }],
   synth: [{ $fxNote }],
-  lfo: [{ $state: $lfoState, $changes: $lfoChanges }],
+  transport: [{ $tempo }],
+  lfo: [{ $state: $lfoState, $changes: $lfoChanges, $ranges: $lfoRanges }],
   modulation: [{ $routes }],
 }: Dependencies) =>
   rxModel(() => {
@@ -105,7 +130,22 @@ export const fx = ({
       distinctUntilChanged<FxType[]>(isEqual),
       shareReplay({ bufferSize: 1, refCount: true })
     );
-    return { $order, $effects, $status, $chain, slots, fxMod };
+    // seconds between two echoes of the delay at most while it sounds (in the chain, on and ready: Time, in BPM
+    // its division at the tempo, the top of the bounds of its routes, and its pan), 0 without it: the meters of the
+    // output don't sleep between them
+    const $echoGap = combineLatest([$effects, $status, $tempo, $routes]).pipe(
+      map(([effects, status, bpm, routes]) => {
+        const { added, on, params } = effects.delay;
+        if (!added || !on || status.delay !== 'ready') return 0;
+        const routed = fxRoutes(routes, 'delay', {}, fxBounds('delay', params, bpm)).find(
+          ({ param }) => param === 'time'
+        );
+        return Math.max(delayTime(params, bpm), routed?.max ?? 0) + FX_PARAMS.delay.pan.max;
+      }),
+      distinctUntilChanged(),
+      shareReplay({ bufferSize: 1, refCount: true })
+    );
+    return { $order, $effects, $status, $chain, $echoGap, slots, fxMod };
   })
     .actions(({ $order, $effects, $status, slots, fxMod }) => {
       const update = (type: FxType, value: Partial<FxState>) =>
@@ -125,8 +165,14 @@ export const fx = ({
         },
         setOn: (type: FxType, on: boolean) => update(type, { on }),
         setMix: (type: FxType, mix: number) => update(type, { mix }),
-        setParam: (type: FxType, key: string, value: number) =>
-          update(type, { params: { ...$effects.value[type].params, [key]: value } }),
+        // a change of the user: with the params it sets at the tempo (the delay in BPM: paramChange)
+        setParam: (type: FxType, key: string, value: number) => {
+          const { params } = $effects.value[type];
+          const change = FX_REGISTRY[type].paramChange?.(params, key, value, $tempo.value) ?? {
+            [key]: value,
+          };
+          update(type, { params: { ...params, ...change } });
+        },
         // unknown id: nothing changes
         applyPreset: (type: FxType, id: string) => {
           const preset = FX_REGISTRY[type].presets.find((item) => item.id === id);
@@ -151,14 +197,19 @@ export const fx = ({
         fxMod.setLfos({ ...lfoState, instantly: true });
       }
       return [
+        // the tempo of the synth: an effect in BPM follows it
+        $tempo.subscribe((bpm) => FX_TYPES.forEach((type) => slots[type].setTempo(bpm))),
         $lfoChanges.subscribe((state) => {
           FX_TYPES.forEach((type) => slots[type].setLfos(state));
           fxMod.setLfos(state);
         }),
         // the lines follow the last note and the routes of the note to the knobs of the LFOs
         $fxNote.pipe(distinctUntilChanged<FxNote | null>(isEqual)).subscribe((note) => fxMod.setNote(note)),
-        $routes
-          .pipe(map(lfoKnobRoutes), distinctUntilChanged<FxRoute[]>(isEqual))
+        combineLatest([$routes, $lfoRanges])
+          .pipe(
+            map(([routes, ranges]) => lfoKnobRoutes(routes, ranges)),
+            distinctUntilChanged<FxRoute[]>(isEqual)
+          )
           .subscribe((routes) => fxMod.setKnobRoutes(routes)),
         ...FX_TYPES.map((type) =>
           slots[type].$status.subscribe((status) => {
@@ -205,8 +256,10 @@ export const fx = ({
         // active, once per change
         ...FX_TYPES.map((type) =>
           combineLatest([
-            $routes.pipe(
-              map((routes) => fxRoutes(routes, type)),
+            combineLatest([$routes, $lfoRanges, $effects, $tempo]).pipe(
+              map(([routes, ranges, effects, bpm]) =>
+                fxRoutes(routes, type, ranges, fxBounds(type, effects[type].params, bpm))
+              ),
               distinctUntilChanged<FxRoute[]>(isEqual)
             ),
             $fxNote.pipe(distinctUntilChanged<FxNote | null>(isEqual)),

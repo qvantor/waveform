@@ -1,21 +1,35 @@
-import { FX_MIX_PARAMS, FX_PARAMS, normalizePreset } from '@waveform/preset-schema';
+import { FX_MIX_PARAMS, FX_PARAMS, normalizePreset, TEMPO_DIVISIONS } from '@waveform/preset-schema';
 import { mapValues } from 'lodash';
 import { DELAY_PRESETS } from './delay-presets';
+import { delayDivisionOf } from './delay';
 import { findFxPreset } from '.';
 
 const PARAM_KEYS = Object.keys(FX_PARAMS.delay).sort();
 
 describe('delay presets', () => {
-  it('has 13 presets with unique ids and names, one of them is the default', () => {
-    expect(DELAY_PRESETS).toHaveLength(13);
+  it('has 15 presets with unique ids and names, one of them is the default', () => {
+    expect(DELAY_PRESETS).toHaveLength(15);
     expect(new Set(DELAY_PRESETS.map(({ id }) => id)).size).toBe(DELAY_PRESETS.length);
     expect(new Set(DELAY_PRESETS.map(({ name }) => name)).size).toBe(DELAY_PRESETS.length);
     expect(DELAY_PRESETS.some(({ id }) => id === 'default')).toBe(true);
   });
 
-  // there is no tempo sync or time modulation, so names say what the delay does, times are in ms
-  it('names promise no tempo sync or modulation', () => {
-    DELAY_PRESETS.forEach(({ name }) => expect(name).not.toMatch(/\d\/\d|flutter|doubler/i));
+  // a division in a name is the time of the delay in BPM (a dotted one says so), the others play their time in
+  // ms; no preset moves its time, so none promises it
+  it('names a division only of a preset in BPM, and no time modulation', () => {
+    DELAY_PRESETS.forEach(({ name, params }) => {
+      expect(name).not.toMatch(/flutter|doubler/i);
+      const division = /\d\/\d+/.exec(name)?.[0];
+      expect(params.sync).toBe(division ? 1 : 0);
+      if (!division) return;
+      const { id, kind } = TEMPO_DIVISIONS[delayDivisionOf(params)];
+      expect(id).toBe(kind === 'dotted' ? `${division}D` : division);
+      expect(name.startsWith('Dotted')).toBe(kind === 'dotted');
+    });
+    expect(DELAY_PRESETS.filter(({ params }) => params.sync === 1).map(({ id }) => id)).toEqual([
+      'dotted-eighth',
+      'ping-pong-quarter',
+    ]);
   });
 
   it('the default preset is the schema defaults, the state of a freshly added delay', () => {

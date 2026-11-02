@@ -38,6 +38,11 @@ export const FxPanel = ({ type }: { type: FxType }) => {
     [$effects, type]
   );
   const { on, mix, params } = useObservable($effect, $effects.value[type]);
+  // the same while the panel shows the effect: the controls memoize on it
+  const setEffectParam = React.useCallback(
+    (key: string, value: number) => setParam(type, key, value),
+    [setParam, type]
+  );
   const EffectControls = FX_CONTROLS[type];
   return (
     <Section
@@ -50,7 +55,7 @@ export const FxPanel = ({ type }: { type: FxType }) => {
         <ControlsFlow>
           <EffectControls
             params={params}
-            setParam={(key, value) => setParam(type, key, value)}
+            setParam={setEffectParam}
             on={on}
             sampleRate={audioCtx.sampleRate}
             out={

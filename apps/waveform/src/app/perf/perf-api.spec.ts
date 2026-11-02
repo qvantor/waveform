@@ -61,6 +61,7 @@ const setup = async ({ ready = true } = {}) => {
   const fxModule = initModel(
     fx({
       synthCore: modules.synthCore,
+      transport: modules.transport,
       synth: modules.synth,
       lfo: modules.lfos,
       modulation: modules.modulation,

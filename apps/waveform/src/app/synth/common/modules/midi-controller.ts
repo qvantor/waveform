@@ -6,13 +6,16 @@ import {
   filter,
   Subject,
   map,
+  skip,
   Subscription,
 } from 'rxjs';
 import { rxModel, rxModelReact } from '@waveform/rxjs-react';
 import { Note, Notes } from '@waveform/ui-kit';
 import toast from 'react-hot-toast';
-import { readStored, writeStored } from '../../../common/services';
+import { messageTime, readStored, writeStored } from '../../../common/services';
+import { CLOCK_LOST_MS, createMidiClock } from '../transport/midi-clock';
 import { InputControllerModule } from './input-controller';
+import type { TransportModule } from './transport';
 
 export const midiToNote = (midiNote: number): Note => {
   const notes: Notes[] = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
@@ -58,12 +61,30 @@ const isTabChoice = (value: unknown): value is TabChoice => {
   );
 };
 
+// the switch of the MIDI Clock, kept by the browser (localStorage) as the tempo; where the storage keeps nothing it
+// follows the clock
+const CLOCK_SYNC_KEY = 'midiClock';
+const isBoolean = (value: unknown): value is boolean => typeof value === 'boolean';
+
 interface Dependencies {
   inputController: InputControllerModule;
+  // a MIDI Clock of the input leads the tempo and the position
+  transport: TransportModule;
 }
+
+// the system messages of a MIDI Clock (not of a channel): a clock (24 a quarter), Start, Continue, Stop and Song
+// Position (14 bits of 16ths)
+const CLOCK = 0xf8;
+const START = 0xfa;
+const CONTINUE = 0xfb;
+const STOP = 0xfc;
+const SONG_POSITION = 0xf2;
+// the first status of the system messages
+const SYSTEM = 0xf0;
 
 export const midiController = ({
   inputController: [{ $pressed, $bend }, { onPress, onRelease, setBend }],
+  transport: [{ $source, beatAt, tempoAt, contextTimeAt }, { follow, locate, setPlaying, setSource }],
 }: Dependencies) =>
   rxModel(() => {
     const $midiAccess = new BehaviorSubject<WebMidi.MIDIAccess | null>(null);
@@ -79,10 +100,37 @@ export const midiController = ({
     const $chosenInputId = new BehaviorSubject<string | null>(saved.inputId);
     const $selectedInputId = new BehaviorSubject<string | null>(null);
     const $selectedChannel = new BehaviorSubject<number | null>(saved.channel);
+    // off: the clock, Start, Continue, Stop and Song Position of the input are ignored
+    const $clockSync = new BehaviorSubject<boolean>(
+      readStored('localStorage', CLOCK_SYNC_KEY, true, isBoolean)
+    );
     // the notes this controller pressed: midi note → the channels holding it
     const held = new Map<number, Set<number>>();
     // the last pitch bend this controller set, its 14 bits and its channel (the wheel on the screen sets it too)
     const bend = { value: 0, raw: BEND_REST, channel: 0 };
+    // the MIDI Clock of the selected input: from its first clock it leads the tempo and the position of the
+    // transport, CLOCK_LOST_MS without one (or another input) the tempo of the field leads again
+    const clock = createMidiClock({
+      beatAt,
+      tempoAt,
+      follow,
+      locate,
+      setPlaying,
+      contextTime: (seconds) => contextTimeAt(seconds * 1000),
+    });
+    const lost: { timer?: number } = {};
+    // the tempo of the field leads again: the clock is lost (`lose`) or forgotten (`reset`)
+    const leaveClock = (leave: () => void) => {
+      window.clearTimeout(lost.timer);
+      leave();
+      if ($source.value === 'midi') setSource('internal');
+    };
+    // CLOCK_LOST_MS without a clock: its clocks are forgotten, the position of the next Continue is kept (a DAW
+    // stopped sends no clocks)
+    const loseClock = () => leaveClock(clock.lose);
+    // another input, or none: nothing of the clock is kept (a Start or a Song Position without clocks too: another
+    // input's first clock would take it)
+    const forgetClock = () => leaveClock(clock.reset);
 
     const $midiSubscription = new BehaviorSubject<
       [target: WebMidi.MIDIInput, subscription: Subscription] | null
@@ -106,16 +154,24 @@ export const midiController = ({
       $chosenInputId,
       $selectedInputId,
       $selectedChannel,
+      $clockSync,
       held,
       bend,
+      clock,
+      lost,
+      loseClock,
+      forgetClock,
     };
   })
-    .actions(({ $chosenInputId, $selectedInputId, $selectedChannel }) => ({
+    .actions(({ $chosenInputId, $selectedInputId, $selectedChannel, $clockSync }) => ({
       selectMidiInput: (id: string) => {
         $chosenInputId.next(id);
         $selectedInputId.next(id);
       },
       selectMidiChannel: (channel: number | null) => $selectedChannel.next(channel),
+      setClockSync: (on: boolean) => {
+        if (on !== $clockSync.value) $clockSync.next(on);
+      },
     }))
     .subscriptions(
       ({
@@ -126,8 +182,12 @@ export const midiController = ({
         $chosenInputId,
         $selectedInputId,
         $selectedChannel,
+        $clockSync,
         held,
         bend,
+        clock,
+        lost,
+        loseClock,
       }) => [
         // initial midi inputs
         $midiAccess
@@ -173,7 +233,28 @@ export const midiController = ({
             $midiSubscription.next([
               input,
               fromEvent<WebMidi.MIDIMessageEvent>(input, 'midimessage')
-                .pipe(filter((e) => e.data.length === 3))
+                .pipe(
+                  // a clock and the transport, on no channel
+                  filter((e) => {
+                    const [status, lsb, msb] = e.data;
+                    if (status < SYSTEM) return true;
+                    if (!$clockSync.value) return false;
+                    // the moment the message came (seconds of the page)
+                    const time = () => messageTime(e.timeStamp) / 1000;
+                    if (status === CLOCK) {
+                      setSource('midi');
+                      clock.tick(time());
+                      window.clearTimeout(lost.timer);
+                      lost.timer = window.setTimeout(loseClock, CLOCK_LOST_MS);
+                    } else if (status === START) clock.start();
+                    else if (status === CONTINUE) clock.continue();
+                    else if (status === STOP) clock.stop();
+                    else if (status === SONG_POSITION && e.data.length === 3)
+                      clock.songPosition(lsb | (msb << 7), time());
+                    return false;
+                  }),
+                  filter((e) => e.data.length === 3)
+                )
                 .subscribe((e) => {
                   const [control, midi, velocity] = e.data;
                   const channel = control & 0b1111;
@@ -235,12 +316,22 @@ export const midiController = ({
       return [
         // all channels or the same one keep every held note
         $selectedChannel.subscribe((selected) => releaseHeld((channel) => acceptsChannel(selected, channel))),
-        // another input, or none: the selected one is gone
+        // another input, or none: the selected one is gone, its clock too
         $selectedInputId.pipe(distinctUntilChanged()).subscribe(() => releaseHeld(() => false)),
       ];
     })
-    .destroy(({ $midiSubscription }) => {
+    .subscriptions(({ $selectedInputId, $clockSync, forgetClock }) => [
+      $selectedInputId.pipe(distinctUntilChanged()).subscribe(forgetClock),
+      // switched off: nothing of the clock is kept (the position neither: its Song Positions are ignored since), the
+      // tempo of the field leads again; on again, the next clock leads
+      $clockSync.pipe(skip(1)).subscribe((on) => {
+        writeStored('localStorage', CLOCK_SYNC_KEY, on);
+        if (!on) forgetClock();
+      }),
+    ])
+    .destroy(({ $midiSubscription, forgetClock }) => {
       $midiSubscription.value?.[1].unsubscribe();
+      forgetClock();
     });
 
 export const { ModelProvider: MidiControllerProvider, useModel: useMidiController } = rxModelReact(

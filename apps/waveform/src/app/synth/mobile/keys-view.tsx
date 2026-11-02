@@ -34,7 +34,7 @@ const MiniSynth = styled(Scaled)`
 `;
 
 // the whole fx screen at a fixed width (the list above the rack in portrait), scaled down to fit the panel
-// like the mini synth: every effect on one or two lines
+// like the mini synth: every effect on one or two lines, the delay on one (its keys of the tempo beside Time)
 const MiniFx = styled(Scaled)`
   flex: 0 0 40%;
   ${miniPanel}
@@ -96,7 +96,7 @@ export const KeysView = ({ portrait, screen }: { portrait: boolean; screen: Synt
   return (
     <Root ref={rootRef}>
       {screen === 'fx' ? (
-        <MiniFx className={panelClassName} width={portrait ? 760 : 1400}>
+        <MiniFx className={panelClassName} width={portrait ? 780 : 1400}>
           <FxScreen layout={portrait ? 'column' : 'row'} />
         </MiniFx>
       ) : (

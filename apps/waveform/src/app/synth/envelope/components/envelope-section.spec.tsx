@@ -2,13 +2,20 @@ import React from 'react';
 import { BehaviorSubject } from 'rxjs';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { AdsrEnvelope, formatTime, VelocityCurve, VelocityDot } from '@waveform/ui-kit';
-import { MOD_SOURCES } from '@waveform/preset-schema';
+import {
+  divisionIndex,
+  ENVELOPE_DIVISIONS,
+  ENVELOPE_TIME_DIVISIONS,
+  MOD_SOURCES,
+} from '@waveform/preset-schema';
 import { EnvelopesProvider, ModulationProvider, useEnvelopes, useModulation } from '../../common/modules';
-import { EnvelopesModule } from '../../common/modules/envelopes';
+import { EnvelopesModule, envelopeSeconds } from '../../common/modules/envelopes';
 import { ModulationModule } from '../../common/modules/modulation';
 import { SynthContext, SynthModule } from '../../common/modules/synth';
 import type { FxNote } from '../../fx/effects/fx-modulation';
 import { MOD_TARGETS } from '../../common/modulation/modulation-targets';
+import { createTransport } from '../../../../test-utils/models';
+import { TransportContext } from '../../common/modules/transport';
 import { EnvelopeSection } from './envelope-section';
 import { VelocitySection } from './velocity-section';
 import { EnvelopeDot } from './envelope-dot';
@@ -28,15 +35,18 @@ const Capture = ({ onModel }: { onModel: (modules: [EnvelopesModule, ModulationM
 const setup = () => {
   let envelopes: EnvelopesModule | undefined;
   let modulation: ModulationModule | undefined;
+  const transport = createTransport();
   render(
-    <EnvelopesProvider initial={undefined}>
-      <ModulationProvider initial={undefined}>
-        <Capture onModel={(modules) => ([envelopes, modulation] = modules)} />
-        <EnvelopeSection />
-        <VelocitySection />
-        <div data-mod-target='osc1.wave' data-testid='knob' />
-      </ModulationProvider>
-    </EnvelopesProvider>
+    <TransportContext.Provider value={transport}>
+      <EnvelopesProvider initial={undefined} transport={transport}>
+        <ModulationProvider initial={undefined}>
+          <Capture onModel={(modules) => ([envelopes, modulation] = modules)} />
+          <EnvelopeSection />
+          <VelocitySection />
+          <div data-mod-target='osc1.wave' data-testid='knob' />
+        </ModulationProvider>
+      </EnvelopesProvider>
+    </TransportContext.Provider>
   );
   if (!envelopes || !modulation) throw new Error('the models are not initialized');
   // the props of the chart and the knobs in the last render
@@ -44,7 +54,7 @@ const setup = () => {
     (AdsrEnvelope as jest.Mock).mock.lastCall?.[0] as React.ComponentProps<typeof AdsrEnvelope>;
   const velocityProps = () =>
     (VelocityCurve as jest.Mock).mock.lastCall?.[0] as React.ComponentProps<typeof VelocityCurve>;
-  return { envelopes, modulation, props, velocityProps };
+  return { envelopes, modulation, props, velocityProps, transport };
 };
 
 // jsdom has no PointerEvent: a mouse event with the pointer type name and a pointerId works for React and the
@@ -104,10 +114,41 @@ describe('EnvelopeSection and VelocitySection', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'ENV 2' }));
 
     expect(screen.getByRole('tab', { name: 'ENV 2' })).toHaveAttribute('aria-selected', 'true');
-    expect(props()).toMatchObject({ ...$envelopes.value.env2, decay: 2.5 });
+    expect(props()).toMatchObject({ ...envelopeSeconds($envelopes.value.env2, 120), decay: 2.5 });
     act(() => props().onChange('attack', 1.25));
     expect($envelopes.value.env2.attack).toBe(1.25);
     expect($envelopes.value.env1.attack).toBe(0.005);
+  });
+
+  it('in BPM steps its times through the divisions, the chart and the dot draw their seconds at the tempo', () => {
+    const { envelopes, props, transport } = setup();
+    const [{ $envelopes }] = envelopes;
+    expect(props().timeSteps).toBeUndefined();
+    // the key right of Release: BPM alone on its plate
+    render(props().aside as React.ReactElement);
+    const plate = screen.getByRole('group', { name: 'Tempo' });
+    expect(plate).toHaveClass('stack');
+    expect(
+      within(plate)
+        .getAllByRole('button')
+        .map((key) => key.textContent)
+    ).toEqual(['BPM']);
+    fireEvent.click(screen.getByRole('button', { name: 'Tempo sync' }));
+    expect($envelopes.value.env1.bpm).toBe(true);
+    const steps = props().timeSteps;
+    expect(steps).toMatchObject({
+      steps: ENVELOPE_TIME_DIVISIONS,
+      values: ENVELOPE_DIVISIONS.env1,
+      defaults: ENVELOPE_DIVISIONS.env1,
+    });
+    expect(steps?.format(divisionIndex('1/16'))).toBe('1/16');
+    act(() => steps?.onChange('release', divisionIndex('1 bar')));
+    expect($envelopes.value.env1.divs.release).toBe(divisionIndex('1 bar'));
+    // a bar at 120: 2 s; at 60: 4 s
+    expect(props().release).toBe(2);
+    act(() => transport[1].setBpm(60));
+    expect(props().release).toBe(4);
+    expect((props().children as React.ReactElement).props.env.release).toBe(4);
   });
 
   it('the chart draws the curves of the selected tab, its points change them up to ±10, from the defaults', () => {
@@ -123,7 +164,9 @@ describe('EnvelopeSection and VelocitySection', () => {
     expect($envelopes.value.env3.curves).toEqual({ attack: 2.5, decay: -4, release: 3.49 });
     expect($envelopes.value.env1.curves.attack).toBe(0);
     // the dot of the note follows them
-    expect((props().children as React.ReactElement).props.env).toBe($envelopes.value.env3);
+    expect((props().children as React.ReactElement).props.env).toEqual(
+      envelopeSeconds($envelopes.value.env3, 120)
+    );
   });
 
   it('the chart has the dot of the note on the envelope of the selected tab, one of its own per tab', () => {
@@ -149,7 +192,7 @@ describe('EnvelopeSection and VelocitySection', () => {
     fireEvent.click(tab('ENV 2'));
     fireEvent.click(tab('VELO'));
     expect(envelopes[0].$selected.value).toBe('velo');
-    expect(props()).toMatchObject(envelopes[0].$envelopes.value.env2);
+    expect(props()).toMatchObject(envelopeSeconds(envelopes[0].$envelopes.value.env2, 120));
     expect(tab('ENV 2')).toHaveAttribute('aria-selected', 'true');
     expect(tab('ENV 2')).toHaveClass('shown');
     expect(tab('ENV 2')).not.toHaveClass('selected');

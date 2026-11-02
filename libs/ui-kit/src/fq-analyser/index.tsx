@@ -3,7 +3,7 @@ import { scaleLog } from 'd3-scale';
 import styled from 'styled-components';
 import { number } from '@waveform/math';
 import { theme } from '../common/constants';
-import { MeterLoop, meterLoop } from '../common/utils/meter-loop';
+import { MeterLoop, meterLoop, QUIET_MS } from '../common/utils/meter-loop';
 
 interface Props {
   master: AudioNode;
@@ -12,6 +12,8 @@ interface Props {
   className?: string;
   // a voice sounds: drawn every frame; else it sleeps once the output has been silent a while (meterLoop)
   active?: boolean;
+  // ms of silence it sleeps after (QUIET_MS by default: longer for a delay with longer gaps between its echoes)
+  quietMs?: number;
 }
 
 const Canvas = styled.canvas`
@@ -38,10 +40,19 @@ const MAX_DB = -10;
 
 const formatFq = (fq: number) => (fq >= 1000 ? `${fq / 1000}k` : `${fq}`);
 
-export const FqAnalyser = ({ fftSize = 12, master, audioCtx, className, active = true }: Props) => {
+export const FqAnalyser = ({
+  fftSize = 12,
+  master,
+  audioCtx,
+  className,
+  active = true,
+  quietMs = QUIET_MS,
+}: Props) => {
   const rootRef = React.useRef<HTMLDivElement>(null);
   const ref = React.useRef<HTMLCanvasElement>(null);
   const activeRef = React.useRef(active);
+  const quietRef = React.useRef(quietMs);
+  quietRef.current = quietMs;
   const loopRef = React.useRef<MeterLoop | null>(null);
   const [[width, height], setSize] = React.useState<[number, number]>([300, 150]);
   const scale = React.useMemo(
@@ -124,7 +135,7 @@ export const FqAnalyser = ({ fftSize = 12, master, audioCtx, className, active =
       }
       return true;
     };
-    const loop = meterLoop(draw);
+    const loop = meterLoop(draw, () => quietRef.current);
     loop.setAwake(activeRef.current);
     loopRef.current = loop;
 

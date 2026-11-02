@@ -1,4 +1,6 @@
-import { delay } from './delay';
+import { mapValues } from 'lodash';
+import { divisionIndex, FX_PARAMS, TEMPO_DIVISIONS } from '@waveform/preset-schema';
+import { delay, DELAY_LINE_MAX, delayParamChange, delayStepsOf, delayTime, delayTimeBounds } from './delay';
 import type { FxMod } from './fx-mod';
 import { DELAY_LINES } from './fx-mod-params';
 
@@ -35,6 +37,8 @@ const setup = () => {
     feedbacks: { ll: fbLL, rr: fbRR, lr: fbLR, rl: fbRL },
   };
 };
+
+const FX_DEFAULTS = mapValues(FX_PARAMS.delay, (param) => param.default);
 
 // changes after create are smoothed, the initial values are set instantly
 const lastValue = (param: AudioParam) => (param.setTargetAtTime as jest.Mock).mock.lastCall?.[0];
@@ -125,6 +129,99 @@ describe('delay', () => {
     expect(feedbacks.ll.gain.setTargetAtTime).toHaveBeenLastCalledWith(0.4, 0, 0.01);
   });
 
+  describe('in BPM', () => {
+    const at = (id: string) => divisionIndex(id);
+
+    it('plays the division of Time at the tempo, gliding like tape', () => {
+      const { core, lines } = setup();
+      core.setParam('div', at('1/4'));
+      // MS: the division waits
+      lines.forEach((line) => expect(line.delayTime.setTargetAtTime).toHaveBeenLastCalledWith(0.2, 0, 0.1));
+      core.setParam('sync', 1);
+      lines.forEach((line) => expect(line.delayTime.setTargetAtTime).toHaveBeenLastCalledWith(0.5, 0, 0.1));
+      core.setParam('div', at('1/8D'));
+      core.setParam('dot', 1);
+      expect(lastValue(lines[0].delayTime)).toBe(0.375);
+      // a new tempo glides there too
+      core.setTempo?.(60);
+      lines.forEach((line) => expect(line.delayTime.setTargetAtTime).toHaveBeenLastCalledWith(0.75, 0, 0.1));
+      // back to MS: Time
+      core.setParam('sync', 0);
+      expect(lastValue(lines[0].delayTime)).toBe(0.2);
+    });
+
+    it('steps Time through the same array for the same switches', () => {
+      const steps = delayStepsOf({ trip: 0, dot: 0 });
+      expect(delayStepsOf({ trip: 0, dot: 0, div: at('1/4') })).toBe(steps);
+      expect(steps.map((division) => TEMPO_DIVISIONS[division].id)).toEqual([
+        '1/64',
+        '1/32',
+        '1/16',
+        '1/8',
+        '1/4',
+        '1/2',
+        '1 bar',
+      ]);
+      expect(delayStepsOf({ trip: 1, dot: 0 })).not.toBe(steps);
+      expect(delayStepsOf({ trip: 1, dot: 1 })).toBe(delayStepsOf({ trip: 1, dot: 1 }));
+    });
+
+    it('a change of BPM, TRIP or DOT sets the division or the seconds of Time with it (delayParamChange)', () => {
+      const ms = { ...FX_DEFAULTS, time: 0.3 };
+      // 0.6 quarters at 120: 1/8; at 60 0.3 quarters: 1/16
+      expect(delayParamChange(ms, 'sync', 1, 120)).toEqual({ sync: 1, div: at('1/8') });
+      expect(delayParamChange(ms, 'sync', 1, 60)).toEqual({ sync: 1, div: at('1/16') });
+      // MS again: nothing else
+      expect(delayParamChange(ms, 'sync', 0, 120)).toEqual({ sync: 0 });
+      const bpm = { ...ms, sync: 1, div: at('1/4') };
+      expect(delayParamChange(bpm, 'sync', 0, 120)).toEqual({ sync: 0, time: 0.5 });
+      // within the range of Time
+      expect(delayParamChange({ ...bpm, div: at('1 bar') }, 'sync', 0, 60)).toEqual({ sync: 0, time: 1 });
+      expect(delayParamChange({ ...bpm, div: at('1/64') }, 'sync', 0, 300)).toEqual({
+        sync: 0,
+        time: 0.0125,
+      });
+      const triplet = { ...bpm, trip: 1, div: at('1/8T') };
+      expect(delayParamChange(triplet, 'trip', 0, 120)).toEqual({ trip: 0, div: at('1/8') });
+      expect(delayParamChange(triplet, 'dot', 1, 120)).toEqual({ dot: 1, div: at('1/8T') });
+      expect(delayParamChange(bpm, 'fb', 0.7, 120)).toEqual({ fb: 0.7 });
+    });
+
+    it('takes the straight division of a triplet or a dotted one its switch is off for', () => {
+      const { core, lines } = setup();
+      core.setParam('sync', 1);
+      core.setParam('div', at('1/4T'));
+      expect(lastValue(lines[0].delayTime)).toBe(0.5);
+      core.setParam('trip', 1);
+      expect(lastValue(lines[0].delayTime)).toBeCloseTo(1 / 3, 12);
+    });
+
+    it('plays a bar at 60 BPM at most: 4 s, its lines that long', () => {
+      const { core, lines } = setup();
+      core.setTempo?.(20);
+      core.setParam('sync', 1);
+      core.setParam('div', at('1 bar'));
+      expect(lastValue(lines[0].delayTime)).toBe(4);
+      expect(delayTime({ ...FX_DEFAULTS, sync: 1, div: at('1/4') }, 120)).toBe(0.5);
+      expect(DELAY_LINE_MAX).toBe(4);
+    });
+
+    it('a new tempo in MS changes nothing', () => {
+      const { core, lines } = setup();
+      const calls = (lines[0].delayTime.setTargetAtTime as jest.Mock).mock.calls.length;
+      core.setTempo?.(60);
+      expect((lines[0].delayTime.setTargetAtTime as jest.Mock).mock.calls.length).toBe(calls);
+    });
+
+    it('bounds the routes to Time by its divisions at the tempo, 4 s at most', () => {
+      expect(delayTimeBounds({ ...FX_DEFAULTS }, 120)).toBeUndefined();
+      // 1/64 … 1 bar at 120
+      expect(delayTimeBounds({ ...FX_DEFAULTS, sync: 1 }, 120)).toEqual([0.03125, 2]);
+      // with TRIP from 1/64T, a bar at 40 longer than the lines
+      expect(delayTimeBounds({ ...FX_DEFAULTS, sync: 1, trip: 1 }, 40)).toEqual([1.5 / 16 / (3 / 2), 4]);
+    });
+  });
+
   it('normal: each line feeds itself, ping-pong: the mono sum bounces between the lines', () => {
     const { core, inputs, feedbacks } = setup();
     core.setParam('fb', 0.6);
@@ -168,9 +265,9 @@ describe('delay', () => {
     });
   });
 
-  it('sizes the lines for 1s and the offsets for the 50ms Haas range', () => {
+  it('sizes the lines for 4 s (a bar at 60 BPM) and the offsets for the 50ms Haas range', () => {
     const { createDelay } = setup();
-    expect(createDelay.mock.calls).toEqual([[1], [1], [0.05], [0.05]]);
+    expect(createDelay.mock.calls).toEqual([[4], [4], [0.05], [0.05]]);
   });
 
   it('pan delays the right channel when negative (echoes on the left) and the left one when positive', () => {
@@ -223,7 +320,7 @@ describe('delay', () => {
         feedbacks,
       } = setup();
       core.clear?.();
-      expect(createDelay.mock.calls.slice(4)).toEqual([[1], [1], [0.05], [0.05]]);
+      expect(createDelay.mock.calls.slice(4)).toEqual([[4], [4], [0.05], [0.05]]);
       const [lineL, lineR, offL, offR] = cleared(createDelay, 4) as DelayNode[];
       const [bpL, bpR] = cleared(createBiquadFilter, 2) as BiquadFilterNode[];
       [...lines, ...filters, ...offsets, ...Object.values(inputs), ...Object.values(feedbacks)].forEach(
@@ -358,6 +455,11 @@ describe('delay', () => {
         { routes: [freq], base: 1000, map: 'linear' },
         [filters[0].frequency, filters[1].frequency],
       ]);
+      // in BPM the line of Time from the seconds of its division at the tempo
+      core.setParam('sync', 1);
+      expect(lineOf(DELAY_LINES.time)[0]).toEqual({ routes: [time], base: 0.25, map: 'linear' });
+      core.setTempo?.(60);
+      expect(lineOf(DELAY_LINES.time)[0]).toEqual({ routes: [time], base: 0.5, map: 'linear' });
       // the others have none
       expect(lineOf(DELAY_LINES.q)?.[0]).toBeNull();
     });

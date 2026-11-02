@@ -1,6 +1,7 @@
 import { Subscription } from 'rxjs';
 import { normalizePreset } from '@waveform/preset-schema';
 import { applySnapshot } from '../app';
+import { eventTime } from '../common/services';
 import type {
   useEnvelopes,
   useModulation,
@@ -188,17 +189,14 @@ export const createPerfApi = (models: PerfModels) => {
   const handled = new WeakMap<Event, number>();
   const capture = (event: Event) => handled.set(event, performance.now());
   const CAPTURED = ['keydown', 'keyup'];
-  // the time stamp of an event on the clock of performance.now(): jsdom stamps events from the epoch; one that is
-  // off by an hour on both clocks is the moment the capture listener got the event (estimated)
-  const HOUR = 3.6e6;
-  const eventTime = () => {
+  // the time stamp of an event on the clock of performance.now(); one on neither clock is the moment the capture
+  // listener got the event (estimated)
+  const inputTime = () => {
     const event = window.event;
     if (!event) return { event: null, handled: null };
     const captured = handled.get(event) ?? null;
     const now = performance.now();
-    const epoch = event.timeStamp - performance.timeOrigin;
-    const timeStamp =
-      Math.abs(event.timeStamp - now) < HOUR ? event.timeStamp : Math.abs(epoch - now) < HOUR ? epoch : null;
+    const timeStamp = eventTime(event.timeStamp, now);
     return {
       event: { type: event.type, timeStamp: timeStamp ?? captured ?? now, estimated: timeStamp === null },
       handled: captured,
@@ -225,7 +223,7 @@ export const createPerfApi = (models: PerfModels) => {
         const output = audioCtx.getOutputTimestamp?.();
         presses.push({
           note: noteToString(note),
-          ...eventTime(),
+          ...inputTime(),
           at: performance.now(),
           contextTime: audioCtx.currentTime,
           lost: wavetables.$status.value !== 'ready',
@@ -240,7 +238,7 @@ export const createPerfApi = (models: PerfModels) => {
       $onRelease.subscribe((note) =>
         releases.push({
           note: noteToString(note),
-          ...eventTime(),
+          ...inputTime(),
           at: performance.now(),
           contextTime: audioCtx.currentTime,
         })

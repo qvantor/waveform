@@ -5,6 +5,7 @@ import {
   PianoKeyboard,
   VolumeAnalyser,
   FqAnalyser,
+  QUIET_MS,
   TapeSwitch,
   theme,
   useElementSize,
@@ -37,6 +38,8 @@ import {
   MidiControllerProvider,
   SoundSwitchProvider,
   useSoundSwitch,
+  TransportProvider,
+  useTransport,
 } from './common/modules';
 import { FilterProvider, FilterSection, useFilter } from './filter';
 import { Oscillator1, Oscillator2, MasterHandle, LimiterStatus } from './synth/components';
@@ -226,8 +229,16 @@ const FxInternal = ({ children }: React.PropsWithChildren) => {
   const synth = useSynth();
   const lfo = useLfos();
   const modulation = useModulation();
+  const transport = useTransport();
   return (
-    <FxProvider initial={{}} synthCore={synthCore} synth={synth} lfo={lfo} modulation={modulation}>
+    <FxProvider
+      initial={{}}
+      synthCore={synthCore}
+      transport={transport}
+      synth={synth}
+      lfo={lfo}
+      modulation={modulation}
+    >
       <SoundSwitchInternal>{children}</SoundSwitchInternal>
     </FxProvider>
   );
@@ -246,6 +257,7 @@ const PresetsInternal = ({ children }: React.PropsWithChildren) => {
 // the voices: the filter is in each of them, the fx follow the last note
 const VoicesInternal = ({ children }: React.PropsWithChildren) => {
   const synthCore = useSynthCore();
+  const transport = useTransport();
   const inputController = useInputController();
   const envelopes = useEnvelopes();
   const lfo = useLfos();
@@ -256,6 +268,7 @@ const VoicesInternal = ({ children }: React.PropsWithChildren) => {
   return (
     <SynthProvider
       initial={{}}
+      transport={transport}
       inputController={inputController}
       envelopes={envelopes}
       lfo={lfo}
@@ -276,9 +289,10 @@ const Internal = () => {
   const app = useApp();
   const synthCore = useSynthCore();
   const inputController = useInputController();
+  const transport = useTransport();
 
   return (
-    <MidiControllerProvider initial={{}} inputController={inputController}>
+    <MidiControllerProvider initial={{}} inputController={inputController} transport={transport}>
       <FilterProvider initial={{}} synthCore={synthCore}>
         <VoicesInternal>
           <KeyboardControllerProvider initial={{}} app={app} inputController={inputController}>
@@ -331,15 +345,23 @@ const useSounding = () => {
   return useObservable($sounding, $voicesCount.value > 0);
 };
 
+// ms of silence the meters sleep after: past the longest gap between two echoes of the delay (in BPM up to 4 s)
+const QUIET_MARGIN_MS = 500;
+const useQuietMs = () => {
+  const [{ $echoGap }] = useFx();
+  const gap = useObservable($echoGap, 0);
+  return Math.max(QUIET_MS, gap * 1000 + QUIET_MARGIN_MS);
+};
+
 // the meters render alone when the first voice starts and the last one ends, not the header
 const OutputSpectrum = () => {
   const [{ audioCtx, output }] = useSynthCore();
-  return <HeaderEq audioCtx={audioCtx} master={output} active={useSounding()} />;
+  return <HeaderEq audioCtx={audioCtx} master={output} active={useSounding()} quietMs={useQuietMs()} />;
 };
 
 const OutputLevel = () => {
   const [{ audioCtx, output }] = useSynthCore();
-  return <VolumeAnalyser audioCtx={audioCtx} master={output} active={useSounding()} />;
+  return <VolumeAnalyser audioCtx={audioCtx} master={output} active={useSounding()} quietMs={useQuietMs()} />;
 };
 
 const HeaderInternal = ({ screen, onScreenChange }: ScreenProps) => (
@@ -363,28 +385,48 @@ const HeaderInternal = ({ screen, onScreenChange }: ScreenProps) => (
   </Header>
 );
 
-// the LFOs run in the voices node of the synth core
+// the LFOs run in the voices node of the synth core, in BPM at the tempo of the transport
 const LfoInternal = ({ children }: React.PropsWithChildren) => {
   const synthCore = useSynthCore();
+  const transport = useTransport();
   return (
-    <LfoProvider initial={{}} synthCore={synthCore}>
+    <LfoProvider initial={{}} synthCore={synthCore} transport={transport}>
       {children}
     </LfoProvider>
+  );
+};
+
+// the envelopes in BPM at the tempo of the transport
+const EnvelopesInternal = ({ children }: React.PropsWithChildren) => (
+  <EnvelopesProvider initial={{}} transport={useTransport()}>
+    {children}
+  </EnvelopesProvider>
+);
+
+// the tempo and the transport on the clock of the synth core
+const TransportInternal = ({ children }: React.PropsWithChildren) => {
+  const synthCore = useSynthCore();
+  return (
+    <TransportProvider initial={{}} synthCore={synthCore}>
+      {children}
+    </TransportProvider>
   );
 };
 
 export default () => (
   <InputControllerProvider initial={{}}>
     <SynthCoreProvider initial={{}}>
-      <EnvelopesProvider initial={{}}>
-        <LfoInternal>
-          <ModulationProvider initial={{}}>
-            <OscillatorInternal>
-              <Internal />
-            </OscillatorInternal>
-          </ModulationProvider>
-        </LfoInternal>
-      </EnvelopesProvider>
+      <TransportInternal>
+        <EnvelopesInternal>
+          <LfoInternal>
+            <ModulationProvider initial={{}}>
+              <OscillatorInternal>
+                <Internal />
+              </OscillatorInternal>
+            </ModulationProvider>
+          </LfoInternal>
+        </EnvelopesInternal>
+      </TransportInternal>
     </SynthCoreProvider>
   </InputControllerProvider>
 );

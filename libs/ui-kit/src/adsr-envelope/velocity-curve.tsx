@@ -6,11 +6,15 @@ import { Handle } from '../handle';
 import { theme } from '../common/constants';
 import { text12 } from '../common/styles';
 import { curveShape } from './envelope-line';
-import { CurvePoint } from './curve-handles';
+import { CurvePoint, POINT_RADIUS } from './curve-handles';
 import { NOTE_DOT_COLOR, NOTE_DOT_RADIUS } from './note-dot';
 
 // the points of the curve
 const POINTS = 64;
+// a point of the curve in on every side (its radius in whole px; the dot of a note is smaller): the dot of a note at
+// either end of the velocity, the point of a curve bent to the end and the line at the edges whole (the chart clips)
+const INSET = Math.ceil(POINT_RADIUS);
+const PADDING: [number, number] = [INSET, INSET];
 
 const Root = styled.div`
   height: 100%;
@@ -89,7 +93,7 @@ export const VelocityCurve = ({
   children,
 }: Props) => (
   <Root>
-    <Chart domainX={[0, 1]} domainY={[1, 0]} padding={[10, 5]}>
+    <Chart domainX={[0, 1]} domainY={[1, 0]} padding={PADDING}>
       <YAxis ticks={2} />
       <XAxis ticks={4} />
       <Curve k={k} />

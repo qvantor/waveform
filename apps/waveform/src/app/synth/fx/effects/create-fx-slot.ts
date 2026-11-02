@@ -103,6 +103,8 @@ export const createFxSlot = (
     },
     // the LFOs of the last note (the core runs them)
     setLfos: (state: LfosState) => core.setLfos?.(state),
+    // the tempo of the synth (a core in BPM follows it)
+    setTempo: (bpm: number) => core.setTempo?.(bpm),
     // the routes of the envelopes and the LFOs of the last note: the mix moves the gains of the slot, the others
     // the core (with the routes of the note to the knobs of the LFOs)
     setModulation: (modulation: FxModulation | null) => {

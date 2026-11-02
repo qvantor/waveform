@@ -2,7 +2,7 @@ import React from 'react';
 import styled from 'styled-components';
 import { number, vector2d } from '@waveform/math';
 import { LineChart, useLineChartContext, Line, XAxis, YAxis } from '../line-chart';
-import { Handle } from '../handle';
+import { Handle, knobGeometry } from '../handle';
 import { theme } from '../common/constants';
 import { text12 } from '../common/styles';
 import { AdsrCurves, envelopeLine, LineProps } from './envelope-line';
@@ -40,6 +40,18 @@ const HandleValue = styled.p`
   margin-top: 7px;
 `;
 
+// a control right of Release (the switch of the units of its times): as large as the knob with its arc (its knobs
+// take no routes: a knob of size m, its label 15 px under it), level with it, 5 px from the arc
+const KNOB = knobGeometry('m');
+const KNOB_LABEL = 15;
+const Aside = styled.div`
+  align-self: flex-end;
+  display: flex;
+  width: ${KNOB.arc}px;
+  height: ${KNOB.arc}px;
+  margin: 0 0 ${KNOB_LABEL + (KNOB.box - KNOB.arc) / 2}px -9px;
+`;
+
 const CustomLine = ({ curves, ...stages }: LineProps & { curves?: AdsrCurves }) => {
   const { scaleX, scaleY } = useLineChartContext();
   const { corners, points } = envelopeLine(stages, curves);
@@ -74,6 +86,20 @@ export const formatTime = (seconds: number) => {
 // the times in steps of 0.1 ms
 const TIME_PRECISION = 10000;
 
+type TimeStage = 'attack' | 'hold' | 'decay' | 'release';
+// the time knobs in steps of their own (the divisions of a tempo) instead of seconds; the chart draws the seconds
+// of the props
+export interface AdsrSteps {
+  // the values a time knob steps through, from the shortest
+  steps: number[];
+  // the value of each one
+  values: Record<TimeStage, number>;
+  format: (value: number) => string;
+  // the values of the menus
+  defaults?: Record<TimeStage, number>;
+  onChange: (stage: TimeStage, value: number) => void;
+}
+
 type Props = LineProps & {
   // the shape of the stages (none: lines)
   curves?: AdsrCurves;
@@ -91,6 +117,10 @@ type Props = LineProps & {
   defaultValues?: LineProps;
   // HTML over the chart, in its context (the NoteDot of a playing note)
   children?: React.ReactNode;
+  // the time knobs in steps (a tempo)
+  timeSteps?: AdsrSteps;
+  // right of Release, as large as its knob (the switch of the units of the times)
+  aside?: React.ReactNode;
 };
 
 // the chart scales to the whole envelope; the time knobs are nonlinear (pow): short times get most of their
@@ -103,20 +133,40 @@ export const AdsrEnvelope = ({
   defaultCurves,
   defaultValues,
   children,
+  timeSteps,
+  aside,
   ...rest
 }: Props) => {
   const { attack, hold, decay, sustain, release } = rest;
-  const formatValue = formatTime;
-  const handleProps = {
-    min: 0,
-    max: maxTime,
-    mode: 'pow' as const,
-    precision: TIME_PRECISION,
-    plotSize: 200,
-    formatValue,
-  };
   const onChangeInternal = (key: keyof LineProps) => (value: number) =>
     onChange(key, number.round(value, TIME_PRECISION));
+  // a time knob: by its travel (short times get most of it), or in its steps
+  const timeKnob = (stage: TimeStage) =>
+    timeSteps
+      ? {
+          min: 0,
+          max: Math.max(...timeSteps.steps),
+          step: timeSteps.steps,
+          precision: 1,
+          plotSize: 200,
+          value: timeSteps.values[stage],
+          formatValue: timeSteps.format,
+          defaultValue: timeSteps.defaults?.[stage],
+          onChange: (value: number) => timeSteps.onChange(stage, value),
+        }
+      : {
+          min: 0,
+          max: maxTime,
+          mode: 'pow' as const,
+          precision: TIME_PRECISION,
+          plotSize: 200,
+          value: rest[stage],
+          formatValue: formatTime,
+          defaultValue: defaultValues?.[stage],
+          onChange: onChangeInternal(stage),
+        };
+  const timeValue = (stage: TimeStage) =>
+    timeSteps ? timeSteps.format(timeSteps.values[stage]) : formatTime(rest[stage]);
   const length = attack + hold + decay + release;
 
   return (
@@ -132,40 +182,19 @@ export const AdsrEnvelope = ({
       <Handlers>
         <HandlersGroup>
           <div>
-            <HandleValue>{formatValue(attack)}</HandleValue>
-            <Handle
-              label='Attack'
-              name='Attack time'
-              {...handleProps}
-              value={attack}
-              defaultValue={defaultValues?.attack}
-              onChange={onChangeInternal('attack')}
-            />
+            <HandleValue>{timeValue('attack')}</HandleValue>
+            <Handle label='Attack' name='Attack time' {...timeKnob('attack')} />
           </div>
           <div>
-            <HandleValue>{formatValue(hold)}</HandleValue>
-            <Handle
-              label='Hold'
-              name='Hold time'
-              {...handleProps}
-              value={hold}
-              defaultValue={defaultValues?.hold}
-              onChange={onChangeInternal('hold')}
-            />
+            <HandleValue>{timeValue('hold')}</HandleValue>
+            <Handle label='Hold' name='Hold time' {...timeKnob('hold')} />
           </div>
         </HandlersGroup>
 
         <HandlersGroup>
           <div>
-            <HandleValue>{formatValue(decay)}</HandleValue>
-            <Handle
-              label='Decay'
-              name='Decay time'
-              {...handleProps}
-              value={decay}
-              defaultValue={defaultValues?.decay}
-              onChange={onChangeInternal('decay')}
-            />
+            <HandleValue>{timeValue('decay')}</HandleValue>
+            <Handle label='Decay' name='Decay time' {...timeKnob('decay')} />
           </div>
           <div>
             <HandleValue>{Math.round(sustain * 100)}</HandleValue>
@@ -182,17 +211,13 @@ export const AdsrEnvelope = ({
           </div>
         </HandlersGroup>
 
-        <div>
-          <HandleValue>{formatValue(release)}</HandleValue>
-          <Handle
-            label='Release'
-            name='Release time'
-            {...handleProps}
-            value={release}
-            defaultValue={defaultValues?.release}
-            onChange={onChangeInternal('release')}
-          />
-        </div>
+        <HandlersGroup>
+          <div>
+            <HandleValue>{timeValue('release')}</HandleValue>
+            <Handle label='Release' name='Release time' {...timeKnob('release')} />
+          </div>
+          {aside && <Aside>{aside}</Aside>}
+        </HandlersGroup>
       </Handlers>
     </Root>
   );

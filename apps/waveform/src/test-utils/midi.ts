@@ -18,6 +18,13 @@ export const createMidiAccess = (inputs: WebMidi.MIDIInput[]) => {
 export const midiMessage = (input: WebMidi.MIDIInput, ...data: number[]) =>
   input.dispatchEvent(Object.assign(new Event('midimessage'), { data: new Uint8Array(data) }));
 
+// a message that came at `ms` (performance.now(): the time stamp of a browser)
+export const timedMidiMessage = (input: WebMidi.MIDIInput, ms: number, ...data: number[]) => {
+  const event = Object.assign(new Event('midimessage'), { data: new Uint8Array(data) });
+  Object.defineProperty(event, 'timeStamp', { value: ms });
+  return input.dispatchEvent(event);
+};
+
 // the access telling that a port of the type was connected or disconnected
 export const midiStateChange = (access: WebMidi.MIDIAccess, type: 'input' | 'output' = 'input') =>
   access.dispatchEvent(Object.assign(new Event('statechange'), { port: { type } }));

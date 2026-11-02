@@ -2,6 +2,7 @@ import toast from 'react-hot-toast';
 import {
   DEFAULT_WAVETABLE_PATH,
   ENVELOPE_DEFAULTS,
+  ENVELOPE_DIVISIONS,
   normalizePreset,
   presetHash,
   Preset,
@@ -560,6 +561,8 @@ describe('presets model', () => {
       sustain: 1,
       release: 0.005,
       curves: { attack: 0, decay: 3.49, release: 3.49 },
+      bpm: false,
+      divs: ENVELOPE_DIVISIONS.env1,
     });
     expect(presetHash(getSnapshot())).toBe(presetHash({}));
     expect($current.value).toBeNull();
@@ -592,8 +595,8 @@ describe('presets model', () => {
   });
 
   it('the start state of the synth is Init', () => {
-    const { synthCore, modulation, lfos } = createSynth(DEFAULT_WAVETABLE_PATH);
-    createFx(synthCore, modulation, lfos);
+    const { synthCore, modulation, lfos, transport } = createSynth(DEFAULT_WAVETABLE_PATH);
+    createFx(synthCore, modulation, lfos, transport);
 
     // every snapshot model is registered: nothing is filled in by the schema
     expect(getSnapshot()).toEqual(normalizePreset({}));

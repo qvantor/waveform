@@ -1,4 +1,16 @@
 import { z } from 'zod';
+import {
+  DIVISION_MAX,
+  DIVISION_OFF,
+  divisionIndex,
+  divisionWithin,
+  ENVELOPE_TIME_DIVISIONS,
+  nearestDivision,
+  quartersOf,
+  rateDivisions,
+  TEMPO_DEFAULT,
+  TIME_DIVISIONS,
+} from './tempo';
 
 export const DEFAULT_WAVETABLE_PATH = [
   'ESW Core Tables',
@@ -67,7 +79,14 @@ export const FX_PARAMS = {
     level: { min: -24, max: 12, default: 0 },
   },
   delay: {
+    // seconds of the echoes (MS)
     time: { min: 0.01, max: 1, default: 0.2 },
+    // BPM (1): the time is `div`, an index into TEMPO_DIVISIONS (1/64 … 1 bar, with `trip` and `dot` (1) their
+    // triplets and dotted ones) at the tempo of the synth, 4 s at most
+    sync: { min: 0, max: 1, default: 0, int: true },
+    div: { min: 0, max: DIVISION_MAX, default: divisionIndex('1/8'), int: true },
+    trip: { min: 0, max: 1, default: 0, int: true },
+    dot: { min: 0, max: 1, default: 0, int: true },
     fb: { min: 0, max: 0.9, default: 0.5 },
     // 0: normal, 1: ping-pong
     mode: { min: 0, max: 1, default: 0, int: true },
@@ -228,8 +247,38 @@ export const envelopeCurve = (k: number) =>
 const curveRange = (k: number) =>
   range(-ENVELOPE_CURVE_MAX, ENVELOPE_CURVE_MAX).default(k).transform(envelopeCurve);
 
-const envelopeSchema = ({ attack, hold, decay, sustain, release }: Record<EnvelopeStage, number>) =>
-  z
+// the stages of an envelope with a time
+export type EnvelopeTimeStage = 'attack' | 'hold' | 'decay' | 'release';
+export const ENVELOPE_TIME_STAGES: readonly EnvelopeTimeStage[] = ['attack', 'hold', 'decay', 'release'];
+// in BPM (`bpm`) the times are divisions (`divs`: indexes into TEMPO_DIVISIONS, Off and 1/512 … 32 bar) at the tempo
+// of the synth, the seconds those of MS; a fresh envelope has the divisions nearest to its seconds at 120 (MS: a
+// preset saved before the tempo plays as it did)
+export const ENVELOPE_DIVISIONS = ENVELOPES.reduce(
+  (all, id) => ({
+    ...all,
+    [id]: ENVELOPE_TIME_STAGES.reduce(
+      (divs, stage) => ({
+        ...divs,
+        [stage]: nearestDivision(
+          quartersOf(ENVELOPE_DEFAULTS[id][stage], TEMPO_DEFAULT),
+          ENVELOPE_TIME_DIVISIONS
+        ),
+      }),
+      {} as Record<EnvelopeTimeStage, number>
+    ),
+  }),
+  {} as Record<EnvelopeId, Record<EnvelopeTimeStage, number>>
+);
+
+const envelopeDivision = (division: number) =>
+  intRange(0, DIVISION_MAX)
+    .default(division)
+    .transform((index) => divisionWithin(index, ENVELOPE_TIME_DIVISIONS));
+
+const envelopeSchema = (id: EnvelopeId) => {
+  const { attack, hold, decay, sustain, release } = ENVELOPE_DEFAULTS[id];
+  const divs = ENVELOPE_DIVISIONS[id];
+  return z
     .object({
       attack: range(0, ENVELOPE_TIME_MAX).default(attack),
       hold: range(0, ENVELOPE_TIME_MAX).default(hold),
@@ -243,8 +292,18 @@ const envelopeSchema = ({ attack, hold, decay, sustain, release }: Record<Envelo
           release: curveRange(ENVELOPE_CURVES.release),
         })
         .default({}),
+      bpm: z.boolean().default(false),
+      divs: z
+        .object({
+          attack: envelopeDivision(divs.attack),
+          hold: envelopeDivision(divs.hold),
+          decay: envelopeDivision(divs.decay),
+          release: envelopeDivision(divs.release),
+        })
+        .default({}),
     })
     .default({});
+};
 
 // the velocity of a note (MIDI 1..127; the computer keyboard and the piano play 100): VELO, a source of the
 // routes, is curveShape of its share of 127 by k (0 a line), Amp the share of the volume of the note it takes
@@ -262,9 +321,9 @@ const velocitySchema = z
 
 const envSchema = z
   .object({
-    e1: envelopeSchema(ENVELOPE_DEFAULTS.env1),
-    e2: envelopeSchema(ENVELOPE_DEFAULTS.env2),
-    e3: envelopeSchema(ENVELOPE_DEFAULTS.env3),
+    e1: envelopeSchema('env1'),
+    e2: envelopeSchema('env2'),
+    e3: envelopeSchema('env3'),
     vel: velocitySchema,
   })
   .default({});
@@ -290,7 +349,20 @@ export const LFO_SMOOTH_MAX = 0.5;
 // the points of a shape of its own at most
 export const LFO_POINTS_MAX = 64;
 export type LfoKnob = 'rate' | 'delay' | 'rise' | 'smooth' | 'phase';
-export const LFO_DEFAULTS: Record<LfoKnob, number> & { shape: LfoShape; mode: LfoMode } = {
+// the tempo of an LFO: in BPM Rate, Delay and Rise are divisions (indexes into TEMPO_DIVISIONS: div, delayDiv,
+// riseDiv) at the tempo of the synth, their seconds (rate, delay, rise) are those of HZ; TRIP and DOT add the
+// triplets and the dotted ones to the steps of Rate; HOST: a free one on the grid of the beats of the transport (in
+// HZ: its phase from the position of the transport where it moves, a MIDI Start)
+export type LfoSync = {
+  bpm: boolean;
+  div: number;
+  trip: boolean;
+  dot: boolean;
+  host: boolean;
+  delayDiv: number;
+  riseDiv: number;
+};
+export const LFO_DEFAULTS: Record<LfoKnob, number> & { shape: LfoShape; mode: LfoMode } & LfoSync = {
   rate: 0.5,
   delay: 0,
   rise: 0,
@@ -298,6 +370,14 @@ export const LFO_DEFAULTS: Record<LfoKnob, number> & { shape: LfoShape; mode: Lf
   phase: 0,
   shape: 'sine',
   mode: 'retrig',
+  // HZ: a preset saved before the tempo plays as it did
+  bpm: false,
+  div: divisionIndex('1/4'),
+  trip: false,
+  dot: false,
+  host: true,
+  delayDiv: DIVISION_OFF,
+  riseDiv: DIVISION_OFF,
 };
 
 // a point of a shape of its own: x (the share of the cycle), y (the level), k (the curve of the segment to the
@@ -330,7 +410,21 @@ const lfoSchema = z
       .max(LFO_POINTS_MAX)
       .refine(startsAtZeroAscending)
       .optional(),
+    bpm: z.boolean().default(LFO_DEFAULTS.bpm),
+    div: intRange(0, DIVISION_MAX).default(LFO_DEFAULTS.div),
+    trip: z.boolean().default(LFO_DEFAULTS.trip),
+    dot: z.boolean().default(LFO_DEFAULTS.dot),
+    host: z.boolean().default(LFO_DEFAULTS.host),
+    delayDiv: intRange(0, DIVISION_MAX).default(LFO_DEFAULTS.delayDiv),
+    riseDiv: intRange(0, DIVISION_MAX).default(LFO_DEFAULTS.riseDiv),
   })
+  // each division one of the steps of its knob (Rate by TRIP and DOT; no Off)
+  .transform((lfo) => ({
+    ...lfo,
+    div: divisionWithin(lfo.div, rateDivisions(lfo.trip, lfo.dot)),
+    delayDiv: divisionWithin(lfo.delayDiv, TIME_DIVISIONS),
+    riseDiv: divisionWithin(lfo.riseDiv, TIME_DIVISIONS),
+  }))
   .default({});
 
 const lfoSectionSchema = z.object({ l1: lfoSchema, l2: lfoSchema, l3: lfoSchema, l4: lfoSchema }).default({});

@@ -180,28 +180,55 @@ export const centered = (id: string) => {
 export const amountInUnits = (amount: number, scale: ModScale, [min, max]: [number, number]) =>
   scale === 'log' ? amount * Math.log2(max / min) : scale === 'pow' ? amount : amount * (max - min);
 
-// a route of the modulation in the units of the knob it moves: the scale only when it isn't linear, bipolar only
-// when it is
+// the amount of a route on the wire: in the units of the param over `range`, the knob within `bounds`. The cores
+// move a pow one by max · (its share of max + Σ)⁴ (movedBy of fx-modulation.ts, moved_value of modulation.rs):
+// the bound is its travel. Over another bound (Delay and Rise of an LFO in BPM: 32 bars at the tempo) the amount
+// is (range / bound)^¼ of itself: M·((x/M)^¼ + kΣ)⁴ = T·((x/T)^¼ + Σ)⁴ for k = (T/M)^¼, the knob moves as over
+// the range (a share of the travel of HZ whatever the tempo), clamped to the bound
+export const routeAmount = (
+  amount: number,
+  scale: ModScale,
+  range: [number, number],
+  bounds: [number, number] = range
+) => {
+  const units = amountInUnits(amount, scale, range);
+  return scale === 'pow' && bounds[1] !== range[1] && bounds[1] > 0
+    ? units * Math.sqrt(Math.sqrt(range[1] / bounds[1]))
+    : units;
+};
+
+// a route of the modulation in the units of the knob it moves (its amount a share of `range`), within `bounds` (by
+// default the range: a knob in BPM moves within its divisions at the tempo); the scale only when it isn't linear,
+// bipolar only when it is
 export const fxRoute = (
   param: string,
   { source, amount, bipolar }: ModRoute,
   scale: ModScale,
-  range: [number, number]
+  range: [number, number],
+  bounds: [number, number] = range
 ): FxRoute => ({
   param,
   source: MOD_SOURCES.indexOf(source),
-  amount: amountInUnits(amount, scale, range),
-  min: range[0],
-  max: range[1],
+  amount: routeAmount(amount, scale, range, bounds),
+  min: bounds[0],
+  max: bounds[1],
   ...(scale !== 'linear' && { scale }),
   ...(bipolar && { bipolar }),
 });
 
-// the routes of the note to the knobs of the LFOs (lfo2.rate…: of the envelopes and VELO), in the units of each;
-// an amount of 0 and a route switched off are left out
-export const lfoKnobRoutes = (routes: ModRoute[]): FxRoute[] =>
+// the routes of the note to the knobs of the LFOs (lfo2.rate…: of the envelopes and VELO), in the units of each,
+// within the bounds of `ranges` (those of the knobs in BPM: LfoRanges of the lfo model); an amount of 0 and a route
+// switched off are left out
+export const lfoKnobRoutes = (
+  routes: ModRoute[],
+  ranges: Partial<Record<string, [number, number]>> = {}
+): FxRoute[] =>
   routes.flatMap((route) => {
     const definition = MOD_TARGETS[route.target];
     if (definition?.kind !== 'lfo' || route.amount === 0 || route.off) return [];
-    return [fxRoute(route.target, route, definition.scale, definition.range)];
+    return [fxRoute(route.target, route, definition.scale, definition.range, ranges[route.target])];
   });
+
+// a route moves a knob of an LFO
+export const movesLfoKnob = (routes: ModRoute[]) =>
+  routes.some(({ target, off }) => !off && MOD_TARGETS[target]?.kind === 'lfo');

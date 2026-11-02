@@ -99,6 +99,11 @@ const Value = styled.span`
   }
 `;
 
+// of the color of the label (the accent while held)
+const Arrows = styled(StepArrows)`
+  color: ${theme.colors.primaryDarkHighContrast};
+`;
+
 // the range of the value, as wide as it
 const Track = styled.div`
   position: absolute;
@@ -281,7 +286,7 @@ export const DragValue = ({
       <Value style={wholeNumber ? { width: `${Math.max(`${min}`.length, `${max}`.length)}ch` } : undefined}>
         {formatted}
       </Value>
-      {arrows && <StepArrows active={active} />}
+      {arrows && <Arrows active={active} />}
       {routes && (
         <DotSlot data-testid='mod-dot-slot'>
           {routes.length > 0 && (
