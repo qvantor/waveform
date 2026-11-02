@@ -8,4 +8,5 @@ export { Oscillator1Provider, Oscillator2Provider, useOscillator1, useOscillator
 export { SynthProvider, useSynth } from './synth';
 export { SynthCoreProvider, useSynthCore } from './synth-core';
 export { SoundSwitchProvider, useSoundSwitch } from './sound-switch';
+export { TransportProvider, useTransport } from './transport';
 export type { OscillatorModule, OscillatorModel, OscillatorActions } from './oscillator';

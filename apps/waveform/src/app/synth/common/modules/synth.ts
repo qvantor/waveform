@@ -30,6 +30,7 @@ import {
   filterTargetScale,
   MOD_TARGETS,
   ModScale,
+  movesLfoKnob,
   PITCH_KNOB_CENTS,
   PitchKnob,
 } from '../modulation/modulation-targets';
@@ -49,14 +50,16 @@ import {
 import { noteLfosOf } from '../../modulation/note-lfos';
 import { Glide, glideFrom, scheduleGlide, steady } from './glide';
 import { DEFAULT_VELOCITY, InputControllerModule } from './input-controller';
-import { Envelopes, EnvelopesModule, VelocityKnobs } from './envelopes';
-import type { LfoModule } from './lfos';
+import { Envelopes, envelopeSeconds, EnvelopesModule, VelocityKnobs } from './envelopes';
+import type { LfoModule, LfoRanges } from './lfos';
 import { ModRoute, ModulationModule } from './modulation';
 import { OscillatorModel, OscillatorModule } from './oscillator';
 import { SynthCoreModule } from './synth-core';
+import type { TransportModule } from './transport';
 
 interface Deps {
   synthCore: SynthCoreModule;
+  transport: TransportModule;
   inputController: InputControllerModule;
   envelopes: EnvelopesModule;
   lfo: LfoModule;
@@ -134,12 +137,13 @@ const voiceRoute = (
   param: string,
   amount: number,
   scale: ModScale,
-  [min, max]: [number, number],
-  bipolar: boolean | undefined
+  range: [number, number],
+  bipolar: boolean | undefined,
+  [min, max]: [number, number] = range
 ): VoiceRoute => ({
   source,
   param,
-  amount: amountInUnits(amount, scale, [min, max]),
+  amount: amountInUnits(amount, scale, range),
   min,
   max,
   ...(scale !== 'linear' && { scale }),
@@ -148,13 +152,15 @@ const voiceRoute = (
 
 // the routes of a note to its params: of the oscillators on for it (`osc`, null: off; the pitch an offset of its
 // detune within the range of the knob from its value now, `pitches`), of the filter while it is on, in the range
-// of its type (a knob its type doesn't use is left out), and to the knobs of the LFOs (Rate by its frequency); an
-// amount of 0 and a route switched off are left out (its source isn't rendered for it)
+// of its type (a knob its type doesn't use is left out), and to the knobs of the LFOs (Rate by its frequency; in
+// BPM within their divisions at the tempo, `lfoRanges`); an amount of 0 and a route switched off are left out (its
+// source isn't rendered for it)
 const voiceRoutes = (
   routes: ModRoute[],
   osc: (VoiceOscOptions | null)[],
   filter: VoiceFilterOptions | null,
-  pitches: OscPitch[]
+  pitches: OscPitch[],
+  lfoRanges: LfoRanges
 ): VoiceRoute[] =>
   routes.flatMap(({ source: id, target, amount, bipolar, off }) => {
     const definition = MOD_TARGETS[target];
@@ -169,7 +175,9 @@ const voiceRoutes = (
       return [{ ...route, min: route.min - cents, max: route.max - cents }];
     }
     if (definition.kind === 'lfo')
-      return [voiceRoute(source, target, amount, definition.scale, definition.range, bipolar)];
+      return [
+        voiceRoute(source, target, amount, definition.scale, definition.range, bipolar, lfoRanges[target]),
+      ];
     // the fx follow the last note (the fx model)
     if (definition.kind === 'fx' || !filter) return [];
     const { scale, range, disabled } = filterTargetScale(filter.type, definition.param);
@@ -213,10 +221,10 @@ const phraseLevel = (
 ) =>
   envelopeValue(envelopes[env], now - started, release === null ? Infinity : release - started, from?.[env]);
 
-// the envelopes of a voice are those of the knobs and their curves (equal values: a preset applied again makes
-// new objects)
-const sameEnvelopes = (envelopes: EnvelopeParams[], knobs: Envelopes) =>
-  ENVELOPES.every((id, k) => isEqual(envelopes[k], knobs[id]));
+// the envelopes of a voice are those of the knobs and their curves at the tempo now (equal values: a preset
+// applied again makes new objects)
+const sameEnvelopes = (envelopes: EnvelopeParams[], knobs: Envelopes, bpm: number) =>
+  ENVELOPES.every((id, k) => isEqual(envelopes[k], envelopeSeconds(knobs[id], bpm)));
 
 // the velocity of a note (MIDI 1..127) by the knobs of the velocity: VELO (the source of the routes after the
 // envelopes) and the amp of its voice (its volume after ENV 1); its share of 127 (the dot of the chart)
@@ -248,6 +256,8 @@ interface VoiceConfig {
   // the routes of the modulation (to its params: voiceRoutes) and the filter (null: off)
   routes: ModRoute[];
   filter: VoiceFilterOptions | null;
+  // the bounds of the routes to the knobs of the LFOs in BPM now
+  lfoRanges: () => LfoRanges;
   // the voice has ended (released to 0, stolen, failed, or the voices node failed)
   onEnded: (voice: Voice) => void;
   // the voices node started it later than scheduled, at `startedAt` (seconds of the context): its note on came
@@ -281,6 +291,7 @@ const createVoiceHandle = ({
   phrase: { id: phrase, envelopes, start: envStart },
   routes: modRoutes,
   filter,
+  lfoRanges,
   onStarted,
   mono,
 }: VoiceConfig): CreatedVoice | null => {
@@ -290,7 +301,7 @@ const createVoiceHandle = ({
     OSC_PARAMS.forEach((param) => (values[oscParamName(param, index)] = params[param]));
     return oscOptions(oscillator);
   });
-  const routes = voiceRoutes(modRoutes, osc, filter, pitchesOf(oscillators));
+  const routes = voiceRoutes(modRoutes, osc, filter, pitchesOf(oscillators), lfoRanges());
   const handle = createVoice(
     {
       osc,
@@ -480,7 +491,13 @@ class Voice {
   // null when its voice has them (a change of the routes of other knobs sends nothing); the voice glides into the
   // new amounts, takes new bounds at once
   nextRoutes = (routes: ModRoute[], filter: VoiceFilterOptions | null) => {
-    const next = voiceRoutes(routes, this.osc, filter, pitchesOf(this.config.oscillators));
+    const next = voiceRoutes(
+      routes,
+      this.osc,
+      filter,
+      pitchesOf(this.config.oscillators),
+      this.config.lfoRanges()
+    );
     const json = JSON.stringify(next);
     if (json === this.routes) return null;
     this.routes = json;
@@ -511,10 +528,14 @@ interface VoicingContext {
   $portamento: PrimitiveBS<number>;
   oscillators: VoiceOscillator[];
   $envelopes: EnvelopesModule[0]['$envelopes'];
+  // the tempo now (the envelopes in BPM)
+  tempo: () => number;
   $velocity: EnvelopesModule[0]['$velocity'];
   $routes: ModulationModule[0]['$routes'];
   // the filter the notes play now (null: off)
   voiceFilter: () => VoiceFilterOptions | null;
+  // the bounds of the routes to the knobs of the LFOs in BPM now
+  lfoRanges: () => LfoRanges;
   // the envelopes of the last note pressed, the fx follow them (in legato those of its phrase)
   $fxNote: BehaviorSubject<FxNote | null>;
   $voiceStarts: Subject<VoiceStart>;
@@ -562,12 +583,12 @@ class Voicing {
   // takes the next notes over, no other voice joins it
   private getVoice = (note: Note, from: Note | undefined): Voice | null => {
     const { audioCtx, createVoice, $legato, $portamento, $envelopes, $routes, oscillators } = this.config;
-    const { voiceFilter, $voiceStarts, $maxVoices } = this.config;
+    const { voiceFilter, lfoRanges, tempo, $voiceStarts, $maxVoices } = this.config;
     const now = audioCtx.currentTime;
     const own: Phrase = {
       id: ++phrases,
-      // the knobs and the curves of their stages
-      envelopes: ENVELOPES.map((id) => $envelopes.value[id]),
+      // the knobs and the curves of their stages (in BPM the seconds of their divisions at the tempo now)
+      envelopes: ENVELOPES.map((id) => envelopeSeconds($envelopes.value[id], tempo())),
       start: now,
       started: now,
     };
@@ -589,6 +610,7 @@ class Voicing {
       phrase,
       routes: $routes.value,
       filter: voiceFilter(),
+      lfoRanges,
       onStarted:
         __PERF__ && $voiceStarts.observed
           ? ({ scheduled, started }) => $voiceStarts.next({ note: noteToString(note), scheduled, started })
@@ -700,7 +722,8 @@ class Voicing {
     const { voice } = mono;
     const again = !held || !this.config.$legato.value;
     if (voice.releaseEnd <= this.config.audioCtx.currentTime + RELEASE_LEAD) return false;
-    if (again && !(sameEnvelopes(voice.phrase.envelopes, this.config.$envelopes.value) && voice.playsKnobs()))
+    const { $envelopes, tempo } = this.config;
+    if (again && !(sameEnvelopes(voice.phrase.envelopes, $envelopes.value, tempo()) && voice.playsKnobs()))
       return false;
     delete this.voices[noteToString(voice.note)];
     this.voices[noteToString(note)] = voice;
@@ -874,6 +897,7 @@ class Voicing {
 export const synth = ({
   synthCore: [{ audioCtx, wavetables }],
   inputController: [{ $onPress, $onRelease, $bend }],
+  transport: [{ $tempo }],
   envelopes: [{ $envelopes, $velocity }],
   lfo,
   modulation: [{ $routes }],
@@ -903,9 +927,11 @@ export const synth = ({
       $legato,
       $portamento,
       $envelopes,
+      tempo: () => $tempo.value,
       $velocity,
       $routes,
       voiceFilter,
+      lfoRanges: () => lfo[0].$ranges.value,
       $fxNote,
       $voiceStarts,
       oscillators: oscillators.map(([osc]) => osc),
@@ -965,6 +991,11 @@ export const synth = ({
       $voiceFilter.pipe(skip(1)).subscribe((filter) => {
         voicing.setFilter(filter);
         voicing.setRoutes($routes.value, filter);
+      }),
+      // the bounds of the routes to the knobs of the LFOs in BPM (a new tempo, BPM, TRIP or DOT): the notes with
+      // such routes take them
+      lfo[0].$ranges.pipe(skip(1)).subscribe(() => {
+        if (movesLfoKnob($routes.value)) voicing.setRoutes($routes.value, voiceFilter());
       }),
       // the pitch bend of every note, in the voices node (on top of the detune of each oscillator, it glides
       // there; new notes start with it), at most every BEND_INTERVAL

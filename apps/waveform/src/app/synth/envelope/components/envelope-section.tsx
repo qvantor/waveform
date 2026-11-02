@@ -1,34 +1,59 @@
 import React from 'react';
-import { AdsrEnvelope, Section } from '@waveform/ui-kit';
+import { AdsrEnvelope, Section, SwitchKey } from '@waveform/ui-kit';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
 import {
   ENVELOPE_CURVE_MAX,
   ENVELOPE_CURVES,
   ENVELOPE_DEFAULTS,
+  ENVELOPE_DIVISIONS,
   ENVELOPE_TIME_MAX,
   ENVELOPES,
   EnvelopeId,
+  TEMPO_DIVISIONS,
+  TIME_DIVISIONS,
 } from '@waveform/preset-schema';
-import { useEnvelopes } from '../../common/modules';
+import { useEnvelopes, useTransport } from '../../common/modules';
+import { envelopeSeconds } from '../../common/modules/envelopes';
 import { SourceTabs } from '../../modulation/source-tabs';
 import { EnvelopeDot } from './envelope-dot';
 
-// the envelope of a tab: its stages and their curves, the shape the voices play
+const formatDivision = (division: number) => TEMPO_DIVISIONS[division]?.id ?? '';
+
+// the envelope of a tab: its stages and their curves, the shape the voices play; in BPM its times step through the
+// divisions of the tempo (Off, 1/256 … 32 bar), the chart and the dot draw their seconds at the tempo now
 const EnvelopeChart = ({ id }: { id: EnvelopeId }) => {
-  const [{ $envelopes }, { setEnvelopeValue, setEnvelopeCurve }] = useEnvelopes();
-  const envelopes = useBehaviorSubject($envelopes);
+  const [{ $envelopes }, { setEnvelopeValue, setEnvelopeCurve, setEnvelopeBpm, setEnvelopeDivision }] =
+    useEnvelopes();
+  const [{ $tempo }] = useTransport();
+  const knobs = useBehaviorSubject($envelopes)[id];
+  const tempo = useBehaviorSubject($tempo);
+  const envelope = React.useMemo(() => envelopeSeconds(knobs, tempo), [knobs, tempo]);
   return (
     <AdsrEnvelope
-      {...envelopes[id]}
+      {...envelope}
       maxTime={ENVELOPE_TIME_MAX}
       onChange={(key, value) => setEnvelopeValue(id, key, value)}
       defaultValues={ENVELOPE_DEFAULTS[id]}
+      timeSteps={
+        knobs.bpm
+          ? {
+              steps: TIME_DIVISIONS,
+              values: knobs.divs,
+              format: formatDivision,
+              defaults: ENVELOPE_DIVISIONS[id],
+              onChange: (stage, division) => setEnvelopeDivision(id, stage, division),
+            }
+          : undefined
+      }
+      corner={
+        <SwitchKey label='BPM' name='Tempo sync' on={knobs.bpm} onChange={(on) => setEnvelopeBpm(id, on)} />
+      }
       // the points on the curves: a double click gives a stage its default curve again
       curveMax={ENVELOPE_CURVE_MAX}
       defaultCurves={ENVELOPE_CURVES}
       onCurveChange={(stage, k) => setEnvelopeCurve(id, stage, k)}
     >
-      <EnvelopeDot key={id} id={id} env={envelopes[id]} />
+      <EnvelopeDot key={id} id={id} env={envelope} />
     </AdsrEnvelope>
   );
 };

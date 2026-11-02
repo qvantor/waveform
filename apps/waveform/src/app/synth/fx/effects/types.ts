@@ -37,6 +37,8 @@ export interface FxCore {
   setModulation: (mod: FxModulation | null) => void;
   // the LFOs from the time of a state on (absent: it runs none)
   setLfos?: (state: LfosState) => void;
+  // the tempo of the synth, BPM (absent: it takes none)
+  setTempo?: (bpm: number) => void;
   destroy: () => void;
   // effects loaded asynchronously (audio worklets, see createWorkletFx), absent: always ready
   $status?: BehaviorSubject<FxStatus>;

@@ -1,8 +1,8 @@
 import { onFrame } from './frame-ticker';
 import { MIN_FRAME_MS } from './use-live-draw';
 
-// ms a meter draws nothing before it sleeps: longer than the longest gap between two echoes of a tail (the time of
-// the delay, 1 s at most, and its pan, 50 ms), so it doesn't sleep between them
+// ms a meter draws nothing before it sleeps, at least: longer than the gap between two echoes of a delay of 1 s and
+// its pan (50 ms), so it doesn't sleep between them; a longer delay (in BPM up to 4 s) gives a longer one
 export const QUIET_MS = 1500;
 
 export interface MeterLoop {
@@ -13,10 +13,14 @@ export interface MeterLoop {
 
 // the loop of a meter of the output (the analysers of the header): `draw` on the frames of the screen, at most every
 // MIN_FRAME_MS (every other frame of a 120 Hz screen), with the time of the frame (ms), returns whether it drew
-// anything. Not awake, it sleeps once it has drawn nothing for QUIET_MS since it stopped being awake (the last
+// anything. Not awake, it sleeps once it has drawn nothing for `quietMs` (QUIET_MS by default) since it stopped
+// being awake (the last
 // voice ended: the tails of the fx come after it, a quiet stretch before doesn't count): no frame of the page, no
 // commit of its canvas; awake again, it runs again. It starts awake
-export const meterLoop = (draw: (time: number) => boolean): MeterLoop => {
+export const meterLoop = (
+  draw: (time: number) => boolean,
+  quietMs: () => number = () => QUIET_MS
+): MeterLoop => {
   let awake = true;
   let stop: (() => void) | null = null;
   let calledAt = -Infinity;
@@ -30,7 +34,7 @@ export const meterLoop = (draw: (time: number) => boolean): MeterLoop => {
       return;
     }
     quietSince ??= time;
-    if (!awake && time - quietSince >= QUIET_MS) sleep();
+    if (!awake && time - quietSince >= quietMs()) sleep();
   };
   const sleep = () => {
     stop?.();

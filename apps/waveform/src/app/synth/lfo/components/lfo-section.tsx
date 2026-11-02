@@ -1,8 +1,10 @@
 import React from 'react';
 import styled from 'styled-components';
-import { formatTime, Handle, Section, Select } from '@waveform/ui-kit';
+import { formatTime, Handle, Section, Select, SwitchKey } from '@waveform/ui-kit';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
 import {
+  DIVISION_MAX,
+  DIVISION_OFF,
   ENVELOPE_TIME_MAX,
   isLfoKnob,
   LFO_DEFAULTS,
@@ -13,8 +15,12 @@ import {
   LfoKnob,
   LfoMode,
   LFOS,
+  rateDivisions,
+  TEMPO_DIVISIONS,
+  TIME_DIVISIONS,
 } from '@waveform/preset-schema';
 import { useLfos } from '../../common/modules';
+import { DIVISION_KEYS, LfoParams, LfoTimeKnob } from '../../common/modules/lfos';
 import { useKnobModulation } from '../../modulation/use-knob-modulation';
 import { SourceTabs } from '../../modulation/source-tabs';
 import { CUSTOM_SHAPE, LFO_SHAPE_OPTIONS, shapeOptionOf } from '../lfo-shapes';
@@ -39,8 +45,14 @@ const Root = styled.div`
 const Row = styled.div`
   flex: none;
   display: grid;
-  grid-template-columns: 3fr 2fr;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr) auto;
   gap: 5px;
+`;
+
+// BPM, HOST, TRIP and DOT as high as the selects
+const Keys = styled.div`
+  display: flex;
+  gap: 2px;
 `;
 
 const Knobs = styled.div`
@@ -102,32 +114,69 @@ const KNOBS: Record<
   },
 };
 
-// memoized: a drag of a point of the chart renders the section on every move, not its knobs
-const LfoKnobHandle = React.memo(({ id, knob, value }: { id: LfoId; knob: LfoKnob; value: number }) => {
-  const [, { setLfoValue }] = useLfos();
-  const modulation = useKnobModulation(`${id}.${knob}`);
-  const rate = knob === 'rate';
-  return (
-    <Handle
-      {...KNOBS[knob]}
-      value={rate ? 1 / value : value}
-      defaultValue={rate ? 1 / LFO_DEFAULTS.rate : LFO_DEFAULTS[knob]}
-      onChange={(next) =>
-        setLfoValue(id, knob, rate ? Math.min(LFO_RATE_MAX, Math.max(LFO_RATE_MIN, 1 / next)) : next)
-      }
-      {...modulation}
-    />
-  );
-});
+// in BPM Rate, Delay and Rise step through divisions (indexes into TEMPO_DIVISIONS): Rate right faster, by TRIP
+// and DOT, the times right longer from Off; the default 1/4 and Off
+const RATE_STEPS = [false, true].map((trip) =>
+  [false, true].map((dot) => [...rateDivisions(trip, dot)].reverse())
+);
+const isTimeKnob = (knob: LfoKnob): knob is LfoTimeKnob => knob in DIVISION_KEYS;
+const stepsOf = (knob: LfoKnob, { bpm, trip, dot }: LfoParams) =>
+  !bpm || !isTimeKnob(knob) ? undefined : knob === 'rate' ? RATE_STEPS[+trip][+dot] : TIME_DIVISIONS;
+const formatDivision = (division: number) => TEMPO_DIVISIONS[division]?.id ?? '';
+const DIVISION_DEFAULTS: Record<LfoTimeKnob, number> = {
+  rate: LFO_DEFAULTS.div,
+  delay: DIVISION_OFF,
+  rise: DIVISION_OFF,
+};
+
+// memoized: a drag of a point of the chart renders the section on every move, not its knobs. In BPM (`steps`) a time
+// knob is a division of them
+const LfoKnobHandle = React.memo(
+  ({ id, knob, value, steps }: { id: LfoId; knob: LfoKnob; value: number; steps?: number[] }) => {
+    const [, { setLfoValue, setDivision }] = useLfos();
+    const modulation = useKnobModulation(`${id}.${knob}`);
+    const rate = knob === 'rate';
+    if (steps && isTimeKnob(knob))
+      return (
+        <Handle
+          label={KNOBS[knob].label}
+          name={KNOBS[knob].name}
+          min={0}
+          max={DIVISION_MAX}
+          step={steps}
+          precision={1}
+          value={value}
+          formatValue={formatDivision}
+          defaultValue={DIVISION_DEFAULTS[knob]}
+          onChange={(division) => setDivision(id, knob, division)}
+          {...modulation}
+        />
+      );
+    return (
+      <Handle
+        {...KNOBS[knob]}
+        value={rate ? 1 / value : value}
+        defaultValue={rate ? 1 / LFO_DEFAULTS.rate : LFO_DEFAULTS[knob]}
+        onChange={(next) =>
+          setLfoValue(id, knob, rate ? Math.min(LFO_RATE_MAX, Math.max(LFO_RATE_MIN, 1 / next)) : next)
+        }
+        {...modulation}
+      />
+    );
+  }
+);
 
 // an LFO goes to every knob but those of the LFOs
 const acceptsLfo = (target: string) => !isLfoKnob(target);
 
 // LFO 1–4 right of ENV: their tabs (dragged onto a knob: a route), the cycle of the one shown with its points
 // (edited there: a shape of its own, Custom) and the dot of the last note, its shape (by category: lfo-shapes.ts)
-// and mode, Rate, Delay, Rise, Smooth and Phase (targets of the envelopes and the velocity)
+// and mode, BPM (Rate, Delay and Rise in divisions of the tempo), HOST (a free one on the beats of the transport:
+// dimmed in Retrig, where it changes nothing), TRIP and DOT (the triplets and the dotted ones of Rate in BPM), Rate, Delay, Rise, Smooth and Phase (targets of the
+// envelopes and the velocity)
 export const LfoSection = () => {
-  const [{ $lfos, $selected }, { select, setShape, setPoints, setMode }] = useLfos();
+  const [{ $lfos, $selected }, { select, setShape, setPoints, setMode, setBpm, setHost, setTrip, setDot }] =
+    useLfos();
   const lfos = useBehaviorSubject($lfos);
   const id = useBehaviorSubject($selected);
   const lfo = lfos[id];
@@ -153,11 +202,37 @@ export const LfoSection = () => {
             onChange={chooseShape}
           />
           <Select value={lfo.mode} options={MODES} onChange={(mode) => setMode(id, mode)} />
+          <Keys>
+            <SwitchKey label='BPM' name='Tempo sync' on={lfo.bpm} onChange={(on) => setBpm(id, on)} />
+            <SwitchKey
+              label='HOST'
+              name='On the beats'
+              on={lfo.host}
+              disabled={lfo.mode !== 'free'}
+              onChange={(on) => setHost(id, on)}
+            />
+            <SwitchKey
+              label='T'
+              name='Triplets'
+              on={lfo.trip}
+              disabled={!lfo.bpm}
+              onChange={(on) => setTrip(id, on)}
+            />
+            <SwitchKey
+              label='D'
+              name='Dotted'
+              on={lfo.dot}
+              disabled={!lfo.bpm}
+              onChange={(on) => setDot(id, on)}
+            />
+          </Keys>
         </Row>
         <Knobs>
-          {(Object.keys(KNOBS) as LfoKnob[]).map((knob) => (
-            <LfoKnobHandle key={knob} id={id} knob={knob} value={lfo[knob]} />
-          ))}
+          {(Object.keys(KNOBS) as LfoKnob[]).map((knob) => {
+            const steps = stepsOf(knob, lfo);
+            const value = steps && isTimeKnob(knob) ? lfo[DIVISION_KEYS[knob]] : lfo[knob];
+            return <LfoKnobHandle key={knob} id={id} knob={knob} value={value} steps={steps} />;
+          })}
         </Knobs>
       </Root>
     </Section>

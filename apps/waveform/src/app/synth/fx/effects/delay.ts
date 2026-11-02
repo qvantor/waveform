@@ -1,4 +1,11 @@
-import { FX_PARAMS } from '@waveform/preset-schema';
+import {
+  delayDivisions,
+  divisionSeconds,
+  divisionWithin,
+  FX_PARAMS,
+  TEMPO_DEFAULT,
+  TEMPO_DIVISIONS,
+} from '@waveform/preset-schema';
 import { number } from '@waveform/math';
 import { FxDefinition } from './types';
 import { DelayParam, DELAY_PRESETS } from './delay-presets';
@@ -7,14 +14,46 @@ import { formatHz, formatMs } from './format';
 import { FxModulation } from './fx-modulation';
 import { DELAY_LINES, FxModMap } from './fx-mod-params';
 
-const { time, fb, mode, pan, freq, q } = FX_PARAMS.delay;
+const { time, sync, div, trip, dot, fb, mode, pan, freq, q } = FX_PARAMS.delay;
 
 const isPingPong = (value: number) => value >= 0.5;
+const isOn = (value: number) => value >= 0.5;
 
 // time changes glide like tape (~95% in 0.3s), so a knob drag bends the echoes once instead of chirping per step
 const TIME_GLIDE = 0.1;
 // the knobs of the nodes with a state (the feedback is the gains: routing)
 const NODE_KNOBS: DelayParam[] = ['time', 'pan', 'freq', 'q'];
+// seconds of a line: a bar at 60 BPM; a longer division plays this long
+export const DELAY_LINE_MAX = 4;
+
+// in BPM the steps of Time: 1/64 … 1 bar, with TRIP and DOT their triplets and dotted ones
+export const delayStepsOf = (params: Record<string, number>) =>
+  delayDivisions(isOn(params['trip']), isOn(params['dot']));
+// the division of Time in BPM: one of its steps
+export const delayDivisionOf = (params: Record<string, number>) =>
+  divisionWithin(Math.round(params['div']), delayStepsOf(params));
+// the seconds of the echoes: of Time, in BPM of its division at the tempo (DELAY_LINE_MAX at most)
+export const delayTime = (params: Record<string, number>, bpm: number) =>
+  isOn(params['sync'])
+    ? Math.min(DELAY_LINE_MAX, divisionSeconds(delayDivisionOf(params), bpm))
+    : params['time'];
+// the bounds of the routes to Time in BPM at a tempo: from the shortest of its steps to the longest (none: those of
+// the knob)
+export const delayTimeBounds = (
+  params: Record<string, number>,
+  bpm: number
+): [number, number] | undefined => {
+  if (!isOn(params['sync'])) return undefined;
+  const steps = delayStepsOf(params);
+  return [
+    divisionSeconds(steps[0], bpm),
+    Math.min(DELAY_LINE_MAX, divisionSeconds(steps[steps.length - 1], bpm)),
+  ];
+};
+const OFF_ON = [
+  { id: 'off', label: 'Off' },
+  { id: 'on', label: 'On' },
+];
 
 // input → splitter → in gains → line L/R → bandpass L/R → pan L/R → merger (output)
 // feedback: bandpass L/R → fb gains → line L/R; normal: each line feeds itself,
@@ -23,7 +62,8 @@ const NODE_KNOBS: DelayParam[] = ['time', 'pan', 'freq', 'q'];
 // emptied, fed silence it would still play its last second.
 // A knob the envelopes and the LFOs move (fx-modulation.ts) adds a line of fx-mod (fx-mod-params.ts) to its params:
 // the offset of its routes from the knob, worked out in the worklet; the knob itself glides as ever (Time with its
-// tape glide), Feedback on the gains of the mode, Pan on the delay of the side it is on
+// tape glide), Feedback on the gains of the mode, Pan on the delay of the side it is on. In BPM (sync) the time is
+// its division at the tempo of the synth (setTempo), a line DELAY_LINE_MAX long
 export const delay: FxDefinition<DelayParam> = {
   label: 'Delay',
   params: {
@@ -53,6 +93,24 @@ export const delay: FxDefinition<DelayParam> = {
       name: 'Delay time',
       formatValue: formatMs,
     },
+    // the switches of BPM: not targets of the routes (they have options)
+    sync: {
+      ...sync,
+      label: 'BPM',
+      name: 'Tempo sync',
+      options: [
+        { id: 'ms', label: 'MS' },
+        { id: 'bpm', label: 'BPM' },
+      ],
+    },
+    div: {
+      ...div,
+      label: 'Time',
+      name: 'Delay time',
+      options: TEMPO_DIVISIONS.map(({ id }) => ({ id, label: id })),
+    },
+    trip: { ...trip, label: 'T', name: 'Triplets', options: OFF_ON },
+    dot: { ...dot, label: 'D', name: 'Dotted', options: OFF_ON },
     fb: {
       ...fb,
       label: 'Feedback',
@@ -86,7 +144,7 @@ export const delay: FxDefinition<DelayParam> = {
     const merger = audioCtx.createChannelMerger(2);
 
     const gain = () => audioCtx.createGain();
-    const line = () => audioCtx.createDelay(time.max);
+    const line = () => audioCtx.createDelay(DELAY_LINE_MAX);
     // its Freq and Q k-rate: automated a-rate (an envelope, a knob gliding) Chrome and WebKit work the
     // coefficients out every sample, twice the cost of the filter (scripts/bench-osc, biquad); once per block
     // a sweep of the feedback loop doesn't step audibly
@@ -146,6 +204,9 @@ export const delay: FxDefinition<DelayParam> = {
 
     const { values, setValue, bind, instantly } = createFxParams(audioCtx, FX_PARAMS.delay);
     let active = true;
+    // the tempo of the synth (BPM)
+    let bpm = TEMPO_DEFAULT;
+    const echoes = () => delayTime(values, bpm);
 
     // inactive: no feedback, so the lines drain within one delay time instead of ringing on
     const applyRouting = () => {
@@ -160,8 +221,15 @@ export const delay: FxDefinition<DelayParam> = {
       setValue(feedbacks.rl.gain, pingPong ? feedback : 0);
     };
 
+    // Time, Tempo sync, its division, TRIP, DOT and the tempo: the seconds of the echoes, gliding like tape
+    const applyTime = () =>
+      [lines_.l, lines_.r].forEach((node) => setValue(node.delayTime, echoes(), TIME_GLIDE));
     const apply: Record<DelayParam, (value: number) => void> = {
-      time: (value) => [lines_.l, lines_.r].forEach((node) => setValue(node.delayTime, value, TIME_GLIDE)),
+      time: applyTime,
+      sync: applyTime,
+      div: applyTime,
+      trip: applyTime,
+      dot: applyTime,
       fb: applyRouting,
       mode: applyRouting,
       pan: (value) => {
@@ -206,17 +274,24 @@ export const delay: FxDefinition<DelayParam> = {
         const targets = params();
         fxMod.set(
           index,
-          routes.length > 0 && targets.length > 0 ? { routes, base: values[knob], map } : null,
+          routes.length > 0 && targets.length > 0
+            ? { routes, base: knob === 'time' ? echoes() : values[knob], map }
+            : null,
           targets
         );
       });
 
     const setParam = bind({
       ...apply,
-      time: (value) => {
-        apply.time(value);
-        follow('time');
-      },
+      ...(Object.fromEntries(
+        (['time', 'sync', 'div', 'trip', 'dot'] as const).map((key) => [
+          key,
+          () => {
+            applyTime();
+            follow('time');
+          },
+        ])
+      ) as Record<'time' | 'sync' | 'div' | 'trip' | 'dot', () => void>),
       fb: (value) => {
         apply.fb(value);
         follow('fb');
@@ -251,6 +326,13 @@ export const delay: FxDefinition<DelayParam> = {
       setModulation: (mod) => {
         modulation = mod;
         follow();
+      },
+      // in BPM a new tempo glides the echoes there
+      setTempo: (next) => {
+        bpm = next;
+        if (!isOn(values.sync)) return;
+        applyTime();
+        follow('time');
       },
       // new nodes at the values of their knobs at once (from their defaults a Time would chirp), the lines of the
       // routes on their params; the gains keep theirs

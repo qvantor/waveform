@@ -5,7 +5,7 @@ import { MdKeyboard, MdTune } from 'react-icons/md';
 import { PanelButton, TapeSwitch, theme } from '@waveform/ui-kit';
 import { HeaderSection } from '../../common/components';
 import { PresetSection } from '../../presets';
-import { MidiInput, SettingsButton } from '../settings';
+import { MidiInput, SettingsButton, Tempo } from '../settings';
 import { MasterHandle } from '../synth/components';
 import { SYNTH_SCREENS, SynthScreen } from '../screens';
 
@@ -102,6 +102,7 @@ export const MobileHeader = ({ portrait, mode, onModeChange, screen, onScreenCha
     <Presets
       actions={
         <>
+          <Tempo />
           <MidiInput />
           <SettingsButton />
         </>

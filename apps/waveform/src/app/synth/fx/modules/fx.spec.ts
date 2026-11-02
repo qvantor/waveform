@@ -1,10 +1,11 @@
 import { mapValues } from 'lodash';
-import { FX_MIX_PARAM, FX_PARAMS, FX_TYPES } from '@waveform/preset-schema';
+import { divisionIndex, FX_MIX_PARAM, FX_PARAMS, FX_TYPES } from '@waveform/preset-schema';
 import { applySnapshot, getSnapshot } from '../../../app';
 import { createFx, createLfos, createModulation, createSynthCore } from '../../../../test-utils/models';
 import { withoutAudioWorklet } from '../../../../test-utils/no-audio-worklet';
 import { workletLoads } from '../../../../test-utils/worklet-loads';
 import { DELAY_PRESETS } from '../effects/delay-presets';
+import { DELAY_LINE_MAX } from '../effects/delay';
 import { LFO_STATE_INTERVAL } from '../../common/lfo/lfo-curve';
 import { DISTORTION_LATENCY } from '../effects/distortion-params';
 import { REVERB_PRESETS } from '../effects/reverb-presets';
@@ -15,17 +16,20 @@ const setup = () => {
   const synthCore = createSynthCore();
   const createDelay = jest.spyOn(synthCore[0].audioCtx, 'createDelay');
   const createBiquadFilter = jest.spyOn(synthCore[0].audioCtx, 'createBiquadFilter');
-  const [model, actions] = createFx(synthCore).fx;
+  const { fx, transport } = createFx(synthCore);
+  const [model, actions] = fx;
   // the left delay line (the first one as long as the longest time) and its bandpass, the bandpass feeds the
   // line back through the feedback gain
-  const line = createDelay.mock.calls.findIndex(([max]) => max === FX_PARAMS.delay.time.max);
+  const line = createDelay.mock.calls.findIndex(([max]) => max === DELAY_LINE_MAX);
   const delayNode = createDelay.mock.results[line].value as DelayNode;
   const filterNode = createBiquadFilter.mock.results[0].value as BiquadFilterNode;
   const feedback = (filterNode.connect as jest.Mock).mock.calls[0][0] as GainNode;
-  return { model, actions, synthCore: synthCore[0], delayNode, feedback };
+  return { model, actions, synthCore: synthCore[0], delayNode, feedback, transport };
 };
 
 const REVERB_DEFAULTS = mapValues(FX_PARAMS.reverb, (param) => param.default);
+// the delay in MS, its division in BPM the default one
+const MS = { sync: 0, div: FX_PARAMS.delay.div.default, trip: 0, dot: 0 };
 const DISTORTION_DEFAULTS = mapValues(FX_PARAMS.distortion, (param) => param.default);
 const defaultReverb = () => ({ mix: FX_MIX_PARAM.default, params: REVERB_DEFAULTS });
 
@@ -161,6 +165,28 @@ describe('fx', () => {
     const { actions, delayNode } = setup();
     actions.setParam('delay', 'time', 0.5);
     expect(delayNode.delayTime.setTargetAtTime).toHaveBeenLastCalledWith(0.5, 0, expect.any(Number));
+  });
+
+  it('the delay in BPM follows the tempo of the transport', () => {
+    const { actions, delayNode, transport } = setup();
+    actions.setParam('delay', 'sync', 1);
+    actions.setParam('delay', 'div', divisionIndex('1/4'));
+    expect(delayNode.delayTime.setTargetAtTime).toHaveBeenLastCalledWith(0.5, 0, 0.1);
+    transport[1].setBpm(60);
+    expect(delayNode.delayTime.setTargetAtTime).toHaveBeenLastCalledWith(1, 0, 0.1);
+  });
+
+  it('gives the meters the longest gap between two echoes of the delay while it sounds', () => {
+    const { model, actions, transport } = setup();
+    const gaps: number[] = [];
+    model.$echoGap.subscribe((gap) => gaps.push(gap));
+    actions.setAdded('delay', true);
+    actions.setParam('delay', 'sync', 1);
+    actions.setParam('delay', 'div', divisionIndex('1 bar'));
+    transport[1].setBpm(60);
+    actions.setOn('delay', false);
+    // Time and its pan (50 ms): 0.2 s, 1/8 at 120, a bar at 120 and at 60
+    expect(gaps).toEqual([0, 0.25, 0.3, 2.05, 4.05, 0]);
   });
 
   it('applies only the changed values', () => {
@@ -631,7 +657,18 @@ describe('fx', () => {
       expect(getSnapshot()['fx']).toEqual({
         o: ['distortion', 'delay', 'reverb'],
         distortion: { a: false, on: true, mix: 1, ...DISTORTION_DEFAULTS },
-        delay: { a: true, on: true, mix: 0.5, mode: 0, pan: 0, time: 0.2, fb: 0.2, freq: 1000, q: 0.01 },
+        delay: {
+          a: true,
+          on: true,
+          mix: 0.5,
+          mode: 0,
+          pan: 0,
+          time: 0.2,
+          ...MS,
+          fb: 0.2,
+          freq: 1000,
+          q: 0.01,
+        },
         reverb: { a: false, on: true, mix: 0.3, ...REVERB_DEFAULTS },
       });
     });
@@ -684,7 +721,7 @@ describe('fx', () => {
         added: true,
         on: false,
         mix: 0,
-        params: { mode: 0, pan: 0, time: 0.2, fb: 0, freq: 1000, q: 0.01 },
+        params: { mode: 0, pan: 0, time: 0.2, ...MS, fb: 0, freq: 1000, q: 0.01 },
       });
 
       applySnapshot({});
@@ -700,7 +737,7 @@ describe('fx', () => {
         added: false,
         on: true,
         mix: 0.3,
-        params: { mode: 1, pan: -0.05, time: 0.01, fb: 0.9, freq: 1000, q: 3 },
+        params: { mode: 1, pan: -0.05, time: 0.01, ...MS, fb: 0.9, freq: 1000, q: 3 },
       });
 
       applySnapshot({ fx: { delay: { mix: Infinity, time: '1' } } });
@@ -723,7 +760,7 @@ describe('fx', () => {
         added: false,
         on: true,
         mix: 0.3,
-        params: { mode: 0, pan: 0, time: 0.2, fb: 0.5, freq: 1000, q: 0.01 },
+        params: { mode: 0, pan: 0, time: 0.2, ...MS, fb: 0.5, freq: 1000, q: 0.01 },
       });
     });
 
@@ -783,13 +820,13 @@ describe('fx', () => {
     const note = (start: number) => ({ envelopes: [FLAT, ENV, FLAT], start, release: null });
     const setupModulated = () => {
       const synthCore = createSynthCore();
-      const { fx, modulation, lfos, $fxNote } = createFx(synthCore);
+      const { fx, modulation, lfos, $fxNote, transport } = createFx(synthCore);
       const [model, actions] = fx;
       const setModulation = FX_TYPES.reduce(
         (spies, type) => ({ ...spies, [type]: jest.spyOn(model.slots[type], 'setModulation') }),
         {} as Record<typeof FX_TYPES[number], jest.SpyInstance>
       );
-      return { model, actions, modulation, lfos, $fxNote, setModulation };
+      return { model, actions, modulation, lfos, $fxNote, setModulation, transport };
     };
 
     it('moves the knobs an LFO routes without a note, with the routes of the note to the knobs of the LFOs', async () => {
@@ -816,6 +853,37 @@ describe('fx', () => {
       modulation[1].removeRoute('lfo2', 'reverb.size');
       modulation[1].addRoute('env2', 'reverb.size', 0.5);
       expect(setModulation.reverb).toHaveBeenLastCalledWith(null);
+    });
+
+    it('bounds the routes to Time of the delay in BPM by its divisions at the tempo', async () => {
+      const { actions, modulation, $fxNote, setModulation, transport } = setupModulated();
+      await flush();
+      actions.setAdded('delay', true);
+      $fxNote.next(note(1));
+      modulation[1].addRoute('env2', 'delay.time', 0.5);
+      const time = { param: 'time', source: 1, amount: 0.5 * 0.99 };
+      expect(setModulation.delay.mock.lastCall?.[0]?.routes).toEqual([{ ...time, min: 0.01, max: 1 }]);
+      actions.setParam('delay', 'sync', 1);
+      // 1/64 … 1 bar at 120, at 60
+      expect(setModulation.delay.mock.lastCall?.[0]?.routes).toEqual([{ ...time, min: 0.03125, max: 2 }]);
+      transport[1].setBpm(60);
+      expect(setModulation.delay.mock.lastCall?.[0]?.routes).toEqual([{ ...time, min: 0.0625, max: 4 }]);
+    });
+
+    it('bounds the routes to the knobs of an LFO in BPM by its divisions at the tempo', async () => {
+      const { actions, modulation, lfos, setModulation } = setupModulated();
+      await flush();
+      actions.setAdded('reverb', true);
+      modulation[1].addRoute('lfo2', 'reverb.size', 0.5);
+      modulation[1].addRoute('env2', 'lfo2.rate', 0.25);
+      lfos[1].setBpm('lfo2', true);
+      expect(setModulation.reverb).toHaveBeenLastCalledWith({
+        note: null,
+        routes: [
+          { param: 'size', source: 5, amount: 0.5, min: 0, max: 1 },
+          expect.objectContaining({ param: 'lfo2.rate', min: 1 / 64, max: 100, scale: 'log' }),
+        ],
+      });
     });
 
     it('leaves out a route switched off: an LFO switched off moves nothing without a note', async () => {

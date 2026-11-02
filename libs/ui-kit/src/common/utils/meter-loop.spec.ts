@@ -22,11 +22,11 @@ const frames = (seconds: number, ms = 1000 / 60) => {
 let loop: MeterLoop | null = null;
 let drawn = false;
 let calls: number[] = [];
-const start = () => {
+const start = (quietMs?: () => number) => {
   loop = meterLoop((time) => {
     calls.push(time);
     return drawn;
-  });
+  }, quietMs);
   return loop;
 };
 
@@ -85,6 +85,21 @@ describe('meterLoop', () => {
     drawn = false;
     frames(1);
     expect(scheduled).not.toBeNull();
+  });
+
+  it('sleeps after a quiet time of its own: the echoes of a delay of 4 s', () => {
+    let quiet = 4500;
+    start(() => quiet).setAwake(false);
+    frames(4);
+    expect(scheduled).not.toBeNull();
+    frames(0.6);
+    expect(scheduled).toBeNull();
+    // read as it goes: a shorter one from the next frame on
+    start(() => quiet).setAwake(false);
+    frames(1);
+    quiet = QUIET_MS;
+    frames(0.6);
+    expect(scheduled).toBeNull();
   });
 
   it('never sleeps while awake (a voice sounds), even when it draws nothing', () => {

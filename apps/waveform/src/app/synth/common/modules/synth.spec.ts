@@ -1,10 +1,15 @@
 import { registrar } from 'standardized-audio-context-mock';
-import { ENVELOPE_DEFAULTS, PITCH_BEND_DEFAULT, PITCH_BEND_MAX } from '@waveform/preset-schema';
+import {
+  divisionIndex,
+  ENVELOPE_DEFAULTS,
+  PITCH_BEND_DEFAULT,
+  PITCH_BEND_MAX,
+} from '@waveform/preset-schema';
 import { applySnapshot, getSnapshot } from '../../../app';
 import { createSynth, stopModels } from '../../../../test-utils/models';
 import { withoutAudioWorklet } from '../../../../test-utils/no-audio-worklet';
 import { WorkerStub } from '../../../../test-utils/worker-stub';
-import { withCurves } from '../../../../test-utils/envelopes';
+import { withCurves, played } from '../../../../test-utils/envelopes';
 import { eventsOf, voiceEvents, VoiceView, voicesNodes } from '../../../../test-utils/voice-events';
 import { getFq } from '../../services';
 import { RELEASE_GATE, VoiceParam } from '../wavetable/wavetable-osc-params';
@@ -213,6 +218,24 @@ describe('synth', () => {
     expect(events.at(-1)).toEqual({ kind: 'set', voice: c.id, param: 'gate', value: RELEASE_GATE, time: 0 });
   });
 
+  it('in BPM gives a note the seconds of the divisions of its envelopes at the tempo of its note on', async () => {
+    const { onPress, onRelease, voices, options, envelopeModel, transport } = await setup();
+    const [, { setEnvelopeBpm, setEnvelopeDivision }] = envelopeModel;
+    setEnvelopeBpm('env2', true);
+    setEnvelopeDivision('env2', 'attack', divisionIndex('1/16'));
+    setEnvelopeDivision('env2', 'release', divisionIndex('32 bar'));
+    onPress([4, 'C']);
+    transport[1].setBpm(60);
+    onRelease([4, 'C']);
+    onPress([4, 'E']);
+    const [c, e] = voices();
+    // 1/16 at 120: 125 ms, 32 bars 64 s (more than 32 s of a knob of MS); a new tempo from the next note on
+    expect(options(c).envelopes[1]).toMatchObject({ attack: 0.125, hold: 0, decay: 0.5, release: 64 });
+    expect(options(e).envelopes[1]).toMatchObject({ attack: 0.25, hold: 0, decay: 1, release: 128 });
+    // ENV 1 in MS: its seconds
+    expect(options(e).envelopes[0]).toEqual(withCurves(ENVELOPE_DEFAULTS.env1));
+  });
+
   it('gives a note the envelopes at its note on, they start with it', async () => {
     const { onPress, voices, options, envelopeModel, travel } = await setup();
     const [{ $envelopes }, { setEnvelopeValue, setEnvelopeCurve }] = envelopeModel;
@@ -222,7 +245,7 @@ describe('synth', () => {
     await travel(1);
 
     onPress([4, 'C']);
-    const { env1, env2, env3 } = $envelopes.value;
+    const { env1, env2, env3 } = played($envelopes.value);
     // an edit changes the next notes only
     setEnvelopeValue('env1', 'sustain', 0.5);
     setEnvelopeCurve('env1', 'release', 1);
@@ -782,7 +805,7 @@ describe('synth', () => {
 
     it('a note on the voice in its release: at once, its release off, its envelopes again from their levels', async () => {
       const { onPress, onRelease, voices, param, synthModel, envelopeModel, travel, wall } = await mono(100);
-      const { env1, env2, env3 } = envelopeModel[0].$envelopes.value;
+      const { env1, env2, env3 } = played(envelopeModel[0].$envelopes.value);
       envelopeModel[1].setEnvelopeValue('env1', 'release', 1);
       onPress([4, 'A']);
       await travel(1);
@@ -896,6 +919,18 @@ describe('synth', () => {
       expect(options(c).envelopes[1].curves).toEqual({ attack: 2, decay: 3.49, release: 3.49 });
     });
 
+    it('in BPM the same voice at the same tempo, a new one at another (other seconds of its envelopes)', async () => {
+      const { onPress, voices, envelopeModel, transport, options } = await mono(100, false);
+      envelopeModel[1].setEnvelopeBpm('env1', true);
+      onPress([4, 'A']);
+      onPress([4, 'B']);
+      expect(voices()).toHaveLength(1);
+      transport[1].setBpm(60);
+      onPress([4, 'C']);
+      const [a, c] = voices();
+      expect(options(c).envelopes[0].hold).toBe(2 * options(a).envelopes[0].hold);
+    });
+
     it('a new voice for a note that would play other oscillators than the knobs, a glide keeps it', async () => {
       const { onPress, voices, param, synthActions, osc1, osc2, options } = await mono(100, false);
       const stolen = (index: number) => calls(param(voices()[index], 'gate'), 'setValueAtTime').at(-1)?.[0];
@@ -936,7 +971,7 @@ describe('synth', () => {
         const context = await mono(0, false);
         context.envelopeModel[1].setEnvelopeValue('env1', 'attack', 0.02);
         context.envelopeModel[1].setEnvelopeValue('env1', 'release', 0.1);
-        const { env1, env2, env3 } = context.envelopeModel[0].$envelopes.value;
+        const { env1, env2, env3 } = played(context.envelopeModel[0].$envelopes.value);
         const rate = context.audioCtx.sampleRate;
         // its processor tells it started at `seconds` (the frame of the context)
         const started = (seconds: number) => {
@@ -1057,7 +1092,7 @@ describe('synth', () => {
       synthActions.setLegato(true);
       await travel(1);
       onPress([4, 'C']);
-      const phrase = [$envelopes.value.env1, $envelopes.value.env2, $envelopes.value.env3];
+      const phrase = Object.values(played($envelopes.value));
       await travel(0.5);
       setEnvelopeValue('env1', 'attack', 2);
       onPress([4, 'E']);
@@ -1440,6 +1475,39 @@ describe('synth', () => {
       ]);
     });
 
+    it('bounds the routes to the knobs of an LFO in BPM by its divisions at the tempo, a new tempo sends them', async () => {
+      const { onPress, voices, options, modulation, lfos, transport } = await setup();
+      modulation[1].addRoute('env2', 'lfo1.rate', 0.5);
+      modulation[1].addRoute('env2', 'lfo1.rise', 0.25);
+      lfos[1].setBpm('lfo1', true);
+      onPress([4, 'C']);
+      const [c] = voices();
+      // the amount in the octaves of HZ, the bounds from 32 bars to 1/256 (10 ms at least) at 120: 64 s
+      const rate = { source: 1, param: 'lfo1.rate', amount: 0.5 * Math.log2(3200), scale: 'log' };
+      const rise = { source: 1, param: 'lfo1.rise', amount: 0.25, min: 0, scale: 'pow' };
+      expect(options(c).routes).toEqual([
+        { ...rate, min: 1 / 64, max: 100 },
+        { ...rise, max: 64 },
+      ]);
+      transport[1].setBpm(60);
+      expect(voices()[0].messages).toEqual([
+        {
+          routes: [
+            { ...rate, min: 1 / 128, max: 64 },
+            { ...rise, max: 128 },
+          ],
+        },
+      ]);
+      // an LFO in HZ: the ranges of its knobs
+      lfos[1].setBpm('lfo1', false);
+      expect(voices()[0].messages?.at(-1)).toEqual({
+        routes: [
+          { ...rate, min: 1 / 32, max: 100 },
+          { ...rise, max: 32 },
+        ],
+      });
+    });
+
     it('sends the playing notes, the released ones too, their new routes; nothing when theirs are the same', async () => {
       const { onPress, onRelease, voices, modulation, osc2, end } = await setup();
       const [, { addRoute, setAmount, removeRoute }] = modulation;
@@ -1558,7 +1626,7 @@ describe('synth', () => {
     it('are those of the last note pressed, released with it', async () => {
       const { onPress, onRelease, synthModel, envelopeModel, travel } = await setup();
       const { $envelopes } = envelopeModel[0];
-      const envelopes = [$envelopes.value.env1, $envelopes.value.env2, $envelopes.value.env3];
+      const envelopes = Object.values(played($envelopes.value));
       expect(synthModel.$fxNote.value).toBeNull();
       await travel(1);
       onPress([4, 'C']);
@@ -1642,7 +1710,7 @@ describe('synth', () => {
     it('stay those of the last note when an earlier voice tells it started late', async () => {
       const { onPress, voices, synthModel, envelopeModel, audioCtx, travel, started } = await setup();
       const { $envelopes } = envelopeModel[0];
-      const envelopes = [$envelopes.value.env1, $envelopes.value.env2, $envelopes.value.env3];
+      const envelopes = Object.values(played($envelopes.value));
       onPress([4, 'C']);
       await travel(1);
       onPress([4, 'E']);

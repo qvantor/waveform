@@ -1,10 +1,23 @@
 import { render, screen, within } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { drawn, svgPath, withElementSize } from '@waveform/ui-kit/test-utils';
+import { divisionIndex, TEMPO_DIVISIONS } from '@waveform/preset-schema';
+import { Handle, HandleProps } from '@waveform/ui-kit';
 import { createLiveRoutes } from '../../../../../test-utils/live-routes';
 import { DelayControls } from './delay-controls';
 
-const params = { mode: 0, pan: 0, time: 0.2, fb: 0.5, freq: 1000, q: 0.01 };
+// the knobs render as ever, their props are recorded
+jest.mock('@waveform/ui-kit', () => {
+  const actual = jest.requireActual('@waveform/ui-kit');
+  return { ...actual, Handle: jest.fn((props) => actual.Handle(props)) };
+});
+const knob = (label: string) =>
+  (Handle as unknown as jest.Mock).mock.calls
+    .map(([props]) => props as HandleProps)
+    .filter((props) => props.label === label)
+    .at(-1) as HandleProps;
+
+const params = { mode: 0, pan: 0, time: 0.2, sync: 0, div: 9, trip: 0, dot: 0, fb: 0.5, freq: 1000, q: 0.01 };
 
 const setup = (props: Partial<React.ComponentProps<typeof DelayControls>> = {}) => {
   const setParam = jest.fn();
@@ -61,6 +74,68 @@ describe('DelayControls', () => {
     expect(setParam).toHaveBeenLastCalledWith('mode', 0);
     await user.click(screen.getByRole('button', { name: 'Ping-pong' }));
     expect(setParam).toHaveBeenLastCalledWith('mode', 0);
+  });
+
+  it('switches BPM under the mode, TRIP and DOT only in BPM', async () => {
+    const { user, setParam, rerender } = setup();
+    const key = (name: string) => screen.getByRole('button', { name });
+    expect(key('Tempo sync')).toHaveAttribute('aria-pressed', 'false');
+    expect(key('Triplets')).toBeDisabled();
+    await user.click(key('Tempo sync'));
+    expect(setParam).toHaveBeenLastCalledWith('sync', 1);
+    rerender(<DelayControls params={{ ...params, sync: 1 }} setParam={setParam} on sampleRate={48000} />);
+    await user.click(key('Dotted'));
+    expect(setParam).toHaveBeenLastCalledWith('dot', 1);
+    rerender(
+      <DelayControls params={{ ...params, sync: 1, dot: 1 }} setParam={setParam} on sampleRate={48000} />
+    );
+    await user.click(key('Dotted'));
+    expect(setParam).toHaveBeenLastCalledWith('dot', 0);
+  });
+
+  it('shows Time as its division in BPM', () => {
+    const { rerender, setParam } = setup();
+    expect(knob('Time').value).toBe(0.2);
+    expect(knob('Time').step).toBeUndefined();
+    rerender(
+      <DelayControls
+        params={{ ...params, sync: 1, dot: 1, div: divisionIndex('1/8D') }}
+        setParam={setParam}
+        on
+        sampleRate={48000}
+      />
+    );
+    const time = knob('Time');
+    expect(time).toMatchObject({ value: divisionIndex('1/8D'), precision: 1 });
+    expect(time.formatValue?.(time.value as number)).toBe('1/8D');
+    expect(time.step?.map((division) => TEMPO_DIVISIONS[division].id)).toEqual([
+      '1/64',
+      '1/64D',
+      '1/32',
+      '1/32D',
+      '1/16',
+      '1/16D',
+      '1/8',
+      '1/8D',
+      '1/4',
+      '1/4D',
+      '1/2',
+      '1/2D',
+      '1 bar',
+      '1 bar D',
+    ]);
+    time.onChange?.(divisionIndex('1/4'));
+    expect(setParam).toHaveBeenLastCalledWith('div', divisionIndex('1/4'));
+    // without DOT its straight one
+    rerender(
+      <DelayControls
+        params={{ ...params, sync: 1, div: divisionIndex('1/8D') }}
+        setParam={setParam}
+        on
+        sampleRate={48000}
+      />
+    );
+    expect(knob('Time').value).toBe(divisionIndex('1/8'));
   });
 
   it('disables the mode switch and greys out the filter chart while bypassed', () => {

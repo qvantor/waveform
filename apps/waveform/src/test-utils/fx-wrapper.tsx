@@ -6,9 +6,11 @@ import {
   LfoProvider,
   ModulationProvider,
   SynthCoreProvider,
+  TransportProvider,
   useLfos,
   useModulation,
   useSynthCore,
+  useTransport,
 } from '../app/synth/common/modules';
 import type { SynthModule } from '../app/synth/common/modules/synth';
 import { FxProvider, useFx } from '../app/synth/fx/modules';
@@ -26,6 +28,7 @@ const Fx = ({ children }: React.PropsWithChildren) => (
   <FxProvider
     initial={{}}
     synthCore={useSynthCore()}
+    transport={useTransport()}
     synth={synth}
     lfo={useLfos()}
     modulation={useModulation()}
@@ -34,8 +37,14 @@ const Fx = ({ children }: React.PropsWithChildren) => (
   </FxProvider>
 );
 
+const Transport = ({ children }: React.PropsWithChildren) => (
+  <TransportProvider initial={undefined} synthCore={useSynthCore()}>
+    {children}
+  </TransportProvider>
+);
+
 const Lfos = ({ children }: React.PropsWithChildren) => (
-  <LfoProvider initial={undefined} synthCore={useSynthCore()}>
+  <LfoProvider initial={undefined} synthCore={useSynthCore()} transport={useTransport()}>
     {children}
   </LfoProvider>
 );
@@ -46,14 +55,16 @@ export const renderWithFx = (ui: React.ReactElement) => {
   const result = render(
     <AppProvider initial={{}}>
       <SynthCoreProvider initial={undefined}>
-        <Lfos>
-          <ModulationProvider initial={undefined}>
-            <Fx>
-              <Capture onModel={(module) => (fx = module)} />
-              {ui}
-            </Fx>
-          </ModulationProvider>
-        </Lfos>
+        <Transport>
+          <Lfos>
+            <ModulationProvider initial={undefined}>
+              <Fx>
+                <Capture onModel={(module) => (fx = module)} />
+                {ui}
+              </Fx>
+            </ModulationProvider>
+          </Lfos>
+        </Transport>
       </SynthCoreProvider>
     </AppProvider>
   );

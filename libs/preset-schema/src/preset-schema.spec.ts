@@ -1,8 +1,10 @@
 import { normalizePreset } from './normalize';
 import { presetHash } from './hash';
 import { isProfane } from './profanity';
+import { divisionIndex } from './tempo';
 import {
   ENVELOPE_CURVES,
+  ENVELOPE_DIVISIONS,
   fxSnapSchema,
   LFO_DEFAULTS,
   listPresetsQuerySchema,
@@ -29,7 +31,21 @@ const preset = {
   v: { leg: false, port: 0, max: 8 },
   fx: {
     o: ['reverb', 'delay'],
-    delay: { a: true, on: true, mix: 0.5, time: 0.25, fb: 0.3, mode: 1, pan: -0.01, freq: 800, q: 2 },
+    delay: {
+      a: true,
+      on: true,
+      mix: 0.5,
+      time: 0.25,
+      sync: 1,
+      div: 37,
+      trip: 0,
+      dot: 1,
+      fb: 0.3,
+      mode: 1,
+      pan: -0.01,
+      freq: 800,
+      q: 2,
+    },
     reverb: {
       a: true,
       on: true,
@@ -53,6 +69,11 @@ const DELAY_DEFAULTS = {
   on: true,
   mix: 0.3,
   time: 0.2,
+  // MS, its division in BPM 1/8
+  sync: 0,
+  div: 9,
+  trip: 0,
+  dot: 0,
   fb: 0.5,
   mode: 0,
   pan: 0,
@@ -142,13 +163,25 @@ describe('normalizePreset', () => {
   it('fills each envelope with its own defaults, takes stages up to 32 s and drops the old adsr', () => {
     const { env } = normalizePreset({ adsr: { attack: 0.5 }, env: { e2: { decay: 32, release: 0 } } });
     const curves = { attack: 0, decay: 3.49, release: 3.49 };
+    // in MS, the divisions of BPM nearest to the seconds of a fresh one at 120
+    const ms = (id: 'env1' | 'env2' | 'env3') => ({ bpm: false, divs: ENVELOPE_DIVISIONS[id] });
     expect(env).toEqual({
-      e1: { attack: 0.005, hold: 0.1, decay: 0, sustain: 1, release: 0.005, curves },
-      e2: { attack: 0.005, hold: 0, decay: 32, sustain: 0, release: 0, curves },
-      e3: { attack: 0.005, hold: 0, decay: 0.5, sustain: 0, release: 0.3, curves },
+      e1: { attack: 0.005, hold: 0.1, decay: 0, sustain: 1, release: 0.005, curves, ...ms('env1') },
+      e2: { attack: 0.005, hold: 0, decay: 32, sustain: 0, release: 0, curves, ...ms('env2') },
+      e3: { attack: 0.005, hold: 0, decay: 0.5, sustain: 0, release: 0.3, curves, ...ms('env3') },
       vel: { amp: 1, k: 0 },
     });
     expect(normalizePreset({ adsr: { attack: 0.5 } })).not.toHaveProperty('adsr');
+  });
+
+  it('keeps the tempo of an envelope: its divisions Off and 1/256 … 32 bar', () => {
+    const divs = { attack: 0, hold: divisionIndex('32 bar'), decay: divisionIndex('1/4'), release: 14 };
+    expect(normalizePreset({ env: { e3: { bpm: true, divs } } }).env.e3).toMatchObject({ bpm: true, divs });
+    // a triplet: its straight one
+    expect(
+      normalizePreset({ env: { e1: { divs: { decay: divisionIndex('1/4T') } } } }).env.e1.divs.decay
+    ).toBe(divisionIndex('1/4'));
+    expect(ENVELOPE_DIVISIONS.env2).toEqual({ attack: 14, hold: 0, decay: divisionIndex('1/4'), release: 9 });
   });
 
   it('curves the stages of an envelope by default, keeps its own up to ±10, 0 too', () => {
@@ -190,7 +223,7 @@ describe('normalizePreset', () => {
     expect(normalizePreset({ mod }).mod).toEqual(mod);
   });
 
-  it('fills the four LFOs with their defaults: a sine of 0.5 s, retrig, no delay, rise, smooth or phase', () => {
+  it('fills the four LFOs with their defaults: a sine of 0.5 s, retrig, no delay, rise, smooth or phase, in HZ', () => {
     const { lfo } = normalizePreset({});
     expect(Object.keys(lfo)).toEqual(['l1', 'l2', 'l3', 'l4']);
     expect(lfo.l3).toEqual(LFO_DEFAULTS);
@@ -202,7 +235,32 @@ describe('normalizePreset', () => {
       phase: 0,
       shape: 'sine',
       mode: 'retrig',
+      // HZ, its divisions in BPM 1/4, Off and Off, HOST
+      bpm: false,
+      div: divisionIndex('1/4'),
+      trip: false,
+      dot: false,
+      host: true,
+      delayDiv: 0,
+      riseDiv: 0,
     });
+  });
+
+  it('keeps the tempo of an LFO: its divisions within the steps of their knobs', () => {
+    const l1 = {
+      bpm: true,
+      div: divisionIndex('1/8T'),
+      trip: true,
+      dot: false,
+      host: false,
+      delayDiv: 9,
+      riseDiv: 14,
+    };
+    expect(normalizePreset({ lfo: { l1 } }).lfo.l1).toMatchObject(l1);
+    // a triplet without TRIP: its straight one; Off is no Rate; a dotted one is no Delay or Rise
+    const l2 = { div: divisionIndex('1/8T'), delayDiv: divisionIndex('1/8D') };
+    expect(normalizePreset({ lfo: { l2 } }).lfo.l2).toMatchObject({ div: divisionIndex('1/8'), delayDiv: 9 });
+    expect(normalizePreset({ lfo: { l3: { div: 0 } } }).lfo.l3.div).toBe(divisionIndex('1/256'));
   });
 
   it('keeps the knobs of an LFO within their ranges: a period of 10 ms to 32 s, times up to 32 s, Smooth 0.5 s', () => {
@@ -423,6 +481,11 @@ describe('normalizePreset', () => {
     ['an LFO phase over 1', { ...preset, lfo: { l2: { phase: 1.1 } } }],
     ['an unknown LFO shape', { ...preset, lfo: { l3: { shape: 'noise' } } }],
     ['an unknown LFO mode', { ...preset, lfo: { l3: { mode: 'env' } } }],
+    ['an LFO division out of the list', { ...preset, lfo: { l1: { div: 43 } } }],
+    ['an LFO division not whole', { ...preset, lfo: { l1: { delayDiv: 1.5 } } }],
+    ['an LFO BPM not a flag', { ...preset, lfo: { l1: { bpm: 1 } } }],
+    ['an envelope division out of the list', { ...preset, env: { e1: { divs: { attack: 43 } } } }],
+    ['an envelope BPM not a flag', { ...preset, env: { e1: { bpm: 'yes' } } }],
     [
       'LFO points not from 0',
       {
@@ -491,6 +554,11 @@ describe('normalizePreset', () => {
       { ...preset, fx: { ...preset.fx, delay: { ...preset.fx.delay, time: 1.1 } } },
     ],
     ['delay pan out of range', { ...preset, fx: { ...preset.fx, delay: { ...preset.fx.delay, pan: 0.06 } } }],
+    ['delay BPM not 0 or 1', { ...preset, fx: { ...preset.fx, delay: { ...preset.fx.delay, sync: 2 } } }],
+    [
+      'delay division out of the list',
+      { ...preset, fx: { ...preset.fx, delay: { ...preset.fx.delay, div: 43 } } },
+    ],
     ['delay q out of range', { ...preset, fx: { ...preset.fx, delay: { ...preset.fx.delay, q: 0.001 } } }],
     ['not an object', 'preset'],
   ])('rejects %s', (_, data) => {
@@ -637,7 +705,21 @@ describe('fxSnapSchema', () => {
   });
 
   it('keeps valid values, falsy ones included', () => {
-    const delay = { a: true, on: false, mix: 0, time: 0.5, fb: 0, mode: 1, pan: 0, freq: 50, q: 3 };
+    const delay = {
+      a: true,
+      on: false,
+      mix: 0,
+      time: 0.5,
+      sync: 0,
+      div: 0,
+      trip: 0,
+      dot: 0,
+      fb: 0,
+      mode: 1,
+      pan: 0,
+      freq: 50,
+      q: 3,
+    };
     const reverb = {
       ...REVERB_DEFAULTS,
       a: true,

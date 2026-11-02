@@ -2,6 +2,7 @@ import React from 'react';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { Handle, HandleProps } from '@waveform/ui-kit';
 import { withElementSize } from '@waveform/ui-kit/test-utils';
+import { divisionIndex, TEMPO_DIVISIONS, TIME_DIVISIONS } from '@waveform/preset-schema';
 import {
   createEnvelopes,
   createLfos,
@@ -128,6 +129,66 @@ describe('LfoSection', () => {
     expect(knob('Smooth')).toMatchObject({ min: 0, max: 0.5, mode: 'pow' });
     expect(knob('Phase')).toMatchObject({ min: 0, max: 1, wrap: true });
     expect(knob('Phase').formatValue?.(0.25)).toBe('90°');
+  });
+
+  it('switches BPM, HOST only in Free, TRIP and DOT only in BPM', () => {
+    const { lfos } = setup();
+    const key = (name: string) => screen.getByRole('button', { name });
+    expect(key('Tempo sync')).toHaveAttribute('aria-pressed', 'false');
+    // Retrig: HOST changes nothing, it shows it is on, dimmed
+    expect(key('On the beats')).toHaveAttribute('aria-pressed', 'true');
+    expect(key('On the beats')).toBeDisabled();
+    expect(key('Triplets')).toBeDisabled();
+    expect(key('Dotted')).toBeDisabled();
+    act(() => lfos[1].setMode('lfo1', 'free'));
+    expect(key('On the beats')).toBeEnabled();
+    fireEvent.click(key('Tempo sync'));
+    fireEvent.click(key('On the beats'));
+    fireEvent.click(key('Triplets'));
+    fireEvent.click(key('Dotted'));
+    expect(lfos[0].$lfos.value.lfo1).toMatchObject({ bpm: true, host: false, trip: true, dot: true });
+    expect(key('Triplets')).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('in BPM steps Rate through its divisions, right faster, Delay and Rise from Off', () => {
+    const { lfos, knob } = setup();
+    act(() => lfos[1].setBpm('lfo1', true));
+    const rate = knob('Rate');
+    expect(rate.value).toBe(divisionIndex('1/4'));
+    expect(rate.formatValue?.(rate.value as number)).toBe('1/4');
+    expect(rate.step?.map((division) => TEMPO_DIVISIONS[division].id)).toEqual([
+      '32 bar',
+      '16 bar',
+      '8 bar',
+      '4 bar',
+      '2 bar',
+      '1 bar',
+      '1/2',
+      '1/4',
+      '1/8',
+      '1/16',
+      '1/32',
+      '1/64',
+      '1/128',
+      '1/256',
+    ]);
+    expect(rate).toMatchObject({ precision: 1, defaultValue: divisionIndex('1/4'), modTarget: 'lfo1.rate' });
+    act(() => rate.onChange?.(divisionIndex('1/16')));
+    expect(lfos[0].$lfos.value.lfo1.div).toBe(divisionIndex('1/16'));
+    // with TRIP the triplets between them
+    act(() => lfos[1].setTrip('lfo1', true));
+    expect(knob('Rate').step).toHaveLength(28);
+    expect(
+      knob('Rate')
+        .step?.slice(15, 18)
+        .map((division) => TEMPO_DIVISIONS[division].id)
+    ).toEqual(['1/4T', '1/8', '1/8T']);
+    expect(knob('Delay')).toMatchObject({ value: 0, defaultValue: 0, step: TIME_DIVISIONS });
+    expect(knob('Delay').formatValue?.(0)).toBe('Off');
+    act(() => knob('Rise').onChange?.(divisionIndex('2 bar')));
+    expect(lfos[0].$lfos.value.lfo1.riseDiv).toBe(divisionIndex('2 bar'));
+    // Smooth and Phase stay
+    expect(knob('Smooth').step).toBeUndefined();
   });
 
   it('chooses the shape and the mode', () => {
