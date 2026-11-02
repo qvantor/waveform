@@ -49,3 +49,6 @@ Thumbs.db
 
 # the Rust build of the worklet cores (dsp/, `npm run wasm`)
 /dsp/target
+
+# the caches and the migrate runs of Nx
+/.nx

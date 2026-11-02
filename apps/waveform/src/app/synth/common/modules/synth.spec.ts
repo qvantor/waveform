@@ -362,7 +362,7 @@ describe('synth', () => {
     voices();
     const [node] = voicesNodes(audioCtx);
 
-    node.onprocessorerror?.(new Event('processorerror'));
+    node.onprocessorerror?.(new ErrorEvent('processorerror'));
 
     expect(error).toHaveBeenCalledWith('The wavetable oscillator failed', expect.any(Event));
     expect(wavetables.$status.value).toBe('failed');

@@ -5,5 +5,6 @@ export const requestIdleCallback = (callback: () => void) => {
 };
 
 export const cancelIdleCallback = (handle: number) => {
-  window.cancelIdleCallback ? window.cancelIdleCallback(handle) : window.cancelAnimationFrame(handle);
+  if (window.cancelIdleCallback) window.cancelIdleCallback(handle);
+  else window.cancelAnimationFrame(handle);
 };

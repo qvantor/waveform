@@ -1,10 +1,16 @@
-{
-  "/.netlify": {
+[
+  {
+    "context": [
+      "/.netlify"
+    ],
     "target": "https://localhost:8888/",
     "secure": false
   },
-  "/api": {
+  {
+    "context": [
+      "/api"
+    ],
     "target": "https://localhost:8888/",
     "secure": false
   }
-}
+]

@@ -2,8 +2,14 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "outDir": "../../dist/out-tsc",
-    "module": "commonjs",
-    "types": ["jest", "node", "@testing-library/jest-dom", "webmidi"]
+    "types": [
+      "jest",
+      "node",
+      "@testing-library/jest-dom",
+      "webmidi",
+      "@nx/react/typings/cssmodule.d.ts",
+      "@nx/react/typings/image.d.ts"
+    ]
   },
   "include": [
     "jest.config.ts",
@@ -21,8 +27,8 @@
     "__mocks__/**/*"
   ],
   "files": [
-    "../../node_modules/@nrwl/react/typings/cssmodule.d.ts",
-    "../../node_modules/@nrwl/react/typings/image.d.ts",
+    "../../node_modules/@nx/react/typings/cssmodule.d.ts",
+    "../../node_modules/@nx/react/typings/image.d.ts",
     "src/globals.d.ts"
   ]
 }

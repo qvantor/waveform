@@ -273,7 +273,7 @@ describe('wavetable engine', () => {
     )
       .filter(({ name }) => name === STORE_PROCESSOR)
       .at(-1);
-    store?.onprocessorerror?.(new Event('processorerror'));
+    store?.onprocessorerror?.(new ErrorEvent('processorerror'));
     expect(statuses.at(-1)).toBe('failed');
     expect(worker()?.terminate).toHaveBeenCalled();
   });
@@ -325,7 +325,7 @@ describe('wavetable engine', () => {
     const voice = engine.createVoice(NOTE, {});
     const onEnded = jest.fn();
     Object.assign(voice ?? {}, { onEnded });
-    node?.onprocessorerror?.(new Event('processorerror'));
+    node?.onprocessorerror?.(new ErrorEvent('processorerror'));
     expect(statuses.at(-1)).toBe('failed');
     expect(onEnded).toHaveBeenCalled();
     expect(node?.port.postMessage).toHaveBeenCalledWith({ stop: true });
@@ -350,7 +350,7 @@ describe('wavetable engine', () => {
     await Promise.resolve();
     expect(events(node)).toEqual([{ kind: 'bend', cents: -350 }]);
 
-    node?.onprocessorerror?.(new Event('processorerror'));
+    node?.onprocessorerror?.(new ErrorEvent('processorerror'));
     engine.retry();
     await flush();
     expect(voices()).not.toBe(node);
@@ -427,7 +427,7 @@ describe('wavetable engine', () => {
       { kind: 'routes', voices: [voice?.id], routes: [lfoRoute] },
     ]);
 
-    node?.onprocessorerror?.(new Event('processorerror'));
+    node?.onprocessorerror?.(new ErrorEvent('processorerror'));
     engine.retry();
     await flush();
     expect(voices()).not.toBe(node);

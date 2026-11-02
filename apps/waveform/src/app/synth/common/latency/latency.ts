@@ -63,8 +63,10 @@ export const resolveLatency = (): Latency | null => {
   return mode === 'auto' ? autoLatency() : mode;
 };
 
-// a new latency needs a new AudioContext: the page reloads (the tab keeps the sound and the MIDI input)
-export const reloadPage = () => window.location.reload();
+// a new latency needs a new AudioContext: the page reloads (the tab keeps the sound and the MIDI input). Through
+// `navigation`, which the specs replace: the properties of jsdom's location can't be
+export const navigation = { reload: () => window.location.reload() };
+export const reloadPage = () => navigation.reload();
 
 // dropouts at low: normal from now on (auto keeps it already, a low chosen by hand becomes normal)
 export const switchToNormalLatency = () => {

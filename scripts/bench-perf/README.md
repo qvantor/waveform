@@ -45,8 +45,8 @@ heat), while in an A/A run (`--against=HEAD`, a clean tree) the medians of the t
 code: a regression compares the working tree with a reference **in the same session**, their runs alternating.
 
 `--against=<ref>` checks the commit out in a worktree of its own (`tmp/bench-perf/against/<sha>`, its
-`node_modules` a link to the repo's: a reference with another `package-lock.json` is built with ours, the report
-warns), makes its perf build once (`npm run build:perf` there, ~1.5 min) and serves both builds:
+`node_modules` a link to the repo's; a reference with another `package-lock.json` gets its own, `npm ci` there once,
+the report says so: a tree before an update of the tools doesn't build with those after it), makes its perf build once (`npm run build:perf` there, ~1.5 min) and serves both builds:
 
 - S5: the runs of both sides alternate, A B B A A B … (5 a side by default, ~22 s each);
 - L1, L3: 5 sessions of 10 notes a side, a fresh page each, alternating; the latency of every note is worked out

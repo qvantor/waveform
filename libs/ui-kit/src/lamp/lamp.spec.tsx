@@ -2,6 +2,7 @@ import React from 'react';
 import { render, screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { theme } from '../common/constants';
+import { cssColor } from '../common/test-utils';
 import { Lamp } from './index';
 
 describe('Lamp', () => {
@@ -56,9 +57,9 @@ describe('Lamp', () => {
     );
     const borderColor = (name: string) =>
       window.getComputedStyle(screen.getByRole('button', { name })).borderColor;
-    expect(borderColor('Default')).toBe(theme.colors.secondAccent);
-    expect(borderColor('Green')).toBe(theme.colors.accent);
+    expect(borderColor('Default')).toBe(cssColor(theme.colors.secondAccent));
+    expect(borderColor('Green')).toBe(cssColor(theme.colors.accent));
     // off: the glass is dark, the color shows only when lit
-    expect(borderColor('Off')).toBe(theme.colors.primaryDarkMediumContrast);
+    expect(borderColor('Off')).toBe(cssColor(theme.colors.primaryDarkMediumContrast));
   });
 });

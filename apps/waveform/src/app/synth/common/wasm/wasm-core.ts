@@ -57,6 +57,13 @@ export const instantiateCore = <T extends CoreExports>(module: WebAssembly.Modul
   guardExports<T>(new WebAssembly.Instance(module, {}).exports);
 
 type ViewType = Float32ArrayConstructor | Float64ArrayConstructor | Int32ArrayConstructor;
+// one of them on a buffer: their constructors are generic over the buffer (TS 5.7 on), their union has no common
+// signature for it
+type OnBuffer<T extends ViewType> = new (
+  buffer: ArrayBufferLike,
+  byteOffset: number,
+  length: number
+) => InstanceType<T>;
 
 // a typed array (a Float32Array by default) on the memory of a core, made again when the block moved or the
 // memory has grown: memory.grow detaches the old buffer, a view on it has the length 0 (the getter of
@@ -71,7 +78,7 @@ export const createView = <T extends ViewType = Float32ArrayConstructor>(
   return (pointer: number, length: number) => {
     if (view.length !== length || pointer !== at) {
       at = pointer;
-      view = new type(exports.memory.buffer, pointer >>> 0, length) as InstanceType<T>;
+      view = new (type as unknown as OnBuffer<T>)(exports.memory.buffer, pointer >>> 0, length);
     }
     return view;
   };

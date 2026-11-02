@@ -3,7 +3,7 @@ import { useOscillatorContext } from '../../oscillator';
 import { AudiofileProvider } from './modules';
 import { LoadFile, AudiofileWavetable } from './components';
 
-let initialBuffer = new Float32Array(0);
+let initialBuffer: Float32Array = new Float32Array(0);
 
 export default () => {
   const oscillator = useOscillatorContext();

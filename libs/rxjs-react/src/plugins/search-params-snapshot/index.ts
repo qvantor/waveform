@@ -30,7 +30,7 @@ const searchToSnapshots = () => {
         ...obj[k],
         [v]: JSON.parse(value),
       };
-    } catch (e) {
+    } catch {
       console.error(`can't parse search param ${key}`);
     }
   });

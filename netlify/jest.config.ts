@@ -1,5 +1,5 @@
 /* eslint-disable */
-export default {
+module.exports = {
   displayName: 'netlify',
   // function specs live in tests/: Netlify deploys every file in functions/ as a function
   preset: '../jest.preset.js',

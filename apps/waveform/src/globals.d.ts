@@ -7,6 +7,6 @@ declare const __PERF__: boolean;
 // the bytes of a wasm core (`npm run wasm` builds them into tmp/wasm, @waveform/wasm/<name>.wasm), inlined into a
 // worklet bundle by esbuild's binary loader (`npm run worklets`)
 declare module '*.wasm' {
-  const bytes: Uint8Array;
+  const bytes: Uint8Array<ArrayBuffer>;
   export default bytes;
 }

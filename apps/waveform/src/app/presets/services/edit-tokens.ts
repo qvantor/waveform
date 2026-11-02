@@ -5,7 +5,7 @@ const readTokens = (): Record<string, string> => {
   try {
     const tokens = JSON.parse(localStorage.getItem(EDIT_TOKENS_KEY) ?? '{}');
     return tokens && typeof tokens === 'object' ? tokens : {};
-  } catch (e) {
+  } catch {
     return {};
   }
 };

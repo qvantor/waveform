@@ -1,6 +1,6 @@
 // the reference of an A/B run (--against=<ref>): that commit checked out in a worktree of its own
-// (tmp/bench-perf/against/<sha>, gitignored), its dependencies those of the repo (node_modules linked), its
-// perf build, built once. The runs of the reference and of the working tree alternate in one session, so the
+// (tmp/bench-perf/against/<sha>, gitignored), its dependencies those of the repo (node_modules linked) or, with
+// another package-lock.json, its own, its perf build, built once. The runs of the reference and of the working tree alternate in one session, so the
 // drift of a session (the JIT, the cores the threads land on, the heat) weighs on both sides alike
 import fs from 'fs';
 import path from 'path';
@@ -9,6 +9,7 @@ import { exec, out, root, tryExec } from './util.mjs';
 const BUILD = 'dist/apps/waveform-perf';
 const STAMP = 'perf-build-stamp.txt';
 const WASM_STAMP = 'wasm-stamp.txt';
+const DEPS_STAMP = 'deps-stamp.txt';
 
 // `build`: its perf build too (the browser cases; the DSP bundles its sources)
 export const prepareReference = async (ref, { build = true } = {}) => {
@@ -28,13 +29,25 @@ export const prepareReference = async (ref, { build = true } = {}) => {
   // a commit before the test hook can't be driven
   if (!fs.existsSync(path.join(dir, 'apps/waveform/src/app/perf/perf-api.ts')))
     throw new Error(`--against=${ref}: ${short} has no perf build (apps/waveform/src/app/perf, a813450 on)`);
+  // the dependencies of the repo (linked) while they are its own; other ones (package-lock.json: a tree before
+  // an update of its tools would not build with those after it) installed in it, once
   const modules = path.join(dir, 'node_modules');
-  if (!fs.existsSync(modules)) fs.symlinkSync(path.join(root, 'node_modules'), modules, 'dir');
   const lock = (folder) => fs.readFileSync(path.join(folder, 'package-lock.json'), 'utf8');
-  if (lock(dir) !== lock(root))
-    notes.push(
-      `the reference ${short} has other dependencies (package-lock.json): built with those of the repo`
-    );
+  const linked = fs.lstatSync(modules, { throwIfNoEntry: false })?.isSymbolicLink() ?? false;
+  if (lock(dir) === lock(root)) {
+    if (!fs.existsSync(modules)) fs.symlinkSync(path.join(root, 'node_modules'), modules, 'dir');
+  } else {
+    const depsStamp = path.join(dir, DEPS_STAMP);
+    const installed = !linked && fs.existsSync(depsStamp) && fs.readFileSync(depsStamp, 'utf8') === sha;
+    if (!installed) {
+      // a link of an earlier run goes first: npm ci would empty the node_modules of the repo through it
+      if (linked) fs.unlinkSync(modules);
+      console.log(`against ${ref}: the dependencies of ${short} (npm ci)…`);
+      await exec('npm', ['ci', '--no-audit', '--no-fund'], { cwd: dir });
+      fs.writeFileSync(depsStamp, sha);
+    }
+    notes.push(`the reference ${short} has other dependencies (package-lock.json): built with its own`);
+  }
 
   const siteDir = path.join(dir, BUILD);
   const stamp = path.join(dir, STAMP);

@@ -12,7 +12,7 @@ export interface WavetableLevels {
   harmonics: Int32Array;
   lengths: Int32Array;
   offsets: Int32Array;
-  data: Float32Array;
+  data: Float32Array<ArrayBuffer>;
 }
 
 // the samples around a cycle: 1 before, 2 after
