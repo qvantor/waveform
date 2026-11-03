@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import cls from 'classnames';
 import { number } from '@waveform/math';
 import { useLineChartContext } from '../line-chart';

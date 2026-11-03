@@ -1,6 +1,6 @@
 import React from 'react';
 import cls from 'classnames';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { LeftOutlined, RightOutlined } from '@ant-design/icons';
 import { theme } from '../common/constants';
 import { text10, textBold12 } from '../common/styles';

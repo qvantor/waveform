@@ -4,6 +4,7 @@ import {
   canChooseLatency,
   canKeepLatency,
   keepNormalLatency,
+  navigation,
   readAutoLatency,
   readLatencyMode,
   resolveLatency,
@@ -11,15 +12,7 @@ import {
   switchToNormalLatency,
 } from './latency';
 
-const mockReload = () => {
-  const reload = jest.fn();
-  const { location } = window;
-  Object.defineProperty(window, 'location', { configurable: true, value: { ...location, reload } });
-  return reload;
-};
-
-const location = window.location;
-afterEach(() => Object.defineProperty(window, 'location', { configurable: true, value: location }));
+const mockReload = () => jest.spyOn(navigation, 'reload').mockImplementation(() => undefined);
 
 describe('canChooseLatency', () => {
   it('is Chromium on a desktop', () => {

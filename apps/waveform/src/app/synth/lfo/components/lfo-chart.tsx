@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { BehaviorSubject, distinctUntilChanged, map } from 'rxjs';
 import { number } from '@waveform/math';
 import {

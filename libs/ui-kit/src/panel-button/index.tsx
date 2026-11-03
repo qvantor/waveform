@@ -1,7 +1,7 @@
 import React from 'react';
 import cls from 'classnames';
 import hexToRgba from 'hex-to-rgba';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { theme } from '../common/constants';
 import { textBold12 } from '../common/styles';
 
@@ -38,7 +38,10 @@ const Root = styled.button`
   white-space: nowrap;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  transition: background 120ms, color 120ms, box-shadow 80ms ease-out;
+  transition:
+    background 120ms,
+    color 120ms,
+    box-shadow 80ms ease-out;
 
   svg {
     flex: 0 0 auto;
@@ -92,8 +95,8 @@ const Indicator = styled.span`
 
 // true when the label doesn't fit next to the icon (phones); back to false once the button is wide enough
 const useLabelOverflow = (
-  rootRef: React.RefObject<HTMLButtonElement>,
-  labelRef: React.RefObject<HTMLSpanElement>,
+  rootRef: React.RefObject<HTMLButtonElement | null>,
+  labelRef: React.RefObject<HTMLSpanElement | null>,
   enabled: boolean
 ) => {
   const [overflow, setOverflow] = React.useState(false);

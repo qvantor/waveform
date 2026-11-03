@@ -4,21 +4,6 @@
   "sourceRoot": "libs/ui-kit/src",
   "projectType": "library",
   "tags": [],
-  "targets": {
-    "lint": {
-      "executor": "@nrwl/linter:eslint",
-      "outputs": ["{options.outputFile}"],
-      "options": {
-        "lintFilePatterns": ["libs/ui-kit/**/*.{ts,tsx,js,jsx}"]
-      }
-    },
-    "test": {
-      "executor": "@nrwl/jest:jest",
-      "outputs": ["coverage/libs/ui-kit"],
-      "options": {
-        "jestConfig": "libs/ui-kit/jest.config.ts",
-        "passWithNoTests": true
-      }
-    }
-  }
+  "// targets": "to see all targets run: nx show project ui-kit --web",
+  "targets": {}
 }

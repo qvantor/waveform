@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { reverb } from '../../effects/reverb';
 import { ReverbParam } from '../../effects/reverb-presets';
 import { KnobModulation, useKnobModulation } from '../../../modulation/use-knob-modulation';

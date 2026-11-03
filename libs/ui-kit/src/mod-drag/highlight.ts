@@ -13,6 +13,8 @@ export const modDragHighlight = (path: string) => css`
   }
 
   body.${MOD_DRAGGING_CLASS} [${MOD_OVER_ATTR}] ${path} & {
-    box-shadow: 0 0 0 3px var(--mod-drag-color), 0 0 12px 3px var(--mod-drag-color);
+    box-shadow:
+      0 0 0 3px var(--mod-drag-color),
+      0 0 12px 3px var(--mod-drag-color);
   }
 `;

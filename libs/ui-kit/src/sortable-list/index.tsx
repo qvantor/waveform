@@ -16,7 +16,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import cls from 'classnames';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 
 interface Props<T extends string> {
   items: T[];

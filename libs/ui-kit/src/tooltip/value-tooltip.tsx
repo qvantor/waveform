@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import hexToRgba from 'hex-to-rgba';
 import { theme } from '../common/constants';
 import { text12, textLight14 } from '../common/styles';

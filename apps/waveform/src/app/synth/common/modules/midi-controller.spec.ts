@@ -21,7 +21,7 @@ import { midiBend, midiController, midiToNote } from './midi-controller';
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 // without access the browser has no WebMIDI
-const setup = async (access?: WebMidi.MIDIAccess | Promise<never>) => {
+const setup = async (access?: MIDIAccess | Promise<never>) => {
   if (access) provideMidiAccess(access);
   const { module, onPress, onRelease } = createSpiedInputController();
   const transport = createTransport();
@@ -517,7 +517,7 @@ describe('midiController channel', () => {
     });
     // `count` clocks at `bpm` from `from` ms, each taken `delay()` ms late, stamped 0 (Chrome) or at its time
     const clocks = (
-      input: WebMidi.MIDIInput,
+      input: MIDIInput,
       bpm: number,
       from: number,
       count: number,

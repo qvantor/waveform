@@ -81,7 +81,7 @@ const ulps = (a: number, b: number) => {
 };
 
 const call = (name: string, ...args: number[]) => jsmath[`js_${name}`](...args);
-const node = (name: typeof UNARY[number], x: number) => (nodeMath[name] as (x: number) => number)(x);
+const node = (name: (typeof UNARY)[number], x: number) => (nodeMath[name] as (x: number) => number)(x);
 
 describe('jsmath', () => {
   it.each(UNARY)('%s matches the Math of Node on the special values', (name) => {
@@ -116,8 +116,8 @@ describe('jsmath', () => {
         i % 3 === 0
           ? [10, (random() - 0.5) * 20]
           : i % 3 === 1
-          ? [2, (random() - 0.5) * 40]
-          : [random() * 100, (random() - 0.5) * 20];
+            ? [2, (random() - 0.5) * 40]
+            : [random() * 100, (random() - 0.5) * 20];
       expect(ulps(call('pow', x, y), x ** y)).toBeLessThanOrEqual(1);
     }
   });

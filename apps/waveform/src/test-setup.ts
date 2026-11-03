@@ -95,7 +95,11 @@ class AudioWorkletNodeStub extends AudioWorkletNodeMock<AudioContextMock> {
   onprocessorerror: ((event: Event) => void) | null = null;
   readonly parameters = new Map<string, AudioParam>();
 
-  constructor(context: AudioContextMock, readonly name: string, readonly options: AudioWorkletNodeOptions) {
+  constructor(
+    context: AudioContextMock,
+    readonly name: string,
+    readonly options: AudioWorkletNodeOptions
+  ) {
     super({
       context,
       channelCount: options.channelCount ?? 2,
@@ -135,6 +139,9 @@ Object.defineProperty(window, 'matchMedia', {
     dispatchEvent: jest.fn(),
   }),
 });
+
+// the ids of React for the components of antd, not one 'test-id' for all (test-utils/rc-use-id.ts)
+jest.mock('@rc-component/util/lib/hooks/useId', () => jest.requireActual('./test-utils/rc-use-id'));
 
 // antd and the preset list use browser observers that jsdom doesn't have
 class ObserverStub {

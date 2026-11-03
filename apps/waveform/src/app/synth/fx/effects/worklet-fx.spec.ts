@@ -113,7 +113,7 @@ describe('createWorkletFx', () => {
     const { worklet, node, statuses } = setup();
     await flush();
     const first = node();
-    first?.onprocessorerror?.call(first, new Event('processorerror'));
+    first?.onprocessorerror?.call(first, new ErrorEvent('processorerror'));
     expect(statuses).toEqual(['loading', 'ready', 'failed']);
     expect(worklet.input.disconnect).toHaveBeenCalled();
     expect(first?.disconnect).toHaveBeenCalled();
@@ -144,7 +144,7 @@ describe('createWorkletFx', () => {
     expect(statuses).toEqual(['loading', 'failed', 'loading', 'ready']);
     const disconnects = (worklet.input.disconnect as jest.Mock).mock.calls.length;
 
-    dropped?.onprocessorerror?.call(dropped, new Event('processorerror'));
+    dropped?.onprocessorerror?.call(dropped, new ErrorEvent('processorerror'));
     expect(statuses).toEqual(['loading', 'failed', 'loading', 'ready']);
     expect(worklet.input.disconnect).toHaveBeenCalledTimes(disconnects);
     expect(current?.disconnect).not.toHaveBeenCalled();
@@ -188,7 +188,7 @@ describe('createWorkletFx', () => {
     const { worklet, node } = setup();
     await flush();
     const first = node();
-    first?.onprocessorerror?.call(first, new Event('processorerror'));
+    first?.onprocessorerror?.call(first, new ErrorEvent('processorerror'));
     worklet.destroy();
     expect(first?.port.postMessage.mock.calls).toEqual([[{ stop: true }]]);
   });

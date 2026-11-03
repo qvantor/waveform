@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { Button, Input, Modal, Tooltip, Typography } from 'antd';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Turnstile, TurnstileInstance } from '@marsidev/react-turnstile';
@@ -67,7 +67,7 @@ export const SaveDialog = ({ open, onClose }: Props) => {
   const [editable, setEditable] = React.useState<{ id: string; name: string; editToken: string } | null>(
     null
   );
-  const turnstile = React.useRef<TurnstileInstance>();
+  const turnstile = React.useRef<TurnstileInstance | undefined>(undefined);
   const queryClient = useQueryClient();
 
   React.useEffect(() => {
@@ -99,8 +99,9 @@ export const SaveDialog = ({ open, onClose }: Props) => {
       queryClient.invalidateQueries({ queryKey: ['presets', 'name-available'] });
   };
 
-  const { mutate, isLoading } = useMutation({
-    mutationFn: savePreset,
+  const { mutate, isPending } = useMutation({
+    // the body alone: the mutation function of react-query 5 gets its context too
+    mutationFn: (body: Parameters<typeof savePreset>[0]) => savePreset(body),
     onSuccess: (result) => {
       if (result.editToken) setEditToken(result.id, result.editToken);
       setSavedResult({
@@ -129,7 +130,7 @@ export const SaveDialog = ({ open, onClose }: Props) => {
     onError: onSaveError,
   });
 
-  const busy = isLoading || overwriteMutation.isLoading;
+  const busy = isPending || overwriteMutation.isPending;
   const canSave = validName && !nameTaken && !isOwnName && token !== null;
   const canOverwrite = validName && !nameTaken && editable !== null;
   const secondaryType = editable ? 'default' : 'primary';
@@ -150,7 +151,7 @@ export const SaveDialog = ({ open, onClose }: Props) => {
       title='Save preset'
       open={open}
       onCancel={onClose}
-      destroyOnClose
+      destroyOnHidden
       footer={
         saved ? (
           <Button type='primary' onClick={onClose}>
@@ -174,8 +175,8 @@ export const SaveDialog = ({ open, onClose }: Props) => {
                 <Button
                   type={secondaryType}
                   onClick={save}
-                  disabled={!canSave || overwriteMutation.isLoading}
-                  loading={isLoading}
+                  disabled={!canSave || overwriteMutation.isPending}
+                  loading={isPending}
                 >
                   {token ? (editable ? 'Save as new' : 'Save') : 'Checking...'}
                 </Button>
@@ -185,8 +186,8 @@ export const SaveDialog = ({ open, onClose }: Props) => {
               <Button
                 type='primary'
                 onClick={overwrite}
-                disabled={!canOverwrite || isLoading}
-                loading={overwriteMutation.isLoading}
+                disabled={!canOverwrite || isPending}
+                loading={overwriteMutation.isPending}
               >
                 Save
               </Button>

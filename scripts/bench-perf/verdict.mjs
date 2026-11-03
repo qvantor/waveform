@@ -11,7 +11,7 @@ const rank = (values) => {
   const order = values.map((value, index) => [value, index]).sort((a, b) => a[0] - b[0]);
   const ranks = new Array(values.length);
   const ties = [];
-  for (let start = 0; start < order.length; ) {
+  for (let start = 0; start < order.length;) {
     let end = start;
     while (end + 1 < order.length && order[end + 1][0] === order[start][0]) end++;
     for (let i = start; i <= end; i++) ranks[order[i][1]] = (start + end) / 2 + 1;

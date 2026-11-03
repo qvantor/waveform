@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { useOscillatorContext } from '../../../oscillator';
 import { WaveSelector, WaveEditor } from '../../common/components';
 import { useManualWavetable } from '../modules';

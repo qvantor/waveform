@@ -230,8 +230,7 @@ export const fx = ({
         // unavailable one doesn't keep a tail
         ...FX_TYPES.map((type) => {
           let prev:
-            | { mix: number; live: boolean; active: boolean; params: Record<string, number> }
-            | undefined;
+            { mix: number; live: boolean; active: boolean; params: Record<string, number> } | undefined;
           return combineLatest([
             $effects.pipe(
               map((effects) => effects[type]),
@@ -280,10 +279,12 @@ export const fx = ({
       urlSnapshotPlugin({
         modelToSnap: ({ $order, $effects }) => ({
           o: $order.value,
-          ...mapValues(
-            $effects.value,
-            ({ added, on, mix, params }): FxSnap => ({ a: added, on, mix, ...params })
-          ),
+          ...mapValues($effects.value, ({ added, on, mix, params }): FxSnap => ({
+            a: added,
+            on,
+            mix,
+            ...params,
+          })),
         }),
         applySnap: (snap, { $order, $effects }) => {
           const { o, ...effects } = fxSnapSchema.parse(snap);

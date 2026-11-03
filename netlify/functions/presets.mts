@@ -58,7 +58,7 @@ const countLastHour = async (table: 'presets' | 'reports', ipHash: string) => {
 
 const parsePresetBody = async <T extends { name: string; data: unknown }>(
   req: Request,
-  schema: z.ZodType<T, z.ZodTypeDef, unknown>
+  schema: z.ZodType<T>
 ) => {
   const parsed = schema.safeParse(await readJson(req, MAX_BODY_BYTES));
   if (!parsed.success) throw new HttpError(400, 'Invalid preset');
@@ -253,9 +253,9 @@ const reportPreset = async (id: string, context: Context) => {
     UPDATE presets SET hidden = true
     WHERE id = ${presetId} AND NOT hidden
       AND (SELECT count(*) FROM reports WHERE preset_id = ${presetId}) >= ${envNumber(
-    'REPORT_HIDE_THRESHOLD',
-    5
-  )}`;
+        'REPORT_HIDE_THRESHOLD',
+        5
+      )}`;
   return empty();
 };
 

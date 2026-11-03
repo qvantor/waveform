@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { AiOutlineDown, AiOutlineUp } from 'react-icons/ai';
 import { IconButton, PianoKeyboard, theme, useElementSize } from '@waveform/ui-kit';
 import { useBehaviorSubject } from '@waveform/rxjs-react';

@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { theme } from '../common/constants';
 
 interface Props {
@@ -7,15 +7,15 @@ interface Props {
 }
 
 interface StyledProps {
-  droppable: boolean;
+  $droppable: boolean;
 }
 
 const FileDropRoot = styled.div<StyledProps>`
   transition: all 150ms;
-  background: ${({ droppable }) => (droppable ? theme.colors.primaryLowContrast : theme.colors.primary)};
+  background: ${({ $droppable }) => ($droppable ? theme.colors.primaryLowContrast : theme.colors.primary)};
 
-  box-shadow: ${({ droppable }) =>
-    droppable
+  box-shadow: ${({ $droppable }) =>
+    $droppable
       ? `inset 0 0 0 10px ${theme.colors.primaryLowContrast}, inset 0 0 0 11px ${theme.colors.primary}`
       : 'none'};
 `;
@@ -45,7 +45,7 @@ export const FileDrop = ({ children, onFileDrop }: React.PropsWithChildren<Props
   };
   return (
     <FileDropRoot
-      droppable={droppable}
+      $droppable={droppable}
       onDragEnter={onDragEnter}
       onDrop={onDrop}
       onDragOver={onDragOver}

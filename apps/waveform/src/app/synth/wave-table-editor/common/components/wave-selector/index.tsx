@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { PlusOutlined } from '@ant-design/icons';
 import { useBehaviorSubject, useObservable } from '@waveform/rxjs-react';
 import { theme, LineChart, Line, Handle } from '@waveform/ui-kit';
@@ -29,11 +29,11 @@ const WavesPreview = styled.div`
   overflow-x: scroll;
 `;
 
-const Wave = styled.div<{ selected: boolean }>`
+const Wave = styled.div<{ $selected: boolean }>`
   width: 59px;
   height: 59px;
   border: 1px solid
-    ${({ selected }) => (selected ? theme.colors.accent : theme.colors.primaryDarkHighContrast)};
+    ${({ $selected }) => ($selected ? theme.colors.accent : theme.colors.primaryDarkHighContrast)};
 `;
 const NewWave = styled.button`
   flex: 0 0 auto;
@@ -87,7 +87,7 @@ export const WaveSelector = ({ $waveTable, $position, $wave, $morph, setPosition
       </HandlersWrapper>
       <WavesPreview>
         {waveTable.map((wave, i) => (
-          <Wave key={i} onClick={() => select(i)} selected={i === current}>
+          <Wave key={i} onClick={() => select(i)} $selected={i === current}>
             <LineChart domainX={[0, wave.value.length - 1]} domainY={[1, -1]} padding={[0, 0]}>
               <Line data={wave.value} />
             </LineChart>

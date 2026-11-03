@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { animationFrameScheduler, auditTime } from 'rxjs';
 import { useBehaviorSubject, useObservable } from '@waveform/rxjs-react';
 import { DraggableNumber, PitchWheel } from '@waveform/ui-kit';

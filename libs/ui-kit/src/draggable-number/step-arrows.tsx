@@ -1,7 +1,7 @@
 import React from 'react';
 import cls from 'classnames';
 import { CaretUpOutlined, CaretDownOutlined } from '@ant-design/icons';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { theme } from '../common/constants';
 
 // out of the line height: the row stays as high as its text

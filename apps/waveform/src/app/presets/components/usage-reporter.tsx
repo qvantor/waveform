@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { Turnstile } from '@marsidev/react-turnstile';
 import { usePresetUsageTracker, UsageEvent } from '../hooks/use-preset-usage-tracker';
 import { sendUsage, TURNSTILE_SITE_KEY } from '../services';

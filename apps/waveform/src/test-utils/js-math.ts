@@ -25,7 +25,7 @@ export const jsmath = wasmExports<JsMathExports>('jsmath-check');
 // Node's own, to compare jsmath with
 export const nodeMath = Object.fromEntries(JSMATH_FUNCTIONS.map((name) => [name, Math[name]])) as Pick<
   Math,
-  typeof JSMATH_FUNCTIONS[number]
+  (typeof JSMATH_FUNCTIONS)[number]
 >;
 
 JSMATH_FUNCTIONS.forEach((name) => {

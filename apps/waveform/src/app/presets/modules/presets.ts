@@ -37,7 +37,7 @@ const chosenId = (current: CurrentPreset | null) => (current && !current.auto ? 
 const hashOf = (data: Record<string, unknown>) => {
   try {
     return presetHash(data);
-  } catch (e) {
+  } catch {
     return null;
   }
 };

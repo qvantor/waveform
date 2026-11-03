@@ -1,5 +1,5 @@
-import { sha256 } from '@noble/hashes/sha2';
-import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils';
+import { sha256 } from '@noble/hashes/sha2.js';
+import { bytesToHex, utf8ToBytes } from '@noble/hashes/utils.js';
 import { normalizePreset } from './normalize';
 
 const sha256Hex = (value: string) => bytesToHex(sha256(utf8ToBytes(value)));

@@ -3,107 +3,45 @@
   "$schema": "../../node_modules/nx/schemas/project-schema.json",
   "sourceRoot": "apps/waveform/src",
   "projectType": "application",
+  "tags": [],
   "targets": {
     "build": {
-      "executor": "@nrwl/webpack:webpack",
-      "outputs": ["{options.outputPath}"],
+      "outputs": ["{workspaceRoot}/dist/apps/{options.env.WAVEFORM_DIST}"],
       "defaultConfiguration": "production",
       "options": {
-        "compiler": "babel",
-        "outputPath": "dist/apps/waveform",
-        "index": "apps/waveform/src/index.html",
-        "baseHref": "/",
-        "main": "apps/waveform/src/main.tsx",
-        "polyfills": "apps/waveform/src/polyfills.ts",
-        "tsConfig": "apps/waveform/tsconfig.app.json",
-        "assets": [
-          "apps/waveform/src/favicon.ico",
-          "apps/waveform/src/assets",
-          { "input": "tmp/worklets", "glob": "*.js", "output": "assets/worklets" }
-        ],
-        "styles": [],
-        "scripts": [],
-        "webpackConfig": "apps/waveform/webpack.config.js"
+        "env": { "NODE_ENV": "production", "WAVEFORM_DIST": "waveform" }
       },
       "configurations": {
         "development": {
-          "extractLicenses": false,
-          "optimization": false,
-          "sourceMap": true,
-          "vendorChunk": true
+          "env": { "NODE_ENV": "development", "WAVEFORM_DIST": "waveform" }
         },
-        "production": {
-          "optimization": true,
-          "outputHashing": "all",
-          "sourceMap": false,
-          "namedChunks": false,
-          "extractLicenses": true,
-          "vendorChunk": false
-        },
+        "production": {},
         "perf": {
-          "optimization": true,
-          "outputHashing": "all",
-          "sourceMap": false,
-          "namedChunks": false,
-          "extractLicenses": true,
-          "vendorChunk": false,
-          "outputPath": "dist/apps/waveform-perf",
-          "assets": [
-            "apps/waveform/src/favicon.ico",
-            "apps/waveform/src/assets",
-            { "input": "tmp/worklets-perf", "glob": "*.js", "output": "assets/worklets" }
-          ],
-          "fileReplacements": [
-            {
-              "replace": "apps/waveform/src/app/perf/perf-hook.tsx",
-              "with": "apps/waveform/src/app/perf/perf-hook.perf.tsx"
-            }
-          ]
+          "env": { "NODE_ENV": "production", "WAVEFORM_DIST": "waveform-perf" }
         }
       }
     },
     "serve": {
-      "executor": "@nrwl/webpack:dev-server",
       "defaultConfiguration": "development",
-      "options": {
-        "buildTarget": "waveform:build",
-        "hmr": true,
-        "port": 4200
-      },
       "configurations": {
-        "development": {
-          "buildTarget": "waveform:build:development",
-          "proxyConfig": "proxy.conf.json"
-        },
-        "production": {
-          "buildTarget": "waveform:build:production",
-          "hmr": false
-        }
-      }
-    },
-    "lint": {
-      "executor": "@nrwl/linter:eslint",
-      "outputs": ["{options.outputFile}"],
-      "options": {
-        "lintFilePatterns": ["apps/waveform/**/*.{ts,tsx,js,jsx}"]
+        "development": {},
+        "production": {}
       }
     },
     "test": {
-      "executor": "@nrwl/jest:jest",
       "inputs": [
         "default",
         "^production",
         "{workspaceRoot}/jest.preset.js",
         "{workspaceRoot}/dsp/goldens/**/*",
         "{workspaceRoot}/dsp/measurements/**/*",
-        { "runtime": "cat tmp/wasm-perf/*.wasm 2>/dev/null | git hash-object --stdin" }
-      ],
-      "outputs": ["coverage/apps/waveform"],
-      "options": {
-        "jestConfig": "apps/waveform/jest.config.ts",
-        "passWithNoTests": true
-      }
+        {
+          "runtime": "cat tmp/wasm-perf/*.wasm 2>/dev/null | git hash-object --stdin"
+        },
+        {
+          "externalDependencies": ["jest", "@nx/jest", "ts-jest", "@nx/react", "babel-jest"]
+        }
+      ]
     }
-  },
-  "tags": []
+  }
 }

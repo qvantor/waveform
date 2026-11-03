@@ -32,6 +32,6 @@ jobs:
           restore-keys: cargo-${{ runner.os }}-
       - run: npm run wasm
       - name: Fuzz the cores
-        run: FUZZ_SCALE=250 npx jest -c apps/waveform/jest.config.ts --testPathPattern='goldens\.spec' --testTimeout=18000000
+        run: FUZZ_SCALE=250 npx jest -c apps/waveform/jest.config.ts --testPathPatterns='goldens\.spec' --testTimeout=18000000
       - name: jsmath against Node
-        run: FUZZ_SCALE=50 npx jest -c apps/waveform/jest.config.ts --testPathPattern='jsmath\.spec' --testTimeout=3600000
+        run: FUZZ_SCALE=50 npx jest -c apps/waveform/jest.config.ts --testPathPatterns='jsmath\.spec' --testTimeout=3600000

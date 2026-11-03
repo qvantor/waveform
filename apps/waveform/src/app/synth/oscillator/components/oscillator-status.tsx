@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { MdWarningAmber } from 'react-icons/md';
 import { useBehaviorSubject, useObservable } from '@waveform/rxjs-react';
 import { text12, theme } from '@waveform/ui-kit';

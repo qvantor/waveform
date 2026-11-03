@@ -1,5 +1,5 @@
 /* eslint-disable */
-export default {
+module.exports = {
   displayName: 'netlify',
   // function specs live in tests/: Netlify deploys every file in functions/ as a function
   preset: '../jest.preset.js',
@@ -17,6 +17,8 @@ export default {
       },
     ],
   },
+  // @noble/hashes (the hash of a preset) is published as ESM only
+  transformIgnorePatterns: ['/node_modules/(?!@noble/)'],
   // specs import functions as `./presets.mjs`, TypeScript maps it to presets.mts
   moduleNameMapper: {
     '^(\\.{1,2}/.*)\\.mjs$': '$1',

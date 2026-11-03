@@ -1,5 +1,5 @@
 import { MdPiano } from 'react-icons/md';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { Label, Select, PanelButton } from '@waveform/ui-kit';
 import { useState } from 'react';
 import { Popover } from 'antd';

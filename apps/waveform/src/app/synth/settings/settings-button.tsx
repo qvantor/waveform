@@ -1,5 +1,5 @@
 import { MdSettings } from 'react-icons/md';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { Label, Lamp, Select, PanelButton, theme } from '@waveform/ui-kit';
 import { useEffect, useState } from 'react';
 import { Popover } from 'antd';

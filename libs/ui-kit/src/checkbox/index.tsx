@@ -1,6 +1,6 @@
 import React from 'react';
 import cls from 'classnames';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { theme } from '../common/constants';
 import { Label } from '../label';
 
@@ -21,7 +21,9 @@ const Indicator = styled.div`
 
   &.checked {
     background: ${theme.colors.secondAccent};
-    box-shadow: inset 0 0 0 1px #99cbec, 0 0 3px 2px rgba(153, 203, 236, 0.5);
+    box-shadow:
+      inset 0 0 0 1px #99cbec,
+      0 0 3px 2px rgba(153, 203, 236, 0.5);
   }
 `;
 

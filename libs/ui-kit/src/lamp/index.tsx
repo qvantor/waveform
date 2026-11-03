@@ -1,6 +1,6 @@
 import React from 'react';
 import cls from 'classnames';
-import styled, { css } from 'styled-components';
+import { styled, css } from 'styled-components';
 import hexToRgba from 'hex-to-rgba';
 import { theme } from '../common/constants';
 
@@ -24,7 +24,10 @@ const rim = `0 0 0 2px ${theme.colors.primaryLowContrast}`;
 const lit = (color: string) => css`
   border-color: ${color};
   background: radial-gradient(circle at 35% 35%, ${hexToRgba(color, 0.1)}, ${color} 65%) ${theme.colors.white};
-  box-shadow: ${rim}, 0 0 6px 3px ${hexToRgba(color, 0.6)}, 0 0 14px 6px ${hexToRgba(color, 0.3)};
+  box-shadow:
+    ${rim},
+    0 0 6px 3px ${hexToRgba(color, 0.6)},
+    0 0 14px 6px ${hexToRgba(color, 0.3)};
 `;
 
 const Root = styled.button<{ $color: string }>`
@@ -40,9 +43,13 @@ const Root = styled.button<{ $color: string }>`
     ${theme.colors.primaryMediumContrast},
     ${theme.colors.primaryHighContrast}
   );
-  box-shadow: ${rim}, inset 0 1px 3px rgb(0 0 0 / 40%);
+  box-shadow:
+    ${rim},
+    inset 0 1px 3px rgb(0 0 0 / 40%);
   cursor: pointer;
-  transition: background 150ms, box-shadow 150ms;
+  transition:
+    background 150ms,
+    box-shadow 150ms;
   -webkit-tap-highlight-color: transparent;
 
   &.m {

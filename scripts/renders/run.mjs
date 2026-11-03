@@ -1089,7 +1089,7 @@ if (runs('aliasing')) {
   const framesOf = (file) => {
     const bytes = readFileSync(file);
     let float = false;
-    for (let at = 12; at + 8 <= bytes.length; ) {
+    for (let at = 12; at + 8 <= bytes.length;) {
       const id = bytes.toString('latin1', at, at + 4);
       const size = bytes.readUInt32LE(at + 4);
       if (id === 'fmt ') float = bytes.readUInt16LE(at + 8) === 3 && bytes.readUInt16LE(at + 22) === 32;

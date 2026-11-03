@@ -10,7 +10,7 @@ export interface LineChartContextType {
   scaleY: ScaleLinear<number, number>;
   lineFn: Line<number>;
   padding: Vector2D;
-  ref: React.RefObject<HTMLDivElement>;
+  ref: React.RefObject<HTMLDivElement | null>;
 }
 
 export const LineChartContext = React.createContext<LineChartContextType | null>(null);

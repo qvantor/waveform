@@ -67,7 +67,7 @@ export const isLfoSource = (source: number) => source >= LFO_SOURCE;
 // the level of source `source` (an envelope, VELO) of the note t seconds after its start: each route sums amount ×
 // level, the marks of the knobs show it
 export const noteLevel = (note: FxNote, source: number, t: number) => {
-  if (!isEnvelope(note, source)) return isLfoSource(source) ? 0 : note.velo ?? 0;
+  if (!isEnvelope(note, source)) return isLfoSource(source) ? 0 : (note.velo ?? 0);
   const released = note.release === null ? Infinity : note.release - note.start;
   return envelopeValue(note.envelopes[source], t, released, note.from?.[source]);
 };

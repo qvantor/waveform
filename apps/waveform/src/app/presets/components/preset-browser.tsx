@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { Button, Input, Modal, Radio, Tabs } from 'antd';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
@@ -50,6 +50,7 @@ export const PresetBrowser = ({ open, onClose }: Props) => {
   const all = useInfiniteQuery({
     queryKey: ['presets', 'list', q, sort],
     queryFn: ({ pageParam }) => listPresets({ q, sort, cursor: pageParam }),
+    initialPageParam: undefined as string | undefined,
     getNextPageParam: (page) => page.nextCursor ?? undefined,
     enabled: open && tab === 'all',
     staleTime: 60 * 1000,

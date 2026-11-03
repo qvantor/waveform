@@ -229,7 +229,7 @@ export const analyzeTrace = async (trace, { engine, owns = () => true }) => {
     footprints.set(pid, [...(footprints.get(pid) ?? []), bytes]);
   }
   const mb = (bytes) => bytes / 2 ** 20;
-  const pageMemory = page ? footprints.get(page.pid) ?? [] : [];
+  const pageMemory = page ? (footprints.get(page.pid) ?? []) : [];
   const sorted = [...pageMemory].sort((a, b) => a - b);
   const ownedMemory = [...footprints]
     .filter(([pid]) => owned(pid))

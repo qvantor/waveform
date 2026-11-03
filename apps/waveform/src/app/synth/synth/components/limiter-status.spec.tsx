@@ -27,7 +27,7 @@ describe('LimiterStatus', () => {
     act(() => mockStatus.next('failed'));
     const [[content, options]] = jest.mocked(toast.error).mock.calls;
     expect(options).toEqual({ id: 'limiter-failed', duration: Infinity });
-    render(content as JSX.Element);
+    render(content as React.JSX.Element);
     expect(screen.getByText('No sound: the master limiter failed')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(mockRetryAudio).toHaveBeenCalledTimes(1);

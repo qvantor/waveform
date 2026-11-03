@@ -46,7 +46,7 @@ const getTopPresetsMock = getTopPresets as jest.MockedFunction<typeof getTopPres
 const getUrlPresetIdMock = getUrlPresetId as jest.MockedFunction<typeof getUrlPresetId>;
 
 const preset = (id: string, attack: number): Preset =>
-  ({ id, name: `Preset ${id}`, data: { env: { e1: { attack } } } } as unknown as Preset);
+  ({ id, name: `Preset ${id}`, data: { env: { e1: { attack } } } }) as unknown as Preset;
 
 // resolved by the test, for requests that must still be pending
 const deferred = <T>() => {
@@ -55,7 +55,7 @@ const deferred = <T>() => {
   return { promise, resolve };
 };
 
-const listItem = (id: string) => ({ id, name: id } as PresetListItem);
+const listItem = (id: string) => ({ id, name: id }) as PresetListItem;
 
 // the state of the tab before a reload: its preset (the hash it was loaded with) and the attack of its sound
 const storeTabState = (current: CurrentPreset | null, attack: number, loadedAttack?: number) =>

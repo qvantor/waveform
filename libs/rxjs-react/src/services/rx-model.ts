@@ -7,7 +7,7 @@ type State<M, I = undefined> = M | ((initial: I) => M);
 export const rxModel = <
   M extends Record<string | number, unknown>,
   A extends Record<string | number, unknown>,
-  I
+  I,
 >(
   model: State<M, I>,
   initializers: Initializers<M, A> = { actions: [], subscriptions: [], plugins: [], destroy: [] }

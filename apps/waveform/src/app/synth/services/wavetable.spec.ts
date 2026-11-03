@@ -10,7 +10,7 @@ const response = (status: number, body: { text?: string; buffer?: ArrayBuffer } 
     status,
     text: () => Promise.resolve(body.text ?? ''),
     arrayBuffer: () => Promise.resolve(body.buffer ?? new ArrayBuffer(0)),
-  } as Response);
+  }) as Response;
 
 // two full waves and an incomplete tail; values are exact in float32
 const samples = Float32Array.from(

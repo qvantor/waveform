@@ -36,13 +36,13 @@ export const UNISON_STACKS = [
   'center-12',
   'center-24',
 ] as const;
-export type UnisonStack = typeof UNISON_STACKS[number];
+export type UnisonStack = (typeof UNISON_STACKS)[number];
 
 // how the voices share the spread (dsp/measurements/unison.json): of x = 2j/(n - 1) - 1 from the lowest,
 // x (linear), tan(x)/tan(1) (super: the inner voices closer), x·|x| (exp: closer still), sin(x·π/2) (inv: out to the
 // edges), or at random shares of it, drawn again at every note on
 export const UNISON_DETUNES = ['linear', 'super', 'exp', 'inv', 'random'] as const;
-export type UnisonDetune = typeof UNISON_DETUNES[number];
+export type UnisonDetune = (typeof UNISON_DETUNES)[number];
 
 // the unison of an oscillator (in the engine: no knobs, not in the presets yet; a type: an ObjectBS
 // holds it). Its blend is a param of the oscillator (blend1, blend2: the Blend knob, the routes move it)
@@ -148,13 +148,7 @@ export interface VoicesLfos extends LfosState {
   kind: 'lfos';
 }
 export type VoiceEvent =
-  | VoiceOn
-  | VoiceAutomation
-  | VoicesRoutes
-  | VoicesFilter
-  | VoicesVelocity
-  | VoicesBend
-  | VoicesLfos;
+  VoiceOn | VoiceAutomation | VoicesRoutes | VoicesFilter | VoicesVelocity | VoicesBend | VoicesLfos;
 export interface VoiceEventsMessage {
   events: VoiceEvent[];
 }

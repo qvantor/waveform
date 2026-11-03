@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { useCanvas } from '../../common/hooks/use-canvas';
 import { IDENTITY } from '../services/path';
 import { useLineChartContext } from './use-line-chart-context';

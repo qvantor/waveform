@@ -16,7 +16,7 @@ const response = (status: number, body?: unknown) =>
     ok: status >= 200 && status < 300,
     status,
     json: body === undefined ? () => Promise.reject(new Error('no body')) : () => Promise.resolve(body),
-  } as Response);
+  }) as Response;
 
 const fetchMock = jest.fn();
 

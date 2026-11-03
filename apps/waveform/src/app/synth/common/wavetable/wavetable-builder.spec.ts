@@ -170,7 +170,7 @@ describe('wavetable builder', () => {
       for (;;) {
         const [message, transfer] = port.postMessage.mock.lastCall as [
           { chunk: ArrayBuffer; at: number; length: number; last: boolean },
-          ArrayBuffer[]
+          ArrayBuffer[],
         ];
         expect(transfer).toEqual([message.chunk]);
         received.set(new Float32Array(message.chunk, 0, message.length), message.at);

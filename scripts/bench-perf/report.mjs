@@ -112,14 +112,14 @@ const sortKeys = (value) =>
   Array.isArray(value)
     ? value.map(sortKeys)
     : value && typeof value === 'object'
-    ? Object.fromEntries(
-        Object.keys(value)
-          .sort()
-          .map((key) => [key, sortKeys(value[key])])
-      )
-    : typeof value === 'number'
-    ? round4(value)
-    : value;
+      ? Object.fromEntries(
+          Object.keys(value)
+            .sort()
+            .map((key) => [key, sortKeys(value[key])])
+        )
+      : typeof value === 'number'
+        ? round4(value)
+        : value;
 
 // writes the measured cases (not those that broke an invariant or errored: they aren't a cost to keep) over the
 // kept ones of the same browser version and conditions (verdict.mjs: mergeMode); the DSP of the run, else the

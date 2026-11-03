@@ -667,7 +667,7 @@ describe('fx', () => {
       // the slot's send feeds the reverb input, the reverb input feeds the worklet node
       const reverbInput = (send.connect as jest.Mock).mock.calls[0][0] as GainNode;
       const node = (reverbInput.connect as jest.Mock).mock.lastCall?.[0] as AudioWorkletNode;
-      node.onprocessorerror?.call(node, new Event('processorerror'));
+      node.onprocessorerror?.call(node, new ErrorEvent('processorerror'));
       expect(model.$status.value.reverb).toBe('failed');
       expect(lastGain(send)).toBe(0);
       expect(synthCore.fxIn.connect).toHaveBeenLastCalledWith(synthCore.fxOut);
@@ -867,7 +867,7 @@ describe('fx', () => {
       const [model, actions] = fx;
       const setModulation = FX_TYPES.reduce(
         (spies, type) => ({ ...spies, [type]: jest.spyOn(model.slots[type], 'setModulation') }),
-        {} as Record<typeof FX_TYPES[number], jest.SpyInstance>
+        {} as Record<(typeof FX_TYPES)[number], jest.SpyInstance>
       );
       return { model, actions, modulation, lfos, $fxNote, setModulation, transport };
     };

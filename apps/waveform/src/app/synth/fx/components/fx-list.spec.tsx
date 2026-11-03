@@ -3,6 +3,7 @@ import { act, screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
 import { FX_TYPES } from '@waveform/preset-schema';
 import { theme } from '@waveform/ui-kit';
+import { cssColor } from '@waveform/ui-kit/test-utils';
 import { renderWithFx } from '../../../../test-utils/fx-wrapper';
 import { withoutAudioWorklet } from '../../../../test-utils/no-audio-worklet';
 import { workletLoads } from '../../../../test-utils/worklet-loads';
@@ -131,7 +132,7 @@ describe('FxList', () => {
       expect(row.style.getPropertyValue('--fx-color')).toBe(FX_COLORS[type]);
       await user.click(row);
       expect(window.getComputedStyle(row.querySelector('[aria-pressed]') as HTMLElement).borderColor).toBe(
-        FX_COLORS[type]
+        cssColor(FX_COLORS[type])
       );
     }
   });

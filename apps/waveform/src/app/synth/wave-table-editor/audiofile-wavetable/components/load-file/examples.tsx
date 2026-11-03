@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { theme } from '@waveform/ui-kit';
 
 const Root = styled.div`
@@ -26,11 +26,15 @@ const Button = styled.button`
   border: none;
   color: ${theme.colors.primaryDarkMediumContrast};
   border-radius: 10px;
-  box-shadow: 5px 5px 10px #d2d6d6, -5px -5px 10px ${theme.colors.white};
+  box-shadow:
+    5px 5px 10px #d2d6d6,
+    -5px -5px 10px ${theme.colors.white};
   transition: all 150ms;
 
   &:hover {
-    box-shadow: 8px 8px 11px #dbdfe0, -8px -8px 11px #fdffff;
+    box-shadow:
+      8px 8px 11px #dbdfe0,
+      -8px -8px 11px #fdffff;
   }
 
   &:active {

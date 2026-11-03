@@ -148,7 +148,7 @@ describe('perf test hook api', () => {
       const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
       const { api, nodes } = await setup();
       const [limiter] = nodes(LIMITER_PROCESSOR);
-      limiter.onprocessorerror?.call(limiter, new Event('processorerror'));
+      limiter.onprocessorerror?.call(limiter, new ErrorEvent('processorerror'));
       await expect(api.ready()).rejects.toThrow('The limiter is failed');
       error.mockRestore();
     });

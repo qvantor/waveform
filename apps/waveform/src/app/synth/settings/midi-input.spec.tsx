@@ -2,7 +2,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { BehaviorSubject } from 'rxjs';
 import { MidiInput } from './midi-input';
 
-const mockMidiInputs = new BehaviorSubject<WebMidi.MIDIInput[]>([]);
+const mockMidiInputs = new BehaviorSubject<MIDIInput[]>([]);
 const mockSelectedInputId = new BehaviorSubject<string | null>(null);
 const mockSelectedChannel = new BehaviorSubject<number | null>(null);
 const mockSelectMidiChannel = jest.fn();

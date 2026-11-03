@@ -92,8 +92,8 @@ const serve = () =>
       const type = file.endsWith('.js')
         ? 'text/javascript'
         : file.endsWith('.html')
-        ? 'text/html'
-        : 'application/octet-stream';
+          ? 'text/html'
+          : 'application/octet-stream';
       res.writeHead(200, { 'content-type': type });
       fs.createReadStream(file).pipe(res);
     });

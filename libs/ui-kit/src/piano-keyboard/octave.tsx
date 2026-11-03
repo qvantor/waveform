@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import cls from 'classnames';
 import { theme } from '../common/constants';
 import { Notes } from '../common/types';
@@ -41,7 +41,9 @@ const KeyWhiteOffset = styled(KeyWhite)`
 `;
 
 const KeyBlack = styled.div`
-  box-shadow: -1px -1px 2px rgb(255 255 255 / 20%) inset, 0 -5px 2px 3px rgb(0 0 0 / 60%) inset;
+  box-shadow:
+    -1px -1px 2px rgb(255 255 255 / 20%) inset,
+    0 -5px 2px 3px rgb(0 0 0 / 60%) inset;
   background: linear-gradient(45deg, #222 0%, #555 100%);
   border-radius: 0 0 6px 6px;
 
@@ -52,7 +54,9 @@ const KeyBlack = styled.div`
   z-index: 1;
 
   &.pressed {
-    box-shadow: -1px -1px 2px rgb(255 255 255 / 20%) inset, 0 -2px 2px 3px rgb(0 0 0 / 60%) inset,
+    box-shadow:
+      -1px -1px 2px rgb(255 255 255 / 20%) inset,
+      0 -2px 2px 3px rgb(0 0 0 / 60%) inset,
       0 1px 2px rgb(0 0 0 / 50%);
     background: linear-gradient(to right, #444 0%, #222 100%);
   }

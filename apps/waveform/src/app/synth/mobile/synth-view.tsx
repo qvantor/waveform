@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { FxScreen } from '../fx';
 import { SynthScreen } from '../screens';
 import { SynthSections } from './synth-sections';

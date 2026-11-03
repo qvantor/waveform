@@ -64,7 +64,7 @@ const setup = ({ active }: { active?: boolean } = {}) => {
     const callback = frame;
     frame = null;
     callback?.(now);
-    return fillRect.mock.calls.map(([x, y, w, h]) => ({ x, y, w, h } as Bar));
+    return fillRect.mock.calls.map(([x, y, w, h]) => ({ x, y, w, h }) as Bar);
   };
   return {
     ...result,

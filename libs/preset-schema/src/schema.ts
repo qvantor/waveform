@@ -31,7 +31,7 @@ export const FILTER_TYPES = [
 
 // effects of the fx rack, the order is the default chain order
 export const FX_TYPES = ['distortion', 'delay', 'reverb'] as const;
-export type FxType = typeof FX_TYPES[number];
+export type FxType = (typeof FX_TYPES)[number];
 
 // known types only, no duplicates (presets from a newer client may contain effect types this one doesn't
 // know); a missing type (saved before it existed) takes its default place: before the first effect that
@@ -202,7 +202,7 @@ const oscillatorSchema = (active: boolean) =>
           return result as Omit<typeof osc, 'r'>;
         })
     )
-    .default({});
+    .prefault({});
 
 const filterSchema = z
   .object({
@@ -212,11 +212,11 @@ const filterSchema = z
     res: range(0, 1000).default(0),
     gain: range(-40, 40).default(1),
   })
-  .default({});
+  .prefault({});
 
 // the envelopes ENV 1–3; ENV 1 is the volume of a note, all three modulate the knobs they are assigned to
 export const ENVELOPES = ['env1', 'env2', 'env3'] as const;
-export type EnvelopeId = typeof ENVELOPES[number];
+export type EnvelopeId = (typeof ENVELOPES)[number];
 // the key of each one in the preset: env: { e1, e2, e3 }
 export const ENVELOPE_KEYS: Record<EnvelopeId, string> = { env1: 'e1', env2: 'e2', env3: 'e3' };
 export type EnvelopeStage = 'attack' | 'hold' | 'decay' | 'sustain' | 'release';
@@ -291,7 +291,7 @@ const envelopeSchema = (id: EnvelopeId) => {
           decay: curveRange(ENVELOPE_CURVES.decay),
           release: curveRange(ENVELOPE_CURVES.release),
         })
-        .default({}),
+        .prefault({}),
       bpm: z.boolean().default(false),
       divs: z
         .object({
@@ -300,9 +300,9 @@ const envelopeSchema = (id: EnvelopeId) => {
           decay: envelopeDivision(divs.decay),
           release: envelopeDivision(divs.release),
         })
-        .default({}),
+        .prefault({}),
     })
-    .default({});
+    .prefault({});
 };
 
 // the velocity of a note (MIDI 1..127; the computer keyboard and the piano play 100): VELO, a source of the
@@ -317,7 +317,7 @@ const velocitySchema = z
     amp: range(0, 1).default(VELOCITY_DEFAULTS.amp),
     k: curveRange(VELOCITY_DEFAULTS.k),
   })
-  .default({});
+  .prefault({});
 
 const envSchema = z
   .object({
@@ -326,21 +326,21 @@ const envSchema = z
     e3: envelopeSchema('env3'),
     vel: velocitySchema,
   })
-  .default({});
+  .prefault({});
 
 // the LFOs LFO 1–4: sources of the routes after the velocity, each a cycle of its shape repeated every `rate`
 // seconds (its period), per note: from the end of its Delay (retrig) or on a clock of its own all notes share
 // (free); its knobs are targets of the envelopes (lfo1.rate…), not of the LFOs
 export const LFOS = ['lfo1', 'lfo2', 'lfo3', 'lfo4'] as const;
-export type LfoId = typeof LFOS[number];
+export type LfoId = (typeof LFOS)[number];
 // the key of each one in the preset: lfo: { l1, l2, l3, l4 }
 export const LFO_KEYS: Record<LfoId, string> = { lfo1: 'l1', lfo2: 'l2', lfo3: 'l3', lfo4: 'l4' };
 // the shapes a cycle of an LFO takes (levels 0..1, the left point is the level at its start), or points of its own
 export const LFO_SHAPES = ['sine', 'triangle', 'saw-up', 'saw-down', 'square'] as const;
-export type LfoShape = typeof LFO_SHAPES[number];
+export type LfoShape = (typeof LFO_SHAPES)[number];
 // retrig: its phase starts with every note (at the end of its Delay), free: one phase of every note
 export const LFO_MODES = ['retrig', 'free'] as const;
-export type LfoMode = typeof LFO_MODES[number];
+export type LfoMode = (typeof LFO_MODES)[number];
 // seconds of the period: 10 ms (100 Hz) to 32 s; the knob goes by the frequency, right faster
 export const LFO_RATE_MIN = 0.01;
 export const LFO_RATE_MAX = 32;
@@ -425,9 +425,11 @@ const lfoSchema = z
     delayDiv: divisionWithin(lfo.delayDiv, TIME_DIVISIONS),
     riseDiv: divisionWithin(lfo.riseDiv, TIME_DIVISIONS),
   }))
-  .default({});
+  .prefault({});
 
-const lfoSectionSchema = z.object({ l1: lfoSchema, l2: lfoSchema, l3: lfoSchema, l4: lfoSchema }).default({});
+const lfoSectionSchema = z
+  .object({ l1: lfoSchema, l2: lfoSchema, l3: lfoSchema, l4: lfoSchema })
+  .prefault({});
 
 // the modulation: a route moves a knob (a target of the app: osc1.wave, filter.cutoff, delay.time…) by its
 // source × amount, a share of the range of the knob in its scale (-1..1, a log knob in octaves: +0.5 on
@@ -466,7 +468,7 @@ const modSchema = z
   .refine((routes) => Object.keys(routes).length <= MOD_ROUTES_MAX)
   .refine((routes) => Object.values(knobSources(routes)).every((count) => count <= MOD_KNOB_SOURCES_MAX))
   .refine((routes) => !Object.keys(routes).some(lfoOnLfo))
-  .default({});
+  .prefault({});
 
 // semitones the pitch bend moves the notes by at most, down and up (each 0..PITCH_BEND_MAX)
 export const PITCH_BEND_MAX = 24;
@@ -481,7 +483,7 @@ const voicingSchema = z
     bd: intRange(0, PITCH_BEND_MAX).default(PITCH_BEND_DEFAULT),
     bu: intRange(0, PITCH_BEND_MAX).default(PITCH_BEND_DEFAULT),
   })
-  .default({});
+  .prefault({});
 
 // one shape for presets and url snapshots, only the validation of a value differs
 const fxEffectShape = <K extends string, P, F>(
@@ -502,28 +504,28 @@ const fxSchema = z
       .array(z.string().max(64))
       .max(32)
       .transform(normalizeFxOrder)
-      .default([...FX_TYPES]),
+      .prefault([...FX_TYPES]),
     distortion: z
       .object(
         fxEffectShape(FX_PARAMS.distortion, FX_MIX_PARAMS.distortion, paramRange, (value) =>
           z.boolean().default(value)
         )
       )
-      .default({}),
+      .prefault({}),
     delay: z
       .object(
         fxEffectShape(FX_PARAMS.delay, FX_MIX_PARAMS.delay, paramRange, (value) => z.boolean().default(value))
       )
-      .default({}),
+      .prefault({}),
     reverb: z
       .object(
         fxEffectShape(FX_PARAMS.reverb, FX_MIX_PARAMS.reverb, paramRange, (value) =>
           z.boolean().default(value)
         )
       )
-      .default({}),
+      .prefault({}),
   })
-  .default({});
+  .prefault({});
 
 const lenientFxEffect = <K extends string>(params: Record<K, ParamRange>, mix: ParamRange) =>
   z.preprocess(
@@ -615,7 +617,7 @@ export const usageRequestSchema = z.object({
 export type UsageRequest = z.input<typeof usageRequestSchema>;
 
 export const PRESET_SORTS = ['new', 'name', 'popular'] as const;
-export type PresetSort = typeof PRESET_SORTS[number];
+export type PresetSort = (typeof PRESET_SORTS)[number];
 
 export const listPresetsQuerySchema = z.object({
   q: z.string().trim().max(PRESET_NAME_MAX_LENGTH).optional(),

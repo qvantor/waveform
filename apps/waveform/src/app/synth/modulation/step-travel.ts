@@ -18,8 +18,8 @@ const routeShare = (scale: ModScale, [min, max]: [number, number]) =>
   scale === 'log'
     ? (value: number) => Math.log(value / min) / Math.log(max / min)
     : scale === 'pow'
-    ? (value: number) => Math.sqrt(Math.sqrt(Math.max(0, value) / max))
-    : (value: number) => (value - min) / (max - min);
+      ? (value: number) => Math.sqrt(Math.sqrt(Math.max(0, value) / max))
+      : (value: number) => (value - min) / (max - min);
 
 // a knob of steps (divisions in BPM) whose routes move its value in the units of HZ (`scale` over `range`, as
 // without steps): `values` those of its steps in the order of its travel (rising), the knob at step `index`. Its

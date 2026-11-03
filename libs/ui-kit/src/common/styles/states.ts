@@ -1,4 +1,4 @@
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { theme } from '../constants';
 
 export const Deactivated = styled.div`

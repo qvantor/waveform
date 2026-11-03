@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import cls from 'classnames';
 import hexToRgba from 'hex-to-rgba';
 import { Tooltip } from 'antd';
@@ -35,7 +35,9 @@ const Wrap = styled.span`
 const Content = styled.span`
   display: flex;
   align-items: center;
-  transition: opacity 150ms, filter 150ms;
+  transition:
+    opacity 150ms,
+    filter 150ms;
 
   svg {
     width: 14px;
@@ -60,7 +62,9 @@ const Key = styled.button`
   letter-spacing: 0.5px;
   cursor: pointer;
   -webkit-tap-highlight-color: transparent;
-  transition: color 150ms, background 150ms;
+  transition:
+    color 150ms,
+    background 150ms;
 
   &:hover {
     background: ${hexToRgba(theme.colors.white, 0.07)};

@@ -118,7 +118,7 @@ const GOLDEN: [string, Scenario][] = [
       rate: 48000,
       blocks: quanta(0.2),
       input: (n, channel) =>
-        ({ 2400: NaN, 2880: Infinity, 3360: -Infinity }[n] ?? 0.5 * Math.sin(n / 10 + channel)),
+        ({ 2400: NaN, 2880: Infinity, 3360: -Infinity })[n] ?? 0.5 * Math.sin(n / 10 + channel),
     },
   ],
   [

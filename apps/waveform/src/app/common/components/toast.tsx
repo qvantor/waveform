@@ -1,4 +1,4 @@
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { theme } from '@waveform/ui-kit';
 
 // the content of a toast that asks for an answer (react-hot-toast): the text over its keys

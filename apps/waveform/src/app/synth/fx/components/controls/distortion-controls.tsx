@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { distortion } from '../../effects/distortion';
 import { DistortionParam } from '../../effects/distortion-presets';
 import { KnobModulation, useKnobModulation } from '../../../modulation/use-knob-modulation';

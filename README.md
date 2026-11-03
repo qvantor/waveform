@@ -11,7 +11,7 @@ Built with TypeScript, Rust (WebAssembly), RxJS and the Web Audio API. Nothing t
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
 ![Rust](https://img.shields.io/badge/Rust-000000?logo=rust&logoColor=white)
 ![WebAssembly](https://img.shields.io/badge/WebAssembly-654FF0?logo=webassembly&logoColor=white)
-![React 18](https://img.shields.io/badge/React_18-20232A?logo=react&logoColor=61DAFB)
+![React 19](https://img.shields.io/badge/React_19-20232A?logo=react&logoColor=61DAFB)
 ![Web Audio API](https://img.shields.io/badge/Web_Audio_API-FF6F00)
 [![Netlify](https://img.shields.io/badge/deployed_on-Netlify-00C7B7?logo=netlify&logoColor=white)](https://waveform.qvantor.org/)
 
@@ -157,7 +157,7 @@ To run only the frontend use `npm run client:start`. Wavetables and presets won'
 
 ## Tech stack
 
-- **Frontend**: TypeScript, React 18, RxJS, Web Audio API (AudioWorklet), Web Workers, Web MIDI API, antd 5, styled-components, react-query, dnd-kit
+- **Frontend**: TypeScript, React 19, RxJS, Web Audio API (AudioWorklet), Web Workers, Web MIDI API, antd 6, styled-components, react-query, dnd-kit
 - **DSP**: Rust compiled to WebAssembly with SIMD (`no_std`, no wasm-bindgen), binaryen `wasm-opt`
 - **Backend**: Netlify Functions (v2, including scheduled functions), Postgres, AWS S3, zod
 - **Tooling**: Nx monorepo, Jest, ESLint, Prettier, knip, cargo clippy and fmt, Playwright benchmarks, GitHub Actions
