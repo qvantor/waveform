@@ -5,6 +5,7 @@ import { CaretDownOutlined, CaretUpOutlined } from '@ant-design/icons';
 import { number } from '@waveform/math';
 import { SegmentDisplay, singlePointerTracker, text10, theme } from '@waveform/ui-kit';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
+import { CaretButton } from '../../common/components';
 import { useTransport } from '../common/modules';
 
 // the tempo the display sets: dragged, stepped or typed, within them
@@ -97,33 +98,9 @@ const Steps = styled.div`
   justify-content: center;
 `;
 
-const Step = styled.button`
+const Step = styled(CaretButton)`
   height: 13px;
   width: 18px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border: none;
-  background: none;
-  color: ${theme.colors.primaryDarkHighContrast};
-  font-size: 14px;
-  line-height: 0;
-  cursor: pointer;
-  transition: color 150ms;
-
-  &:hover {
-    color: ${theme.colors.accent};
-  }
-
-  &:active {
-    color: ${theme.colors.secondAccent};
-  }
-
-  &:focus,
-  &:focus-visible {
-    outline: none;
-  }
 `;
 
 // the tempo of the synth on a seven-segment display (in the settings): dragged up or right a step of 1 every 4 px

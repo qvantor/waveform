@@ -113,16 +113,12 @@ const PitchSection = styled.div`
 
 // the octave of the computer keyboard right of the wheel, a section of its own: its plate as wide and as high as
 // the slot of the wheel
-const OctaveSection = styled.div`
-  display: flex;
+const OctaveSection = styled(PitchSection)`
   padding: 8px;
-  background: ${theme.colors.primary};
 `;
 
 const KeyboardOctave = styled(OctaveControl)`
-  && {
-    width: ${PITCH_WHEEL_WIDTH}px;
-  }
+  width: ${PITCH_WHEEL_WIDTH}px;
 `;
 
 // the keys in the rest of the row, centered
@@ -156,11 +152,26 @@ const HeaderEq = styled(FqAnalyser)`
   margin-left: -20px; // stick to the logo, cancels Header gap
 `;
 
+// the keys: they alone render on every note
+const DesktopKeys = ({ octaves, keyWidth }: { octaves: [number, number]; keyWidth: number }) => {
+  const [{ $pressed }, { onPress, onRelease }] = useInputController();
+  const pressed = useBehaviorSubject($pressed);
+  return (
+    <PianoKeyboard
+      onPress={onPress}
+      onRelease={onRelease}
+      pressed={pressed}
+      octaves={octaves}
+      fitScreen={false}
+      keyWidth={keyWidth}
+      keyHeight={KEY_HEIGHT}
+    />
+  );
+};
+
 // the octaves that fit beside the wheel, their keys narrower rather than one octave fewer; they follow the octave
 // of the computer keyboard, ▲ and ▼ (or ↓ and ↑) shift both
 const PianoInternal = () => {
-  const [{ $pressed }, { onPress, onRelease }] = useInputController();
-  const pressed = useBehaviorSubject($pressed);
   const [{ $octave }, { setOctave }] = useKeyboardController();
   const octave = useBehaviorSubject($octave);
   const [keysRef, [width]] = useElementSize<HTMLDivElement>();
@@ -180,14 +191,9 @@ const PianoInternal = () => {
       </OctaveSection>
       <Keys ref={keysRef}>
         {width > 0 && (
-          <PianoKeyboard
-            onPress={onPress}
-            onRelease={onRelease}
-            pressed={pressed}
+          <DesktopKeys
             octaves={pianoOctaves(octave, octaves)}
-            fitScreen={false}
             keyWidth={Math.min(KEY_WIDTH, width / (7 * octaves))}
-            keyHeight={KEY_HEIGHT}
           />
         )}
       </Keys>

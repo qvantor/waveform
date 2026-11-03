@@ -1,7 +1,7 @@
 import { number } from '@waveform/math';
 
 // the octaves of the keys on the screen: the piano of the desktop, the tiers of the phone
-export const PIANO_OCTAVES: [number, number] = [0, 8];
+const PIANO_OCTAVES: [number, number] = [0, 8];
 
 // the octaves `count` octaves of keys can start at
 export const pianoStarts = (count: number): [number, number] => [

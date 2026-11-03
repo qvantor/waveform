@@ -55,7 +55,6 @@ const keyboardToNotes: Record<string, Note> = {
   Equal: [2, 'F#'],
   BracketRight: [2, 'G'],
 };
-const keyboardKeys = Object.keys(keyboardToNotes);
 
 // the octave of the bottom row (Z = C{o}, Q = C{o + 1}, ] = G{o + 2}): its three octaves on the piano; kept by the
 // browser (localStorage), not by a preset: how the keys are played, not the sound
@@ -77,7 +76,7 @@ const isTextInput = (target: EventTarget | null) =>
   (target.isContentEditable || ['INPUT', 'TEXTAREA'].includes(target.tagName));
 
 const noteFilter = (e: KeyboardEvent) =>
-  !isShortcut(e) && keyboardKeys.includes(e.code) && !isTextInput(e.target);
+  !isShortcut(e) && e.code in keyboardToNotes && !isTextInput(e.target);
 
 const OCTAVE_KEYS: Record<string, number> = { ArrowDown: -1, ArrowUp: 1 };
 

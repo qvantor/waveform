@@ -3,7 +3,7 @@ import { styled, css } from 'styled-components';
 import cls from 'classnames';
 import { theme, useElementSize } from '@waveform/ui-kit';
 import { number } from '@waveform/math';
-import { OCTAVE_WIDTH, OctaveControl } from '../../common/components';
+import { OctaveControl } from '../../common/components';
 import { pianoStarts } from '../common/piano-octaves';
 import { FxScreen } from '../fx';
 import { PitchBend } from '../pitch-bend';
@@ -42,6 +42,9 @@ const MiniFx = styled(Scaled)`
   flex: 0 0 40%;
   ${miniPanel}
 `;
+
+// px of the octave buttons
+const OCTAVE_WIDTH = 36;
 
 // a column as wide as the octave buttons left of the keys of both tiers: in portrait the octaves of both tiers
 // and the wheel under them, in landscape the wheel, the octave of each tier between it and its keys
