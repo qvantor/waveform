@@ -22,5 +22,5 @@
     "src/test-utils/**/*",
     "__mocks__/**/*"
   ],
-  "include": ["**/*.js", "**/*.jsx", "**/*.ts", "**/*.tsx", "../../node_modules/@types/webmidi"]
+  "include": ["**/*.js", "**/*.jsx", "**/*.ts", "**/*.tsx"]
 }

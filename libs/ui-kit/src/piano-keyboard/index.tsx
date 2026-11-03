@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { useScreenSize } from '../common/hooks';
 import { Notes, Note } from '../common/types';
 import { Octave } from './octave';

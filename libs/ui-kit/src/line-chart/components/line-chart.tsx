@@ -1,7 +1,7 @@
 import React from 'react';
 import { scaleLinear } from 'd3-scale';
 import { line } from 'd3-shape';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { Vector2D } from '@waveform/math';
 import { theme } from '../../common/constants';
 import { useElementSize } from '../../common/hooks';

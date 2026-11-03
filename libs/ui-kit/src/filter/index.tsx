@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { Select } from '../select';
 import { Handle } from '../handle';
 import { CommonFilterProps, FilterNumerics, FilterRange, FilterRanges, FilterParams } from './types';

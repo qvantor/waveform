@@ -163,7 +163,7 @@ describe('SettingsButton', () => {
     act(() => mockDropoutWarning.next(true));
     const [[content, options]] = jest.mocked(toast).mock.calls;
     expect(options).toEqual({ id: 'latency-dropouts', duration: Infinity });
-    render(content as JSX.Element);
+    render(content as React.JSX.Element);
   };
 
   it('offers normal latency once there were too many dropouts', () => {

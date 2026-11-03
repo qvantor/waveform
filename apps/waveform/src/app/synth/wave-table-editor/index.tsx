@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { HighlightOutlined, SoundOutlined } from '@ant-design/icons';
 import { Tabs } from '@waveform/ui-kit';
 import ManualWavetable from './manual-wavetable';

@@ -140,6 +140,9 @@ Object.defineProperty(window, 'matchMedia', {
   }),
 });
 
+// the ids of React for the components of antd, not one 'test-id' for all (test-utils/rc-use-id.ts)
+jest.mock('@rc-component/util/lib/hooks/useId', () => jest.requireActual('./test-utils/rc-use-id'));
+
 // antd and the preset list use browser observers that jsdom doesn't have
 class ObserverStub {
   observe = jest.fn();

@@ -1,5 +1,5 @@
 import React, { ChangeEvent } from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { theme } from '../common/constants';
 import { SelectDumb, ContentContainer } from './select-dumb';
 

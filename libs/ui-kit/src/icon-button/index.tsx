@@ -1,4 +1,4 @@
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { theme } from '../common/constants';
 
 export const IconButton = styled.button`

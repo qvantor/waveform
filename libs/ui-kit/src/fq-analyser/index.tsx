@@ -1,6 +1,6 @@
 import React from 'react';
 import { scaleLog } from 'd3-scale';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { number } from '@waveform/math';
 import { theme } from '../common/constants';
 import { MeterLoop, meterLoop, QUIET_MS } from '../common/utils/meter-loop';

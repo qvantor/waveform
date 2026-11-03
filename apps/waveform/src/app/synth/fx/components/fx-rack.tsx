@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { useObservable } from '@waveform/rxjs-react';
 import { textBold12, theme } from '@waveform/ui-kit';
 import { getChain, useFx } from '../modules';

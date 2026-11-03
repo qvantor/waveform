@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { useIsPortrait } from '@waveform/ui-kit';
 import { SynthScreen } from '../screens';
 import { MobileHeader, MobileMode } from './mobile-header';

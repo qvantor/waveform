@@ -1,4 +1,4 @@
-import styled, { css } from 'styled-components';
+import { styled, css } from 'styled-components';
 import { DragValue, theme } from '@waveform/ui-kit';
 
 const LINE = `1px solid ${theme.colors.primaryDarkMediumContrast}`;

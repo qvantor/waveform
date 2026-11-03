@@ -1,6 +1,6 @@
 import React from 'react';
 import cls from 'classnames';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { MOD_DWELL_ATTR } from '../mod-drag';
 import { Checkbox } from '../checkbox';
 import { theme } from '../common/constants';

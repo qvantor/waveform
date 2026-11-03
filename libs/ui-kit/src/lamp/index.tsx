@@ -1,6 +1,6 @@
 import React from 'react';
 import cls from 'classnames';
-import styled, { css } from 'styled-components';
+import { styled, css } from 'styled-components';
 import hexToRgba from 'hex-to-rgba';
 import { theme } from '../common/constants';
 

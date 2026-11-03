@@ -5,11 +5,12 @@ const { NxReactWebpackPlugin } = require('@nx/react/webpack-plugin');
 const { DefinePlugin } = require('webpack');
 
 // the configurations of the build and the serve targets (project.json; the inferred tasks of @nx/webpack/plugin
-// run webpack-cli with the configuration in NX_TASK_TARGET_CONFIGURATION), webpack-cli alone runs the defaults
+// run webpack-cli with the configuration in NX_TASK_TARGET_CONFIGURATION), webpack-cli alone runs the defaults; the
+// folder of each configuration in dist/apps is WAVEFORM_DIST of the env of the build in project.json, its outputs
 const build = {
   default: {
     compiler: 'babel',
-    outputPath: '../../dist/apps/waveform',
+    outputPath: join('../../dist/apps', process.env.WAVEFORM_DIST ?? 'waveform'),
     index: './src/index.html',
     baseHref: '/',
     main: './src/main.tsx',
@@ -39,7 +40,6 @@ const build = {
     namedChunks: false,
     extractLicenses: true,
     vendorChunk: false,
-    outputPath: '../../dist/apps/waveform-perf',
     assets: [
       './src/favicon.ico',
       './src/assets',

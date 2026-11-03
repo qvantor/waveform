@@ -1,7 +1,7 @@
 import React from 'react';
 import cls from 'classnames';
 import hexToRgba from 'hex-to-rgba';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { theme } from '../common/constants';
 import { textBold12 } from '../common/styles';
 
@@ -95,8 +95,8 @@ const Indicator = styled.span`
 
 // true when the label doesn't fit next to the icon (phones); back to false once the button is wide enough
 const useLabelOverflow = (
-  rootRef: React.RefObject<HTMLButtonElement>,
-  labelRef: React.RefObject<HTMLSpanElement>,
+  rootRef: React.RefObject<HTMLButtonElement | null>,
+  labelRef: React.RefObject<HTMLSpanElement | null>,
   enabled: boolean
 ) => {
   const [overflow, setOverflow] = React.useState(false);

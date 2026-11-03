@@ -1,6 +1,6 @@
 import React from 'react';
 import cls from 'classnames';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { MdDragIndicator, MdWarningAmber } from 'react-icons/md';
 import { distinctUntilChanged, map } from 'rxjs';
 import { isEqual, mapValues } from 'lodash';

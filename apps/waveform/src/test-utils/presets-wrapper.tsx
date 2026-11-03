@@ -28,7 +28,6 @@ const Capture = ({ onModel }: { onModel: (module: PresetsModule) => void }) => {
 export const renderWithPresets = (ui: React.ReactElement) => {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-    logger: { log: () => undefined, warn: () => undefined, error: () => undefined },
   });
   let presets: PresetsModule | undefined;
   const soundSwitch = immediateSoundSwitch();

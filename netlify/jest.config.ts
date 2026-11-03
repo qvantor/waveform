@@ -17,6 +17,8 @@ module.exports = {
       },
     ],
   },
+  // @noble/hashes (the hash of a preset) is published as ESM only
+  transformIgnorePatterns: ['/node_modules/(?!@noble/)'],
   // specs import functions as `./presets.mjs`, TypeScript maps it to presets.mts
   moduleNameMapper: {
     '^(\\.{1,2}/.*)\\.mjs$': '$1',

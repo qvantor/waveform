@@ -202,7 +202,7 @@ const oscillatorSchema = (active: boolean) =>
           return result as Omit<typeof osc, 'r'>;
         })
     )
-    .default({});
+    .prefault({});
 
 const filterSchema = z
   .object({
@@ -212,7 +212,7 @@ const filterSchema = z
     res: range(0, 1000).default(0),
     gain: range(-40, 40).default(1),
   })
-  .default({});
+  .prefault({});
 
 // the envelopes ENV 1–3; ENV 1 is the volume of a note, all three modulate the knobs they are assigned to
 export const ENVELOPES = ['env1', 'env2', 'env3'] as const;
@@ -291,7 +291,7 @@ const envelopeSchema = (id: EnvelopeId) => {
           decay: curveRange(ENVELOPE_CURVES.decay),
           release: curveRange(ENVELOPE_CURVES.release),
         })
-        .default({}),
+        .prefault({}),
       bpm: z.boolean().default(false),
       divs: z
         .object({
@@ -300,9 +300,9 @@ const envelopeSchema = (id: EnvelopeId) => {
           decay: envelopeDivision(divs.decay),
           release: envelopeDivision(divs.release),
         })
-        .default({}),
+        .prefault({}),
     })
-    .default({});
+    .prefault({});
 };
 
 // the velocity of a note (MIDI 1..127; the computer keyboard and the piano play 100): VELO, a source of the
@@ -317,7 +317,7 @@ const velocitySchema = z
     amp: range(0, 1).default(VELOCITY_DEFAULTS.amp),
     k: curveRange(VELOCITY_DEFAULTS.k),
   })
-  .default({});
+  .prefault({});
 
 const envSchema = z
   .object({
@@ -326,7 +326,7 @@ const envSchema = z
     e3: envelopeSchema('env3'),
     vel: velocitySchema,
   })
-  .default({});
+  .prefault({});
 
 // the LFOs LFO 1–4: sources of the routes after the velocity, each a cycle of its shape repeated every `rate`
 // seconds (its period), per note: from the end of its Delay (retrig) or on a clock of its own all notes share
@@ -425,9 +425,11 @@ const lfoSchema = z
     delayDiv: divisionWithin(lfo.delayDiv, TIME_DIVISIONS),
     riseDiv: divisionWithin(lfo.riseDiv, TIME_DIVISIONS),
   }))
-  .default({});
+  .prefault({});
 
-const lfoSectionSchema = z.object({ l1: lfoSchema, l2: lfoSchema, l3: lfoSchema, l4: lfoSchema }).default({});
+const lfoSectionSchema = z
+  .object({ l1: lfoSchema, l2: lfoSchema, l3: lfoSchema, l4: lfoSchema })
+  .prefault({});
 
 // the modulation: a route moves a knob (a target of the app: osc1.wave, filter.cutoff, delay.time…) by its
 // source × amount, a share of the range of the knob in its scale (-1..1, a log knob in octaves: +0.5 on
@@ -466,7 +468,7 @@ const modSchema = z
   .refine((routes) => Object.keys(routes).length <= MOD_ROUTES_MAX)
   .refine((routes) => Object.values(knobSources(routes)).every((count) => count <= MOD_KNOB_SOURCES_MAX))
   .refine((routes) => !Object.keys(routes).some(lfoOnLfo))
-  .default({});
+  .prefault({});
 
 // semitones the pitch bend moves the notes by at most, down and up (each 0..PITCH_BEND_MAX)
 export const PITCH_BEND_MAX = 24;
@@ -481,7 +483,7 @@ const voicingSchema = z
     bd: intRange(0, PITCH_BEND_MAX).default(PITCH_BEND_DEFAULT),
     bu: intRange(0, PITCH_BEND_MAX).default(PITCH_BEND_DEFAULT),
   })
-  .default({});
+  .prefault({});
 
 // one shape for presets and url snapshots, only the validation of a value differs
 const fxEffectShape = <K extends string, P, F>(
@@ -502,28 +504,28 @@ const fxSchema = z
       .array(z.string().max(64))
       .max(32)
       .transform(normalizeFxOrder)
-      .default([...FX_TYPES]),
+      .prefault([...FX_TYPES]),
     distortion: z
       .object(
         fxEffectShape(FX_PARAMS.distortion, FX_MIX_PARAMS.distortion, paramRange, (value) =>
           z.boolean().default(value)
         )
       )
-      .default({}),
+      .prefault({}),
     delay: z
       .object(
         fxEffectShape(FX_PARAMS.delay, FX_MIX_PARAMS.delay, paramRange, (value) => z.boolean().default(value))
       )
-      .default({}),
+      .prefault({}),
     reverb: z
       .object(
         fxEffectShape(FX_PARAMS.reverb, FX_MIX_PARAMS.reverb, paramRange, (value) =>
           z.boolean().default(value)
         )
       )
-      .default({}),
+      .prefault({}),
   })
-  .default({});
+  .prefault({});
 
 const lenientFxEffect = <K extends string>(params: Record<K, ParamRange>, mix: ParamRange) =>
   z.preprocess(

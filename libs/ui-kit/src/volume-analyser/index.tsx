@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { theme } from '../common/constants';
 import { MeterLoop, meterLoop, QUIET_MS } from '../common/utils/meter-loop';
 import { createPeakHold, dbToHeight, FFT_SIZE, levels, toDb, zoneStops } from './meter';

@@ -6,12 +6,19 @@
   "tags": [],
   "targets": {
     "build": {
-      "outputs": ["{workspaceRoot}/dist/apps/waveform"],
+      "outputs": ["{workspaceRoot}/dist/apps/{options.env.WAVEFORM_DIST}"],
       "defaultConfiguration": "production",
+      "options": {
+        "env": { "NODE_ENV": "production", "WAVEFORM_DIST": "waveform" }
+      },
       "configurations": {
-        "development": {},
+        "development": {
+          "env": { "NODE_ENV": "development", "WAVEFORM_DIST": "waveform" }
+        },
         "production": {},
-        "perf": {}
+        "perf": {
+          "env": { "NODE_ENV": "production", "WAVEFORM_DIST": "waveform-perf" }
+        }
       }
     },
     "serve": {

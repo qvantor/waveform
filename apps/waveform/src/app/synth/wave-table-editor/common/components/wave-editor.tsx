@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { Handle, WaveDrawer } from '@waveform/ui-kit';
 import { number } from '@waveform/math';
 import { useBehaviorSubject, useObservable } from '@waveform/rxjs-react';

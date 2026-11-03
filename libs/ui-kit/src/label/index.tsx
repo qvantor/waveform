@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { textBold12 } from '../common/styles';
 import { theme } from '../common/constants';
 

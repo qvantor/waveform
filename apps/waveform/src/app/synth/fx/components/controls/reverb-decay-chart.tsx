@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { scaleLog } from 'd3-scale';
 import { number, Vector2D } from '@waveform/math';
 import {

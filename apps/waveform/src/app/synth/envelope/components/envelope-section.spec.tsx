@@ -148,7 +148,9 @@ describe('EnvelopeSection and VelocitySection', () => {
     expect(props().release).toBe(2);
     act(() => transport[1].setBpm(60));
     expect(props().release).toBe(4);
-    expect((props().children as React.ReactElement).props.env.release).toBe(4);
+    expect(
+      (props().children as React.ReactElement<{ env: ReturnType<typeof envelopeSeconds> }>).props.env.release
+    ).toBe(4);
   });
 
   it('the chart draws the curves of the selected tab, its points change them up to ±10, from the defaults', () => {
@@ -164,9 +166,9 @@ describe('EnvelopeSection and VelocitySection', () => {
     expect($envelopes.value.env3.curves).toEqual({ attack: 2.5, decay: -4, release: 3.49 });
     expect($envelopes.value.env1.curves.attack).toBe(0);
     // the dot of the note follows them
-    expect((props().children as React.ReactElement).props.env).toEqual(
-      envelopeSeconds($envelopes.value.env3, 120)
-    );
+    expect(
+      (props().children as React.ReactElement<{ env: ReturnType<typeof envelopeSeconds> }>).props.env
+    ).toEqual(envelopeSeconds($envelopes.value.env3, 120));
   });
 
   it('the chart has the dot of the note on the envelope of the selected tab, one of its own per tab', () => {

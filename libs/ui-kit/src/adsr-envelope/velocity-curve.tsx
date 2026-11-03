@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { vector2d } from '@waveform/math';
 import { LineChart, useLineChartContext, Line, XAxis, YAxis } from '../line-chart';
 import { Handle } from '../handle';

@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { FilterResponse, Handle, SwitchKey, SwitchKeys } from '@waveform/ui-kit';
 import { TEMPO_DIVISIONS } from '@waveform/preset-schema';
 import { NoteValueKeys } from '../../../../common/components';

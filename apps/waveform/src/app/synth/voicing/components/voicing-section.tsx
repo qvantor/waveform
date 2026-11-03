@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
 import { DraggableNumber, Section, Checkbox, theme } from '@waveform/ui-kit';
 import { PRESET_DEFAULTS } from '@waveform/preset-schema';

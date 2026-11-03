@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 
 // what the chart shows over the wave while a control is held (the phase, the voices of the unison): it fades out in
 // OVERLAY_FADE ms once let go, then is not rendered at all (no work while the wave or the knobs move)

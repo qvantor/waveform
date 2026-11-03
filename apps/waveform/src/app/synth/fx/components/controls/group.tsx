@@ -1,6 +1,6 @@
 import React from 'react';
 import cls from 'classnames';
-import styled, { css } from 'styled-components';
+import { styled, css } from 'styled-components';
 import { text10, theme } from '@waveform/ui-kit';
 
 // the space on both sides of a group and the line on its left

@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { theme } from '../common/constants';
 
 type Segment = 'a' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g';

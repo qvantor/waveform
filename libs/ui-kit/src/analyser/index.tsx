@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { number } from '@waveform/math';
 import { theme } from '../common/constants';
 

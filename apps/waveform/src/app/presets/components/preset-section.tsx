@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { Tooltip } from 'antd';
 import { AiOutlineLeft, AiOutlineLink, AiOutlineReload, AiOutlineRight, AiOutlineSave } from 'react-icons/ai';
 import toast from 'react-hot-toast';

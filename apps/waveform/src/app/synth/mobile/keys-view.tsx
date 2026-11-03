@@ -1,5 +1,5 @@
 import React from 'react';
-import styled, { css } from 'styled-components';
+import { styled, css } from 'styled-components';
 import cls from 'classnames';
 import { theme, useElementSize } from '@waveform/ui-kit';
 import { FxScreen } from '../fx';

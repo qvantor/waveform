@@ -87,9 +87,9 @@ export const midiController = ({
   transport: [{ $source, beatAt, tempoAt, contextTimeAt }, { follow, locate, setPlaying, setSource }],
 }: Dependencies) =>
   rxModel(() => {
-    const $midiAccess = new BehaviorSubject<WebMidi.MIDIAccess | null>(null);
-    const $midiInputs = new BehaviorSubject<WebMidi.MIDIInput[]>([]);
-    const $midiConnectionEvent = new Subject<WebMidi.MIDIConnectionEvent>();
+    const $midiAccess = new BehaviorSubject<MIDIAccess | null>(null);
+    const $midiInputs = new BehaviorSubject<MIDIInput[]>([]);
+    const $midiConnectionEvent = new Subject<MIDIConnectionEvent>();
     const saved = readStored<TabChoice>(
       'sessionStorage',
       TAB_CHOICE_KEY,
@@ -132,9 +132,9 @@ export const midiController = ({
     // input's first clock would take it)
     const forgetClock = () => leaveClock(clock.reset);
 
-    const $midiSubscription = new BehaviorSubject<
-      [target: WebMidi.MIDIInput, subscription: Subscription] | null
-    >(null);
+    const $midiSubscription = new BehaviorSubject<[target: MIDIInput, subscription: Subscription] | null>(
+      null
+    );
 
     if ('requestMIDIAccess' in navigator) {
       navigator
@@ -199,7 +199,7 @@ export const midiController = ({
         // update midi inputs on change
         $midiConnectionEvent
           .pipe(
-            filter((event) => event.port.type !== 'output'),
+            filter((event) => event.port?.type !== 'output'),
             map(() => $midiAccess.value),
             filter(Boolean),
             map((midiAccess) => [...midiAccess.inputs.values()])
@@ -232,8 +232,10 @@ export const midiController = ({
             toast.success(`${input.manufacturer ?? 'Unknown'} ${input.name ?? 'Unknown'} connected`);
             $midiSubscription.next([
               input,
-              fromEvent<WebMidi.MIDIMessageEvent>(input, 'midimessage')
+              fromEvent<MIDIMessageEvent>(input, 'midimessage')
                 .pipe(
+                  // a message has its bytes (lib.dom types them nullable)
+                  filter((e): e is MIDIMessageEvent & { data: Uint8Array } => e.data !== null),
                   // a clock and the transport, on no channel
                   filter((e) => {
                     const [status, lsb, msb] = e.data;

@@ -1,6 +1,6 @@
 import React from 'react';
 import toast from 'react-hot-toast';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { FileDrop, textLight14, theme } from '@waveform/ui-kit';
 import { readAudioFile } from '../../../../services/audio-file';
 import { Examples } from './examples';

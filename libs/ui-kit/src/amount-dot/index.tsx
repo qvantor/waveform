@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { arc } from 'd3-shape';
 import cls from 'classnames';
 import { number } from '@waveform/math';

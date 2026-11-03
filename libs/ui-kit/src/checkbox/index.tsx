@@ -1,6 +1,6 @@
 import React from 'react';
 import cls from 'classnames';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { theme } from '../common/constants';
 import { Label } from '../label';
 

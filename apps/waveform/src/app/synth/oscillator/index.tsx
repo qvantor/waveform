@@ -1,6 +1,6 @@
 import React from 'react';
 import { distinctUntilChanged, map } from 'rxjs';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { Handle, HandleProps } from '@waveform/ui-kit';
 import { useBehaviorSubject, useObservable } from '@waveform/rxjs-react';
 import { number } from '@waveform/math';

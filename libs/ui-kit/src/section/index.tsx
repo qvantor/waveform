@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import cls from 'classnames';
 import { Checkbox } from '../checkbox';
 import { theme } from '../common/constants';

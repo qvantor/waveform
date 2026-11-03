@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { theme } from '../common/constants';
 
 interface TabProps {
@@ -7,11 +7,11 @@ interface TabProps {
   name?: React.ReactNode;
 }
 
-const Tab = ({ children }: React.PropsWithChildren<TabProps>): JSX.Element => children as JSX.Element;
+const Tab = ({ children }: React.PropsWithChildren<TabProps>): React.JSX.Element =>
+  children as React.JSX.Element;
 
-export const isTab = (
-  element: React.ReactFragment | React.ReactPortal | React.ReactElement<unknown> | string | number
-): element is React.ReactElement<TabProps> => React.isValidElement(element) && element.type === Tab;
+export const isTab = (element: React.ReactNode): element is React.ReactElement<TabProps> =>
+  React.isValidElement(element) && element.type === Tab;
 
 interface Props {
   activeTab: string;
@@ -24,15 +24,15 @@ const TabsContainer = styled.div`
   border-right: 1px solid ${theme.colors.primaryLowContrast};
 `;
 
-const TabItem = styled.div<{ active: boolean }>`
+const TabItem = styled.div<{ $active: boolean }>`
   width: 49px;
   height: 49px;
   display: flex;
   align-items: center;
   justify-content: center;
   border-bottom: 1px solid ${theme.colors.primaryLowContrast};
-  color: ${({ active }) => (active ? theme.colors.secondAccent : theme.colors.primaryDark)};
-  box-shadow: ${({ active }) => (active ? 'inset 0 0 15px 0 rgba(0,0,0,0.15)' : 'none')};
+  color: ${({ $active }) => ($active ? theme.colors.secondAccent : theme.colors.primaryDark)};
+  box-shadow: ${({ $active }) => ($active ? 'inset 0 0 15px 0 rgba(0,0,0,0.15)' : 'none')};
   transition: all 150ms;
   cursor: pointer;
 
@@ -61,7 +61,7 @@ export const Tabs = ({ children, activeTab, onSelect }: React.PropsWithChildren<
     <>
       <TabsContainer>
         {tabs.map((tab) => (
-          <TabItem active={tab.id === activeTab} key={tab.id} onClick={() => onSelect?.(tab.id)}>
+          <TabItem $active={tab.id === activeTab} key={tab.id} onClick={() => onSelect?.(tab.id)}>
             {tab.name}
           </TabItem>
         ))}

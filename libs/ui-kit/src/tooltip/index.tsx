@@ -1,6 +1,6 @@
 import React from 'react';
 import ReactDOM from 'react-dom';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { number } from '@waveform/math';
 import { absoluteCenterX } from '../common/styles';
 import { singlePointerTracker } from '../common/utils';
@@ -152,8 +152,8 @@ export const Tooltip = ({
     <>
       {React.Children.map(children, (child) => {
         if (!React.isValidElement(child)) return null;
-        return React.cloneElement(child, {
-          ...child.props,
+        // its props are kept: cloneElement merges the ref into them
+        return React.cloneElement(child as React.ReactElement<{ ref?: React.Ref<HTMLElement> }>, {
           ref: refElement,
         });
       })}

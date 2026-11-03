@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { Cascader, Spin } from 'antd';
 import { isEqual } from 'lodash';
 import { SelectDumb, ContentContainer } from './select-dumb';
@@ -7,6 +7,8 @@ import { SelectDumb, ContentContainer } from './select-dumb';
 // a name longer than its place is cut with an ellipsis (it never widens the row)
 const Root = styled.div`
   ${ContentContainer}
+  /* the Spin of antd 6 around it sets a line height of its own: the row as high as the other selects */
+  line-height: normal;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -85,7 +87,8 @@ export const CascadeSelect = ({
   return (
     <SelectDumbInternal prev={step(-1)} next={step(1)}>
       <Spin spinning={loading}>
-        <Cascader options={shownOptions} onChange={onChange} value={shownValue}>
+        {/* the values of the options are strings (the names of the folders and the files) */}
+        <Cascader options={shownOptions} onChange={onChange} value={shownValue as string[]}>
           <Root>{children}</Root>
         </Cascader>
       </Spin>

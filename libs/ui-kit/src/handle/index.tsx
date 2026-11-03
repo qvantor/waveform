@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { arc } from 'd3-shape';
 import cls from 'classnames';
 import { number, vector2d } from '@waveform/math';
@@ -87,7 +87,7 @@ export interface HandleProps {
 }
 
 interface StyledProps {
-  size: Size;
+  $size: Size;
 }
 
 // px
@@ -123,8 +123,8 @@ const Root = styled.div`
 `;
 
 const HandleContainer = styled.div<StyledProps>`
-  width: ${(props) => sizes[props.size].wrapper}px;
-  height: ${(props) => sizes[props.size].wrapper}px;
+  width: ${(props) => sizes[props.$size].wrapper}px;
+  height: ${(props) => sizes[props.$size].wrapper}px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -132,8 +132,8 @@ const HandleContainer = styled.div<StyledProps>`
 `;
 
 const HandleCircle = styled.div<StyledProps>`
-  width: ${(props) => sizes[props.size].handleOuter}px;
-  height: ${(props) => sizes[props.size].handleOuter}px;
+  width: ${(props) => sizes[props.$size].handleOuter}px;
+  height: ${(props) => sizes[props.$size].handleOuter}px;
   margin: auto;
   border-radius: 100%;
   display: flex;
@@ -147,8 +147,8 @@ const HandleCircle = styled.div<StyledProps>`
 const HandleCircleShadow = styled.div<StyledProps>`
   position: absolute;
   ${absoluteCenterXY};
-  width: ${(props) => sizes[props.size].handleOuter}px;
-  height: ${(props) => sizes[props.size].handleOuter}px;
+  width: ${(props) => sizes[props.$size].handleOuter}px;
+  height: ${(props) => sizes[props.$size].handleOuter}px;
   border-radius: 100%;
   box-shadow: 4px 8px 28px 0 rgba(0, 0, 0, 0.35);
   z-index: 2;
@@ -157,8 +157,8 @@ const HandleCircleShadow = styled.div<StyledProps>`
 const HandleCircleInner = styled.div<StyledProps>`
   background: ${theme.colors.primary};
   margin: auto;
-  width: ${(props) => sizes[props.size].handleInner}px;
-  height: ${(props) => sizes[props.size].handleInner}px;
+  width: ${(props) => sizes[props.$size].handleInner}px;
+  height: ${(props) => sizes[props.$size].handleInner}px;
   border-radius: 100%;
   box-shadow: inset 0 0 4px 0 rgb(0 0 0 / 15%);
   position: relative;
@@ -166,8 +166,8 @@ const HandleCircleInner = styled.div<StyledProps>`
 
 // the position of the knob: a dot at its edge
 const HandleMark = styled.div<StyledProps>`
-  width: ${(props) => sizes[props.size].mark}px;
-  height: ${(props) => sizes[props.size].mark}px;
+  width: ${(props) => sizes[props.$size].mark}px;
+  height: ${(props) => sizes[props.$size].mark}px;
   border-radius: 100%;
   background: ${theme.colors.primaryDarkMediumContrast};
   position: absolute;
@@ -179,8 +179,8 @@ const HandleMark = styled.div<StyledProps>`
 const ModHighlight = styled.div<StyledProps>`
   position: absolute;
   ${absoluteCenterXY};
-  width: ${(props) => sizes[props.size].handleOuter}px;
-  height: ${(props) => sizes[props.size].handleOuter}px;
+  width: ${(props) => sizes[props.$size].handleOuter}px;
+  height: ${(props) => sizes[props.$size].handleOuter}px;
   border-radius: 100%;
   z-index: 3;
   ${modDragHighlight('> * >')}
@@ -191,8 +191,8 @@ const ModMark = styled.canvas<StyledProps>`
   position: absolute;
   inset: 0;
   margin: auto;
-  width: ${(props) => sizes[props.size].handleOuter}px;
-  height: ${(props) => sizes[props.size].handleOuter}px;
+  width: ${(props) => sizes[props.$size].handleOuter}px;
+  height: ${(props) => sizes[props.$size].handleOuter}px;
   pointer-events: none;
   z-index: 3;
 `;
@@ -218,8 +218,8 @@ const DOT_OVERLAP = 1;
 const Svg = styled.svg<StyledProps>`
   position: absolute;
   ${absoluteCenterXY};
-  width: ${(props) => sizes[props.size].svg}px;
-  height: ${(props) => sizes[props.size].svg}px;
+  width: ${(props) => sizes[props.$size].svg}px;
+  height: ${(props) => sizes[props.$size].svg}px;
   overflow: visible;
   z-index: 2;
 
@@ -408,16 +408,16 @@ export const Handle = ({
         className={cls({ disabled: disabled })}
         {...(modTarget && !disabled && { [MOD_TARGET_ATTR]: modTarget })}
       >
-        <HandleContainer size={size} ref={menu.anchorRef}>
-          <ModHighlight size={size} />
-          <HandleCircle style={{ transform: `rotate(${rotateRad}rad)` }} size={size}>
-            <HandleCircleInner size={size}>
-              <HandleMark size={size} />
+        <HandleContainer $size={size} ref={menu.anchorRef}>
+          <ModHighlight $size={size} />
+          <HandleCircle style={{ transform: `rotate(${rotateRad}rad)` }} $size={size}>
+            <HandleCircleInner $size={size}>
+              <HandleMark $size={size} />
             </HandleCircleInner>
           </HandleCircle>
-          <HandleCircleShadow size={size} />
-          {live && <ModMark {...modMark} size={size} data-testid='mod-mark' />}
-          <Svg size={size} className={cls({ scale: !routes })}>
+          <HandleCircleShadow $size={size} />
+          {live && <ModMark {...modMark} $size={size} data-testid='mod-mark' />}
+          <Svg $size={size} className={cls({ scale: !routes })}>
             <g transform={`translate(${svg / 2},${svg / 2})`}>
               {routes ? (
                 <path

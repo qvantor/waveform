@@ -1,6 +1,6 @@
 import React from 'react';
 import cls from 'classnames';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { AiOutlineLeft, AiOutlineRight } from 'react-icons/ai';
 import { FxType } from '@waveform/preset-schema';
 import { theme } from '@waveform/ui-kit';

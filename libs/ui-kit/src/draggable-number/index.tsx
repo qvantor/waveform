@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { number, vector2d, Vector2D } from '@waveform/math';
 import { text10 } from '../common/styles';
 import { theme } from '../common/constants';

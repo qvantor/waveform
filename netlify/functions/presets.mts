@@ -58,7 +58,7 @@ const countLastHour = async (table: 'presets' | 'reports', ipHash: string) => {
 
 const parsePresetBody = async <T extends { name: string; data: unknown }>(
   req: Request,
-  schema: z.ZodType<T, z.ZodTypeDef, unknown>
+  schema: z.ZodType<T>
 ) => {
   const parsed = schema.safeParse(await readJson(req, MAX_BODY_BYTES));
   if (!parsed.success) throw new HttpError(400, 'Invalid preset');

@@ -1,6 +1,6 @@
 import React from 'react';
 import { EditFilled } from '@ant-design/icons';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { theme, Modal, Deactivated, HandleModulation } from '@waveform/ui-kit';
 import { useBehaviorSubject } from '@waveform/rxjs-react';
 import WaveTableEditor from '../../../wave-table-editor';

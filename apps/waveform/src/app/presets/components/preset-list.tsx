@@ -1,5 +1,5 @@
 import React from 'react';
-import styled from 'styled-components';
+import { styled } from 'styled-components';
 import { Button, Empty, Popconfirm, Spin, Tooltip } from 'antd';
 import { AiOutlineFire, AiOutlineFlag, AiOutlineLink } from 'react-icons/ai';
 import toast from 'react-hot-toast';
@@ -13,15 +13,15 @@ const List = styled.div`
   border: 1px solid ${theme.colors.primaryLowContrast};
 `;
 
-const Row = styled.div<{ active: boolean }>`
+const Row = styled.div<{ $active: boolean }>`
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 4px 4px 4px 12px;
   cursor: pointer;
   border-bottom: 1px solid ${theme.colors.primary};
-  background: ${({ active }) => (active ? theme.colors.primary : 'transparent')};
-  color: ${({ active }) => (active ? theme.colors.secondAccent : theme.colors.primaryDark)};
+  background: ${({ $active }) => ($active ? theme.colors.primary : 'transparent')};
+  color: ${({ $active }) => ($active ? theme.colors.secondAccent : theme.colors.primaryDark)};
 
   &:hover {
     background: ${theme.colors.primary};
@@ -85,7 +85,7 @@ export const PresetList = ({ items, currentId, loading, hasMore, onLoadMore, onS
   return (
     <List ref={root}>
       {items.map((item) => (
-        <Row key={item.id} active={item.id === currentId} onClick={() => onSelect(item)}>
+        <Row key={item.id} $active={item.id === currentId} onClick={() => onSelect(item)}>
           <Name>{item.name}</Name>
           {item.uniqueUsers > 0 && (
             <Popularity>

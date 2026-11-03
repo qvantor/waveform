@@ -44,6 +44,7 @@
     "eslint-plugin-react",
     "playwright",
     "@babel/plugin-transform-exponentiation-operator",
+    "@babel/plugin-transform-modules-commonjs",
     "react-refresh",
     "@pmmmwh/react-refresh-webpack-plugin"
   ],
