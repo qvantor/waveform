@@ -26,6 +26,13 @@ describe('OctaveControl', () => {
     expect(onOctaveChange.mock.calls).toEqual([[4], [2]]);
   });
 
+  it('a press of ▲ or ▼ takes no focus: the arrows and Space stay those of the page', () => {
+    const { up, down } = setup(3);
+    // false: its default (the focus) prevented
+    expect(fireEvent.mouseDown(up)).toBe(false);
+    expect(fireEvent.mouseDown(down)).toBe(false);
+  });
+
   it.each([
     [0, 'down'],
     [6, 'up'],

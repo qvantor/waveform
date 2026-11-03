@@ -48,9 +48,6 @@ const Value = styled.div`
   font-variant-numeric: tabular-nums;
 `;
 
-// a press takes no focus: the keys stay those of the notes (Space or Enter would press a focused one)
-const keepFocus = (e: React.MouseEvent) => e.preventDefault();
-
 interface Props {
   octave: number;
   // ▲ and ▼ are disabled at its ends
@@ -64,23 +61,11 @@ interface Props {
 // an octave of keys, ▲ and ▼ shift it
 export const OctaveControl = ({ octave, range, onOctaveChange, label, className }: Props) => (
   <Plate role='group' title={label} aria-label={label} className={className}>
-    <Step
-      type='button'
-      aria-label='Octave up'
-      onMouseDown={keepFocus}
-      onClick={() => onOctaveChange(octave + 1)}
-      disabled={octave >= range[1]}
-    >
+    <Step aria-label='Octave up' onClick={() => onOctaveChange(octave + 1)} disabled={octave >= range[1]}>
       <CaretUpOutlined />
     </Step>
     <Value>C{octave}</Value>
-    <Step
-      type='button'
-      aria-label='Octave down'
-      onMouseDown={keepFocus}
-      onClick={() => onOctaveChange(octave - 1)}
-      disabled={octave <= range[0]}
-    >
+    <Step aria-label='Octave down' onClick={() => onOctaveChange(octave - 1)} disabled={octave <= range[0]}>
       <CaretDownOutlined />
     </Step>
   </Plate>

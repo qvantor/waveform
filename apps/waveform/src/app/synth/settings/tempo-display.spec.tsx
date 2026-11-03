@@ -53,6 +53,14 @@ describe('TempoDisplay', () => {
     expect(shown()).toBe('128.25');
   });
 
+  it('a press of a caret takes no focus: the arrows and Space stay those of the page', () => {
+    setup();
+    ['Faster', 'Slower'].forEach((name) =>
+      // false: its default (the focus) prevented
+      expect(fireEvent.mouseDown(screen.getByRole('button', { name }))).toBe(false)
+    );
+  });
+
   it('steps by 1 by its carets, by 0.01 with Shift, within 30..240; the browser keeps it', () => {
     const { transport, shown } = setup();
     const [model, { setBpm }] = transport;
@@ -139,6 +147,26 @@ describe('TempoDisplay', () => {
     fireEvent.change(field() as HTMLInputElement, { target: { value: '' } });
     fireEvent.keyDown(field() as HTMLInputElement, { key: 'Enter' });
     expect(model.$bpm.value).toBe(30);
+  });
+
+  it('a caret pressed while typing takes what is typed, then steps from it', () => {
+    const { transport, shown, display, field } = setup();
+    const [model] = transport;
+    fireEvent.doubleClick(display());
+    fireEvent.change(field() as HTMLInputElement, { target: { value: '128' } });
+    // the caret keeps the focus in the field: no blur takes it
+    fireEvent.mouseDown(screen.getByRole('button', { name: 'Faster' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Faster' }));
+    expect(field()).toBeNull();
+    expect(model.$bpm.value).toBe(129);
+    expect(shown()).toBe('129.00');
+
+    // nothing to take: a step from the tempo as it is
+    fireEvent.doubleClick(display());
+    fireEvent.change(field() as HTMLInputElement, { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Slower' }), { shiftKey: true });
+    expect(field()).toBeNull();
+    expect(model.$bpm.value).toBe(128.99);
   });
 
   it('takes only what the display has room for: 3 digits, a point, 2 decimals', () => {

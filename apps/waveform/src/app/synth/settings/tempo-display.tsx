@@ -88,7 +88,7 @@ const Unit = styled.span`
   color: ${theme.colors.primaryDarkHighContrast};
 `;
 
-// the carets of the values of the synth (Oct, Semi, Unison), each a key of its own, of the color of the unit
+// its carets, each a key of its own
 const Steps = styled.div`
   position: relative;
   cursor: default;
@@ -149,6 +149,11 @@ export const TempoDisplay = () => {
     setTyping(null);
     if (Number.isFinite(typed)) setBpm(toTempo(typed));
   };
+  // a caret keeps the focus (no blur of the field): what is typed is taken first, as a click elsewhere takes it
+  const stepBy = (by: number) => {
+    commit();
+    step(by);
+  };
   const change = (text: string) => {
     const next = text.replace(',', '.');
     if (!TYPED.test(next)) return;
@@ -182,10 +187,10 @@ export const TempoDisplay = () => {
       {/* a double click on them is two steps, not typing */}
       {editable && (
         <Steps onPointerDown={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
-          <Step type='button' aria-label='Faster' onClick={(e) => step(e.shiftKey ? FINE_STEP : STEP)}>
+          <Step aria-label='Faster' onClick={(e) => stepBy(e.shiftKey ? FINE_STEP : STEP)}>
             <CaretUpOutlined />
           </Step>
-          <Step type='button' aria-label='Slower' onClick={(e) => step(-(e.shiftKey ? FINE_STEP : STEP))}>
+          <Step aria-label='Slower' onClick={(e) => stepBy(-(e.shiftKey ? FINE_STEP : STEP))}>
             <CaretDownOutlined />
           </Step>
         </Steps>

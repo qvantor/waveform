@@ -63,6 +63,6 @@ export type { HandleProps, HandleModulation } from './handle';
 export type { NotePath } from './adsr-envelope';
 export type { Theme } from './common/constants';
 export { useIsMobile, useIsPortrait, useElementSize } from './common/hooks';
-export { useLiveDraw, liveKnob, onFrame, singlePointerTracker } from './common/utils';
+export { useLiveDraw, liveKnob, onFrame, singlePointerTracker, keepFocus } from './common/utils';
 export type { LiveKnob, ModTravel } from './common/utils';
 export type { AdsrSteps } from './adsr-envelope';

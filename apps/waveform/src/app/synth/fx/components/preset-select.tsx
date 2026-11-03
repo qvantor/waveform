@@ -3,7 +3,7 @@ import cls from 'classnames';
 import { styled } from 'styled-components';
 import { AiOutlineLeft, AiOutlineRight } from 'react-icons/ai';
 import { FxType } from '@waveform/preset-schema';
-import { theme } from '@waveform/ui-kit';
+import { keepFocus, theme } from '@waveform/ui-kit';
 import { FX_REGISTRY, findFxPreset } from '../effects';
 
 // a compact ◀ name ▶ picker
@@ -67,9 +67,6 @@ const Name = styled.select`
 
 const CUSTOM = '';
 
-// the preset select must not keep the focus, otherwise QWERTY notes are swallowed by it
-const preventFocus = (e: React.MouseEvent) => e.preventDefault();
-
 interface Props {
   type: FxType;
   mix: number;
@@ -87,9 +84,10 @@ export const PresetSelect = ({ type, mix, params, onSelect }: Props) => {
     const from = index === -1 ? (delta > 0 ? -1 : 0) : index;
     onSelect(presets[(from + delta + presets.length) % presets.length].id);
   };
+  // none of it keeps the focus: the QWERTY notes would be swallowed by it
   return (
     <Root role='group' aria-label='Preset'>
-      <Arrow tabIndex={-1} onMouseDown={preventFocus} onClick={() => step(-1)} aria-label='Previous preset'>
+      <Arrow tabIndex={-1} onMouseDown={keepFocus} onClick={() => step(-1)} aria-label='Previous preset'>
         <AiOutlineLeft />
       </Arrow>
       <Name
@@ -108,7 +106,7 @@ export const PresetSelect = ({ type, mix, params, onSelect }: Props) => {
           </option>
         ))}
       </Name>
-      <Arrow tabIndex={-1} onMouseDown={preventFocus} onClick={() => step(1)} aria-label='Next preset'>
+      <Arrow tabIndex={-1} onMouseDown={keepFocus} onClick={() => step(1)} aria-label='Next preset'>
         <AiOutlineRight />
       </Arrow>
     </Root>

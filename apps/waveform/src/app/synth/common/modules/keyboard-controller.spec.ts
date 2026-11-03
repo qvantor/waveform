@@ -133,6 +133,28 @@ describe('keyboardController', () => {
     expect(onRelease.mock.calls).toEqual([[[3, 'C']], [[4, 'C']]]);
   });
 
+  it('a note two keys hold (Comma and Q) is pressed by the first and released by the last', () => {
+    const { onPress, onRelease } = setup();
+    key('keydown', 'Comma');
+    key('keydown', 'KeyQ');
+    expect(onPress.mock.calls).toEqual([[[4, 'C']]]);
+    key('keyup', 'Comma');
+    expect(onRelease).not.toHaveBeenCalled();
+    key('keyup', 'KeyQ');
+    expect(onRelease.mock.calls).toEqual([[[4, 'C']]]);
+  });
+
+  it.each([
+    ['Cmd is released', () => key('keyup', 'MetaLeft', { key: 'Meta' })],
+    ['the window loses focus', () => window.dispatchEvent(new Event('blur'))],
+  ])('releases a note two keys hold once when %s', (_, releaseAll) => {
+    const { onRelease } = setup();
+    key('keydown', 'Comma');
+    key('keydown', 'KeyQ');
+    releaseAll();
+    expect(onRelease.mock.calls).toEqual([[[4, 'C']]]);
+  });
+
   describe('the octave', () => {
     it('shifts the notes of the keys', () => {
       const { onPress, model, actions } = setup();
@@ -221,6 +243,40 @@ describe('keyboardController', () => {
       fader.addEventListener('keydown', (e) => e.preventDefault());
       key('keydown', 'ArrowUp', {}, fader);
       expect(model.$octave.value).toBe(3);
+    });
+
+    it('a note its key and a key of another octave hold sounds until both are let go', () => {
+      const { onPress, onRelease, actions } = setup();
+      key('keydown', 'KeyQ');
+      actions.shiftOctave(1);
+      key('keydown', 'KeyZ');
+      expect(onPress.mock.calls).toEqual([[[4, 'C']]]);
+      key('keyup', 'KeyQ');
+      expect(onRelease).not.toHaveBeenCalled();
+      key('keyup', 'KeyZ');
+      expect(onRelease.mock.calls).toEqual([[[4, 'C']]]);
+    });
+
+    it('the arrows do not shift it once a listener of the document added later took them (a keyboard drag)', () => {
+      const { model } = setup();
+      const drag = (e: KeyboardEvent) => e.preventDefault();
+      document.addEventListener('keydown', drag);
+      try {
+        key('keydown', 'ArrowDown');
+        expect(model.$octave.value).toBe(3);
+      } finally {
+        document.removeEventListener('keydown', drag);
+      }
+    });
+
+    it('the arrows do not shift it in a dialog: its lists scroll', () => {
+      const { model } = setup();
+      const dialog = document.body.appendChild(document.createElement('div'));
+      dialog.setAttribute('role', 'dialog');
+      const row = dialog.appendChild(document.createElement('div'));
+      const down = key('keydown', 'ArrowDown', {}, row);
+      expect(model.$octave.value).toBe(3);
+      expect(down.defaultPrevented).toBe(false);
     });
 
     it('the arrows shift it from a focused control that takes none of them (a tab of a source)', () => {

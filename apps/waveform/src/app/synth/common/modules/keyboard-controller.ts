@@ -80,18 +80,21 @@ const noteFilter = (e: KeyboardEvent) =>
 
 const OCTAVE_KEYS: Record<string, number> = { ArrowDown: -1, ArrowUp: 1 };
 
-// the arrows belong to the focused control: a text field (antd's select too), a native select, or a control that
-// took them already (a fader, a strip of values, the point of a curve, antd's tabs: React handles them at its root,
-// before the listeners of the document)
+// the arrows belong to the focused control: a text field (antd's select too), a native select, a dialog (its lists
+// scroll; the octave behind it isn't shown), or a control that took them already (a fader, a strip of values, the
+// point of a curve, antd's tabs, a keyboard drag of the effects: they are listened on the window, after all of them)
 const takesArrows = (e: KeyboardEvent) =>
   e.defaultPrevented ||
   isTextInput(e.target) ||
-  (e.target instanceof HTMLElement && e.target.tagName === 'SELECT');
+  (e.target instanceof HTMLElement && e.target.tagName === 'SELECT') ||
+  (e.target instanceof Element && e.target.closest('[role="dialog"]') !== null);
 
 const octaveFilter = (e: KeyboardEvent) => e.code in OCTAVE_KEYS && !isShortcut(e) && !takesArrows(e);
 
+const sameNote = (a: Note, b: Note) => a[0] === b[0] && a[1] === b[1];
+
 export const keyboardController = ({
-  app: [{ $keyDown, $keyUp, $blur }],
+  app: [{ $keyDown, $keyUp, $windowKeyDown, $blur }],
   inputController: [, { onPress, onRelease }],
 }: Dependencies) =>
   rxModel(() => ({
@@ -109,13 +112,15 @@ export const keyboardController = ({
     .subscriptions(({ $octave }, { shiftOctave }) => {
       // the note each key pressed: a keyup releases only its own (whatever the modifiers: a key pressed before Ctrl
       // or Cmd; the octave shifted meanwhile), not a note of another input; all of them once Cmd is released (macOS
-      // sends no keyup of a key let go while Cmd is held) or the window loses focus
+      // sends no keyup of a key let go while Cmd is held) or the window loses focus. A note two keys hold (the octave
+      // shifted between them, Comma and Q) is pressed by the first and released by the last
       const held = new Map<string, Note>();
+      const isHeld = (note: Note) => [...held.values()].some((other) => sameNote(other, note));
       const release = (code: string) => {
         const note = held.get(code);
         if (!note) return;
         held.delete(code);
-        onRelease(note);
+        if (!isHeld(note)) onRelease(note);
       };
       const releaseAll = () => [...held.keys()].forEach(release);
       return [
@@ -130,11 +135,12 @@ export const keyboardController = ({
           .subscribe((e) => {
             const [octave, name] = keyboardToNotes[e.code];
             const note: Note = [$octave.value + octave, name];
+            const pressed = isHeld(note);
             held.set(e.code, note);
-            onPress(note);
+            if (!pressed) onPress(note);
           }),
         // a step a press (not its auto-repeat), the page doesn't scroll
-        $keyDown
+        $windowKeyDown
           .pipe(
             filter(octaveFilter),
             tap((e) => e.preventDefault()),

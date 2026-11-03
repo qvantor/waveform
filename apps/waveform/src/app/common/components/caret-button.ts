@@ -1,9 +1,9 @@
 import { styled } from 'styled-components';
-import { theme } from '@waveform/ui-kit';
+import { keepFocus, theme } from '@waveform/ui-kit';
 
 // a caret of the values of the synth (the tempo, the octave of the keys), a key of its own: of the color of their
-// units, lit while hovered
-export const CaretButton = styled.button`
+// units, lit while hovered; a press takes no focus (the arrows and Space stay those of the page)
+export const CaretButton = styled.button.attrs({ type: 'button', onMouseDown: keepFocus })`
   display: flex;
   align-items: center;
   justify-content: center;
