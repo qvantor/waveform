@@ -3,6 +3,7 @@ import { styled } from 'styled-components';
 import { distinctUntilChanged, map } from 'rxjs';
 import {
   PianoKeyboard,
+  PITCH_WHEEL_WIDTH,
   VolumeAnalyser,
   FqAnalyser,
   QUIET_MS,
@@ -14,7 +15,7 @@ import {
 import { useBehaviorSubject, useObservable } from '@waveform/rxjs-react';
 import { DEFAULT_WAVETABLE_PATH } from '@waveform/preset-schema';
 import { useApp } from '../app';
-import { Header, HeaderSection } from '../common/components';
+import { Header, HeaderSection, OctaveControl } from '../common/components';
 import { PresetSection, PresetsProvider } from '../presets';
 import { PerfHook } from '../perf/perf-hook';
 import {
@@ -33,6 +34,8 @@ import {
   useOscillator1,
   useOscillator2,
   KeyboardControllerProvider,
+  useKeyboardController,
+  KEYBOARD_OCTAVES,
   SynthCoreProvider,
   useSynthCore,
   MidiControllerProvider,
@@ -41,6 +44,7 @@ import {
   TransportProvider,
   useTransport,
 } from './common/modules';
+import { pianoOctaves } from './common/piano-octaves';
 import { FilterProvider, FilterSection, useFilter } from './filter';
 import { Oscillator1, Oscillator2, MasterHandle, LimiterStatus } from './synth/components';
 import { VoicingSection } from './voicing';
@@ -54,7 +58,8 @@ import { SYNTH_SCREENS, SynthScreen } from './screens';
 
 // px of the keys: the row of the keys and the pitch bend
 const KEY_HEIGHT = 100;
-// px of a white key at most, and at least while octaves are taken off (up to 5 from C1)
+// px of a white key at most, and at least while octaves are taken off (up to 5 from the one under the octave of
+// the computer keyboard)
 const KEY_WIDTH = 40;
 const MIN_KEY_WIDTH = 36;
 const MAX_OCTAVES = 5;
@@ -106,6 +111,20 @@ const PitchSection = styled.div`
   background: ${theme.colors.primary};
 `;
 
+// the octave of the computer keyboard right of the wheel, a section of its own: its plate as wide and as high as
+// the slot of the wheel
+const OctaveSection = styled.div`
+  display: flex;
+  padding: 8px;
+  background: ${theme.colors.primary};
+`;
+
+const KeyboardOctave = styled(OctaveControl)`
+  && {
+    width: ${PITCH_WHEEL_WIDTH}px;
+  }
+`;
+
 // the keys in the rest of the row, centered
 const Keys = styled.div`
   flex: 1 1;
@@ -137,10 +156,13 @@ const HeaderEq = styled(FqAnalyser)`
   margin-left: -20px; // stick to the logo, cancels Header gap
 `;
 
-// the octaves that fit beside the wheel, their keys narrower rather than one octave fewer
+// the octaves that fit beside the wheel, their keys narrower rather than one octave fewer; they follow the octave
+// of the computer keyboard, ▲ and ▼ (or ↓ and ↑) shift both
 const PianoInternal = () => {
   const [{ $pressed }, { onPress, onRelease }] = useInputController();
   const pressed = useBehaviorSubject($pressed);
+  const [{ $octave }, { setOctave }] = useKeyboardController();
+  const octave = useBehaviorSubject($octave);
   const [keysRef, [width]] = useElementSize<HTMLDivElement>();
   const octaves = Math.min(MAX_OCTAVES, Math.max(1, Math.floor(width / (7 * MIN_KEY_WIDTH))));
   return (
@@ -148,13 +170,21 @@ const PianoInternal = () => {
       <PitchSection>
         <PitchBend />
       </PitchSection>
+      <OctaveSection>
+        <KeyboardOctave
+          octave={octave}
+          range={KEYBOARD_OCTAVES}
+          onOctaveChange={setOctave}
+          label={`Computer keyboard octave: Z = C${octave}, Q = C${octave + 1}`}
+        />
+      </OctaveSection>
       <Keys ref={keysRef}>
         {width > 0 && (
           <PianoKeyboard
             onPress={onPress}
             onRelease={onRelease}
             pressed={pressed}
-            octaves={[1, octaves]}
+            octaves={pianoOctaves(octave, octaves)}
             fitScreen={false}
             keyWidth={Math.min(KEY_WIDTH, width / (7 * octaves))}
             keyHeight={KEY_HEIGHT}

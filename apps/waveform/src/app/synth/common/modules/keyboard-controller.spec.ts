@@ -5,8 +5,12 @@ import { keyboardController } from './keyboard-controller';
 const setup = () => {
   const app = initModel(appModel(), 'appModel', undefined);
   const { module, onPress, onRelease } = createSpiedInputController();
-  initModel(keyboardController({ app, inputController: module }), 'keyboardController', undefined);
-  return { onPress, onRelease };
+  const [model, actions] = initModel(
+    keyboardController({ app, inputController: module }),
+    'keyboardController',
+    undefined
+  );
+  return { onPress, onRelease, model, actions };
 };
 
 const key = (
@@ -127,6 +131,137 @@ describe('keyboardController', () => {
     key('keydown', 'KeyQ');
     window.dispatchEvent(new Event('blur'));
     expect(onRelease.mock.calls).toEqual([[[3, 'C']], [[4, 'C']]]);
+  });
+
+  describe('the octave', () => {
+    it('shifts the notes of the keys', () => {
+      const { onPress, model, actions } = setup();
+      expect(model.$octave.value).toBe(3);
+      actions.shiftOctave(1);
+      key('keydown', 'KeyZ');
+      key('keydown', 'BracketRight');
+      expect(onPress.mock.calls).toEqual([[[4, 'C']], [[6, 'G']]]);
+      actions.setOctave(0);
+      key('keydown', 'KeyQ');
+      expect(onPress).toHaveBeenLastCalledWith([1, 'C']);
+    });
+
+    it('releases the note a key pressed before a shift, not the one of the new octave', () => {
+      const { onPress, onRelease, actions } = setup();
+      key('keydown', 'KeyZ');
+      actions.shiftOctave(1);
+      key('keyup', 'KeyZ');
+      expect(onRelease.mock.calls).toEqual([[[3, 'C']]]);
+      // pressed again, the key plays the new octave
+      key('keydown', 'KeyZ');
+      expect(onPress).toHaveBeenLastCalledWith([4, 'C']);
+    });
+
+    it('releases the notes held across a shift when Cmd is released or the window loses focus', () => {
+      const { onRelease, actions } = setup();
+      key('keydown', 'KeyZ');
+      actions.shiftOctave(-1);
+      key('keydown', 'KeyX');
+      key('keyup', 'MetaLeft', { key: 'Meta' });
+      expect(onRelease.mock.calls).toEqual([[[3, 'C']], [[2, 'D']]]);
+
+      key('keydown', 'KeyC');
+      actions.shiftOctave(2);
+      window.dispatchEvent(new Event('blur'));
+      expect(onRelease).toHaveBeenLastCalledWith([2, 'E']);
+      expect(onRelease).toHaveBeenCalledTimes(3);
+    });
+
+    it('presses nothing on the auto-repeat of a held key, a shift meanwhile too', () => {
+      const { onPress, actions } = setup();
+      key('keydown', 'KeyZ');
+      actions.shiftOctave(1);
+      const repeat = key('keydown', 'KeyZ', { repeat: true });
+      expect(onPress.mock.calls).toEqual([[[3, 'C']]]);
+      // it still keeps the key from the page
+      expect(repeat.defaultPrevented).toBe(true);
+    });
+
+    it.each([
+      ['ArrowUp', 4],
+      ['ArrowDown', 2],
+    ])('%s shifts it and keeps the page from scrolling', (code, octave) => {
+      const { model } = setup();
+      const down = key('keydown', code);
+      expect(model.$octave.value).toBe(octave);
+      expect(down.defaultPrevented).toBe(true);
+    });
+
+    it('steps once a press: not on the auto-repeat', () => {
+      const { model } = setup();
+      key('keydown', 'ArrowUp');
+      const repeat = key('keydown', 'ArrowUp', { repeat: true });
+      expect(model.$octave.value).toBe(4);
+      expect(repeat.defaultPrevented).toBe(true);
+    });
+
+    it.each([{ metaKey: true }, { ctrlKey: true }])('the arrows do not shift it with %o', (modifier) => {
+      const { model } = setup();
+      const down = key('keydown', 'ArrowUp', modifier);
+      expect(model.$octave.value).toBe(3);
+      expect(down.defaultPrevented).toBe(false);
+    });
+
+    it.each(['input', 'textarea', 'select'])('the arrows do not shift it in a focused %s', (tag) => {
+      const { model } = setup();
+      const down = key('keydown', 'ArrowDown', {}, document.body.appendChild(document.createElement(tag)));
+      expect(model.$octave.value).toBe(3);
+      expect(down.defaultPrevented).toBe(false);
+    });
+
+    it('the arrows do not shift it once a control took them (a fader, a strip of values, tabs)', () => {
+      const { model } = setup();
+      const fader = document.body.appendChild(document.createElement('div'));
+      fader.setAttribute('role', 'slider');
+      fader.addEventListener('keydown', (e) => e.preventDefault());
+      key('keydown', 'ArrowUp', {}, fader);
+      expect(model.$octave.value).toBe(3);
+    });
+
+    it('the arrows shift it from a focused control that takes none of them (a tab of a source)', () => {
+      const { model } = setup();
+      const tab = document.body.appendChild(document.createElement('button'));
+      tab.setAttribute('role', 'tab');
+      key('keydown', 'ArrowUp', {}, tab);
+      expect(model.$octave.value).toBe(4);
+    });
+
+    it.each([
+      [0, 'ArrowDown', -1],
+      [6, 'ArrowUp', 1],
+    ])('stays at %i, the end of its range', (end, code, diff) => {
+      const { model, actions } = setup();
+      actions.setOctave(end);
+      key('keydown', code);
+      actions.shiftOctave(diff);
+      actions.setOctave(end + diff);
+      expect(model.$octave.value).toBe(end);
+    });
+
+    it('is kept by the browser', () => {
+      const { actions } = setup();
+      expect(localStorage.getItem('keyboardOctave')).toBeNull();
+      actions.shiftOctave(1);
+      expect(localStorage.getItem('keyboardOctave')).toBe('4');
+      stopModels();
+
+      localStorage.setItem('keyboardOctave', '2');
+      const { onPress, model } = setup();
+      expect(model.$octave.value).toBe(2);
+      key('keydown', 'KeyZ');
+      expect(onPress).toHaveBeenCalledWith([2, 'C']);
+    });
+
+    it.each(['2.5', '7', '-1', '"4"', 'x'])('reads a broken stored value %s as 3', (stored) => {
+      localStorage.setItem('keyboardOctave', stored);
+      const { model } = setup();
+      expect(model.$octave.value).toBe(3);
+    });
   });
 
   it('stops listening after stop', () => {

@@ -1,6 +1,6 @@
 export { MidiControllerProvider, useMidiController } from './midi-controller';
 export { InputControllerProvider, useInputController } from './input-controller';
-export { KeyboardControllerProvider } from './keyboard-controller';
+export { KeyboardControllerProvider, useKeyboardController, KEYBOARD_OCTAVES } from './keyboard-controller';
 export { EnvelopesProvider, useEnvelopes } from './envelopes';
 export { LfoProvider, useLfos } from './lfos';
 export { ModulationProvider, useModulation } from './modulation';

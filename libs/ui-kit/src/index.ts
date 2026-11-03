@@ -23,7 +23,7 @@ export { Analyser } from './analyser';
 export { FileDrop } from './file-drop';
 export { Tabs } from './tabs';
 export { PianoKeyboard } from './piano-keyboard';
-export { PitchWheel } from './pitch-wheel';
+export { PitchWheel, PITCH_WHEEL_WIDTH } from './pitch-wheel';
 export {
   AdsrEnvelope,
   formatTime,
@@ -47,7 +47,6 @@ export { DraggableNumber } from './draggable-number';
 export { DragValue } from './drag-value';
 export { SegmentDisplay } from './segment-display';
 export { Checkbox } from './checkbox';
-export { IconButton } from './icon-button';
 export { TapeSwitch } from './tape-switch';
 export { ModeSwitch } from './mode-switch';
 export { Lamp } from './lamp';
