@@ -126,7 +126,7 @@ To run only the frontend use `npm run client:start`. Wavetables and presets won'
 | ---------------------------------------------- | -------------------------------------------------------------------- |
 | `BUCKET`, `ACCESS_KEY_ID`, `SECRET_ACCESS_KEY` | S3 bucket with wavetables (region `eu-central-1`)                    |
 | `DATABASE_URL`                                 | Postgres connection string (pooled)                                  |
-| `NX_TURNSTILE_SITE_KEY`                        | Cloudflare Turnstile site key, inlined into the client at build time |
+| `NX_PUBLIC_TURNSTILE_SITE_KEY`                 | Cloudflare Turnstile site key, inlined into the client at build time |
 | `TURNSTILE_SECRET`                             | Cloudflare Turnstile secret, used by functions                       |
 | `IP_HASH_SALT`                                 | Random string for hashing IPs (`openssl rand -hex 32`)               |
 | `MIN_UNIQUE_USERS`                             | Listeners who stayed a preset needs before it gets a score           |

@@ -32,7 +32,7 @@ const captchaErrorMessage = (code: string) => {
   if (code.startsWith('110200'))
     return `Captcha is not allowed on ${window.location.hostname}, add it to the widget hostnames in Cloudflare.`;
   if (code.startsWith('1101') || code.startsWith('400020'))
-    return 'Captcha site key is invalid, check NX_TURNSTILE_SITE_KEY.';
+    return 'Captcha site key is invalid, check NX_PUBLIC_TURNSTILE_SITE_KEY.';
   return `Captcha check failed (error ${code}).`;
 };
 
