@@ -7,10 +7,11 @@ import { useElementSize } from '../common/hooks';
 import { Tooltip } from '../tooltip';
 import { ValueTooltip } from '../tooltip/value-tooltip';
 
-const WIDTH = 26;
+// px of the slot
+export const PITCH_WHEEL_WIDTH = 26;
 // px of the slot around the drum
 const INSET = 3;
-const DRUM_WIDTH = WIDTH - 2 * INSET;
+const DRUM_WIDTH = PITCH_WHEEL_WIDTH - 2 * INSET;
 // the drum turns ±60° over the range of the value
 const MAX_ANGLE = Math.PI / 3;
 // the ribs of the drum, 15° apart
@@ -27,7 +28,7 @@ const Body = styled.div`
   position: relative;
   flex: none;
   align-self: stretch;
-  width: ${WIDTH}px;
+  width: ${PITCH_WHEEL_WIDTH}px;
   border-radius: ${theme.borderRadius.m};
   background: ${theme.colors.primaryDark};
   box-shadow: inset 0 1px 3px rgb(0 0 0 / 60%);

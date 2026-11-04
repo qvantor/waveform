@@ -1,17 +1,8 @@
 import React from 'react';
 import { styled } from 'styled-components';
 import { distinctUntilChanged, map } from 'rxjs';
-import {
-  PianoKeyboard,
-  VolumeAnalyser,
-  FqAnalyser,
-  QUIET_MS,
-  TapeSwitch,
-  theme,
-  useElementSize,
-  useIsMobile,
-} from '@waveform/ui-kit';
-import { useBehaviorSubject, useObservable } from '@waveform/rxjs-react';
+import { VolumeAnalyser, FqAnalyser, QUIET_MS, TapeSwitch, theme, useIsMobile } from '@waveform/ui-kit';
+import { useObservable } from '@waveform/rxjs-react';
 import { DEFAULT_WAVETABLE_PATH } from '@waveform/preset-schema';
 import { useApp } from '../app';
 import { Header, HeaderSection } from '../common/components';
@@ -45,19 +36,12 @@ import { FilterProvider, FilterSection, useFilter } from './filter';
 import { Oscillator1, Oscillator2, MasterHandle, LimiterStatus } from './synth/components';
 import { VoicingSection } from './voicing';
 import { MidiInput, SettingsButton } from './settings';
-import { PitchBend } from './pitch-bend';
 import { EnvelopeSection, VelocitySection } from './envelope';
 import { LfoSection } from './lfo';
 import { MobileLayout } from './mobile';
 import { FxScreen, FxProvider, useFx } from './fx';
 import { SYNTH_SCREENS, SynthScreen } from './screens';
-
-// px of the keys: the row of the keys and the pitch bend
-const KEY_HEIGHT = 100;
-// px of a white key at most, and at least while octaves are taken off (up to 5 from C1)
-const KEY_WIDTH = 40;
-const MIN_KEY_WIDTH = 36;
-const MAX_OCTAVES = 5;
+import { DesktopPiano, KEY_HEIGHT } from './piano';
 
 // the row of the modulation (and the voicing) lower than the one of the sound: it stays under the fx too
 const Root = styled.div`
@@ -91,29 +75,6 @@ const ModRight = styled.div`
   gap: 1px;
 `;
 
-// the pitch bend left of the keys, as on a hardware keyboard: both as high as the row, a line between them as
-// between the sections
-const PianoContainer = styled.div`
-  display: flex;
-  gap: 1px;
-  min-width: 0;
-`;
-
-// a section of its own, as the sections of the synth
-const PitchSection = styled.div`
-  display: flex;
-  padding: 8px 12px 8px 8px;
-  background: ${theme.colors.primary};
-`;
-
-// the keys in the rest of the row, centered
-const Keys = styled.div`
-  flex: 1 1;
-  min-width: 0;
-  display: flex;
-  justify-content: center;
-`;
-
 // exactly the right half of the screen: 50% of the header content box + its 10px right padding;
 // split into full-height sections: tabs | preset | master
 const HeaderRight = styled.div`
@@ -136,34 +97,6 @@ const HeaderEq = styled(FqAnalyser)`
   height: 100%;
   margin-left: -20px; // stick to the logo, cancels Header gap
 `;
-
-// the octaves that fit beside the wheel, their keys narrower rather than one octave fewer
-const PianoInternal = () => {
-  const [{ $pressed }, { onPress, onRelease }] = useInputController();
-  const pressed = useBehaviorSubject($pressed);
-  const [keysRef, [width]] = useElementSize<HTMLDivElement>();
-  const octaves = Math.min(MAX_OCTAVES, Math.max(1, Math.floor(width / (7 * MIN_KEY_WIDTH))));
-  return (
-    <PianoContainer>
-      <PitchSection>
-        <PitchBend />
-      </PitchSection>
-      <Keys ref={keysRef}>
-        {width > 0 && (
-          <PianoKeyboard
-            onPress={onPress}
-            onRelease={onRelease}
-            pressed={pressed}
-            octaves={[1, octaves]}
-            fitScreen={false}
-            keyWidth={Math.min(KEY_WIDTH, width / (7 * octaves))}
-            keyHeight={KEY_HEIGHT}
-          />
-        )}
-      </Keys>
-    </PianoContainer>
-  );
-};
 
 const SynthRowInternal = () => (
   <SynthRow>
@@ -198,7 +131,7 @@ const DesktopLayout = ({ screen, onScreenChange }: ScreenProps) => (
       {screen === 'osc' ? <SynthRowInternal /> : <FxScreen />}
       {/* the same element on both screens: the tabs, the charts and the dots of a note go on */}
       <ModRowInternal />
-      <PianoInternal />
+      <DesktopPiano />
     </Root>
   </>
 );

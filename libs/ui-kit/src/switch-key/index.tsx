@@ -5,6 +5,7 @@ import hexToRgba from 'hex-to-rgba';
 import { Tooltip } from 'antd';
 import { text10 } from '../common/styles';
 import { theme } from '../common/constants';
+import { keepFocus } from '../common/utils';
 
 export { AnchorIcon, DottedIcon, TripletIcon } from './icons';
 
@@ -115,9 +116,6 @@ const TipWhy = styled(TipText)`
 // ms a key is hovered before its tooltip shows: passing over the keys shows none
 export const SWITCH_KEY_TIP_DELAY = 700;
 
-// it takes no focus, nor does a press move it: the keys stay those of the notes (Space would switch a focused key)
-const keepFocus = (e: React.MouseEvent) => e.preventDefault();
-
 // the keys of a plate all off (a bypassed effect), why
 interface PlateOff {
   disabled: boolean;
@@ -159,6 +157,7 @@ export const SwitchKey = ({
           aria-pressed={on}
           aria-label={name}
           disabled={off}
+          // no focus, nor does a press move it: Space would switch a focused key
           tabIndex={-1}
           onMouseDown={keepFocus}
           onClick={() => onChange?.(!on)}

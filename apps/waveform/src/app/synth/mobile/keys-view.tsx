@@ -2,10 +2,13 @@ import React from 'react';
 import { styled, css } from 'styled-components';
 import cls from 'classnames';
 import { theme, useElementSize } from '@waveform/ui-kit';
+import { number } from '@waveform/math';
+import { OctaveControl } from '../../common/components';
+import { pianoStarts } from '../common/piano-octaves';
 import { FxScreen } from '../fx';
 import { PitchBend } from '../pitch-bend';
 import { SynthScreen } from '../screens';
-import { OCTAVE_WIDTH, OctaveControl, TierKeys, tierOctave } from './keyboard-tier';
+import { TierKeys } from './keyboard-tier';
 import { Scaled } from './scaled';
 import { SynthSections } from './synth-sections';
 import { useLocalStorageState } from './use-local-storage-state';
@@ -39,6 +42,9 @@ const MiniFx = styled(Scaled)`
   flex: 0 0 40%;
   ${miniPanel}
 `;
+
+// px of the octave buttons
+const OCTAVE_WIDTH = 36;
 
 // a column as wide as the octave buttons left of the keys of both tiers: in portrait the octaves of both tiers
 // and the wheel under them, in landscape the wheel, the octave of each tier between it and its keys
@@ -83,11 +89,13 @@ export const KeysView = ({ portrait, screen }: { portrait: boolean; screen: Synt
     isOctaves
   );
   const octavesCount = portrait ? 1 : 2;
+  // the octaves a tier can start at: the stored one may be out of them for this count (a switch to landscape)
+  const range = pianoStarts(octavesCount);
   const setTierOctave = (tier: number) => (octave: number) =>
     setOctaves((prev) => prev.map((o, i) => (i === tier ? octave : o)) as [number, number]);
   const tiers = octaves.map((stored, tier) => ({
-    octave: tierOctave(stored, octavesCount),
-    octavesCount,
+    octave: number.thresholds(stored, ...range),
+    range,
     onOctaveChange: setTierOctave(tier),
   }));
   const panelClassName = cls({ landscape: !portrait });
@@ -121,7 +129,7 @@ export const KeysView = ({ portrait, screen }: { portrait: boolean; screen: Synt
         {tiers.map((tier, i) => (
           <React.Fragment key={i}>
             {!portrait && <OctaveControl {...tier} />}
-            <TierKeys {...tier} />
+            <TierKeys octave={tier.octave} octavesCount={octavesCount} />
           </React.Fragment>
         ))}
       </Tiers>
