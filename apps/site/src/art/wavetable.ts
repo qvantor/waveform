@@ -13,18 +13,27 @@ export const mix = (from: string, to: string, t: number) => {
   return `#${value.map((v) => v.toString(16).padStart(2, '0')).join('')}`;
 };
 
+const TAU = 2 * Math.PI;
+
+// a saw of its first harmonics, each weighted: Σ gain(h)·sin(2πhx)/h
+export const partials = (x: number, harmonics: number, gain: (h: number) => number = () => 1) => {
+  let y = 0;
+  for (let h = 1; h <= harmonics; h++) y += (gain(h) * Math.sin(TAU * h * x)) / h;
+  return y;
+};
+
+// a sine of a period in seconds, a lag of its phase
+export const wave = (time: number, period: number, lag = 0) => Math.sin((TAU * time) / period - lag);
+
 const HARMONICS = 14;
 
 // frame t (0..1) of the table at x (periodic over 0..1): the fundamental, the harmonics coming in one after another
-// as t grows (each over its own share of t), so the first frame is a sine and the last a saw
-export const frameAt = (t: number, x: number) => {
-  let y = 0;
-  for (let h = 1; h <= HARMONICS; h++) {
-    const gain = h === 1 ? 1 : clamp(t * HARMONICS - (h - 2));
-    y += (gain * Math.sin(2 * Math.PI * h * x)) / h;
-  }
-  return y;
-};
+// as t grows (each over its own share of t), so the first frame is a sine and the last a saw; those not in yet
+// (gain 0, h ≥ t·HARMONICS + 2) aren't summed
+export const frameAt = (t: number, x: number) =>
+  partials(x, Math.min(HARMONICS, Math.ceil(t * HARMONICS) + 1), (h) =>
+    h === 1 ? 1 : clamp(t * HARMONICS - (h - 2))
+  );
 
 // the box of the drawing (its viewBox) and the stack in it: each frame back from the front one is moved up and
 // right by `depth`
@@ -40,16 +49,19 @@ export const STACK = {
 
 // the motion, in seconds: the frames slide sideways in a wave that runs back through the stack (a lag per frame),
 // their shapes breathe between the sine and the saw, the frame the Wave knob plays sweeps over the stack
-export const MOTION = {
+const MOTION = {
   slide: { amount: 0.07, period: 9, lag: 0.24 },
   breath: { amount: 0.12, period: 14, lag: 0.15 },
   sweep: { span: 0.4, period: 11 },
 };
 
-const wave = (time: number, period: number, lag = 0) => Math.sin((2 * Math.PI * time) / period - lag);
+// the area of the played frame down to its zero line: the green of the logo (its channels) fading out, its opacity
+// at the top and at the zero line, as the synth fills its wave
+export const ART_FILL = { rgb: '46, 204, 113', top: 0.38, bottom: 0.03 };
 
 // a frame at a time: its points (x, y in turn), its zero line and ends (the area of a played frame), its color,
-// how opaque its line is and how much it is the played frame (`glow` 0..1: the sweep between two frames lights both)
+// how opaque and thick its line is and how much it is the played frame (`glow` 0..1: the sweep between two frames
+// lights both)
 export type ArtFrame = {
   xy: number[];
   zero: number;
@@ -57,35 +69,52 @@ export type ArtFrame = {
   right: number;
   color: string;
   alpha: number;
+  width: number;
   glow: number;
 };
 
+// what a frame of the stack keeps whatever the time: its share from the back, its place, its color
+const LAYERS = Array.from({ length: STACK.frames }, (_, k) => {
+  const share = k / (STACK.frames - 1);
+  const back = STACK.frames - 1 - k;
+  const left = STACK.origin[0] + back * STACK.depth[0];
+  return {
+    share,
+    left,
+    zero: STACK.origin[1] - back * STACK.depth[1],
+    color: mix('#3498db', '#2ecc71', share),
+    base: lerp(0.28, 0.8, share),
+  };
+});
+
 export const artFrames = (time = 0): ArtFrame[] => {
-  const { frames, samples, width, amplitude, depth, origin } = STACK;
+  const { frames, samples, width, amplitude } = STACK;
   const { slide, breath, sweep } = MOTION;
   const played = (0.5 + sweep.span * wave(time, sweep.period)) * (frames - 1);
-  return Array.from({ length: frames }, (_, k) => {
-    const share = k / (frames - 1);
+  return LAYERS.map(({ share, left, zero, color, base }, k) => {
     const t = clamp(share + breath.amount * wave(time, breath.period, breath.lag * k));
     const shift = slide.amount * wave(time, slide.period, slide.lag * k);
-    const values = Array.from({ length: samples + 1 }, (__, i) => frameAt(t, i / samples + shift));
-    const peak = Math.max(...values.map(Math.abs)) || 1;
-    const back = frames - 1 - k;
-    const left = origin[0] + back * depth[0];
-    const zero = origin[1] - back * depth[1];
-    const xy = values.flatMap((value, i) => [
-      left + (i / samples) * width,
-      zero - (value / peak) * amplitude,
-    ]);
+    const xy = new Array<number>(2 * (samples + 1));
+    let peak = 0;
+    for (let i = 0; i <= samples; i++) {
+      const value = frameAt(t, i / samples + shift);
+      xy[2 * i + 1] = value;
+      peak = Math.max(peak, Math.abs(value));
+    }
+    peak ||= 1;
+    for (let i = 0; i <= samples; i++) {
+      xy[2 * i] = left + (i / samples) * width;
+      xy[2 * i + 1] = zero - (xy[2 * i + 1] / peak) * amplitude;
+    }
     const glow = Math.max(0, 1 - Math.abs(k - played));
-    const base = lerp(0.28, 0.8, share);
     return {
       xy,
       zero,
       left,
       right: left + width,
-      color: mix('#3498db', '#2ecc71', share),
+      color,
       alpha: lerp(base, 1, glow),
+      width: 1.1 + 1.4 * glow,
       glow,
     };
   });
@@ -101,7 +130,7 @@ export const svgPoints = (xy: number[]) =>
 export const svgArea = (frame: ArtFrame) =>
   `${svgPoints(frame.xy)} ${round(frame.right)},${round(frame.zero)} ${round(frame.left)},${round(frame.zero)}`;
 
-export type RibbonLine = { d: string; opacity: number };
+type RibbonLine = { d: string; opacity: number };
 
 // voices of a unison: sines a little apart in pitch and phase under one envelope, the middle ones the brightest
 export const ribbon = (width: number, height: number, voices = 9, samples = 120) =>

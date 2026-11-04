@@ -156,13 +156,12 @@ PanelButton.displayName = 'PanelButton';
 
 type LinkProps = React.AnchorHTMLAttributes<HTMLAnchorElement> & {
   icon?: React.ReactNode;
-  active?: boolean;
 };
 
 // a key of the strip that goes to a page (About): the look of PanelButton on an <a>; an icon alone takes its
 // accessible name from aria-label
-export const PanelLink = ({ icon, active = false, className, children, ...rest }: LinkProps) => (
-  <LinkRoot className={cls(className, { active })} {...rest}>
+export const PanelLink = ({ icon, children, ...rest }: LinkProps) => (
+  <LinkRoot {...rest}>
     {icon}
     {children && <Label>{children}</Label>}
   </LinkRoot>

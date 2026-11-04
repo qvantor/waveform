@@ -9,13 +9,10 @@ export const de: Messages = {
       'Kostenloser Online-Synthesizer im Browser: zwei Wavetable-Oszillatoren mit 8-stimmigem Unisono, Filter, Hüllkurven und LFOs auf jedem Regler, Effekte und MIDI. Ohne Installation.',
     ogImageAlt: 'Waveform, ein kostenloser Wavetable-Synthesizer im Browser',
   },
-  nav: {
-    openSynth: 'Synthesizer öffnen',
-  },
+  openSynth: 'Synthesizer öffnen',
   hero: {
     h1: 'Waveform: kostenloser Wavetable-Synthesizer im Browser',
     lead: 'Zwei Wavetable-Oszillatoren mit bis zu 8-stimmigem Unisono, ein Filter in jeder Stimme, drei Hüllkurven und vier LFOs, die du auf jeden Regler ziehst, Distortion, Delay und Reverb. Kostenlos, ohne Installation und ohne Anmeldung: Schließ ein MIDI-Keyboard an oder spiel auf der Computertastatur.',
-    cta: 'Synthesizer öffnen',
     listen: 'Reinhören',
     platform: [
       'Kostenlos',
@@ -101,7 +98,6 @@ export const de: Messages = {
   finale: {
     h2: 'Jetzt spielen',
     text: 'Kein Download, kein Konto: Öffne den Synthesizer und spiel auf der Computertastatur, einem MIDI-Keyboard oder den Tasten auf dem Bildschirm.',
-    cta: 'Synthesizer öffnen',
   },
   card: {
     categories: { bass: 'Bass', lead: 'Lead', pluck: 'Pluck', keys: 'Keys', pad: 'Pad', fx: 'FX' },
@@ -178,7 +174,6 @@ export const de: Messages = {
     'Presets der Community, per Link geteilt',
   ],
   footer: {
-    synth: 'Synthesizer öffnen',
     source: 'Quellcode auf GitHub',
     follow: 'Folgen',
     languages: 'Sprachen',

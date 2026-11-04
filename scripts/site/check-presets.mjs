@@ -3,11 +3,10 @@
 // after presets are edited on the site:
 //   node scripts/site/check-presets.mjs [--url=https://waveform.qvantor.org]
 import { parseArgs } from '../bench-common.mjs';
-
-const { DEMOS } = await import('../../apps/site/src/data/demos.ts');
+import { DEMOS, SITE } from './common.mjs';
 
 const args = parseArgs(process.argv.slice(2));
-const URL_BASE = args.url ?? 'https://waveform.qvantor.org';
+const URL_BASE = args.url ?? SITE;
 
 const cardName = (name) => name.replace(/^\[[A-Z]+\]\s*/, '').replace(/^FX\s+/, '');
 

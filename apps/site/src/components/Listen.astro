@@ -16,7 +16,7 @@ const { m } = Astro.props;
     <Ribbon id='listen-ribbon' />
   </div>
   <div class='column'>
-    <span class='label' style='--square: var(--accent)'>
+    <span class='label' style='--tint: var(--accent)'>
       Demos
     </span>
     <h2 id='listen-title'>{m.listen.h2}</h2>
@@ -54,10 +54,6 @@ const { m } = Astro.props;
 
   .column {
     position: relative;
-  }
-
-  .label {
-    color: var(--text-muted);
   }
 
   h2 {

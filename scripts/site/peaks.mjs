@@ -3,23 +3,18 @@
 //   FFMPEG=<path of ffmpeg> node scripts/site/peaks.mjs
 // (ffmpeg on the PATH by default) decodes each clip as the browser plays it (stereo, 48 kHz, f32) and takes the
 // largest |sample| of both channels in each of PEAKS bins, scaled to the loudest bin of the clip.
-import { execFileSync } from 'node:child_process';
 import { readdirSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
+import { ffmpeg } from './common.mjs';
 
 const ROOT = join(import.meta.dirname, '../..');
 const DEMOS = join(ROOT, 'apps/site/public/demos');
 const OUT = join(ROOT, 'apps/site/src/data/peaks.json');
-const FFMPEG = process.env.FFMPEG ?? 'ffmpeg';
 const RATE = 48000;
 export const PEAKS = 200;
 
 const decode = (file) => {
-  const bytes = execFileSync(
-    FFMPEG,
-    ['-hide_banner', '-loglevel', 'error', '-i', file, '-ac', '2', '-ar', String(RATE), '-f', 'f32le', '-'],
-    { maxBuffer: 1 << 30 }
-  );
+  const bytes = ffmpeg('-i', file, '-ac', '2', '-ar', String(RATE), '-f', 'f32le', '-');
   return new Float32Array(bytes.buffer, bytes.byteOffset, bytes.byteLength / 4);
 };
 

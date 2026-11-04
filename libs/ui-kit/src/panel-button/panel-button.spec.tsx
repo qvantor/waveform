@@ -120,16 +120,10 @@ describe('PanelLink', () => {
     expect(screen.getByTestId('icon')).toBeTruthy();
   });
 
-  it('takes its name from aria-label with the icon alone, and marks the active state', () => {
-    const { rerender } = render(<PanelLink href='/about/' icon={<svg />} aria-label='About Waveform' />);
+  it('takes its name from aria-label with the icon alone, and keeps its class', () => {
+    render(<PanelLink href='/about/' icon={<svg />} aria-label='About Waveform' className='custom' />);
     const link = screen.getByRole('link', { name: 'About Waveform' });
     expect(link.textContent).toBe('');
-    expect(link.classList.contains('active')).toBe(false);
-
-    rerender(
-      <PanelLink href='/about/' icon={<svg />} aria-label='About Waveform' active className='custom' />
-    );
-    expect(link.classList.contains('active')).toBe(true);
     expect(link.classList.contains('custom')).toBe(true);
   });
 });

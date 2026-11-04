@@ -9,18 +9,17 @@
 // Chromium plays into a fake output of its own clock (as scripts/bench-perf/browser.mjs); the page is captured by
 // the screencast of the DevTools protocol, sampled at FPS; the reports of listening (/api/usage) are blocked, so the
 // recording counts for no preset.
-import { execFileSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { loadPlaywright, parseArgs, root } from '../bench-common.mjs';
+import { SITE, ffmpeg, openPreset, presetOf } from './common.mjs';
 
 const args = parseArgs(process.argv.slice(2));
-const URL_BASE = args.url ?? 'https://waveform.qvantor.org';
-const FFMPEG = process.env.FFMPEG ?? 'ffmpeg';
+const URL_BASE = args.url ?? SITE;
 // [AI] FX UFO Drone: envelopes sweep both wave positions through two spectral tables and the cutoff, an LFO
 // (retriggered by every note, as they are: the loop closes on a chord) moves the cutoff
-const PRESET = args.preset ?? '780f0d22-5cf6-4e6e-bf05-29cd8989614a';
+const PRESET = args.preset ?? presetOf('ufo-drone');
 const VIEWPORT = { width: 1440, height: 900 };
 const FPS = 30;
 const WIDTH = 1280;
@@ -37,8 +36,6 @@ const CHORDS = [
 const OUT = args.out ?? path.join(root, 'apps/site/public/video');
 const POSTER = args.poster ?? path.join(root, 'apps/site/src/assets/synth-poster.png');
 
-const ffmpeg = (...options) => execFileSync(FFMPEG, ['-hide_banner', '-loglevel', 'error', '-y', ...options]);
-
 const record = async () => {
   const { chromium } = loadPlaywright();
   const browser = await chromium.launch({
@@ -47,10 +44,7 @@ const record = async () => {
   const page = await browser.newPage({ viewport: VIEWPORT });
   await page.route('**/api/usage**', (route) => route.abort());
   await page.route('**/challenges.cloudflare.com/**', (route) => route.abort());
-  await page.goto(`${URL_BASE}/?preset=${PRESET}`, { waitUntil: 'networkidle' });
-  await page.waitForTimeout(3000);
-  await page.addStyleTag({ content: '#sleek-button { display: none !important; }' });
-  await page.mouse.move(VIEWPORT.width / 2, VIEWPORT.height - 1);
+  await openPreset(page, URL_BASE, PRESET, VIEWPORT.width / 2);
 
   const frames = [];
   const cdp = await page.context().newCDPSession(page);

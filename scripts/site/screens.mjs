@@ -7,20 +7,12 @@
 import fs from 'fs';
 import path from 'path';
 import { loadPlaywright, parseArgs, root } from '../bench-common.mjs';
+import { SITE, openPreset, presetOf } from './common.mjs';
 
 const args = parseArgs(process.argv.slice(2));
-const URL_BASE = args.url ?? 'https://waveform.qvantor.org';
+const URL_BASE = args.url ?? SITE;
 const OUT = path.join(root, 'apps/site/src/assets');
 const VIEWPORT = { width: 1440, height: 900 };
-// presets of the clips (apps/site/src/data/demos.ts)
-const PRESETS = {
-  brass: '5df5543d-2364-43f0-b23f-c473804fce89',
-  ufo: '780f0d22-5cf6-4e6e-bf05-29cd8989614a',
-  acid: 'ad4c9b3c-15aa-47b4-9513-186cf5053e70',
-  helicopter: '74137fe5-0255-4739-ac80-c80e1055faca',
-  warehouse: '76fd0301-4a97-4b2f-8230-beb9d610659d',
-  theremin: 'fc0ceec1-ecfe-4cf0-9214-4d221e44fa86',
-};
 // the sections of the synth screen in their order: Osc 1, Osc 2, Filter, ENV, LFO
 const SECTION = '[class*="section__Root"]';
 const OSC1 = 0;
@@ -35,13 +27,10 @@ const PANEL = '#ecf0f1';
 // the first row of the app is its header
 const HEADER = 80;
 
-// a page of the synth on a preset, its tables and charts drawn; not the button of the feedback widget (Sleekplan)
-const open = async (browser, preset, options = { viewport: VIEWPORT, deviceScaleFactor: 2 }) => {
+// a page of the synth on the preset of a clip (closed once shot: a synth plays on in a page left open)
+const open = async (browser, slug, options = { viewport: VIEWPORT, deviceScaleFactor: 2 }) => {
   const page = await browser.newPage(options);
-  await page.goto(`${URL_BASE}/?preset=${preset}`, { waitUntil: 'networkidle' });
-  await page.waitForTimeout(3000);
-  await page.addStyleTag({ content: '#sleek-button { display: none !important; }' });
-  await page.mouse.move(0, (options.viewport?.height ?? VIEWPORT.height) - 1);
+  await openPreset(page, URL_BASE, presetOf(slug));
   return page;
 };
 
@@ -69,7 +58,7 @@ const main = async () => {
   const { chromium, devices } = loadPlaywright();
   const browser = await chromium.launch();
 
-  const synth = await open(browser, PRESETS.brass, { viewport: VIEWPORT, deviceScaleFactor: 1.5 });
+  const synth = await open(browser, 'biting-brass-keys', { viewport: VIEWPORT, deviceScaleFactor: 1.5 });
   await synth.screenshot({ path: file('synth') });
   await synth.locator('.anticon-edit').first().click();
   // the dots of the routes of the knobs under the editor show through its modal (their z-index)
@@ -79,17 +68,19 @@ const main = async () => {
     path: file('editor'),
     clip: { x: 0, y: HEADER, width: VIEWPORT.width, height: VIEWPORT.height - HEADER },
   });
+  await synth.close();
 
   // both oscillators, one over the other
-  const osc = await open(browser, PRESETS.ufo);
+  const osc = await open(browser, 'ufo-drone');
   const oscillators = [
     await osc.locator(SECTION).nth(OSC1).screenshot(),
     await osc.locator(SECTION).nth(OSC2).screenshot(),
   ];
+  await osc.close();
   fs.writeFileSync(file('osc'), await stack(browser, oscillators, 2));
 
   // Detune held: the unison voices (8 of a saw) over the wave, not the tooltip of its value
-  const unison = await open(browser, PRESETS.brass);
+  const unison = await open(browser, 'biting-brass-keys');
   await unison.addStyleTag({ content: '[class*="ooltip"] { visibility: hidden !important; }' });
   const section = unison.locator(SECTION).nth(OSC1);
   const label = await section.getByText('Detune', { exact: true }).boundingBox();
@@ -98,22 +89,25 @@ const main = async () => {
   await unison.waitForTimeout(600);
   await section.screenshot({ path: file('unison') });
   await unison.mouse.up();
+  await unison.close();
 
-  const filter = await open(browser, PRESETS.acid);
+  const filter = await open(browser, 'acid-bass');
   await filter
     .locator(SECTION)
     .nth(FILTER)
     .screenshot({ path: file('filter') });
+  await filter.close();
 
   // the sources and where they go: Osc 2 (the route of LFO 1 on its gain), the envelopes, LFO 1 (its shape, the
   // route of ENV 2 on its rate), one over the other
-  const sources = await open(browser, PRESETS.helicopter);
+  const sources = await open(browser, 'helicopter');
   const panels = [];
   for (const index of [OSC2, ENV, LFO]) panels.push(await sources.locator(SECTION).nth(index).screenshot());
+  await sources.close();
   fs.writeFileSync(file('modulation'), await stack(browser, panels, 2));
 
   // the effects of a phone: their order, the distortion and the delay
-  const fx = await open(browser, PRESETS.warehouse, phoneOf(devices));
+  const fx = await open(browser, 'warehouse-lead', phoneOf(devices));
   await fx.getByRole('button', { name: 'Synth' }).click();
   await fx.getByText('FX', { exact: true }).first().click();
   await fx.waitForTimeout(1500);
@@ -123,8 +117,9 @@ const main = async () => {
     path: file('fx'),
     clip: { x: screen.x, y: screen.y, width: screen.width, height: reverb.y - 14 - screen.y },
   });
+  await fx.close();
 
-  const phone = await open(browser, PRESETS.theremin, phoneOf(devices));
+  const phone = await open(browser, 'theremin', phoneOf(devices));
   await phone.getByRole('button', { name: 'Keys' }).click();
   await phone.waitForTimeout(1000);
   await phone.screenshot({ path: file('phone') });

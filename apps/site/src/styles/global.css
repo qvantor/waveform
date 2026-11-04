@@ -1,9 +1,7 @@
 /* The colors of the synth (theme of libs/ui-kit/src/common/constants/theme.ts) on the dark of its screens: the
    page is one of them, its panels (the screenshots) light on it */
 :root {
-  --white: #fff;
   --primary: #ecf0f1;
-  --primary-low: #bdc3c7;
   --primary-medium: #95a5a6;
   --dark: #121a22;
   --dark-medium: #2c3e50;
@@ -25,11 +23,14 @@
   --link: #7cc4f5;
   --radius-s: 2px;
   --radius-m: 4px;
-  --radius-l: 6px;
   --column: 1080px;
   --gutter: 20px;
   --font: var(--font-inter-tight), 'Inter Tight', sans-serif;
   --logo: linear-gradient(45deg, #4aa8e8, #3ddc84 80%);
+  /* green lit from within (the keys into the synth, the play keys of the clips) */
+  --key-glow: linear-gradient(135deg, #58d68d, var(--accent) 55%, #27ae60);
+  /* a raised surface (a card, the questions) */
+  --raised: 0 0 0 1px var(--line), 0 18px 40px -20px rgb(0 0 0 / 60%);
 
   color-scheme: dark;
 }
@@ -56,7 +57,6 @@ html {
 
 body {
   margin: 0;
-  background: var(--page);
   color: var(--text);
   font-family: var(--font);
   font-size: 17px;
@@ -117,7 +117,7 @@ img {
 
 /* green lit from within */
 .key-glow {
-  background: linear-gradient(135deg, #58d68d, var(--accent) 55%, #27ae60);
+  background: var(--key-glow);
   color: var(--dark);
   box-shadow: 0 10px 30px -8px rgb(46 204 113 / 55%);
 }
@@ -143,7 +143,8 @@ img {
     inset 0 1px 2px rgb(0 0 0 / 20%);
 }
 
-/* the label of a section of the synth: a small square of its color before the title */
+/* the label of a section of the synth: a small square of its color (the tint of its section or card) before the
+   title */
 .label {
   display: inline-flex;
   align-items: center;
@@ -159,15 +160,42 @@ img {
   width: 10px;
   height: 10px;
   border-radius: var(--radius-s);
-  background: var(--square, var(--second-accent));
-  box-shadow: 0 0 8px 0 color-mix(in srgb, var(--square, var(--second-accent)) 60%, transparent);
+  background: var(--tint, var(--second-accent));
+  box-shadow: 0 0 8px 0 color-mix(in srgb, var(--tint, var(--second-accent)) 60%, transparent);
 }
 
-.visually-hidden {
+/* a section of the page under a hairline that fades out at the sides (the features, the questions) */
+.section {
+  position: relative;
+  padding: 72px 0;
+}
+
+.section::before {
+  content: '';
   position: absolute;
-  width: 1px;
+  inset: 0 0 auto;
   height: 1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--line-strong) 20%,
+    var(--line-strong) 80%,
+    transparent
+  );
+}
+
+.section h2 {
+  font-size: 34px;
+  font-weight: 700;
+  line-height: 1.12;
+}
+
+@media (max-width: 860px) {
+  .section {
+    padding: 48px 0;
+  }
+
+  .section h2 {
+    font-size: 28px;
+  }
 }

@@ -20,7 +20,7 @@ const lines = ribbon(WIDTH, HEIGHT);
       <stop offset='0.8' stop-color='#2ecc71'></stop>
     </linearGradient>
   </defs>
-  <g fill='none' stroke={`url(#${id})`} stroke-width='1.6' vector-effect='non-scaling-stroke'>
+  <g fill='none' stroke={`url(#${id})`} stroke-width='1.6'>
     {lines.map((line) => (
       <path d={line.d} stroke-opacity={line.opacity} vector-effect='non-scaling-stroke' />
     ))}

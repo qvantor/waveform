@@ -9,7 +9,7 @@ interface Props {
 const { m } = Astro.props;
 ---
 
-<section class='faq' id='faq' aria-labelledby='faq-title'>
+<section class='section' id='faq' aria-labelledby='faq-title'>
   <div class='column'>
     <h2 id='faq-title'>{m.faq.h2}</h2>
     <div class='items'>
@@ -24,31 +24,6 @@ const { m } = Astro.props;
 </section>
 
 <style>
-  .faq {
-    position: relative;
-    padding: 72px 0;
-  }
-
-  .faq::before {
-    content: '';
-    position: absolute;
-    inset: 0 0 auto;
-    height: 1px;
-    background: linear-gradient(
-      90deg,
-      transparent,
-      var(--line-strong) 20%,
-      var(--line-strong) 80%,
-      transparent
-    );
-  }
-
-  h2 {
-    font-size: 34px;
-    font-weight: 700;
-    line-height: 1.12;
-  }
-
   /* the questions on one raised surface, a line between them */
   .items {
     display: grid;
@@ -57,9 +32,7 @@ const { m } = Astro.props;
     background: var(--line);
     border-radius: 10px;
     overflow: hidden;
-    box-shadow:
-      0 0 0 1px var(--line),
-      0 18px 40px -20px rgb(0 0 0 / 60%);
+    box-shadow: var(--raised);
   }
 
   details {
@@ -97,15 +70,5 @@ const { m } = Astro.props;
   details p {
     padding: 0 20px 20px;
     color: var(--text-muted);
-  }
-
-  @media (max-width: 860px) {
-    .faq {
-      padding: 48px 0;
-    }
-
-    h2 {
-      font-size: 28px;
-    }
   }
 </style>

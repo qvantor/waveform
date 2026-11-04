@@ -14,11 +14,9 @@ export const SECTIONS = [
 ] as const;
 export type Section = (typeof SECTIONS)[number];
 
-export const CATEGORIES = ['bass', 'lead', 'pluck', 'keys', 'pad', 'fx'] as const;
-export type Category = (typeof CATEGORIES)[number];
-
-// a clip has its caption in every language
+// a clip has its caption in every language, its category a name in every language
 export type Slug = keyof Messages['demos'];
+type Category = keyof Messages['card']['categories'];
 
 export type Demo = {
   slug: Slug;

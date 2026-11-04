@@ -1,4 +1,5 @@
 import { animateArt } from './art';
+import { stubBrowser } from './browser-stubs';
 
 // the markup of Hero.astro: the still drawing and the canvas over it
 const scene = () => {
@@ -10,10 +11,7 @@ const scene = () => {
 
 const context = () => {
   const calls: string[] = [];
-  const record =
-    (name: string) =>
-    (..._args: unknown[]) =>
-      calls.push(name);
+  const record = (name: string) => () => calls.push(name);
   return {
     calls,
     context: {
@@ -31,39 +29,11 @@ const context = () => {
   };
 };
 
-let frames: FrameRequestCallback[] = [];
-let visibility: (entries: { isIntersecting: boolean }[]) => void = () => undefined;
-let reduced = false;
+let browser: ReturnType<typeof stubBrowser>;
 
 beforeEach(() => {
-  frames = [];
-  reduced = false;
-  window.requestAnimationFrame = (callback) => frames.push(callback);
-  window.cancelAnimationFrame = () => undefined;
-  window.matchMedia = ((query: string) => ({ matches: reduced && query.includes('reduce') })) as never;
-  window.ResizeObserver = class {
-    observe() {
-      return undefined;
-    }
-    disconnect() {
-      return undefined;
-    }
-  } as never;
-  window.IntersectionObserver = class {
-    constructor(callback: typeof visibility) {
-      visibility = callback;
-    }
-    observe() {
-      return undefined;
-    }
-  } as never;
+  browser = stubBrowser();
 });
-
-const step = (time: number) => {
-  const pending = frames;
-  frames = [];
-  for (const callback of pending) callback(time);
-};
 
 describe('animateArt', () => {
   it('draws on the canvas while the section is on screen, then hides the still drawing', () => {
@@ -71,34 +41,34 @@ describe('animateArt', () => {
     const { calls, context: fake } = context();
     canvas.getContext = (() => fake) as never;
     expect(animateArt()).toBe(true);
-    expect(frames).toHaveLength(0);
+    expect(browser.frames).toHaveLength(0);
 
-    visibility([{ isIntersecting: true }]);
-    step(16);
+    browser.seen([{ isIntersecting: true }]);
+    browser.step(16);
     expect(calls).toContain('stroke');
     expect(calls.filter((call) => call === 'stroke')).toHaveLength(22);
     expect(canvas.hidden).toBe(false);
     expect(still.style.visibility).toBe('hidden');
     // the next frame is asked for
-    expect(frames).toHaveLength(1);
+    expect(browser.frames).toHaveLength(1);
   });
 
   it('stops once the section leaves the screen', () => {
     const { canvas } = scene();
     canvas.getContext = (() => context().context) as never;
     animateArt();
-    visibility([{ isIntersecting: true }]);
-    step(16);
-    visibility([{ isIntersecting: false }]);
-    step(32);
-    expect(frames).toHaveLength(0);
+    browser.seen([{ isIntersecting: true }]);
+    browser.step(16);
+    browser.seen([{ isIntersecting: false }]);
+    browser.step(32);
+    expect(browser.frames).toHaveLength(0);
   });
 
   it('leaves the still drawing where motion is reduced or there is no 2D context', () => {
     const { canvas, still } = scene();
-    reduced = true;
+    browser.reduced = true;
     expect(animateArt()).toBe(false);
-    reduced = false;
+    browser.reduced = false;
     canvas.getContext = (() => null) as never;
     expect(animateArt()).toBe(false);
     expect(canvas.hidden).toBe(true);

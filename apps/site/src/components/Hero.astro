@@ -3,14 +3,15 @@ import { Picture } from 'astro:assets';
 import WavetableArt from './WavetableArt.astro';
 import poster from '../assets/synth-poster.png';
 import type { Messages } from '../i18n';
+import { SITE } from '../i18n/locales';
 
 interface Props {
   m: Messages;
 }
 
 const { m } = Astro.props;
-// the name in the colors of the logo, where the title starts with it
-const [brand, rest] = m.hero.h1.startsWith('Waveform') ? ['Waveform', m.hero.h1.slice(8)] : ['', m.hero.h1];
+// the name in the colors of the logo: every title starts with it (i18n.spec.ts)
+const BRAND = 'Waveform';
 ---
 
 <section class='hero' aria-labelledby='title'>
@@ -22,13 +23,13 @@ const [brand, rest] = m.hero.h1.startsWith('Waveform') ? ['Waveform', m.hero.h1.
   </div>
   <div class='column intro'>
     <h1 id='title'>
-      {brand && <span class='brand'>{brand}</span>}
-      {rest}
+      <span class='brand'>{BRAND}</span>
+      {m.hero.h1.slice(BRAND.length)}
     </h1>
     <p class='lead'>{m.hero.lead}</p>
     <div class='ctas'>
       <a class='key key-glow' href='/'>
-        {m.hero.cta}
+        {m.openSynth}
       </a>
       <a class='key key-ghost' href='#listen'>
         <svg viewBox='0 0 24 24' aria-hidden='true'>
@@ -54,7 +55,7 @@ const [brand, rest] = m.hero.h1.startsWith('Waveform') ? ['Waveform', m.hero.h1.
           <i></i>
           <i></i>
         </span>
-        <span class='address'>waveform.qvantor.org</span>
+        <span class='address'>{new URL(SITE).host}</span>
       </div>
       <div class='screen'>
         <Picture
@@ -172,7 +173,7 @@ const [brand, rest] = m.hero.h1.startsWith('Waveform') ? ['Waveform', m.hero.h1.
   }
 
   .brand {
-    background: linear-gradient(45deg, #4aa8e8, #3ddc84 80%);
+    background: var(--logo);
     background-clip: text;
     -webkit-background-clip: text;
     color: transparent;

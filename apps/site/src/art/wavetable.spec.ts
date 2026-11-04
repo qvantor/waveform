@@ -40,7 +40,16 @@ describe('the wavetable drawing', () => {
   });
 
   it('writes a frame for SVG', () => {
-    const frame = { xy: [1.04, 2.06, 3, 4], zero: 5, left: 1, right: 3, color: '#000000', alpha: 1, glow: 1 };
+    const frame = {
+      xy: [1.04, 2.06, 3, 4],
+      zero: 5,
+      left: 1,
+      right: 3,
+      color: '#000000',
+      alpha: 1,
+      width: 1,
+      glow: 1,
+    };
     expect(svgPoints(frame.xy)).toBe('1,2.1 3,4');
     expect(svgArea(frame)).toBe('1,2.1 3,4 3,5 1,5');
   });

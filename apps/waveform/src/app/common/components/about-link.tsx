@@ -5,7 +5,7 @@ import { PanelLink } from '@waveform/ui-kit';
 // the promo page of the synth (apps/site), its English version
 export const ABOUT_PATH = '/wavetable-synth/';
 
-export const ABOUT_LABEL = 'About Waveform';
+const ABOUT_LABEL = 'About Waveform';
 
 // a square key of the icon alone, as the gear of the settings before it
 const Key = styled(PanelLink)`

@@ -41,6 +41,10 @@ describe('the messages', () => {
     expect(new Set(LANGS.map((lang) => MESSAGES[lang].hero.h1)).size).toBe(LANGS.length);
   });
 
+  it('starts every H1 with the name, in the colors of the logo (Hero.astro)', () => {
+    for (const lang of LANGS) expect(MESSAGES[lang].hero.h1).toMatch(/^Waveform\b/);
+  });
+
   it('keeps titles and descriptions within what search results show', () => {
     for (const lang of LANGS) {
       expect(MESSAGES[lang].meta.title.length).toBeLessThanOrEqual(60);

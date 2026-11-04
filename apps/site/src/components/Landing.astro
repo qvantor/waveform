@@ -29,22 +29,21 @@ interface Props {
 const { lang } = Astro.props;
 const m = MESSAGES[lang];
 
-// the features with clips, in the order of the page: the label is the name the synth gives the part, the color
-// one of its own (the sources of the routes), the image that part on the presets of the clips (screens.mjs); their
-// pictures alternate sides from the left (the phone of Playing on the right), the editor after them goes on
+// the features with clips, in the order of the page: the label is the name the synth gives the part (its color
+// FEATURE_COLORS of art/scenes.ts), the image that part on the presets of the clips (screens.mjs); their pictures
+// alternate sides from the left (the phone of Playing on the right), the editor after them goes on
 const FEATURES: {
   section: Exclude<Section, 'listen'>;
   label: string;
-  color: string;
   image: ImageMetadata;
   phone?: boolean;
 }[] = [
-  { section: 'wavetables', label: 'Osc 1 · Osc 2', color: '#2ecc71', image: osc },
-  { section: 'unison', label: 'Unison', color: '#3498db', image: unison },
-  { section: 'filter', label: 'Filter', color: '#f1c40f', image: filter },
-  { section: 'modulation', label: 'ENV · LFO · VELO', color: '#9b59b6', image: modulation },
-  { section: 'effects', label: 'FX', color: '#e74c3c', image: fx },
-  { section: 'playing', label: 'Voicing · Keys', color: '#1abc9c', image: phone, phone: true },
+  { section: 'wavetables', label: 'Osc 1 · Osc 2', image: osc },
+  { section: 'unison', label: 'Unison', image: unison },
+  { section: 'filter', label: 'Filter', image: filter },
+  { section: 'modulation', label: 'ENV · LFO · VELO', image: modulation },
+  { section: 'effects', label: 'FX', image: fx },
+  { section: 'playing', label: 'Voicing · Keys', image: phone, phone: true },
 ];
 
 // the screenshot of the synth for the structured data: one webp of the width of the column
@@ -62,11 +61,10 @@ const screenshot = await getImage({ src: synth, format: 'webp', width: 1440 });
     <main>
       <Hero m={m} />
       <Listen m={m} />
-      {FEATURES.map(({ section, label, color, image, phone }, index) => (
+      {FEATURES.map(({ section, label, image, phone }, index) => (
         <Feature
           id={section}
           label={label}
-          color={color}
           title={m.features[section].h2}
           text={m.features[section].text}
           demos={demosOf(section)}
@@ -80,7 +78,6 @@ const screenshot = await getImage({ src: synth, format: 'webp', width: 1440 });
       <Feature
         id='editor'
         label='Wavetable edit'
-        color='#2ecc71'
         title={m.features.editor.h2}
         text={m.features.editor.text}
         image={editor}
@@ -91,7 +88,6 @@ const screenshot = await getImage({ src: synth, format: 'webp', width: 1440 });
       <Feature
         id='presets'
         label='Presets'
-        color='#3498db'
         title={m.features.presets.h2}
         text={m.features.presets.text}
         m={m}

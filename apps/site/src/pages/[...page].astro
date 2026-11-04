@@ -1,0 +1,16 @@
+---
+import Landing from '../components/Landing.astro';
+import { LANGS, LOCALES, type Lang } from '../i18n/locales';
+
+interface Props {
+  lang: Lang;
+}
+
+// a page per language at the path of its locale
+export const getStaticPaths = () =>
+  LANGS.map((lang) => ({ params: { page: LOCALES[lang].path.slice(1, -1) }, props: { lang } }));
+
+const { lang } = Astro.props;
+---
+
+<Landing lang={lang} />

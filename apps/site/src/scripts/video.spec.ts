@@ -1,22 +1,12 @@
+import { stubBrowser } from './browser-stubs';
 import { PLAY_SHARE, playWhenSeen } from './video';
 
-type Entry = { target: Element; isIntersecting: boolean; intersectionRatio: number };
-let seen: (entries: Entry[]) => void = () => undefined;
-let reduced = false;
+let browser: ReturnType<typeof stubBrowser>;
 const calls: string[] = [];
 
 beforeEach(() => {
   calls.length = 0;
-  reduced = false;
-  window.matchMedia = ((query: string) => ({ matches: reduced && query.includes('reduce') })) as never;
-  window.IntersectionObserver = class {
-    constructor(callback: typeof seen) {
-      seen = callback;
-    }
-    observe() {
-      return undefined;
-    }
-  } as never;
+  browser = stubBrowser();
   HTMLMediaElement.prototype.play = function () {
     calls.push('play');
     return Promise.resolve();
@@ -33,17 +23,17 @@ describe('playWhenSeen', () => {
     expect(calls).toEqual([]);
     const video = document.querySelector('video') as HTMLVideoElement;
     // its edge under the first section: not yet
-    seen([{ target: video, isIntersecting: true, intersectionRatio: 0.1 }]);
+    browser.seen([{ target: video, isIntersecting: true, intersectionRatio: 0.1 }]);
     expect(calls).toEqual([]);
-    seen([{ target: video, isIntersecting: true, intersectionRatio: PLAY_SHARE }]);
-    seen([{ target: video, isIntersecting: false, intersectionRatio: 0 }]);
+    browser.seen([{ target: video, isIntersecting: true, intersectionRatio: PLAY_SHARE }]);
+    browser.seen([{ target: video, isIntersecting: false, intersectionRatio: 0 }]);
     expect(calls).toEqual(['play', 'pause']);
   });
 
   it('leaves the poster where motion is reduced or data saved', () => {
-    reduced = true;
+    browser.reduced = true;
     expect(playWhenSeen()).toBe(0);
-    reduced = false;
+    browser.reduced = false;
     Object.defineProperty(navigator, 'connection', { value: { saveData: true }, configurable: true });
     expect(playWhenSeen()).toBe(0);
     Object.defineProperty(navigator, 'connection', { value: undefined, configurable: true });

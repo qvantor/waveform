@@ -17,10 +17,6 @@
       "options": { "command": "astro dev", "cwd": "apps/site" },
       "continuous": true
     },
-    "check": {
-      "executor": "nx:run-commands",
-      "options": { "command": "astro check", "cwd": "apps/site" }
-    },
     "verify": {
       "executor": "nx:run-commands",
       "dependsOn": ["build"],

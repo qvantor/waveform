@@ -1,3 +1,5 @@
+import { reducedMotion } from './motion';
+
 // The video of the synth (Hero.astro): it loads nothing before it is seen (preload none, its first frame as the
 // poster), plays once PLAY_SHARE of it is on screen (not for its edge peeking under the first section) and pauses
 // once it is off screen; it stays its poster where the reader asked for reduced motion or to save data, and without
@@ -10,7 +12,7 @@ type Connection = { saveData?: boolean };
 export const playWhenSeen = (root: ParentNode = document) => {
   const videos = [...root.querySelectorAll<HTMLVideoElement>('video[data-autoplay]')];
   if (!videos.length) return 0;
-  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return 0;
+  if (reducedMotion()) return 0;
   if ((navigator as Navigator & { connection?: Connection }).connection?.saveData) return 0;
   const observer = new IntersectionObserver(
     (entries) => {

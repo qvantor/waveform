@@ -1,4 +1,4 @@
-import { frameAt, mix } from './wavetable';
+import { frameAt, mix, partials, wave } from './wavetable';
 
 // The waves behind the features: each shows what its part of the synth does to a wave, slowly moving (scripts/
 // scenes.ts draws them on a canvas behind the section). Pure math: a scene at a time is its lines, each points of
@@ -33,52 +33,59 @@ const TAU = 2 * Math.PI;
 const BLUE = '#3498db';
 const GREEN = '#2ecc71';
 const GHOST = '#5a7fa4';
-// the colors of the sources of the routes (the tabs of the synth)
-const SOURCES = ['#2ecc71', '#3498db', '#9b59b6', '#f1c40f', '#e74c3c', '#1abc9c'];
 const SAMPLES = 240;
 
-const slow = (time: number, period: number, lag = 0) => Math.sin((TAU * time) / period - lag);
-const share = (time: number, period: number) => 0.5 + 0.5 * slow(time, period);
+// the color of each feature: the square of its label and the light behind its picture (Landing.astro), its wave
+export const FEATURE_COLORS: Record<Scene, string> = {
+  wavetables: GREEN,
+  unison: BLUE,
+  filter: '#f1c40f',
+  modulation: '#9b59b6',
+  effects: '#e74c3c',
+  playing: '#1abc9c',
+  editor: GREEN,
+  presets: BLUE,
+};
+
+const share = (time: number, period: number) => 0.5 + 0.5 * wave(time, period);
+
+// what doesn't move is worked out on the first drawing, not as the page loads
+const once = <T>(make: () => T) => {
+  let value: T | undefined;
+  return () => (value ??= make());
+};
 
 // a line of `level` over x in [from, to]
-const curve = (level: (x: number) => number, from = 0, to = 1, samples = SAMPLES) =>
-  Array.from({ length: samples + 1 }, (_, i) => {
+const curve = (level: (x: number) => number, from = 0, to = 1, samples = SAMPLES) => {
+  const points = new Array<number>(2 * (samples + 1));
+  for (let i = 0; i <= samples; i++) {
     const x = from + ((to - from) * i) / samples;
-    return [x, level(x)];
-  }).flat();
-
-// a saw of its first harmonics, each weighted (the filter): Σ gain(h)·sin(2πhx)/h
-const partials = (x: number, harmonics: number, gain: (h: number) => number = () => 1) => {
-  let y = 0;
-  for (let h = 1; h <= harmonics; h++) y += (gain(h) * Math.sin(TAU * h * x)) / h;
-  return y;
+    points[2 * i] = x;
+    points[2 * i + 1] = level(x);
+  }
+  return points;
 };
 
 // the largest |level| of a periodic level over one period
 const peakOf = (level: (x: number) => number, samples = 256) =>
   Math.max(...Array.from({ length: samples }, (_, i) => Math.abs(level(i / samples))));
 
-// the peak of a saw of 24 harmonics: the scale of the filter's waves
-const SAW_PEAK = peakOf((x) => partials(x, 24), 1024);
-const UNISON_PEAK = peakOf((x) => partials(x, 6), 1024);
-
 // the position of the Wave knob moving through the frames of a table: its frames faint, the one it plays bright
 const TABLE_CYCLES = 3;
-// the frames of the table, still: worked out once
-const TABLE_FRAMES = [0, 0.33, 0.66, 1].map((t): SceneLine => {
-  const peak = peakOf((x) => frameAt(t, x));
-  return { points: curve((x) => frameAt(t, TABLE_CYCLES * x) / peak), color: GHOST, alpha: 0.35, width: 1 };
-});
+const tableFrames = once(() =>
+  [0, 0.33, 0.66, 1].map((t): SceneLine => {
+    const peak = peakOf((x) => frameAt(t, x));
+    return { points: curve((x) => frameAt(t, TABLE_CYCLES * x) / peak), color: GHOST, alpha: 0.35, width: 1 };
+  })
+);
 
 const wavetables = (time: number): SceneLine[] => {
-  const cycles = TABLE_CYCLES;
-  const frames = TABLE_FRAMES;
   const played = share(time, 14);
   const peak = peakOf((x) => frameAt(played, x), 128);
   return [
-    ...frames,
+    ...tableFrames(),
     {
-      points: curve((x) => frameAt(played, cycles * x) / peak),
+      points: curve((x) => frameAt(played, TABLE_CYCLES * x) / peak),
       color: mix(BLUE, GREEN, played),
       alpha: 0.95,
       width: 2,
@@ -88,15 +95,17 @@ const wavetables = (time: number): SceneLine[] => {
 };
 
 // voices of one wave a little apart in pitch: together in the middle, apart towards the edges, their phases drifting
+const unisonPeak = once(() => peakOf((x) => partials(x, 6), 1024));
 const unison = (time: number): SceneLine[] => {
   const voices = 7;
+  const peak = unisonPeak();
   return Array.from({ length: voices }, (_, v) => {
     const offset = (v - (voices - 1) / 2) / ((voices - 1) / 2);
     const cycles = 3.2 * (1 + 0.05 * offset);
-    const drift = 0.12 * offset * slow(time, 16);
+    const drift = 0.12 * offset * wave(time, 16);
     const centre = offset === 0;
     return {
-      points: curve((x) => partials(cycles * (x - 0.5) + drift + 0.25, 6) / UNISON_PEAK),
+      points: curve((x) => partials(cycles * (x - 0.5) + drift + 0.25, 6) / peak),
       color: centre ? GREEN : mix(BLUE, GREEN, 0.5 - 0.5 * Math.abs(offset)),
       alpha: centre ? 0.95 : 0.65 - 0.3 * Math.abs(offset),
       width: centre ? 2 : 1.2,
@@ -105,17 +114,33 @@ const unison = (time: number): SceneLine[] => {
   });
 };
 
-// a saw and what a resonant lowpass leaves of it, the cutoff going up and down
+// a saw and what a resonant lowpass leaves of it, the cutoff going up and down; the saw (its peak the scale of
+// both) still
+const SAW_CYCLES = 3;
+const SAW_HARMONICS = 24;
+const saw = once(() => {
+  const peak = peakOf((x) => partials(x, SAW_HARMONICS), 1024);
+  const line: SceneLine = {
+    points: curve((x) => partials(SAW_CYCLES * x, SAW_HARMONICS) / peak),
+    color: GHOST,
+    alpha: 0.4,
+    width: 1,
+  };
+  return { peak, line };
+});
 const filter = (time: number): SceneLine[] => {
-  const cycles = 3;
+  const { peak, line } = saw();
   const cutoff = 1.6 + 7 * share(time, 12);
-  const gain = (h: number) =>
-    (1 / Math.sqrt(1 + (h / cutoff) ** 8)) * (1 + 1.4 * Math.exp(-((h - cutoff) ** 2) / 0.9));
+  // the gain of each harmonic at this cutoff
+  const gains = Array.from(
+    { length: SAW_HARMONICS + 1 },
+    (_, h) => (1 / Math.sqrt(1 + (h / cutoff) ** 8)) * (1 + 1.4 * Math.exp(-((h - cutoff) ** 2) / 0.9))
+  );
   return [
-    { points: curve((x) => partials(cycles * x, 24) / SAW_PEAK), color: GHOST, alpha: 0.4, width: 1 },
+    line,
     {
-      points: curve((x) => partials(cycles * x, 24, gain) / SAW_PEAK),
-      color: '#f1c40f',
+      points: curve((x) => partials(SAW_CYCLES * x, SAW_HARMONICS, (h) => gains[h]) / peak),
+      color: FEATURE_COLORS.filter,
       alpha: 0.9,
       width: 2,
       glow: 10,
@@ -133,28 +158,29 @@ const modulation = (time: number): SceneLine[] => {
       alpha: 0.55,
       width: 1.1,
     },
-    { points: curve(shape), color: '#9b59b6', alpha: 0.95, width: 2, glow: 10 },
-    { points: curve((x) => -shape(x)), color: '#9b59b6', alpha: 0.6, width: 1.4 },
+    { points: curve(shape), color: FEATURE_COLORS.modulation, alpha: 0.95, width: 2, glow: 10 },
+    { points: curve((x) => -shape(x)), color: FEATURE_COLORS.modulation, alpha: 0.6, width: 1.4 },
   ];
 };
 
-// a sine and the distortion's soft clip of it, the drive going up and down, the ceiling dashed
-const effects = (time: number): SceneLine[] => {
-  const cycles = 2.5;
-  const drive = 1 + 6 * share(time, 10);
-  const ceiling = 0.82;
+// a sine and the distortion's soft clip of it, the drive going up and down; the sine and the ceiling (dashed) still
+const SINE_CYCLES = 2.5;
+const CEILING = 0.82;
+const sineAndCeiling = once((): SceneLine[] => {
+  const ceiling = { color: FEATURE_COLORS.effects, alpha: 0.35, width: 1, dash: [6, 8] };
   return [
+    { points: curve((x) => Math.sin(TAU * SINE_CYCLES * x)), color: GHOST, alpha: 0.4, width: 1 },
+    { points: [0, CEILING, 1, CEILING], ...ceiling },
+    { points: [0, -CEILING, 1, -CEILING], ...ceiling },
+  ];
+});
+const effects = (time: number): SceneLine[] => {
+  const drive = 1 + 6 * share(time, 10);
+  return [
+    ...sineAndCeiling(),
     {
-      points: curve((x) => Math.sin(TAU * cycles * x)),
-      color: GHOST,
-      alpha: 0.4,
-      width: 1,
-    },
-    { points: [0, ceiling, 1, ceiling], color: '#e74c3c', alpha: 0.35, width: 1, dash: [6, 8] },
-    { points: [0, -ceiling, 1, -ceiling], color: '#e74c3c', alpha: 0.35, width: 1, dash: [6, 8] },
-    {
-      points: curve((x) => (ceiling * Math.tanh(drive * Math.sin(TAU * cycles * x))) / Math.tanh(drive)),
-      color: '#e74c3c',
+      points: curve((x) => (CEILING * Math.tanh(drive * Math.sin(TAU * SINE_CYCLES * x))) / Math.tanh(drive)),
+      color: FEATURE_COLORS.effects,
       alpha: 0.9,
       width: 2,
       glow: 10,
@@ -183,7 +209,7 @@ const playing = (time: number): SceneLine[] => {
     if (i) phase += glide(x / 1.5 + offset) / samples;
     points.push(x, 0.85 * Math.sin(TAU * phase));
   }
-  return [{ points, color: '#1abc9c', alpha: 0.9, width: 2, glow: 10 }];
+  return [{ points, color: FEATURE_COLORS.playing, alpha: 0.9, width: 2, glow: 10 }];
 };
 
 // a wave drawn by hand, point by point, a pen going along it
@@ -213,24 +239,32 @@ const drawnAt = (x: number) => {
   // smooth between the points (a cosine ease)
   return y0 + (y1 - y0) * (0.5 - 0.5 * Math.cos(Math.PI * t));
 };
+const drawn = (x: number) => drawnAt(2 * x);
+const drawnLine = once((): SceneLine => ({ points: curve(drawn), color: GHOST, alpha: 0.35, width: 1 }));
 const editor = (time: number): SceneLine[] => {
-  const cycles = 2;
   const pen = (time / 12) % 1;
-  const level = (x: number) => drawnAt(cycles * x);
   return [
-    { points: curve(level), color: GHOST, alpha: 0.35, width: 1 },
+    drawnLine(),
     {
-      points: curve(level, 0, Math.max(pen, 0.001), Math.max(2, Math.round(SAMPLES * pen))),
-      color: GREEN,
+      points: curve(drawn, 0, Math.max(pen, 0.001), Math.max(2, Math.round(SAMPLES * pen))),
+      color: FEATURE_COLORS.editor,
       alpha: 0.95,
       width: 2,
       glow: 10,
-      dot: [pen, level(pen)],
+      dot: [pen, drawn(pen)],
     },
   ];
 };
 
-// a shelf of different sounds: six small waves side by side, drifting
+// a shelf of different sounds: six small waves side by side, drifting, in the colors of the features
+const SHELF = [
+  GREEN,
+  BLUE,
+  FEATURE_COLORS.modulation,
+  FEATURE_COLORS.filter,
+  FEATURE_COLORS.effects,
+  FEATURE_COLORS.playing,
+];
 const SHAPES: ((x: number) => number)[] = [
   (x) => Math.sin(TAU * x),
   (x) => partials(x, 8) / 1.6,
@@ -246,7 +280,7 @@ const presets = (time: number): SceneLine[] =>
     const drift = time / 18 + i * 0.13;
     return {
       points: curve((x) => 0.7 * shape(((x - from) / (to - from)) * 1.5 + drift), from, to, 80),
-      color: SOURCES[i],
+      color: SHELF[i],
       alpha: 0.85,
       width: 1.8,
       glow: 8,

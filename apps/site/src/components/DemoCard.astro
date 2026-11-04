@@ -34,9 +34,7 @@ const name = demo.name;
   style={`--tint: ${CATEGORY_COLORS[demo.category]}`}
 >
   <div class='title'>
-    <span class='label' style={`--square: ${CATEGORY_COLORS[demo.category]}`}>
-      {m.card.categories[demo.category]}
-    </span>
+    <span class='label'>{m.card.categories[demo.category]}</span>
     <h3>{name}</h3>
   </div>
   <div class='screen'>
@@ -116,9 +114,7 @@ const name = demo.name;
     padding: 16px;
     background: linear-gradient(160deg, var(--surface-high), var(--surface));
     border-radius: 10px;
-    box-shadow:
-      0 0 0 1px var(--line),
-      0 18px 40px -20px rgb(0 0 0 / 60%);
+    box-shadow: var(--raised);
     overflow: hidden;
     transition: box-shadow 200ms;
   }
@@ -171,7 +167,7 @@ const name = demo.name;
     padding: 0;
     border: none;
     border-radius: 50%;
-    background: linear-gradient(135deg, #58d68d, var(--accent) 55%, #27ae60);
+    background: var(--key-glow);
     color: var(--dark);
     cursor: pointer;
     transition:

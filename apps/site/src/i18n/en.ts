@@ -8,13 +8,11 @@ export const en = {
       'Free online wavetable synth: two oscillators with 8-voice unison, a filter, envelopes and LFOs on any knob, effects, MIDI and shareable presets. Nothing to install.',
     ogImageAlt: 'Waveform, a free wavetable synth in your browser',
   },
-  nav: {
-    openSynth: 'Open the synth',
-  },
+  // the key into the synth: the header, the first section, the last one, the footer
+  openSynth: 'Open the synth',
   hero: {
     h1: 'Waveform: free wavetable synth in your browser',
     lead: 'Two wavetable oscillators with up to 8-voice unison, a filter in every voice, three envelopes and four LFOs you drag onto any knob, distortion, delay and reverb. Free, nothing to install, no sign-up: plug in a MIDI keyboard or play the computer keyboard.',
-    cta: 'Open the synth',
     listen: 'Hear it',
     platform: ['Free', 'No install, no sign-up', 'Chrome, Safari, Firefox', 'Desktop and phone'],
     screenshotAlt:
@@ -94,7 +92,6 @@ export const en = {
   finale: {
     h2: 'Play it now',
     text: 'No download, no account: open the synth and play the computer keyboard, a MIDI keyboard or the keys on screen.',
-    cta: 'Open the synth',
   },
   card: {
     categories: { bass: 'Bass', lead: 'Lead', pluck: 'Pluck', keys: 'Keys', pad: 'Pad', fx: 'FX' },
@@ -170,7 +167,6 @@ export const en = {
     'Community presets shared by link',
   ],
   footer: {
-    synth: 'Open the synth',
     source: 'Source on GitHub',
     follow: 'Follow',
     languages: 'Languages',

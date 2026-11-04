@@ -1,5 +1,5 @@
 ---
-import { ART, artFrames, svgArea, svgPoints } from '../art/wavetable';
+import { ART, ART_FILL, artFrames, svgArea, svgPoints } from '../art/wavetable';
 
 // a wavetable as the synth draws one on its dark screens: its frames stacked in depth, a sine growing into a saw,
 // the played frame bright and filled to its zero line; still (time 0: where the canvas of art.ts starts moving it)
@@ -9,8 +9,8 @@ const frames = artFrames(0);
 <svg viewBox={`0 0 ${ART.width} ${ART.height}`} aria-hidden='true'>
   <defs>
     <linearGradient id='art-fill' x1='0' y1='0' x2='0' y2='1'>
-      <stop offset='0' stop-color='#2ecc71' stop-opacity='0.38'></stop>
-      <stop offset='1' stop-color='#2ecc71' stop-opacity='0.03'></stop>
+      <stop offset='0' stop-color={`rgb(${ART_FILL.rgb})`} stop-opacity={ART_FILL.top}></stop>
+      <stop offset='1' stop-color={`rgb(${ART_FILL.rgb})`} stop-opacity={ART_FILL.bottom}></stop>
     </linearGradient>
   </defs>
   <g fill='none' stroke-linejoin='round'>
@@ -23,7 +23,7 @@ const frames = artFrames(0);
           points={svgPoints(frame.xy)}
           stroke={frame.color}
           stroke-opacity={frame.alpha.toFixed(2)}
-          stroke-width={(1.1 + 1.4 * frame.glow).toFixed(2)}
+          stroke-width={frame.width.toFixed(2)}
         />
       </>
     ))}

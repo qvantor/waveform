@@ -31,12 +31,17 @@ const playerOf = (root: HTMLElement): Player | null => {
   return { root, audio, play, wave, progress, span, duration };
 };
 
+// an attribute written only when it changes: the values for screen readers change once a second, not every frame
+const update = (element: Element, name: string, value: string) => {
+  if (element.getAttribute(name) !== value) element.setAttribute(name, value);
+};
+
 const show = ({ audio, wave, progress, span, duration }: Player) => {
   const time = Math.min(audio.currentTime, duration);
   const share = duration > 0 ? time / duration : 0;
   progress.setAttribute('width', String(share * span));
-  wave.setAttribute('aria-valuenow', String(Math.round(time)));
-  wave.setAttribute('aria-valuetext', `${clock(time)} / ${clock(duration)}`);
+  update(wave, 'aria-valuenow', String(Math.round(time)));
+  update(wave, 'aria-valuetext', `${clock(time)} / ${clock(duration)}`);
 };
 
 const seek = (player: Player, time: number) => {

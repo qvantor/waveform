@@ -13,12 +13,12 @@ export const clipOf = (slug: string): Clip => {
 
 // the height of the wave in the units of its viewBox (as wide as the peaks)
 export const WAVE_HEIGHT = 40;
-// the share of a step a bar takes
-const BAR = 0.6;
+// the share of a step a bar takes (its stroke)
+export const BAR_WIDTH = 0.6;
 // the shortest bar, so silence still shows the line
 const MIN_BAR = 0.6;
 
-// a vertical bar per peak around the middle (a stroke of BAR, butt caps): one path for the whole wave
+// a vertical bar per peak around the middle (a stroke of BAR_WIDTH, butt caps): one path for the whole wave
 export const wavePath = (values: number[]) => {
   const middle = WAVE_HEIGHT / 2;
   return values
@@ -29,8 +29,6 @@ export const wavePath = (values: number[]) => {
     })
     .join('');
 };
-
-export const BAR_WIDTH = BAR;
 
 // an ISO 8601 duration (PT16.7S): the datetime of <time> and the duration of an AudioObject
 export const isoDuration = (seconds: number) => `PT${seconds}S`;

@@ -9,13 +9,10 @@ export const es: Messages = {
       'Sintetizador online gratis en el navegador: dos osciladores wavetable con unísono de 8 voces, filtro, envolventes y LFO en cualquier control, efectos y MIDI. Sin instalar.',
     ogImageAlt: 'Waveform, un sintetizador wavetable gratis en el navegador',
   },
-  nav: {
-    openSynth: 'Abrir el sintetizador',
-  },
+  openSynth: 'Abrir el sintetizador',
   hero: {
     h1: 'Waveform: sintetizador wavetable gratis en tu navegador',
     lead: 'Dos osciladores wavetable (de tablas de ondas) con unísono de hasta 8 voces, un filtro en cada voz, tres envolventes y cuatro LFO que arrastras a cualquier control, distorsión, delay y reverb. Gratis, sin instalar nada y sin registro: conecta un teclado MIDI o toca con el teclado del ordenador.',
-    cta: 'Abrir el sintetizador',
     listen: 'Escúchalo',
     platform: ['Gratis', 'Sin instalar ni registrarse', 'Chrome, Safari, Firefox', 'Ordenador y móvil'],
     screenshotAlt:
@@ -97,7 +94,6 @@ export const es: Messages = {
   finale: {
     h2: 'Tócalo ahora',
     text: 'Sin descargas ni cuenta: abre el sintetizador y toca con el teclado del ordenador, un teclado MIDI o las teclas en pantalla.',
-    cta: 'Abrir el sintetizador',
   },
   card: {
     categories: { bass: 'Bajo', lead: 'Lead', pluck: 'Pluck', keys: 'Teclados', pad: 'Pad', fx: 'FX' },
@@ -175,7 +171,6 @@ export const es: Messages = {
     'Presets de la comunidad compartidos con un enlace',
   ],
   footer: {
-    synth: 'Abrir el sintetizador',
     source: 'Código en GitHub',
     follow: 'Síguenos',
     languages: 'Idiomas',

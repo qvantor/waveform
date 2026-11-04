@@ -6,17 +6,13 @@ import fs from 'fs';
 import path from 'path';
 import { loadPlaywright, root } from '../bench-common.mjs';
 
+const { LANGS, SITE } = await import('../../apps/site/src/i18n/locales.ts');
+
 const OUT = path.join(root, 'apps/site/public/og');
 const SCREENSHOT = path.join(root, 'apps/site/src/assets/synth.png');
-const LANGS = ['en', 'es', 'de'];
 
-// the `og` line of a messages file (a plain string literal)
-const lineOf = (lang) => {
-  const source = fs.readFileSync(path.join(root, `apps/site/src/i18n/${lang}.ts`), 'utf8');
-  const match = source.match(/^\s*og: '([^']+)',$/m);
-  if (!match) throw new Error(`no og line in ${lang}.ts`);
-  return match[1];
-};
+// the `og` line of a language (its messages, Node strips their types)
+const lineOf = async (lang) => (await import(`../../apps/site/src/i18n/${lang}.ts`))[lang].og;
 
 const escape = (text) => text.replace(/&/g, '&amp;').replace(/</g, '&lt;');
 
@@ -44,7 +40,7 @@ const page = (line, screenshot) => `<!doctype html>
     <div class="logo"><span class="name">WAVEFORM</span><span class="by">by Qvantor</span></div>
     <h1>${escape(line)}</h1>
   </div>
-  <div class="url">waveform.qvantor.org</div>
+  <div class="url">${new URL(SITE).host}</div>
   <div class="shot"><img src="${screenshot}"></div>
 </body></html>`;
 
@@ -55,7 +51,7 @@ const main = async () => {
   const browser = await chromium.launch();
   const tab = await browser.newPage({ viewport: { width: 1200, height: 630 } });
   for (const lang of LANGS) {
-    await tab.setContent(page(lineOf(lang), screenshot), { waitUntil: 'networkidle' });
+    await tab.setContent(page(await lineOf(lang), screenshot), { waitUntil: 'networkidle' });
     await tab.evaluate(() => document.fonts.ready);
     await tab.screenshot({ path: path.join(OUT, `${lang}.png`) });
     console.log(`og/${lang}.png`);

@@ -4,6 +4,15 @@ const { NxAppWebpackPlugin } = require('@nx/webpack/app-plugin');
 const { NxReactWebpackPlugin } = require('@nx/react/webpack-plugin');
 const { DefinePlugin } = require('webpack');
 
+// robots.txt at the root (the promo pages of apps/site join the folder after the build: scripts/site/merge.mjs);
+// the worklet bundles of a configuration (`npm run worklets`)
+const assetsOf = (worklets) => [
+  './src/favicon.ico',
+  './src/robots.txt',
+  './src/assets',
+  { input: worklets, glob: '*.js', output: 'assets/worklets' },
+];
+
 // the configurations of the build and the serve targets (project.json; the inferred tasks of @nx/webpack/plugin
 // run webpack-cli with the configuration in NX_TASK_TARGET_CONFIGURATION), webpack-cli alone runs the defaults; the
 // folder of each configuration in dist/apps is WAVEFORM_DIST of the env of the build in project.json, its outputs
@@ -16,14 +25,7 @@ const build = {
     main: './src/main.tsx',
     polyfills: './src/polyfills.ts',
     tsConfig: './tsconfig.app.json',
-    // robots.txt at the root (the promo pages of apps/site join the folder after the build: scripts/site/merge.mjs);
-    // the worklet bundles (`npm run worklets`)
-    assets: [
-      './src/favicon.ico',
-      './src/robots.txt',
-      './src/assets',
-      { input: '../../tmp/worklets', glob: '*.js', output: 'assets/worklets' },
-    ],
+    assets: assetsOf('../../tmp/worklets'),
   },
   development: { extractLicenses: false, optimization: false, sourceMap: true, vendorChunk: true },
   production: {
@@ -42,12 +44,7 @@ const build = {
     namedChunks: false,
     extractLicenses: true,
     vendorChunk: false,
-    assets: [
-      './src/favicon.ico',
-      './src/robots.txt',
-      './src/assets',
-      { input: '../../tmp/worklets-perf', glob: '*.js', output: 'assets/worklets' },
-    ],
+    assets: assetsOf('../../tmp/worklets-perf'),
     // from the root of the workspace (the plugin resolves them from there, its other paths from the project)
     fileReplacements: [
       {

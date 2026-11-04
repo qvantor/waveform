@@ -1,11 +1,12 @@
 import { isScene, sceneAt, type Scene, type SceneLine } from '../art/scenes';
+import { reducedMotion, sizeCanvas } from './motion';
 
 // The waves behind the features (art/scenes.ts) on a canvas of each section: drawn about FPS times a second while
 // the section is on screen, one still frame where the reader asked for reduced motion; nothing without a 2D context.
 // A level of 1 is AMPLITUDE of the section's height from its middle, at most MAX_AMPLITUDE pixels; the canvas at
 // most 1.5 pixels a CSS pixel (faint lines need no more).
 
-export const FPS = 30;
+const FPS = 30;
 const AMPLITUDE = 0.3;
 const MAX_AMPLITUDE = 220;
 const MAX_RATIO = 1.5;
@@ -64,19 +65,16 @@ export const animateScenes = (root: ParentNode = document) => {
     }
   );
   if (!items.length) return 0;
-  const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+  const still = reducedMotion();
   const start = performance.now();
   const now = () => (still ? 0 : (performance.now() - start) / 1000);
 
   // the canvas at the pixels of its box, the drawing in CSS pixels; drawn when it is seen (a canvas off screen
   // costs nothing)
   const fit = (item: Item) => {
-    const ratio = Math.min(window.devicePixelRatio || 1, MAX_RATIO);
-    const { width, height } = item.canvas.getBoundingClientRect();
+    const { width, height, ratio } = sizeCanvas(item.canvas, item.canvas, MAX_RATIO);
     item.width = width;
     item.height = height;
-    item.canvas.width = Math.max(1, Math.round(width * ratio));
-    item.canvas.height = Math.max(1, Math.round(height * ratio));
     item.context.setTransform(ratio, 0, 0, ratio, 0, 0);
     item.context.lineJoin = 'round';
     item.stale = true;
@@ -103,16 +101,17 @@ export const animateScenes = (root: ParentNode = document) => {
       frame = requestAnimationFrame(tick);
   };
 
+  const itemOf = new Map<Element, Item>(items.map((item) => [item.canvas, item]));
   const resize = new ResizeObserver((entries) => {
     for (const entry of entries) {
-      const item = items.find(({ canvas }) => canvas === entry.target);
+      const item = itemOf.get(entry.target);
       if (item) fit(item);
     }
     wake();
   });
   const seen = new IntersectionObserver((entries) => {
     for (const entry of entries) {
-      const item = items.find(({ canvas }) => canvas === entry.target);
+      const item = itemOf.get(entry.target);
       if (item) item.visible = entry.isIntersecting;
     }
     wake();
