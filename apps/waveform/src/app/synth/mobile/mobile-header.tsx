@@ -3,7 +3,7 @@ import { styled } from 'styled-components';
 import cls from 'classnames';
 import { MdKeyboard, MdTune } from 'react-icons/md';
 import { PanelButton, TapeSwitch, theme } from '@waveform/ui-kit';
-import { HeaderSection } from '../../common/components';
+import { AboutLink, HeaderSection } from '../../common/components';
 import { PresetSection } from '../../presets';
 import { MidiInput, SettingsButton } from '../settings';
 import { MasterHandle } from '../synth/components';
@@ -104,6 +104,7 @@ export const MobileHeader = ({ portrait, mode, onModeChange, screen, onScreenCha
         <>
           <MidiInput />
           <SettingsButton />
+          <AboutLink />
         </>
       }
     />

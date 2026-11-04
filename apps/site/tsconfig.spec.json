@@ -1,0 +1,8 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "types": ["jest", "node"]
+  },
+  "include": [".astro/types.d.ts", "src/**/*", "jest.config.ts"],
+  "exclude": []
+}

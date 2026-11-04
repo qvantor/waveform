@@ -70,3 +70,7 @@ jobs:
       - name: Script tests
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: npm run test:scripts
+      # the promo pages (apps/site): built, then their HTML, meta, structured data, sitemap and files checked
+      - name: Site
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: npx nx run site:verify

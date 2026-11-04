@@ -10,3 +10,9 @@
 [dev.https]
   certFile = ".certs/cert.pem"
   keyFile = ".certs/key.pem"
+
+# the assets of the promo pages (apps/site): their names are hashes of their contents
+[[headers]]
+  for = "/_astro/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"

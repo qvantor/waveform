@@ -1,0 +1,325 @@
+---
+import { Picture } from 'astro:assets';
+import type { ImageMetadata } from 'astro';
+import DemoCard from './DemoCard.astro';
+import type { Demo } from '../data/demos';
+import type { Messages } from '../i18n';
+
+interface Props {
+  id: string;
+  // the name of its part of the synth (the label above the title, as the synth names it)
+  label: string;
+  // the color of the feature: the square of its label, the light behind its picture
+  color: string;
+  title: string;
+  text: string[];
+  demos?: Demo[];
+  // the part of the synth it is about, beside the text
+  image?: ImageMetadata;
+  imageAlt?: string;
+  // a screenshot of a phone, in a phone
+  phone?: boolean;
+  // the side of the picture (the features alternate)
+  side?: 'left' | 'right';
+  m: Messages;
+}
+
+// a feature: its title, a few sentences and its clips under them; its picture beside them, as high as they are:
+// the picture takes no height of its own (size containment), it fits the column the text makes (container units),
+// smaller where it would be higher; a slot under the text (a key)
+const {
+  id,
+  label,
+  color,
+  title,
+  text,
+  demos = [],
+  image,
+  imageAlt = '',
+  phone = false,
+  side = 'right',
+  m,
+} = Astro.props;
+const ratio = image ? image.width / image.height : 1;
+---
+
+<section class='feature' id={id} aria-labelledby={`${id}-title`} style={`--tint: ${color}`}>
+  <canvas class='scene' data-scene={id} aria-hidden='true'></canvas>
+  <div class:list={['column', 'grid', { alone: !image, flip: side === 'left' }]}>
+    <div class:list={['main', { short: demos.length === 0 }]}>
+      <span class='label' style={`--square: ${color}`}>
+        {label}
+      </span>
+      <h2 id={`${id}-title`}>{title}</h2>
+      {text.map((paragraph) => (
+        <p>{paragraph}</p>
+      ))}
+      <slot />
+      {demos.length > 0 && (
+        <div class='demos'>
+          {demos.map((demo) => (
+            <DemoCard demo={demo} m={m} />
+          ))}
+        </div>
+      )}
+    </div>
+    {image && (
+      <figure
+        class:list={['figure', { phone, natural: demos.length === 0 }]}
+        style={`--ratio: ${ratio.toFixed(4)}`}
+      >
+        {phone ? (
+          <div class='device'>
+            <Picture
+              src={image}
+              alt={imageAlt}
+              formats={['avif', 'webp']}
+              widths={[300, 600]}
+              sizes='300px'
+            />
+          </div>
+        ) : (
+          <Picture
+            src={image}
+            alt={imageAlt}
+            formats={['avif', 'webp']}
+            widths={[540, 1080]}
+            sizes='(min-width: 1120px) 520px, (min-width: 861px) 45vw, calc(100vw - 40px)'
+          />
+        )}
+      </figure>
+    )}
+  </div>
+</section>
+
+<style>
+  /* the light behind a picture doesn't widen the page; the wave behind stays behind its own content */
+  .feature {
+    position: relative;
+    isolation: isolate;
+    padding: 72px 0;
+    overflow-x: clip;
+  }
+
+  /* what the feature does to a wave (art/scenes.ts, scripts/scenes.ts), faint behind it, fading out at its top and
+     bottom and towards the sides */
+  .scene {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    width: 100%;
+    height: 100%;
+    opacity: 0.6;
+    pointer-events: none;
+    mask-image:
+      linear-gradient(180deg, transparent, #000 22%, #000 78%, transparent),
+      linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+    mask-composite: intersect;
+  }
+
+  /* a hairline that fades out at the sides between the features */
+  .feature::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto;
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      var(--line-strong) 20%,
+      var(--line-strong) 80%,
+      transparent
+    );
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 56px;
+    align-items: stretch;
+  }
+
+  /* the picture on the left: the text keeps its column, the picture goes before it */
+  .grid.flip .figure {
+    order: -1;
+  }
+
+  .grid.alone {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .alone .main {
+    max-width: 760px;
+  }
+
+  .main {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+  }
+
+  /* a shade of the page behind the text, so the wave behind the section passes under it faintly */
+  .main::before {
+    content: '';
+    position: absolute;
+    inset: -20px -28px;
+    z-index: -1;
+    border-radius: 24px;
+    background: rgb(14 21 27 / 90%);
+    filter: blur(28px);
+    pointer-events: none;
+  }
+
+  /* a text without clips beside a picture higher than it: in the middle of it */
+  .main.short {
+    align-self: center;
+  }
+
+  h2 {
+    font-size: 34px;
+    font-weight: 700;
+    line-height: 1.12;
+    letter-spacing: -0.3px;
+  }
+
+  .demos {
+    display: grid;
+    gap: 16px;
+    margin-top: 10px;
+  }
+
+  /* the column of the picture: as high as the text beside it (or MIN), its picture fitted into it */
+  .figure {
+    --min: 320px;
+    position: relative;
+    display: grid;
+    place-items: center;
+    min-height: var(--min);
+    margin: 0;
+    container-type: size;
+  }
+
+  /* beside a text without clips (shorter than it): the picture at the width of the column */
+  .figure.natural {
+    min-height: 0;
+    aspect-ratio: var(--ratio);
+  }
+
+  .figure::before {
+    content: '';
+    position: absolute;
+    inset: -6% -8%;
+    background: radial-gradient(closest-side, color-mix(in srgb, var(--tint) 42%, transparent), transparent);
+    pointer-events: none;
+  }
+
+  .figure :global(picture) {
+    display: contents;
+  }
+
+  .figure :global(img) {
+    position: relative;
+    width: min(100cqw, 100cqh * var(--ratio));
+    height: auto;
+    border-radius: 10px;
+    background: var(--primary);
+    box-shadow:
+      0 0 0 1px rgb(255 255 255 / 12%),
+      0 26px 56px -20px rgb(0 0 0 / 75%);
+  }
+
+  /* a phone: its screen in a dark body with round corners, as high as the column */
+  .device {
+    position: relative;
+    height: min(100cqh - 20px, (100cqw - 20px) / var(--ratio));
+    aspect-ratio: var(--ratio);
+    padding: 10px;
+    box-sizing: content-box;
+    border-radius: 44px;
+    background: linear-gradient(145deg, #2c3e50, #0d141a 40%);
+    box-shadow:
+      inset 0 0 0 1px rgb(255 255 255 / 16%),
+      0 0 0 1px #2c3e50,
+      0 30px 60px -20px rgb(0 0 0 / 75%);
+  }
+
+  /* its side keys */
+  .device::before,
+  .device::after {
+    content: '';
+    position: absolute;
+    width: 3px;
+    border-radius: 2px;
+    background: #2c3e50;
+  }
+
+  .device::before {
+    right: -3px;
+    top: 24%;
+    height: 12%;
+  }
+
+  .device::after {
+    left: -3px;
+    top: 18%;
+    height: 7%;
+  }
+
+  .figure.phone :global(img) {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: 34px;
+    box-shadow: none;
+  }
+
+  /* one column below the width where the picture fits the text beside it: the picture under the clips, no
+     higher than most screens, the phone a phone wide */
+  @media (max-width: 1100px) {
+    .grid {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 36px;
+    }
+
+    .main.short {
+      align-self: auto;
+    }
+
+    .grid.flip .figure {
+      order: 0;
+    }
+
+    .figure,
+    .figure.natural {
+      min-height: 0;
+      aspect-ratio: auto;
+      container-type: normal;
+    }
+
+    .figure :global(img) {
+      width: auto;
+      max-width: 100%;
+      max-height: 640px;
+    }
+
+    .device {
+      height: auto;
+      width: 240px;
+    }
+
+    .figure.phone :global(img) {
+      max-height: none;
+    }
+  }
+
+  @media (max-width: 860px) {
+    .feature {
+      padding: 48px 0;
+    }
+
+    h2 {
+      font-size: 28px;
+    }
+  }
+</style>

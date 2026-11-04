@@ -1,0 +1,117 @@
+---
+import '../styles/global.css';
+import type { ImageMetadata } from 'astro';
+import { Font, getImage } from 'astro:assets';
+import Faq from './Faq.astro';
+import Feature from './Feature.astro';
+import Finale from './Finale.astro';
+import Footer from './Footer.astro';
+import Head from './Head.astro';
+import Header from './Header.astro';
+import Hero from './Hero.astro';
+import Listen from './Listen.astro';
+import editor from '../assets/editor.png';
+import filter from '../assets/filter.png';
+import fx from '../assets/fx.png';
+import modulation from '../assets/modulation.png';
+import osc from '../assets/osc.png';
+import phone from '../assets/phone.png';
+import synth from '../assets/synth.png';
+import unison from '../assets/unison.png';
+import { demosOf, type Section } from '../data/demos';
+import { MESSAGES } from '../i18n';
+import type { Lang } from '../i18n/locales';
+
+interface Props {
+  lang: Lang;
+}
+
+const { lang } = Astro.props;
+const m = MESSAGES[lang];
+
+// the features with clips, in the order of the page: the label is the name the synth gives the part, the color
+// one of its own (the sources of the routes), the image that part on the presets of the clips (screens.mjs); their
+// pictures alternate sides from the left (the phone of Playing on the right), the editor after them goes on
+const FEATURES: {
+  section: Exclude<Section, 'listen'>;
+  label: string;
+  color: string;
+  image: ImageMetadata;
+  phone?: boolean;
+}[] = [
+  { section: 'wavetables', label: 'Osc 1 · Osc 2', color: '#2ecc71', image: osc },
+  { section: 'unison', label: 'Unison', color: '#3498db', image: unison },
+  { section: 'filter', label: 'Filter', color: '#f1c40f', image: filter },
+  { section: 'modulation', label: 'ENV · LFO · VELO', color: '#9b59b6', image: modulation },
+  { section: 'effects', label: 'FX', color: '#e74c3c', image: fx },
+  { section: 'playing', label: 'Voicing · Keys', color: '#1abc9c', image: phone, phone: true },
+];
+
+// the screenshot of the synth for the structured data: one webp of the width of the column
+const screenshot = await getImage({ src: synth, format: 'webp', width: 1440 });
+---
+
+<!doctype html>
+<html lang={lang}>
+  <head>
+    <Head lang={lang} m={m} screenshot={screenshot.src} />
+    <Font cssVariable='--font-inter-tight' preload />
+  </head>
+  <body>
+    <Header m={m} />
+    <main>
+      <Hero m={m} />
+      <Listen m={m} />
+      {FEATURES.map(({ section, label, color, image, phone }, index) => (
+        <Feature
+          id={section}
+          label={label}
+          color={color}
+          title={m.features[section].h2}
+          text={m.features[section].text}
+          demos={demosOf(section)}
+          image={image}
+          imageAlt={m.figures[section]}
+          phone={phone}
+          side={index % 2 ? 'right' : 'left'}
+          m={m}
+        />
+      ))}
+      <Feature
+        id='editor'
+        label='Wavetable edit'
+        color='#2ecc71'
+        title={m.features.editor.h2}
+        text={m.features.editor.text}
+        image={editor}
+        imageAlt={m.features.editor.screenshotAlt}
+        side={FEATURES.length % 2 ? 'right' : 'left'}
+        m={m}
+      />
+      <Feature
+        id='presets'
+        label='Presets'
+        color='#3498db'
+        title={m.features.presets.h2}
+        text={m.features.presets.text}
+        m={m}
+      >
+        <div>
+          <a class='key key-glow' href='/'>
+            {m.features.presets.cta}
+          </a>
+        </div>
+      </Feature>
+      <Faq m={m} />
+      <Finale m={m} />
+    </main>
+    <Footer lang={lang} m={m} />
+    <script>
+      import { initPlayers } from '../scripts/player';
+      import { animateScenesWhenIdle } from '../scripts/scenes';
+
+      initPlayers();
+      animateScenesWhenIdle();
+    </script>
+  </body>
+</html>

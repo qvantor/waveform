@@ -1,0 +1,84 @@
+---
+import Ribbon from './Ribbon.astro';
+import type { Messages } from '../i18n';
+
+interface Props {
+  m: Messages;
+}
+
+// the last call before the footer: the voices of a unison across a dark band, the key into the synth
+const { m } = Astro.props;
+---
+
+<section class='finale' aria-labelledby='finale-title'>
+  <div class='ribbon'>
+    <Ribbon id='finale-ribbon' />
+  </div>
+  <div class='column content'>
+    <h2 id='finale-title'>{m.finale.h2}</h2>
+    <p>{m.finale.text}</p>
+    <a class='key key-glow' href='/'>
+      {m.finale.cta}
+    </a>
+  </div>
+</section>
+
+<style>
+  .finale {
+    position: relative;
+    padding: 96px 0;
+    overflow: hidden;
+    color: var(--text);
+    text-align: center;
+    background:
+      radial-gradient(600px 300px at 50% 50%, rgb(46 204 113 / 14%), transparent 70%),
+      linear-gradient(180deg, var(--page), var(--dark) 50%, #0d141a);
+  }
+
+  .ribbon {
+    position: absolute;
+    inset: 50% 0 auto;
+    height: 260px;
+    transform: translateY(-50%);
+    opacity: 0.55;
+    pointer-events: none;
+  }
+
+  .content {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 18px;
+  }
+
+  h2 {
+    font-size: 48px;
+    font-weight: 700;
+    line-height: 1.05;
+    letter-spacing: -0.6px;
+    background: linear-gradient(90deg, #8fd3ff, #ffffff 45%, #a8f0c6);
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+  }
+
+  p {
+    max-width: 560px;
+    color: var(--text-muted);
+  }
+
+  .key-glow {
+    margin-top: 6px;
+  }
+
+  @media (max-width: 860px) {
+    .finale {
+      padding: 64px 0;
+    }
+
+    h2 {
+      font-size: 34px;
+    }
+  }
+</style>

@@ -16,9 +16,11 @@ const build = {
     main: './src/main.tsx',
     polyfills: './src/polyfills.ts',
     tsConfig: './tsconfig.app.json',
+    // robots.txt at the root (the promo pages of apps/site join the folder after the build: scripts/site/merge.mjs);
     // the worklet bundles (`npm run worklets`)
     assets: [
       './src/favicon.ico',
+      './src/robots.txt',
       './src/assets',
       { input: '../../tmp/worklets', glob: '*.js', output: 'assets/worklets' },
     ],
@@ -42,6 +44,7 @@ const build = {
     vendorChunk: false,
     assets: [
       './src/favicon.ico',
+      './src/robots.txt',
       './src/assets',
       { input: '../../tmp/worklets-perf', glob: '*.js', output: 'assets/worklets' },
     ],

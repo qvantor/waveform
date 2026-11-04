@@ -1,0 +1,166 @@
+---
+import Logo from './Logo.astro';
+import SocialIcon from './SocialIcon.astro';
+import type { Messages } from '../i18n';
+import { LANGS, LINKS, LOCALES, type Lang } from '../i18n/locales';
+
+interface Props {
+  lang: Lang;
+  m: Messages;
+}
+
+const { lang, m } = Astro.props;
+const SOCIAL = [
+  { name: 'github', label: 'GitHub', href: LINKS.github },
+  { name: 'instagram', label: 'Instagram', href: LINKS.instagram },
+  { name: 'youtube', label: 'YouTube', href: LINKS.youtube },
+] as const;
+---
+
+<footer class='footer'>
+  <div class='column grid'>
+    <div class='brand'>
+      <Logo size='small' />
+      <ul class='social' aria-label={m.footer.follow}>
+        {SOCIAL.map(({ name, label, href }) => (
+          <li>
+            <a href={href} rel='me noopener' aria-label={label} title={label}>
+              <SocialIcon name={name} />
+            </a>
+          </li>
+        ))}
+      </ul>
+    </div>
+    <nav aria-label={m.footer.languages}>
+      <p class='heading'>{m.footer.languages}</p>
+      <ul>
+        {LANGS.map((other) => (
+          <li>
+            <a
+              href={LOCALES[other].path}
+              hreflang={other}
+              lang={other}
+              aria-current={other === lang ? 'page' : undefined}
+            >
+              {LOCALES[other].name}
+            </a>
+          </li>
+        ))}
+      </ul>
+    </nav>
+    <div>
+      <p class='heading'>Waveform</p>
+      <ul>
+        <li>
+          <a href='/'>{m.footer.synth}</a>
+        </li>
+        <li>
+          <a class='with-icon' href={LINKS.github} rel='noopener'>
+            <SocialIcon name='github' />
+            {m.footer.source}
+          </a>
+        </li>
+      </ul>
+    </div>
+  </div>
+</footer>
+
+<style>
+  .footer {
+    padding: 48px 0 64px;
+    background: #0d141a;
+    color: var(--text-muted);
+    border-top: 1px solid rgb(255 255 255 / 6%);
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) repeat(2, minmax(0, 1fr));
+    gap: 32px;
+    align-items: start;
+  }
+
+  .brand {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 20px;
+  }
+
+  ul {
+    display: grid;
+    gap: 10px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .social {
+    display: flex;
+    gap: 10px;
+  }
+
+  .social a {
+    display: grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    color: var(--text);
+    background: rgb(255 255 255 / 6%);
+    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 8%);
+    transition:
+      background 150ms,
+      color 150ms;
+  }
+
+  .social a:hover {
+    background: var(--accent);
+    color: var(--dark);
+  }
+
+  .heading {
+    margin-bottom: 12px;
+    font: 600 12px/1 var(--font);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+  }
+
+  a {
+    font-size: 15px;
+    color: var(--text);
+    text-decoration: none;
+  }
+
+  a:hover {
+    color: var(--accent);
+  }
+
+  .with-icon {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .with-icon :global(.icon) {
+    width: 18px;
+    height: 18px;
+    opacity: 0.85;
+  }
+
+  a[aria-current='page'] {
+    color: var(--accent);
+    font-weight: 600;
+  }
+
+  @media (max-width: 720px) {
+    .grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .brand {
+      grid-column: 1 / -1;
+    }
+  }
+</style>

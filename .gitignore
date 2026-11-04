@@ -2,6 +2,8 @@
 
 # compiled output
 /dist
+# the types and caches Astro generates
+/apps/site/.astro
 /tmp
 /out-tsc
 

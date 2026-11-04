@@ -5,7 +5,7 @@
   "scripts": {
     "start": "concurrently -k -p \"[{name}]\" -n \"api,client\" -c  \"yellow.bold,green.bold\" \"netlify dev\" \"npm run client:start\"",
     "client:start": "npm run wasm -- --only=prod && npm run worklets && concurrently -k -n wasm,worklets,serve \"npm run wasm -- --only=prod --watch\" \"npm run worklets -- --watch=forever\" \"nx serve\"",
-    "build": "npm run wasm -- --only=prod && npm run worklets -- --minify && nx build",
+    "build": "npm run wasm -- --only=prod && npm run worklets -- --minify && nx build && nx build site && node scripts/site/merge.mjs",
     "build:perf": "npm run wasm -- --only=perf && npm run worklets -- --minify --define:__PERF__=true --alias:@waveform/wasm=./tmp/wasm-perf --outdir=tmp/worklets-perf && nx build waveform --configuration=perf --skip-nx-cache",
     "wasm": "node scripts/wasm.mjs",
     "dsp:check": "cd dsp && cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test --quiet && cd .. && node scripts/wasm.mjs --check-sizes",
@@ -14,12 +14,12 @@
     "test:all": "npm run wasm -- --only=perf && nx run-many --target=test --all",
     "test:scripts": "node --test 'scripts/**/*.test.mjs'",
     "lint": "nx run-many --target=lint --all",
-    "prettier:check": "prettier -l './apps/**/*.{ts,tsx}' './libs/**/*.{ts,tsx}' './netlify/**/*.{ts,mts}' './scripts/**/*.{mjs,ts}' './dsp/gen/*.{mjs,ts}'",
-    "prettier:fix": "prettier --write './apps/**/*.{ts,tsx}' './libs/**/*.{ts,tsx}' './netlify/**/*.{ts,mts}' './scripts/**/*.{mjs,ts}' './dsp/gen/*.{mjs,ts}'",
-    "typecheck": "tsc -p apps/waveform/tsconfig.app.json --noEmit && tsc -p apps/waveform/tsconfig.spec.json --noEmit && tsc -p libs/math/tsconfig.lib.json --noEmit && tsc -p libs/math/tsconfig.spec.json --noEmit && tsc -p libs/preset-schema/tsconfig.lib.json --noEmit && tsc -p libs/preset-schema/tsconfig.spec.json --noEmit && tsc -p libs/rxjs-react/tsconfig.lib.json --noEmit && tsc -p libs/rxjs-react/tsconfig.spec.json --noEmit && tsc -p libs/ui-kit/tsconfig.lib.json --noEmit && tsc -p libs/ui-kit/tsconfig.spec.json --noEmit && tsc -p netlify/tsconfig.json --noEmit && tsc -p netlify/tsconfig.spec.json --noEmit",
+    "prettier:check": "prettier -l './apps/**/*.{ts,tsx,astro}' './apps/site/**/*.{mjs,css}' './libs/**/*.{ts,tsx}' './netlify/**/*.{ts,mts}' './scripts/**/*.{mjs,ts}' './dsp/gen/*.{mjs,ts}'",
+    "prettier:fix": "prettier --write './apps/**/*.{ts,tsx,astro}' './apps/site/**/*.{mjs,css}' './libs/**/*.{ts,tsx}' './netlify/**/*.{ts,mts}' './scripts/**/*.{mjs,ts}' './dsp/gen/*.{mjs,ts}'",
+    "typecheck": "tsc -p apps/waveform/tsconfig.app.json --noEmit && tsc -p apps/waveform/tsconfig.spec.json --noEmit && tsc -p libs/math/tsconfig.lib.json --noEmit && tsc -p libs/math/tsconfig.spec.json --noEmit && tsc -p libs/preset-schema/tsconfig.lib.json --noEmit && tsc -p libs/preset-schema/tsconfig.spec.json --noEmit && tsc -p libs/rxjs-react/tsconfig.lib.json --noEmit && tsc -p libs/rxjs-react/tsconfig.spec.json --noEmit && tsc -p libs/ui-kit/tsconfig.lib.json --noEmit && tsc -p libs/ui-kit/tsconfig.spec.json --noEmit && tsc -p netlify/tsconfig.json --noEmit && tsc -p netlify/tsconfig.spec.json --noEmit && tsc -p apps/site/tsconfig.spec.json --noEmit && astro check --root apps/site",
     "knip": "knip",
     "certs": "node scripts/certs.mjs",
-    "precheck": "npm run prettier:check && npm run typecheck && npm run lint && npm run knip && npm run dsp:check && npm run test:all && npm run test:scripts"
+    "precheck": "npm run prettier:check && npm run typecheck && npm run lint && npm run knip && npm run dsp:check && npm run test:all && npm run test:scripts && nx run site:verify"
   },
   "private": true,
   "dependencies": {
@@ -54,6 +54,8 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@astrojs/check": "^0.9.12",
+    "@astrojs/sitemap": "^3.7.4",
     "@babel/core": "^7.14.5",
     "@babel/plugin-transform-exponentiation-operator": "^7.29.7",
     "@babel/plugin-transform-modules-commonjs": "^7.29.7",
@@ -78,6 +80,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@typescript-eslint/parser": "^8.72.1",
+    "astro": "^7.4.5",
     "babel-jest": "^30.5.2",
     "babel-plugin-styled-components": "^2.4.0",
     "binaryen": "132.0.0",
@@ -85,6 +88,7 @@
     "esbuild": "^0.28.2",
     "eslint": "^9.39.5",
     "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-astro": "^1.7.0",
     "eslint-plugin-import": "^2.32.0",
     "eslint-plugin-jsx-a11y": "^6.10.2",
     "eslint-plugin-react": "^7.37.5",
@@ -93,10 +97,12 @@
     "jest": "^30.5.2",
     "jest-environment-jsdom": "^30.5.2",
     "jest-util": "^30.5.1",
+    "jsdom": "^26.1.0",
     "knip": "^6.44.1",
     "netlify-cli": "^27.16.2",
     "nx": "24.0.3",
     "prettier": "^3.9.10",
+    "prettier-plugin-astro": "^1.1.2",
     "react-refresh": "^0.19.0",
     "standardized-audio-context-mock": "^10.0.1",
     "ts-jest": "^29.4.15",

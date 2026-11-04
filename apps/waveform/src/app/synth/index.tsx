@@ -5,7 +5,7 @@ import { VolumeAnalyser, FqAnalyser, QUIET_MS, TapeSwitch, theme, useIsMobile } 
 import { useObservable } from '@waveform/rxjs-react';
 import { DEFAULT_WAVETABLE_PATH } from '@waveform/preset-schema';
 import { useApp } from '../app';
-import { Header, HeaderSection } from '../common/components';
+import { AboutLink, Header, HeaderSection } from '../common/components';
 import { PresetSection, PresetsProvider } from '../presets';
 import { PerfHook } from '../perf/perf-hook';
 import {
@@ -307,6 +307,7 @@ const HeaderInternal = ({ screen, onScreenChange }: ScreenProps) => (
           <>
             <MidiInput />
             <SettingsButton />
+            <AboutLink />
           </>
         }
       />

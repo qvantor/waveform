@@ -1,0 +1,111 @@
+---
+import type { Messages } from '../i18n';
+
+interface Props {
+  m: Messages;
+}
+
+// the answers are in the HTML whether a question is open or not (crawlers read them)
+const { m } = Astro.props;
+---
+
+<section class='faq' id='faq' aria-labelledby='faq-title'>
+  <div class='column'>
+    <h2 id='faq-title'>{m.faq.h2}</h2>
+    <div class='items'>
+      {m.faq.items.map(({ q, a }) => (
+        <details>
+          <summary>{q}</summary>
+          <p>{a}</p>
+        </details>
+      ))}
+    </div>
+  </div>
+</section>
+
+<style>
+  .faq {
+    position: relative;
+    padding: 72px 0;
+  }
+
+  .faq::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto;
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      var(--line-strong) 20%,
+      var(--line-strong) 80%,
+      transparent
+    );
+  }
+
+  h2 {
+    font-size: 34px;
+    font-weight: 700;
+    line-height: 1.12;
+  }
+
+  /* the questions on one raised surface, a line between them */
+  .items {
+    display: grid;
+    gap: 1px;
+    margin-top: 28px;
+    background: var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow:
+      0 0 0 1px var(--line),
+      0 18px 40px -20px rgb(0 0 0 / 60%);
+  }
+
+  details {
+    background: var(--surface);
+  }
+
+  details[open] {
+    background: var(--surface-high);
+  }
+
+  summary {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 18px 20px;
+    font-weight: 600;
+    cursor: pointer;
+    list-style: none;
+  }
+
+  summary::-webkit-details-marker {
+    display: none;
+  }
+
+  summary::after {
+    content: '+';
+    font-weight: 400;
+    color: var(--accent);
+  }
+
+  details[open] summary::after {
+    content: '−';
+  }
+
+  details p {
+    padding: 0 20px 20px;
+    color: var(--text-muted);
+  }
+
+  @media (max-width: 860px) {
+    .faq {
+      padding: 48px 0;
+    }
+
+    h2 {
+      font-size: 28px;
+    }
+  }
+</style>
