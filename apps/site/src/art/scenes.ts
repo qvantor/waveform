@@ -6,6 +6,7 @@ import { frameAt, mix, partials, wave } from './wavetable';
 // thick, a glow; the editor's pen a dot.
 
 export const SCENES = [
+  'synthesis',
   'wavetables',
   'unison',
   'filter',
@@ -37,6 +38,7 @@ const SAMPLES = 240;
 
 // the color of each feature: the square of its label and the light behind its picture (Landing.astro), its wave
 export const FEATURE_COLORS: Record<Scene, string> = {
+  synthesis: BLUE,
   wavetables: GREEN,
   unison: BLUE,
   filter: '#f1c40f',
@@ -69,6 +71,49 @@ const curve = (level: (x: number) => number, from = 0, to = 1, samples = SAMPLES
 // the largest |level| of a periodic level over one period
 const peakOf = (level: (x: number) => number, samples = 256) =>
   Math.max(...Array.from({ length: samples }, (_, i) => Math.abs(level(i / samples))));
+
+// a note whose frame changes as it plays: the frame (a sine to a saw) moves along the band and with the time, each
+// part of the wave in the color of its frame (the blue of the sine, the green of the saw); a sine faint under it
+const MORPH_CYCLES = 7;
+const MORPH_PARTS = 12;
+const MORPH_SAMPLES = 40;
+// the peak of a frame at 33 shares of the table, linear between them
+const FRAME_PEAKS = 32;
+const framePeaks = once(() =>
+  Array.from({ length: FRAME_PEAKS + 1 }, (_, i) => peakOf((x) => frameAt(i / FRAME_PEAKS, x)))
+);
+const framePeak = (t: number) => {
+  const peaks = framePeaks();
+  const i = Math.min(FRAME_PEAKS - 1, Math.floor(t * FRAME_PEAKS));
+  return peaks[i] + (peaks[i + 1] - peaks[i]) * (t * FRAME_PEAKS - i);
+};
+const sineLine = once((): SceneLine => ({
+  points: curve((x) => Math.sin(TAU * MORPH_CYCLES * x)),
+  color: GHOST,
+  alpha: 0.3,
+  width: 1,
+}));
+const synthesis = (time: number): SceneLine[] => {
+  const played = (x: number) => 0.5 + 0.5 * Math.sin(TAU * (0.8 * x - time / 16));
+  const level = (x: number) => {
+    const t = played(x);
+    return frameAt(t, MORPH_CYCLES * x) / framePeak(t);
+  };
+  return [
+    sineLine(),
+    ...Array.from({ length: MORPH_PARTS }, (_, part): SceneLine => {
+      const from = part / MORPH_PARTS;
+      const to = (part + 1) / MORPH_PARTS;
+      return {
+        points: curve(level, from, to, MORPH_SAMPLES),
+        color: mix(BLUE, GREEN, played((from + to) / 2)),
+        alpha: 0.9,
+        width: 2,
+        glow: 8,
+      };
+    }),
+  ];
+};
 
 // the position of the Wave knob moving through the frames of a table: its frames faint, the one it plays bright
 const TABLE_CYCLES = 3;
@@ -288,6 +333,7 @@ const presets = (time: number): SceneLine[] =>
   });
 
 const DRAW: Record<Scene, (time: number) => SceneLine[]> = {
+  synthesis,
   wavetables,
   unison,
   filter,

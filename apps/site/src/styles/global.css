@@ -190,6 +190,22 @@ img {
   line-height: 1.12;
 }
 
+/* what a section does to a wave (art/scenes.ts, scripts/scenes.ts), faint behind it, fading out at its top and
+   bottom and towards the sides; the section isolates it, so it stays behind the section's own content */
+.scene-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  width: 100%;
+  height: 100%;
+  opacity: 0.6;
+  pointer-events: none;
+  mask-image:
+    linear-gradient(180deg, transparent, #000 22%, #000 78%, transparent),
+    linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+  mask-composite: intersect;
+}
+
 @media (max-width: 860px) {
   .section {
     padding: 48px 0;

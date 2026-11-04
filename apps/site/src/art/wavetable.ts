@@ -1,6 +1,7 @@
 // The drawings of the page: a wavetable as a stack of its frames (a sine that grows into a saw, the back frames
-// blue, the front green, as the logo), still in the SVG of the page and moving on a canvas over it (art.ts), and a
-// ribbon of detuned sines (a unison). Pure math: the build and the browser run the same.
+// blue, the front green, as the logo), still in the SVG of the page and moving on a canvas over it (art.ts), the
+// same table as a diagram of a few frames and the Wave knob, and a ribbon of detuned sines (a unison). Pure math:
+// the build and the browser run the same.
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 const clamp = (v: number) => Math.min(1, Math.max(0, v));
@@ -45,6 +46,13 @@ export const STACK = {
   amplitude: 80,
   depth: [6.8, 8.4] as const,
   origin: [36, 300] as const,
+};
+
+// where the waves of the stack start and end across the box, as shares of its width: the left end of the front
+// frame, the right end of the back one (the motion moves the waves, not their ends)
+export const ART_EXTENT = {
+  from: STACK.origin[0] / ART.width,
+  to: (STACK.origin[0] + (STACK.frames - 1) * STACK.depth[0] + STACK.width) / ART.width,
 };
 
 // the motion, in seconds: the frames slide sideways in a wave that runs back through the stack (a lag per frame),
@@ -118,6 +126,65 @@ export const artFrames = (time = 0): ArtFrame[] => {
       glow,
     };
   });
+};
+
+// the drawing beside "What is a wavetable synth?": a table of a few frames stacked as the art's (a sine at the
+// back, a saw at the front; each frame back from the front moved up and right by `depth`), the frame the Wave knob
+// plays lit, and the track of the knob `track` left of the frames' left ends, from frame 1 at the back to the last
+// at the front
+export const DIAGRAM = {
+  width: 560,
+  height: 420,
+  frames: 8,
+  samples: 96,
+  frameWidth: 280,
+  amplitude: 40,
+  depth: [26, 34] as const,
+  origin: [80, 330] as const,
+  played: 5,
+  track: 46,
+};
+
+const diagramPlace = (k: number) => {
+  const back = DIAGRAM.frames - 1 - k;
+  return {
+    left: DIAGRAM.origin[0] + back * DIAGRAM.depth[0],
+    zero: DIAGRAM.origin[1] - back * DIAGRAM.depth[1],
+  };
+};
+
+export const diagramFrames = (): ArtFrame[] => {
+  const { frames, samples, frameWidth, amplitude, played } = DIAGRAM;
+  return Array.from({ length: frames }, (_, k) => {
+    const share = k / (frames - 1);
+    const { left, zero } = diagramPlace(k);
+    const values = Array.from({ length: samples + 1 }, (__, i) => frameAt(share, i / samples));
+    const peak = Math.max(...values.map(Math.abs)) || 1;
+    const xy = values.flatMap((value, i) => [
+      left + (i / samples) * frameWidth,
+      zero - (value / peak) * amplitude,
+    ]);
+    const lit = k === played;
+    return {
+      xy,
+      zero,
+      left,
+      right: left + frameWidth,
+      color: mix('#3498db', '#2ecc71', share),
+      alpha: lit ? 1 : lerp(0.35, 0.8, share),
+      width: lit ? 2.6 : 1.2,
+      glow: lit ? 1 : 0,
+    };
+  });
+};
+
+// the ends of the track (frame 1, the last frame) and the knob on it, each [x, y]
+export const diagramTrack = () => {
+  const at = (k: number): [number, number] => {
+    const { left, zero } = diagramPlace(k);
+    return [left - DIAGRAM.track, zero];
+  };
+  return { first: at(0), last: at(DIAGRAM.frames - 1), knob: at(DIAGRAM.played) };
 };
 
 // a frame as the points of an SVG polyline, and its area down to its zero line as those of a polygon

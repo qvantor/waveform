@@ -41,14 +41,44 @@ const TEXTS = {
     'up to 64 routes, 4 per knob',
     'algorithmic reverb of 16 lines',
     'Up to 12 notes in Poly',
-    'WAV wavetable as other wavetable synths write them',
+    'WAV wavetables you already have from other synths',
     'Save a sound without signing up',
     'A 303 saw table',
-    'Does it work with my MIDI keyboard?',
+    'What is a wavetable synth?',
+    'How wavetable synthesis works',
+    'Drum and bass',
+    'music in any electronic style and beyond',
+    'Does Waveform work with my MIDI keyboard?',
+    'Does Waveform work on a Chromebook, iPad or iPhone?',
+    'Is Waveform good for learning synthesis?',
+    'Can I use the sounds in my tracks?',
+    'commercial releases included',
     'PolyForm Noncommercial',
   ],
-  es: ['tablas de ondas', 'Hasta 8 voces por oscilador', 'paso bajo', 'MIDI Clock', '¿Funciona en el móvil?'],
-  de: ['Tiefpass', 'Bis zu 8 Stimmen pro Oszillator', 'Hüllkurven', 'Ist Waveform kostenlos?'],
+  es: [
+    'tablas de ondas',
+    'Hasta 8 voces por oscilador',
+    'paso bajo',
+    'MIDI Clock',
+    '¿Qué es un sintetizador wavetable?',
+    'Cómo funciona la síntesis wavetable',
+    'cualquier estilo electrónico y más allá',
+    '¿Waveform funciona en un Chromebook, iPad o iPhone?',
+    '¿Waveform sirve para aprender síntesis?',
+    '¿Puedo usar los sonidos en mis canciones?',
+  ],
+  de: [
+    'Tiefpass',
+    'Bis zu 8 Stimmen pro Oszillator',
+    'Hüllkurven',
+    'Ist Waveform kostenlos?',
+    'Was ist ein Wavetable-Synthesizer?',
+    'So funktioniert Wavetable-Synthese',
+    'in jedem elektronischen Stil und darüber hinaus',
+    'Funktioniert Waveform auf Chromebook, iPad oder iPhone?',
+    'Eignet sich Waveform zum Lernen von Synthese?',
+    'Darf ich die Sounds in meinen Tracks verwenden?',
+  ],
 };
 
 const pageOf = (lang) => {
@@ -125,6 +155,8 @@ describe('every version of the page', () => {
         );
         for (const node of audio) assert.match(node.duration, /^PT\d+(\.\d)?S$/);
         const app = graph.find((node) => node['@type'] === 'WebApplication');
+        // the same app as on the page of the synth (/)
+        assert.equal(app['@id'], `${SITE}/#app`);
         assert.ok(existsSync(fileOf(app.screenshot)), app.screenshot);
       });
 
@@ -208,6 +240,33 @@ describe('every version of the page', () => {
         assert.equal(document.querySelectorAll('.feature figure.phone img').length, 1);
       });
 
+      it('makes the words of the first section stand out, what it has under the synth, no marks left', () => {
+        assert.ok(document.querySelectorAll('.hero .lead strong').length >= 2);
+        // what it has under the synth playing, not under the title
+        assert.equal(document.querySelectorAll('.hero .details').length, 0);
+        assert.ok(document.querySelectorAll('.shot-band .details strong').length >= 2);
+        assert.ok(!document.body.textContent.includes('**'));
+        // a word that stands out keeps the spaces around it
+        assert.match(document.querySelector('.hero .lead').textContent, /^Waveform \S/);
+      });
+
+      it('explains wavetable synthesis in three cards, each with its picture, title and text', () => {
+        const cards = [...document.querySelectorAll('#synthesis .card')];
+        assert.equal(cards.length, 3);
+        for (const card of cards) {
+          assert.ok(card.querySelector('.picture'));
+          assert.ok(card.querySelector('h3').textContent.length > 10);
+          assert.ok(card.querySelector('p').textContent.length > 80);
+        }
+        const drawing = cards[0].querySelector('svg.drawing');
+        assert.equal(drawing.getAttribute('role'), 'img');
+        assert.ok(drawing.getAttribute('aria-label').length > 40);
+        assert.equal(drawing.querySelectorAll('polyline').length, 8);
+        assert.equal(cards[1].querySelectorAll('.genres li').length, 12);
+        assert.equal(cards[2].querySelector('.synth svg text').textContent, 'Wave');
+        assert.ok(document.querySelector('#synthesis canvas[data-scene="synthesis"]'));
+      });
+
       it('has images of a known size and text alternatives', () => {
         for (const image of document.querySelectorAll('img')) {
           assert.ok(Number(image.getAttribute('width')) > 0);
@@ -248,6 +307,56 @@ describe('the synth', () => {
   it('links the English version (About)', () => {
     const source = readFileSync(join(ROOT, 'apps/waveform/src/app/common/components/about-link.tsx'), 'utf8');
     assert.equal(source.match(/ABOUT_PATH = '([^']+)'/)?.[1], PAGES.en.path);
+  });
+
+  // its page (/) is the one links to the site lead to: a title of its searches and the app as structured data
+  describe('its page', () => {
+    const document = new JSDOM(readFileSync(join(ROOT, 'apps/waveform/src/index.html'), 'utf8')).window
+      .document;
+
+    it('has a title and a description of its searches', () => {
+      assert.match(document.title, /^Waveform: .*Wavetable Synth/);
+      assert.equal(attr(document, 'meta[property="og:title"]', 'content'), document.title);
+      const description = attr(document, 'meta[name="description"]', 'content');
+      assert.ok(description.length > 80 && description.length <= 180, description);
+      assert.equal(attr(document, 'meta[property="og:description"]', 'content'), description);
+    });
+
+    it('is the canonical page of its links (?preset=)', () => {
+      assert.equal(attr(document, 'link[rel="canonical"]', 'href'), `${SITE}/`);
+    });
+
+    // a crawler without JS reads the root; React empties it on its first render
+    it('tells what the synth is in its root and links every version of the promo page', () => {
+      const root = document.getElementById('root');
+      const titles = [...root.querySelectorAll('h1')];
+      assert.equal(titles.length, 1);
+      assert.match(titles[0].textContent, /^Waveform: .*wavetable synth/i);
+      const text = root.textContent.replace(/\s+/g, ' ');
+      for (const phrase of [
+        'free wavetable synthesizer',
+        'no download, no account',
+        'up to 8 voices',
+        'MIDI',
+      ]) {
+        assert.ok(text.includes(phrase), phrase);
+      }
+      assert.deepEqual(
+        [...root.querySelectorAll('a')].map((link) => link.getAttribute('href')),
+        LANGS.map((lang) => PAGES[lang].path)
+      );
+    });
+
+    it('is the app of the promo pages, linked to the English one', () => {
+      const scripts = [...document.querySelectorAll('script[type="application/ld+json"]')];
+      assert.equal(scripts.length, 1);
+      const app = JSON.parse(scripts[0].textContent);
+      assert.equal(app['@type'], 'WebApplication');
+      assert.equal(app['@id'], `${SITE}/#app`);
+      assert.equal(app.url, `${SITE}/`);
+      assert.equal(app.isAccessibleForFree, true);
+      assert.equal(app.subjectOf.url, `${SITE}${PAGES.en.path}`);
+    });
   });
 });
 

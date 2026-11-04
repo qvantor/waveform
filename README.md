@@ -2,7 +2,7 @@
 
 # Waveform
 
-**Experimental wavetable synth in your browser**
+**Waveform is a free wavetable synthesizer that runs in the browser on a computer, a Chromebook or a phone: no download, no account.**
 
 Built with TypeScript, Rust (WebAssembly), RxJS and the Web Audio API. Nothing to install and no account needed: open it and play.
 

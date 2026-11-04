@@ -1,6 +1,6 @@
 import { DEMOS } from '../data/demos';
 import { LANGS, LOCALES, pageUrl } from './locales';
-import { MESSAGES, fill } from './index';
+import { MESSAGES, fill, marks } from './index';
 
 // the paths of every string of a value: `faq.items.0.q`
 const leaves = (value: unknown, path = ''): [string, unknown][] =>
@@ -52,6 +52,15 @@ describe('the messages', () => {
     }
   });
 
+  it.each(LANGS)('%s marks words only under the title, each mark closed', (lang) => {
+    for (const [path, text] of leaves(MESSAGES[lang])) {
+      const count = (text as string).split('**').length - 1;
+      if (path === 'hero.lead' || path === 'hero.details') {
+        expect({ path, count: count > 0 && count % 2 === 0 }).toEqual({ path, count: true });
+      } else expect({ path, count }).toEqual({ path, count: 0 });
+    }
+  });
+
   it('explains the wavetable once in Spanish', () => {
     expect(MESSAGES.es.hero.lead).toContain('tablas de ondas');
   });
@@ -65,6 +74,23 @@ describe('the locales', () => {
       'https://waveform.qvantor.org/de/wavetable-synthesizer/',
     ]);
     expect(LOCALES.en.ogLocale).toBe('en_US');
+  });
+});
+
+describe('marks', () => {
+  it('splits a text into the words that stand out and the rest, in order', () => {
+    expect(marks('a **free synth** in **the browser**.')).toEqual([
+      { text: 'a ', strong: false },
+      { text: 'free synth', strong: true },
+      { text: ' in ', strong: false },
+      { text: 'the browser', strong: true },
+      { text: '.', strong: false },
+    ]);
+    expect(marks('**Two** oscillators')).toEqual([
+      { text: 'Two', strong: true },
+      { text: ' oscillators', strong: false },
+    ]);
+    expect(marks('plain')).toEqual([{ text: 'plain', strong: false }]);
   });
 });
 

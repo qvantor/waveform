@@ -1,8 +1,9 @@
 ---
 import { Picture } from 'astro:assets';
 import WavetableArt from './WavetableArt.astro';
+import { ART_EXTENT } from '../art/wavetable';
 import poster from '../assets/synth-poster.png';
-import type { Messages } from '../i18n';
+import { marks, type Messages } from '../i18n';
 import { SITE } from '../i18n/locales';
 
 interface Props {
@@ -12,11 +13,13 @@ interface Props {
 const { m } = Astro.props;
 // the name in the colors of the logo: every title starts with it (i18n.spec.ts)
 const BRAND = 'Waveform';
+// where its waves start and their length, as shares of the box of the drawing (placed by them: .art)
+const extent = `--from: ${ART_EXTENT.from.toFixed(4)}; --span: ${(ART_EXTENT.to - ART_EXTENT.from).toFixed(4)}`;
 ---
 
 <section class='hero' aria-labelledby='title'>
   <div class='scene' aria-hidden='true'>
-    <div class='art' data-art>
+    <div class='art' data-art style={extent}>
       <WavetableArt />
       <canvas hidden></canvas>
     </div>
@@ -26,7 +29,9 @@ const BRAND = 'Waveform';
       <span class='brand'>{BRAND}</span>
       {m.hero.h1.slice(BRAND.length)}
     </h1>
-    <p class='lead'>{m.hero.lead}</p>
+    <p class='lead'>
+      {marks(m.hero.lead).map(({ text, strong }) => (strong ? <strong>{text}</strong> : text))}
+    </p>
     <div class='ctas'>
       <a class='key key-glow' href='/'>
         {m.openSynth}
@@ -38,11 +43,6 @@ const BRAND = 'Waveform';
         {m.hero.listen}
       </a>
     </div>
-    <ul class='platform'>
-      {m.hero.platform.map((item) => (
-        <li>{item}</li>
-      ))}
-    </ul>
   </div>
 </section>
 
@@ -81,6 +81,9 @@ const BRAND = 'Waveform';
         </video>
       </div>
     </figure>
+    <p class='details'>
+      {marks(m.hero.details).map(({ text, strong }) => (strong ? <strong>{text}</strong> : text))}
+    </p>
   </div>
 </div>
 
@@ -95,6 +98,7 @@ const BRAND = 'Waveform';
 <style>
   /* a dark screen of the synth: its grid, lights of the logo's colors, the wavetable moving across it */
   .hero {
+    --text-width: 600px;
     position: relative;
     isolation: isolate;
     overflow: hidden;
@@ -106,11 +110,13 @@ const BRAND = 'Waveform';
       linear-gradient(180deg, #0f171e, var(--dark) 55%, #0e151b);
   }
 
+  /* faded out towards the bottom of the section, where it clips the frames */
   .scene {
     position: absolute;
     inset: 0;
     z-index: -1;
     pointer-events: none;
+    mask-image: linear-gradient(180deg, #000 calc(100% - 240px), transparent);
   }
 
   .scene::before {
@@ -124,12 +130,16 @@ const BRAND = 'Waveform';
     mask-image: radial-gradient(ellipse 80% 70% at 60% 45%, #000 20%, transparent 80%);
   }
 
-  /* from just right of the text, off the right edge of the page */
+  /* its waves from OVERLAP behind the end of the text to the right edge of the page, in the middle of its height
+     (the section clips what is higher): the end of the text is that of the column (global.css) */
   .art {
+    --text-end: calc(max(var(--gutter), (100% - var(--column)) / 2) + var(--text-width));
+    --overlap: 120px;
+    --width: calc((100% - var(--text-end) + var(--overlap)) / var(--span));
     position: absolute;
     top: 50%;
-    left: calc(50% + 20px);
-    width: min(64vw, 940px);
+    left: calc(var(--text-end) - var(--overlap) - var(--from) * var(--width));
+    width: var(--width);
     aspect-ratio: 3 / 2;
     transform: translateY(-50%);
   }
@@ -162,14 +172,20 @@ const BRAND = 'Waveform';
   }
 
   .intro > * {
-    max-width: 600px;
+    max-width: var(--text-width);
+  }
+
+  /* the title a little wider than the text under it: a long German compound stays on its line */
+  .intro > h1 {
+    max-width: calc(var(--text-width) + 120px);
   }
 
   h1 {
-    font-size: 56px;
+    font-size: 60px;
     font-weight: 700;
-    line-height: 1.04;
-    letter-spacing: -0.8px;
+    line-height: 1.02;
+    letter-spacing: -1.2px;
+    text-wrap: balance;
   }
 
   .brand {
@@ -179,9 +195,39 @@ const BRAND = 'Waveform';
     color: transparent;
   }
 
+  /* the first sentence, bright, its words under a stroke of the logo's colors */
   .lead {
-    font-size: 19px;
+    font-size: 22px;
+    line-height: 1.45;
+    letter-spacing: -0.2px;
+    color: var(--text);
+    text-wrap: pretty;
+  }
+
+  .lead strong {
+    font-weight: 600;
+    color: #fff;
+    background: linear-gradient(90deg, rgb(52 152 219 / 42%), rgb(46 204 113 / 42%)) 0 84% / 100% 0.4em
+      no-repeat;
+    border-radius: 2px;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+  }
+
+  /* what it has, under the synth playing: quieter, its words only brighter */
+  .details {
+    max-width: 720px;
+    margin: 28px auto 0;
+    font-size: 17px;
+    line-height: 1.65;
     color: var(--text-muted);
+    text-align: center;
+    text-wrap: balance;
+  }
+
+  .details strong {
+    font-weight: 600;
+    color: var(--text);
   }
 
   .ctas {
@@ -194,36 +240,6 @@ const BRAND = 'Waveform';
     width: 18px;
     height: 18px;
     fill: var(--accent);
-  }
-
-  .platform {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin: 0;
-    padding: 0;
-    list-style: none;
-  }
-
-  .platform li {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 5px 12px 5px 10px;
-    border-radius: 999px;
-    background: rgb(255 255 255 / 6%);
-    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 12%);
-    font-size: 14px;
-    color: var(--text);
-  }
-
-  .platform li::before {
-    content: '';
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: var(--accent);
-    box-shadow: 0 0 6px 1px rgb(46 204 113 / 60%);
   }
 
   /* the synth playing, in a window rising over the bottom of the screen, on a glow of the logo's colors */
@@ -349,11 +365,16 @@ const BRAND = 'Waveform';
     }
 
     h1 {
-      font-size: 38px;
+      font-size: 40px;
+      letter-spacing: -0.8px;
     }
 
     .lead {
-      font-size: 17px;
+      font-size: 19px;
+    }
+
+    .details {
+      font-size: 16px;
     }
 
     .shot-band {

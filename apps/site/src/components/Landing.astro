@@ -10,6 +10,7 @@ import Head from './Head.astro';
 import Header from './Header.astro';
 import Hero from './Hero.astro';
 import Listen from './Listen.astro';
+import Synthesis from './Synthesis.astro';
 import editor from '../assets/editor.png';
 import filter from '../assets/filter.png';
 import fx from '../assets/fx.png';
@@ -61,6 +62,7 @@ const screenshot = await getImage({ src: synth, format: 'webp', width: 1440 });
     <main>
       <Hero m={m} />
       <Listen m={m} />
+      <Synthesis m={m} />
       {FEATURES.map(({ section, label, image, phone }, index) => (
         <Feature
           id={section}

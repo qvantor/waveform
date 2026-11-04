@@ -1,4 +1,17 @@
-import { ART, STACK, artFrames, frameAt, mix, ribbon, svgArea, svgPoints } from './wavetable';
+import {
+  ART,
+  ART_EXTENT,
+  DIAGRAM,
+  STACK,
+  artFrames,
+  diagramFrames,
+  diagramTrack,
+  frameAt,
+  mix,
+  ribbon,
+  svgArea,
+  svgPoints,
+} from './wavetable';
 
 describe('the wavetable drawing', () => {
   it('morphs a sine into a saw', () => {
@@ -24,6 +37,14 @@ describe('the wavetable drawing', () => {
         expect(frame.xy[i + 1]).toBeGreaterThanOrEqual(0);
         expect(frame.xy[i + 1]).toBeLessThanOrEqual(ART.height);
       }
+    }
+  });
+
+  it('knows where its waves start and end across the box, whatever the time', () => {
+    for (const time of [0, 3.3, 9]) {
+      const xs = artFrames(time).flatMap((frame) => frame.xy.filter((_, i) => i % 2 === 0));
+      expect(Math.min(...xs) / ART.width).toBeCloseTo(ART_EXTENT.from, 9);
+      expect(Math.max(...xs) / ART.width).toBeCloseTo(ART_EXTENT.to, 9);
     }
   });
 
@@ -56,6 +77,40 @@ describe('the wavetable drawing', () => {
 
   it('mixes colors', () => {
     expect(mix('#000000', '#ffffff', 0.5)).toBe('#808080');
+  });
+});
+
+describe('the wavetable diagram', () => {
+  it('stacks a few frames from a sine at the back to a saw at the front, inside its box', () => {
+    const frames = diagramFrames();
+    expect(frames).toHaveLength(DIAGRAM.frames);
+    expect(frames[0].color).toBe('#3498db');
+    expect(frames.at(-1)?.color).toBe('#2ecc71');
+    // the back one up and right of the front one
+    expect(frames[0].left).toBeGreaterThan(frames[frames.length - 1].left);
+    expect(frames[0].zero).toBeLessThan(frames[frames.length - 1].zero);
+    for (const frame of frames) {
+      for (let i = 0; i < frame.xy.length; i += 2) {
+        expect(frame.xy[i]).toBeGreaterThanOrEqual(0);
+        expect(frame.xy[i]).toBeLessThanOrEqual(DIAGRAM.width);
+        expect(frame.xy[i + 1]).toBeGreaterThanOrEqual(0);
+        expect(frame.xy[i + 1]).toBeLessThanOrEqual(DIAGRAM.height);
+      }
+    }
+  });
+
+  it('lights the frame the Wave knob plays, the knob on its track left of it', () => {
+    const frames = diagramFrames();
+    expect(frames.filter((frame) => frame.glow > 0)).toEqual([frames[DIAGRAM.played]]);
+    const { first, last, knob } = diagramTrack();
+    expect(first).toEqual([frames[0].left - DIAGRAM.track, frames[0].zero]);
+    expect(last).toEqual([frames[frames.length - 1].left - DIAGRAM.track, frames[frames.length - 1].zero]);
+    expect(knob[1]).toBe(frames[DIAGRAM.played].zero);
+    // on the line from the first frame to the last
+    const along = (knob[0] - first[0]) / (last[0] - first[0]);
+    expect(knob[1]).toBeCloseTo(first[1] + along * (last[1] - first[1]), 9);
+    expect(first[0] - 20).toBeGreaterThan(0);
+    expect(last[1] + 32).toBeLessThanOrEqual(DIAGRAM.height);
   });
 });
 

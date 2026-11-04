@@ -45,6 +45,20 @@ describe('the waves behind the features', () => {
     expect(peak(clipped.points)).toBeLessThanOrEqual(ceiling.points[1] + 1e-9);
   });
 
+  it('plays a wave whose frame changes along the band, each part in the color of its frame', () => {
+    const [sine, ...parts] = sceneAt('synthesis', 0);
+    expect(sine.alpha).toBeLessThan(0.5);
+    expect(parts).toHaveLength(12);
+    // the parts join into one line across the band
+    expect(parts[0].points[0]).toBe(0);
+    expect(parts.at(-1)?.points.at(-2)).toBeCloseTo(1, 9);
+    for (let i = 1; i < parts.length; i++) {
+      expect(parts[i].points.slice(0, 2)).toEqual(parts[i - 1].points.slice(-2));
+    }
+    // from the blue of a sine to the green of a saw somewhere along it
+    expect(new Set(parts.map((part) => part.color)).size).toBeGreaterThan(4);
+  });
+
   it('knows its scenes', () => {
     expect(isScene('filter')).toBe(true);
     expect(isScene('faq')).toBe(false);
