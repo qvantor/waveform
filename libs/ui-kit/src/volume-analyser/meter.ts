@@ -1,4 +1,4 @@
-import { number } from '@waveform/math';
+import { number } from '@chisper/math';
 
 // the scale of the meter in dBFS: green below warnDb, yellow up to hotDb, red above it. The master limiter
 // keeps the peaks at -0.5 dBFS, the top of the scale, so a peak mark at the top means it is limiting.

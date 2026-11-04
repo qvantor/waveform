@@ -22,7 +22,7 @@ import { runLatencyCase } from './latency.mjs';
 import { prepareReference } from './reference.mjs';
 import { evaluate, loadBaseline, summarizeCpu, updateBaseline, writeReport } from './report.mjs';
 import { selectCases, TABLES } from './scenes.mjs';
-import { buildSite, downloadTables, serve } from './site.mjs';
+import { buildProbe, buildSite, downloadTables, serve } from './site.mjs';
 import {
   fixed,
   git,
@@ -225,7 +225,8 @@ const main = async () => {
       await downloadTables(keys);
       await buildSite({ force: args.rebuild === 'true' });
       const servers = [await serve({ keys })];
-      if (reference) servers.push(await serve({ keys, site: reference.siteDir }));
+      if (reference)
+        servers.push(await serve({ keys, site: reference.siteDir, probe: await buildProbe(reference.dir) }));
       const [current, other] = servers.map(({ port }) => `http://localhost:${port}/`);
       const origins = { current, reference: other ?? null };
       try {

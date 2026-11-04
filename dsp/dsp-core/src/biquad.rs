@@ -1,5 +1,5 @@
 //! libs/math/src/filter/biquad.ts (coefficientsInto) and the transposed direct form II of createBiquad
-//! (apps/waveform/src/app/synth/fx/effects/dsp.ts)
+//! (apps/chisper/src/app/synth/fx/effects/dsp.ts)
 
 use jsmath::{cos, pow, sin, sqrt, PI, SQRT2};
 

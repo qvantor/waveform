@@ -5,7 +5,7 @@
 // tail is there at the start as at the end. Into apps/site/public/video/synth.mp4 (H.264, the browsers of the
 // systems play it) and synth.webm (VP9, for a Chromium without H.264), its first frame into
 // apps/site/src/assets/synth-poster.png:
-//   FFMPEG=<path of ffmpeg> npx -y -p playwright@1.50.1 node scripts/site/video.mjs [--url=https://waveform.qvantor.org]
+//   FFMPEG=<path of ffmpeg> npx -y -p playwright@1.50.1 node scripts/site/video.mjs [--url=https://chisper.qvantor.org]
 // Chromium plays into a fake output of its own clock (as scripts/bench-perf/browser.mjs); the page is captured by
 // the screencast of the DevTools protocol, sampled at FPS; the reports of listening (/api/usage) are blocked, so the
 // recording counts for no preset.

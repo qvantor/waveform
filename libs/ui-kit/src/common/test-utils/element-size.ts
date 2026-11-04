@@ -1,6 +1,6 @@
 // jsdom has no layout (the stub of the app's test-setup never reports a size): an observer that reports width ×
 // height for every element it observes, at once (charts draw, the wheel turns only once they have a size). The specs
-// of the app take it as `@waveform/ui-kit/test-utils`. Returns the restore of the one before
+// of the app take it as `@chisper/ui-kit/test-utils`. Returns the restore of the one before
 export const withElementSize = (width: number, height: number) => {
   const previous = globalThis.ResizeObserver;
   class SizedObserver {

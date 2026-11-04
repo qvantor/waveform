@@ -1,13 +1,14 @@
-// The promo pages (apps/site, built into dist/apps/site) into the folder of the synth (dist/apps/waveform), which
+// The promo pages (apps/site, built into dist/apps/site) into the folder of the synth (dist/apps/chisper), which
 // Netlify publishes: after `nx build` (webpack empties the folder first) and `nx build site` (`npm run build`).
 // The root, /assets/ and favicon.ico are the synth's, the pages and /_astro/ of the site; a file of the site the
 // synth has with other contents fails the build rather than replacing it (the same bytes: merged before).
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, relative } from 'node:path';
+import { isMain } from './main.mjs';
 
 const ROOT = join(import.meta.dirname, '../..');
 const SITE = join(ROOT, 'dist/apps/site');
-const SYNTH = join(ROOT, 'dist/apps/waveform');
+const SYNTH = join(ROOT, 'dist/apps/chisper');
 
 // every file under a folder, relative to it
 export const filesOf = (dir) =>
@@ -30,7 +31,7 @@ export const merge = (site = SITE, synth = SYNTH) => {
   return files.length;
 };
 
-if (process.argv[1] === import.meta.filename) {
+if (isMain(import.meta)) {
   const count = merge();
   console.log(`site: ${count} files into ${relative(ROOT, SYNTH)}`);
 }

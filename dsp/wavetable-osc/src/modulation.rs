@@ -1,4 +1,4 @@
-//! apps/waveform/src/app/synth/common/wavetable/voice-modulation.ts: the envelopes of a voice move its params,
+//! apps/chisper/src/app/synth/common/wavetable/voice-modulation.ts: the envelopes of a voice move its params,
 //! base + Σ amount × level (base × 2^Σ for a log one), clamped; one value while every envelope a param follows
 //! is in a flat stage. Source 3, after ENV 1–3, is the velocity of the voice (VELO: velocity.rs), flat but
 //! for a glide to the velocity of a note that takes the voice over; sources 4–7 its LFOs (lfo.rs). A bipolar

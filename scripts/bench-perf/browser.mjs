@@ -1,5 +1,5 @@
 // the browsers of a run (Playwright): a fresh context per run, nothing but localhost loads, the test hook of
-// the perf build (window.__waveformPerf) driven from Node
+// the perf build (window.__chisperPerf) driven from Node
 import path from 'path';
 import { SCENE_RATE, sleep } from './util.mjs';
 
@@ -31,7 +31,7 @@ export const launch = async (playwright, name, { headless = false, fakeOutput = 
 // runs in the page: a function of the hook ('trace.stop') with its arguments, its result; self-contained (Playwright
 // sends it as source)
 const callHook = ([name, args]) => {
-  const api = window.__waveformPerf;
+  const api = window.__chisperPerf;
   if (!api) throw new Error('no test hook on the page: not a perf build (npm run build:perf)');
   const keys = name.split('.');
   const owner = keys.slice(0, -1).reduce((target, key) => target[key], api);
@@ -72,7 +72,8 @@ export const openPage = async (
   page.on('pageerror', (error) => errors.push(error.message));
   await page.goto(origin);
   await page
-    .waitForFunction(() => window.__waveformPerf, null, { timeout: 30000 })
+    // (the hook of a tree from before the rename to Chisper, an A/B reference, is window.__waveformPerf)
+    .waitForFunction(() => (window.__chisperPerf ??= window.__waveformPerf), null, { timeout: 30000 })
     .catch(() => {
       throw new Error('no test hook on the page: not a perf build (npm run build:perf)');
     });
@@ -80,7 +81,7 @@ export const openPage = async (
   await resume(page);
   await call('ready', 30000);
   // a browser that ignores the rate would run the scene at the rate of the output, unseen
-  const sampleRate = await page.evaluate(() => window.__waveformPerf.models.synthCore[0].audioCtx.sampleRate);
+  const sampleRate = await page.evaluate(() => window.__chisperPerf.models.synthCore[0].audioCtx.sampleRate);
   if (sampleRate !== rate) {
     await context.close();
     throw new Error(`the context runs at ${sampleRate} Hz, not ${rate}`);
@@ -99,7 +100,7 @@ export const traceEvents = async (browser, page, categories, during) => {
 const resume = async (page) => {
   for (let attempt = 0; attempt < 10; attempt++) {
     await page.mouse.click(8, 8);
-    const state = await page.evaluate(() => window.__waveformPerf.models.synthCore[0].audioCtx.state);
+    const state = await page.evaluate(() => window.__chisperPerf.models.synthCore[0].audioCtx.state);
     if (state === 'running') return;
     await sleep(300);
   }

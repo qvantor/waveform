@@ -165,7 +165,7 @@ The verdicts are tested without a browser: `npm run test:scripts` (`verdict.test
 ## What moved to the specs
 
 The cases the suite had before (git history of this folder) and what checks the same now, deterministic, in
-`npx nx test waveform` (CI):
+`npx nx test chisper` (CI):
 
 | Was            | What it showed                                                                           | Now                                                                                                                                   |
 | -------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |

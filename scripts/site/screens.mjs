@@ -3,7 +3,7 @@
 // presets of its clips, upright (each fits the height of the text beside it): both oscillators one over the
 // other, the unison with Detune held, the filter, Osc 2 over the envelopes and the LFO, the effects of a phone
 // (their order and the first two); the keys of a phone, its whole screen. Run it when the interface changes:
-//   npx -y -p playwright@1.50.1 node scripts/site/screens.mjs [--url=https://waveform.qvantor.org]
+//   npx -y -p playwright@1.50.1 node scripts/site/screens.mjs [--url=https://chisper.qvantor.org]
 import fs from 'fs';
 import path from 'path';
 import { loadPlaywright, parseArgs, root } from '../bench-common.mjs';

@@ -2,7 +2,7 @@ import React from 'react';
 import { styled } from 'styled-components';
 import { arc } from 'd3-shape';
 import cls from 'classnames';
-import { number } from '@waveform/math';
+import { number } from '@chisper/math';
 import { theme } from '../common/constants';
 import { singlePointerTracker } from '../common/utils';
 import { OFF_OPACITY } from '../common/utils/mod-routes';

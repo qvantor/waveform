@@ -18,7 +18,7 @@ describe('merge', () => {
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'site-merge-'));
     site = join(dir, 'site');
-    synth = join(dir, 'waveform');
+    synth = join(dir, 'chisper');
     write(synth, 'index.html', 'synth');
     write(synth, 'assets/worklets/limiter.js');
     write(site, 'wavetable-synth/index.html', 'page');

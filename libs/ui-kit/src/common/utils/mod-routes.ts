@@ -1,4 +1,4 @@
-import { number } from '@waveform/math';
+import { number } from '@chisper/math';
 
 export interface Route {
   amount: number;

@@ -1,7 +1,7 @@
 import React from 'react';
 import { ScaleLinear } from 'd3-scale';
 import { Line } from 'd3-shape';
-import { Vector2D } from '@waveform/math';
+import { Vector2D } from '@chisper/math';
 
 export interface LineChartContextType {
   width: number;

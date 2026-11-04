@@ -4,24 +4,24 @@ import type { Messages } from './en';
 // translated word for word; the knobs and sections keep the names of the synth
 export const de: Messages = {
   meta: {
-    title: 'Waveform: Wavetable-Synthesizer online & kostenlos',
+    title: 'Chisper: Wavetable-Synthesizer online & kostenlos',
     description:
       'Kostenloser Online-Synthesizer im Browser: zwei Wavetable-Oszillatoren mit 8-stimmigem Unisono, Filter, Hüllkurven und LFOs auf jedem Regler, Effekte und MIDI. Ohne Installation.',
-    ogImageAlt: 'Waveform, ein kostenloser Wavetable-Synthesizer',
+    ogImageAlt: 'Chisper, ein kostenloser Wavetable-Synthesizer',
   },
   openSynth: 'Synthesizer öffnen',
   hero: {
-    h1: 'Waveform: kostenloser Wavetable-Synthesizer',
-    lead: 'Waveform ist ein **kostenloser Wavetable-Synthesizer**, der im Browser läuft, auf dem Computer, einem Chromebook oder dem Smartphone: **ohne Download und ohne Konto**.',
+    h1: 'Chisper: kostenloser Wavetable-Synthesizer',
+    lead: 'Chisper ist ein **kostenloser Wavetable-Synthesizer**, der im Browser läuft, auf dem Computer, einem Chromebook oder dem Smartphone: **ohne Download und ohne Konto**.',
     details:
-      '**Zwei Wavetable-Oszillatoren** mit **Supersaw-Unisono** aus bis zu 8 Stimmen, ein Filter in jeder Stimme, drei Hüllkurven und vier LFOs, die du auf **jeden Regler** ziehst, Distortion, Delay und Reverb. Schließ ein MIDI-Keyboard an oder spiel auf der Computertastatur.',
+      '**Zwei Wavetable-Oszillatoren** mit **Supersaw-Unisono** aus bis zu 8 Stimmen, ein eigenes Filter pro Stimme, drei Hüllkurven und vier LFOs, die du auf **jeden Regler** ziehst, Distortion, Delay und Reverb. Schließ ein MIDI-Keyboard an oder spiel auf der Computertastatur.',
     listen: 'Reinhören',
     screenshotAlt:
-      'Der Synthesizer Waveform spielt Akkorde: Die Wellen beider Oszillatoren, die Punkte der Hüllkurven und des LFO, das Filter und das Spektrum bewegen sich',
+      'Der Synthesizer Chisper spielt Akkorde: Die Wellen beider Oszillatoren, die Punkte der Hüllkurven und des LFO, das Filter und das Spektrum bewegen sich',
   },
   listen: {
     h2: 'Kostenlose Synth-Presets zum Anhören',
-    lead: 'Alle Sounds hier sind kostenlose Presets des Wavetable-Synthesizers Waveform, direkt an seinem Ausgang aufgenommen: Bässe, Leads, Plucks, Keys und FX. Öffne eines mit einem Klick, spiel es auf der Tastatur oder einem MIDI-Keyboard, dreh an jedem Regler und speichere deine eigene Version, ohne Anmeldung.',
+    lead: 'Alle Sounds hier sind kostenlose Presets des Wavetable-Synthesizers Chisper, direkt an seinem Ausgang aufgenommen: Bässe, Leads, Plucks, Keys und FX. Öffne eines mit einem Klick, spiel es auf der Tastatur oder einem MIDI-Keyboard, dreh an jedem Regler und speichere deine eigene Version, ohne Anmeldung.',
   },
   synthesis: {
     h2: 'Was ist ein Wavetable-Synthesizer?',
@@ -32,7 +32,7 @@ export const de: Messages = {
     },
     styles: {
       h3: 'Jeder Stil elektronischer Musik',
-      text: 'Mit Waveform machst du Musik in jedem elektronischen Stil und darüber hinaus, vom Club-Track bis zur Film- und Game-Musik. Seine Bässe, Leads, Pads, Plucks, Keys und Effekte passen überall, wo ein Synthesizer gebraucht wird.',
+      text: 'Mit Chisper machst du Musik in jedem elektronischen Stil und darüber hinaus, vom Club-Track bis zur Film- und Game-Musik. Seine Bässe, Leads, Pads, Plucks, Keys und Effekte passen überall, wo ein Synthesizer gebraucht wird.',
       genres: [
         'House',
         'Techno',
@@ -50,14 +50,14 @@ export const de: Messages = {
     },
     online: {
       h3: 'Kostenlos und online, ohne Installation',
-      text: 'Waveform ist ein kostenloser Online-Wavetable-Synthesizer: dieselbe Art der Synthese wie bei Wavetable-Synthesizern für den Desktop, ohne Installation. Öffne ihn, wähl eine Tabelle und dreh an Wave, um die Frames wechseln zu hören.',
+      text: 'Chisper ist ein kostenloser Online-Wavetable-Synthesizer: dieselbe Art der Synthese wie bei Wavetable-Synthesizern für den Desktop, ohne Installation. Öffne ihn, wähl eine Tabelle und dreh an Wave, um die Frames wechseln zu hören.',
     },
   },
   features: {
     wavetables: {
       h2: 'Wavetable-Oszillatoren mit 256 Frames',
       text: [
-        'Lass den Klang sich verändern, während er spielt: Der Regler Wave fährt durch eine Wavetable, und der Klang wandert mit. Zwei Oszillatoren spielen Wavetables mit bis zu 256 Frames aus einer nach Ordnern sortierten Bibliothek, jeder Wechsel des Frames wird weich eingeblendet. Tabellen mit Morph-Markierung werden auf 256 Frames erweitert.',
+        'Lass den Klang sich verändern, während die Note klingt: Der Regler Wave fährt durch eine Wavetable, und die Klangfarbe folgt ihm. Zwei Oszillatoren spielen Wavetables mit bis zu 256 Frames aus einer nach Ordnern sortierten Bibliothek, jeder Framewechsel wird weich überblendet. Tabellen mit Morph-Markierung werden auf 256 Frames erweitert.',
         'Jeder Oszillator hat Oct, Semi und Fine, und Phase und Phase rand legen fest, wo seine Stimmen beginnen.',
       ],
     },
@@ -68,7 +68,7 @@ export const de: Messages = {
       ],
     },
     filter: {
-      h2: 'Ein Filter in jeder Stimme: 8 Typen',
+      h2: 'Ein Filter pro Stimme: 8 Typen',
       text: [
         'Jede Note hat ihr eigenes Filter, so öffnet eine Hüllkurve jede Note eines Akkords für sich, wie bei analogen polyphonen Synthesizern. Acht Typen: Lowpass (Tiefpass), Highpass (Hochpass), Bandpass, Low Shelf, High Shelf, Peaking, Notch und Allpass, mit Cutoff, Res und Gain.',
       ],
@@ -76,14 +76,14 @@ export const de: Messages = {
     modulation: {
       h2: 'Modulation per Drag & Drop: Hüllkurven, LFOs, Anschlag',
       text: [
-        'Bring jeden Regler in Bewegung: Zieh den Tab einer Quelle auf ihn, unipolar oder bipolar, mit bis zu 64 Routen, 4 pro Regler. Die Quellen: drei Hüllkurven (ENV 1 ist die Lautstärke) mit einer Kurve, die du in jeder Phase biegst, vier LFOs mit fünf Formen, eigene Formen aus Punkten und fertige Muster Sidechain, Rhythm und Steps, dazu die Anschlagstärke jeder Note (VELO).',
+        'Bring jeden Regler in Bewegung: Zieh den Tab einer Quelle auf ihn, unipolar oder bipolar, mit bis zu 64 Routen, 4 pro Regler. Die Quellen: drei Hüllkurven (ENV 1 ist die Lautstärke) mit einstellbarer Krümmung jeder Phase, vier LFOs mit fünf Formen, eigene Formen aus Punkten und fertige Muster Sidechain, Rhythm und Steps, dazu die Anschlagstärke jeder Note (VELO).',
         'Die LFOs, die Zeiten der Hüllkurven und das Delay laufen synchron zum Tempo, mit Triolen und punktierten Noten, oder folgen einer MIDI Clock.',
       ],
     },
     effects: {
       h2: 'Effekte: Distortion, Delay, Reverb',
       text: [
-        'Mach den Sound im Synthesizer fertig: Distortion (Soft oder Hard Clip, mit Oversampling), ein Delay (normal oder Ping-Pong, mit Bandfilter im Feedback und Haas-Stereoversatz) und ein algorithmischer Reverb mit 16 Leitungen. Die Reihenfolge änderst du per Drag & Drop, jeder Effekt hat seinen Mix und eigene Presets. Ein Limiter auf dem Master verhindert Übersteuerung.',
+        'Mach den Sound im Synthesizer fertig: Distortion (Soft oder Hard Clip, mit Oversampling), ein Delay (normal oder Ping-Pong, mit Bandfilter im Feedback und Haas-Stereoversatz) und ein algorithmischer Reverb mit 16 Delay-Lines. Die Reihenfolge änderst du per Drag & Drop, jeder Effekt hat seinen Mix und eigene Presets. Ein Limiter auf dem Master verhindert Übersteuerung.',
       ],
     },
     playing: {
@@ -97,7 +97,7 @@ export const de: Messages = {
       text: [
         'Bau eigene Wavetables: Zeichne einen Frame von Hand, mach aus jeder Audiodatei eine Tabelle oder lade die WAV-Wavetables, die du schon von anderen Synthesizern und aus Wavetable-Packs hast (ihre clm-Markierung wird gelesen).',
       ],
-      screenshotAlt: 'Der Wavetable-Editor von Waveform: die Frames einer Tabelle und der gerade gezeichnete',
+      screenshotAlt: 'Der Wavetable-Editor von Chisper: die Frames einer Tabelle und der gerade gezeichnete',
     },
     presets: {
       h2: 'Kostenlose Community-Presets per Link',
@@ -109,25 +109,25 @@ export const de: Messages = {
   },
   figures: {
     wavetables:
-      'Osc 1 von Waveform auf Frame 33 der Wavetable Spectral Gyro, mit den Reglern Gain, Wave, Detune und Blend',
+      'Beide Oszillatoren von Chisper: Osc 1 auf Frame 33 der Wavetable Spectral Gyro, Osc 2 eine Oktave tiefer auf Frame 17 von Growl Outer Space, jeder mit Gain, Wave, Detune und Blend',
     unison:
       'Detune gehalten auf Osc 1: die 8 Stimmen des Unisonos über einer Sägezahnwelle, die mittleren in Grün',
     filter:
-      'Das Filter von Waveform: die Kurve eines resonanten Lowpass, mit den Reglern Cutoff, Res und Gain',
+      'Das Filter von Chisper: die Kurve eines resonanten Lowpass, mit den Reglern Cutoff, Res und Gain',
     modulation:
-      'LFO 1 von Waveform mit der Form Kick, den Tabs LFO 1 bis 4 und den Reglern Rate, Delay, Rise, Smooth und Phase',
+      'Osc 2 von Chisper auf der Wavetable Sub Sine über ENV 1 und LFO 1: die Form Kick von LFO 1 bewegt den Gain von Osc 2, ENV 2 die Rate von LFO 1',
     effects:
-      'Die Effekte von Waveform: Soft-Clip-Distortion, ein Ping-Pong-Delay mit Bandfilter und der Reverb',
+      'Die Effekte von Chisper: Soft-Clip-Distortion, ein Ping-Pong-Delay mit Bandfilter und der Reverb',
     playing:
-      'Waveform auf dem Smartphone: der Synthesizer über zwei Tastenreihen, die Oktavtasten und das Pitch-Rad',
+      'Chisper auf dem Smartphone: der Synthesizer über zwei Tastenreihen, die Oktavtasten und das Pitch-Rad',
   },
   finale: {
     h2: 'Jetzt kostenlos online spielen',
-    text: 'Kein Download, kein Konto: Öffne Waveform und spiel auf der Computertastatur, einem MIDI-Keyboard oder den Tasten auf dem Bildschirm.',
+    text: 'Kein Download, kein Konto: Öffne Chisper und spiel auf der Computertastatur, einem MIDI-Keyboard oder den Tasten auf dem Bildschirm.',
   },
   card: {
     categories: { bass: 'Bass', lead: 'Lead', pluck: 'Pluck', keys: 'Keys', pad: 'Pad', fx: 'FX' },
-    open: 'In Waveform öffnen',
+    open: 'In Chisper öffnen',
     play: '{name} abspielen',
     seek: 'Position in {name}',
   },
@@ -154,60 +154,49 @@ export const de: Messages = {
       'Drei Pings, beantwortet von einem langen Delay und Reverb; ENV 2 verschiebt das Band der Echos.',
     'zesty-drive-bass':
       'Distortion und Ping-Pong-Delay auf einem Mono-Bass; überlappende Noten gleiten ohne neuen Anschlag.',
-    theremin: 'Mono-Legato: Jede Note gleitet in die nächste (150 ms Portamento), in der Mitte ein Atemzug.',
+    theremin:
+      'Mono-Legato: Jede Note gleitet in die nächste (150 ms Portamento), in der Mitte eine Atempause.',
     'sub-bass':
       'Ein Sub im 808-Stil für Trap und Hip-Hop, der zwischen überlappenden Noten gleitet; am besten mit Kopfhörern.',
   },
   faq: {
     h2: 'Häufige Fragen zum Online-Synthesizer',
     items: [
-      { q: 'Ist Waveform kostenlos?', a: 'Ja. Waveform ist kostenlos und ohne Anmeldung.' },
+      { q: 'Ist Chisper kostenlos?', a: 'Ja. Chisper ist kostenlos und ohne Anmeldung.' },
       {
         q: 'Muss ich etwas installieren?',
-        a: 'Nein. Waveform läuft im Browser: Chrome, Edge, Safari und Firefox, auf dem Computer oder dem Smartphone. Die Klangerzeugung ist in Rust geschrieben und nach WebAssembly SIMD kompiliert. Chrome auf dem Computer hat einen Modus mit niedriger Latenz.',
+        a: 'Nein. Chisper läuft im Browser: Chrome, Edge, Safari und Firefox, auf dem Computer oder dem Smartphone. Die Klangerzeugung ist in Rust geschrieben und nach WebAssembly SIMD kompiliert. Chrome auf dem Computer hat einen Modus mit niedriger Latenz.',
       },
       {
-        q: 'Funktioniert Waveform auf Chromebook, iPad oder iPhone?',
-        a: 'Ja. Auf dem Chromebook läuft Waveform in Chrome wie auf jedem Computer, auch mit MIDI-Keyboards: praktisch auf Schul- und Firmenrechnern, auf denen du nichts installieren darfst. Auf iPhone und iPad läuft es in Safari (ab iOS 16.4), auf Android in Chrome; auf dem Smartphone hat es ein eigenes Layout, mit den Tasten auf einem eigenen Bildschirm. iOS hat kein Web MIDI: Dort spielst du auf den Tasten am Bildschirm.',
+        q: 'Funktioniert Chisper auf Chromebook, iPad oder iPhone?',
+        a: 'Ja. Auf dem Chromebook läuft Chisper in Chrome wie auf jedem Computer, auch mit MIDI-Keyboards: praktisch auf Schul- und Firmenrechnern, auf denen du nichts installieren darfst. Auf iPhone und iPad läuft es in Safari (ab iOS 16.4), auf Android in Chrome; auf dem Smartphone hat es ein eigenes Layout, mit den Tasten auf einem eigenen Bildschirm. iOS hat kein Web MIDI: Dort spielst du auf den Tasten am Bildschirm.',
       },
       {
-        q: 'Funktioniert Waveform mit meinem MIDI-Keyboard?',
-        a: 'Ja. Waveform funktioniert mit MIDI-Keyboards in Browsern mit Web MIDI: Chrome, Edge, Opera und Firefox auf dem Computer, Chrome auf Android. Safari (und jeder Browser auf iPhone und iPad) hat kein Web MIDI: Dort spielst du auf der Computertastatur oder dem Bildschirmklavier. Waveform liest Noten, Anschlagstärke, Pitch Bend und MIDI Clock.',
+        q: 'Funktioniert Chisper mit meinem MIDI-Keyboard?',
+        a: 'Ja. Chisper funktioniert mit MIDI-Keyboards in Browsern mit Web MIDI: Chrome, Edge, Opera und Firefox auf dem Computer, Chrome auf Android. Safari (und jeder Browser auf iPhone und iPad) hat kein Web MIDI: Dort spielst du auf der Computertastatur oder dem Bildschirmklavier. Chisper liest Noten, Anschlagstärke, Pitch Bend und MIDI Clock.',
       },
       {
-        q: 'Eignet sich Waveform zum Lernen von Synthese?',
-        a: 'Ja. Waveform zeigt, was jeder Regler tut, während du ihn drehst: die Welle, die jeder Oszillator spielt, die Stimmen des Unisonos, solange Detune gehalten wird, die Kurve des Filters, die Hüllkurven und LFOs als Kurven mit einem Punkt der klingenden Note. Öffne ein beliebiges Preset, um zu sehen, wie sein Sound gebaut ist, ändere es und hör den Unterschied.',
+        q: 'Eignet sich Chisper zum Lernen von Synthese?',
+        a: 'Ja. Chisper zeigt, was jeder Regler tut, während du ihn drehst: die Welle, die jeder Oszillator spielt, die Stimmen des Unisonos, solange Detune gehalten wird, die Kurve des Filters, die Hüllkurven und LFOs als Kurven mit einem Punkt der klingenden Note. Öffne ein beliebiges Preset, um zu sehen, wie sein Sound gebaut ist, ändere es und hör den Unterschied.',
       },
       {
         q: 'Kann ich beliebige Wavetables importieren?',
-        a: 'Ja. Waveform lädt jede WAV-Wavetable mit Frames von 2048 Samples, aus anderen Wavetable-Synthesizern oder Wavetable-Packs (ihre clm-Markierung wird gelesen). Eine Tabelle lässt sich auch aus einer kurzen Audiodatei machen oder von Hand zeichnen.',
+        a: 'Ja. Chisper lädt jede WAV-Wavetable mit Frames von 2048 Samples, aus anderen Wavetable-Synthesizern oder Wavetable-Packs (ihre clm-Markierung wird gelesen). Eine Tabelle lässt sich auch aus einer kurzen Audiodatei machen oder von Hand zeichnen.',
       },
       {
         q: 'Darf ich die Sounds in meinen Tracks verwenden?',
-        a: 'Ja. Die Sounds, die du auf Waveform spielst, darfst du in deinen Tracks verwenden, auch in kommerziellen Releases.',
+        a: 'Ja. Die Sounds, die du auf Chisper spielst, darfst du in deinen Tracks verwenden, auch in kommerziellen Releases.',
       },
       {
         q: 'Wie teile ich einen Sound?',
-        a: 'Speichere ihn in Waveform als Preset und kopiere den Link: Wer ihn öffnet, hört denselben Sound.',
+        a: 'Speichere ihn in Chisper als Preset und kopiere den Link: Wer ihn öffnet, hört denselben Sound.',
       },
       {
         q: 'Ist der Quellcode verfügbar?',
-        a: 'Ja. Der Quellcode von Waveform liegt auf GitHub, unter der Lizenz PolyForm Noncommercial.',
+        a: 'Ja. Der Quellcode von Chisper liegt auf GitHub, unter der Lizenz PolyForm Noncommercial.',
       },
     ],
   },
-  featureList: [
-    'Zwei Wavetable-Oszillatoren, Tabellen mit bis zu 256 Frames',
-    'Supersaw-Unisono mit bis zu 8 Stimmen pro Oszillator, Detune und Blend',
-    'Ein Filter in jeder Stimme, 8 Typen',
-    'Drei Hüllkurven, vier LFOs und die Anschlagstärke auf jedem Regler',
-    'Tempo-Sync und MIDI Clock',
-    'Distortion, Delay und Reverb in beliebiger Reihenfolge, Limiter auf dem Master',
-    'MIDI-Keyboards, Pitch Bend, die Computertastatur und ein Bildschirmklavier',
-    'Poly und Mono, Legato und Portamento',
-    'Wavetable-Editor: Zeichnen, Audiodateien, WAV-Wavetables anderer Synthesizer',
-    'Presets der Community, per Link geteilt',
-  ],
   footer: {
     source: 'Quellcode auf GitHub',
     follow: 'Folgen',

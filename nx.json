@@ -51,7 +51,7 @@
       }
     }
   },
-  "defaultProject": "waveform",
+  "defaultProject": "chisper",
   "defaultBase": "main",
   "affected": {
     "legacy": true
@@ -69,7 +69,7 @@
         "targetName": "lint"
       },
       "include": [
-        "apps/waveform/**/*",
+        "apps/chisper/**/*",
         "apps/site/**/*",
         "libs/math/**/*",
         "libs/preset-schema/**/*",
@@ -87,5 +87,5 @@
       }
     }
   ],
-  "analytics": true
+  "analytics": false
 }

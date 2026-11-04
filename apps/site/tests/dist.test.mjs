@@ -9,7 +9,7 @@ import { JSDOM } from 'jsdom';
 
 const ROOT = join(import.meta.dirname, '../../..');
 const DIST = join(ROOT, 'dist/apps/site');
-const SITE = 'https://waveform.qvantor.org';
+const SITE = 'https://chisper.qvantor.org';
 
 const PAGES = {
   en: { path: '/wavetable-synth/', ogLocale: 'en_US' },
@@ -48,9 +48,9 @@ const TEXTS = {
     'How wavetable synthesis works',
     'Drum and bass',
     'music in any electronic style and beyond',
-    'Does Waveform work with my MIDI keyboard?',
-    'Does Waveform work on a Chromebook, iPad or iPhone?',
-    'Is Waveform good for learning synthesis?',
+    'Does Chisper work with my MIDI keyboard?',
+    'Does Chisper work on a Chromebook, iPad or iPhone?',
+    'Is Chisper good for learning synthesis?',
     'Can I use the sounds in my tracks?',
     'commercial releases included',
     'PolyForm Noncommercial',
@@ -63,20 +63,20 @@ const TEXTS = {
     '¿Qué es un sintetizador wavetable?',
     'Cómo funciona la síntesis wavetable',
     'cualquier estilo electrónico y más allá',
-    '¿Waveform funciona en un Chromebook, iPad o iPhone?',
-    '¿Waveform sirve para aprender síntesis?',
+    '¿Chisper funciona en un Chromebook, iPad o iPhone?',
+    '¿Chisper sirve para aprender síntesis?',
     '¿Puedo usar los sonidos en mis canciones?',
   ],
   de: [
     'Tiefpass',
     'Bis zu 8 Stimmen pro Oszillator',
     'Hüllkurven',
-    'Ist Waveform kostenlos?',
+    'Ist Chisper kostenlos?',
     'Was ist ein Wavetable-Synthesizer?',
     'So funktioniert Wavetable-Synthese',
     'in jedem elektronischen Stil und darüber hinaus',
-    'Funktioniert Waveform auf Chromebook, iPad oder iPhone?',
-    'Eignet sich Waveform zum Lernen von Synthese?',
+    'Funktioniert Chisper auf Chromebook, iPad oder iPhone?',
+    'Eignet sich Chisper zum Lernen von Synthese?',
     'Darf ich die Sounds in meinen Tracks verwenden?',
   ],
 };
@@ -101,7 +101,7 @@ describe('every version of the page', () => {
 
       it('has its language, title, description and canonical', () => {
         assert.equal(document.documentElement.lang, lang);
-        assert.ok(document.title.includes('Waveform'));
+        assert.ok(document.title.includes('Chisper'));
         assert.ok(attr(document, 'meta[name="description"]', 'content').length > 80);
         assert.equal(attr(document, 'link[rel="canonical"]', 'href'), url);
       });
@@ -206,7 +206,7 @@ describe('every version of the page', () => {
         assert.deepEqual(
           social.map((link) => [link.getAttribute('aria-label'), link.getAttribute('href')]),
           [
-            ['GitHub', 'https://github.com/qvantor/waveform'],
+            ['GitHub', 'https://github.com/qvantor/chisper'],
             ['Instagram', 'https://www.instagram.com/waveformsound/'],
             ['YouTube', 'https://www.youtube.com/@waveform-sound'],
           ]
@@ -247,7 +247,7 @@ describe('every version of the page', () => {
         assert.ok(document.querySelectorAll('.shot-band .details strong').length >= 2);
         assert.ok(!document.body.textContent.includes('**'));
         // a word that stands out keeps the spaces around it
-        assert.match(document.querySelector('.hero .lead').textContent, /^Waveform \S/);
+        assert.match(document.querySelector('.hero .lead').textContent, /^Chisper \S/);
       });
 
       it('explains wavetable synthesis in three cards, each with its picture, title and text', () => {
@@ -305,17 +305,17 @@ describe('the build', () => {
 
 describe('the synth', () => {
   it('links the English version (About)', () => {
-    const source = readFileSync(join(ROOT, 'apps/waveform/src/app/common/components/about-link.tsx'), 'utf8');
+    const source = readFileSync(join(ROOT, 'apps/chisper/src/app/common/components/about-link.tsx'), 'utf8');
     assert.equal(source.match(/ABOUT_PATH = '([^']+)'/)?.[1], PAGES.en.path);
   });
 
   // its page (/) is the one links to the site lead to: a title of its searches and the app as structured data
   describe('its page', () => {
-    const document = new JSDOM(readFileSync(join(ROOT, 'apps/waveform/src/index.html'), 'utf8')).window
+    const document = new JSDOM(readFileSync(join(ROOT, 'apps/chisper/src/index.html'), 'utf8')).window
       .document;
 
     it('has a title and a description of its searches', () => {
-      assert.match(document.title, /^Waveform: .*Wavetable Synth/);
+      assert.match(document.title, /^Chisper: .*Wavetable Synth/);
       assert.equal(attr(document, 'meta[property="og:title"]', 'content'), document.title);
       const description = attr(document, 'meta[name="description"]', 'content');
       assert.ok(description.length > 80 && description.length <= 180, description);
@@ -331,7 +331,7 @@ describe('the synth', () => {
       const root = document.getElementById('root');
       const titles = [...root.querySelectorAll('h1')];
       assert.equal(titles.length, 1);
-      assert.match(titles[0].textContent, /^Waveform: .*wavetable synth/i);
+      assert.match(titles[0].textContent, /^Chisper: .*wavetable synth/i);
       const text = root.textContent.replace(/\s+/g, ' ');
       for (const phrase of [
         'free wavetable synthesizer',
@@ -357,11 +357,23 @@ describe('the synth', () => {
       assert.equal(app.isAccessibleForFree, true);
       assert.equal(app.subjectOf.url, `${SITE}${PAGES.en.path}`);
     });
+
+    it('describes the app as every version of the page does', () => {
+      const app = JSON.parse(document.querySelector('script[type="application/ld+json"]').textContent);
+      for (const lang of LANGS) {
+        const graph = JSON.parse(
+          pageOf(lang).querySelector('script[type="application/ld+json"]').textContent
+        )['@graph'];
+        const theirs = graph.find((node) => node['@type'] === 'WebApplication');
+        assert.equal(theirs.description, app.description, lang);
+        assert.equal(theirs.inLanguage, app.inLanguage, lang);
+      }
+    });
   });
 });
 
 describe('robots.txt of the synth', () => {
-  const robots = readFileSync(join(ROOT, 'apps/waveform/src/robots.txt'), 'utf8');
+  const robots = readFileSync(join(ROOT, 'apps/chisper/src/robots.txt'), 'utf8');
 
   it('lets every crawler in but the API and the functions', () => {
     assert.match(robots, /^User-agent: \*$/m);

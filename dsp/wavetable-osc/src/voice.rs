@@ -1,4 +1,4 @@
-//! createVoiceDsp of apps/waveform/src/app/synth/common/wavetable/wavetable-osc-dsp.ts: a voice of a note, both
+//! createVoiceDsp of apps/chisper/src/app/synth/common/wavetable/wavetable-osc-dsp.ts: a voice of a note, both
 //! oscillators with their unison voices into one stereo output, ported bit for bit (the comments of the
 //! algorithm are in the TS)
 

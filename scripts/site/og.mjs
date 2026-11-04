@@ -1,6 +1,7 @@
 // The Open Graph images of the promo page (apps/site/public/og/<lang>.png, 1200×630): the wordmark, the line of
 // the page in its language (`og` of apps/site/src/i18n/<lang>.ts) and the screenshot of the synth
-// (screens.mjs first). Run it when the line or the screenshot changes:
+// (screens.mjs first); the English one is the image of the synth too (apps/chisper/src/assets/og-image.png, the
+// og:image of its index.html). Run it when the line or the screenshot changes:
 //   npx -y -p playwright@1.50.1 node scripts/site/og.mjs
 import fs from 'fs';
 import path from 'path';
@@ -10,6 +11,7 @@ const { LANGS, SITE } = await import('../../apps/site/src/i18n/locales.ts');
 
 const OUT = path.join(root, 'apps/site/public/og');
 const SCREENSHOT = path.join(root, 'apps/site/src/assets/synth.png');
+const SYNTH_OG = path.join(root, 'apps/chisper/src/assets/og-image.png');
 
 // the `og` line of a language (its messages, Node strips their types)
 const lineOf = async (lang) => (await import(`../../apps/site/src/i18n/${lang}.ts`))[lang].og;
@@ -37,7 +39,7 @@ const page = (line, screenshot) => `<!doctype html>
 </style></head>
 <body>
   <div class="text">
-    <div class="logo"><span class="name">WAVEFORM</span><span class="by">by Qvantor</span></div>
+    <div class="logo"><span class="name">CHISPER</span><span class="by">by Qvantor</span></div>
     <h1>${escape(line)}</h1>
   </div>
   <div class="url">${new URL(SITE).host}</div>
@@ -56,6 +58,8 @@ const main = async () => {
     await tab.screenshot({ path: path.join(OUT, `${lang}.png`) });
     console.log(`og/${lang}.png`);
   }
+  fs.copyFileSync(path.join(OUT, 'en.png'), SYNTH_OG);
+  console.log(path.relative(root, SYNTH_OG));
   await browser.close();
 };
 

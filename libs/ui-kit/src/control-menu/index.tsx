@@ -4,7 +4,7 @@ import { styled } from 'styled-components';
 import cls from 'classnames';
 import hexToRgba from 'hex-to-rgba';
 import { CloseOutlined, UndoOutlined } from '@ant-design/icons';
-import { number } from '@waveform/math';
+import { number } from '@chisper/math';
 import { theme } from '../common/constants';
 import { text10, text12, textBold12 } from '../common/styles';
 import { singlePointerTracker } from '../common/utils';

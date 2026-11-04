@@ -248,7 +248,7 @@ export const SCENES = [
   {
     name: 'limiter, a chord 12 dB over',
     module: 'limiter',
-    processor: 'waveform-limiter',
+    processor: 'chisper-limiter',
     options: STEREO,
     frames: RATE / 2,
     amplitude: 2,
@@ -257,7 +257,7 @@ export const SCENES = [
   {
     name: 'limiter, notes and silences: idle and woken',
     module: 'limiter',
-    processor: 'waveform-limiter',
+    processor: 'chisper-limiter',
     options: STEREO,
     frames: 2 * RATE,
     input: () => notesAndSilences(2 * RATE),
@@ -266,7 +266,7 @@ export const SCENES = [
   {
     name: 'reverb, the 70s era',
     module: 'reverb',
-    processor: 'waveform-reverb',
+    processor: 'chisper-reverb',
     options: { ...STEREO, processorOptions: { params: REVERB, active: true } },
     frames: RATE,
     amplitude: 0.5,
@@ -275,7 +275,7 @@ export const SCENES = [
   ...[0, 1].map((mode) => ({
     name: `distortion, ${mode ? 'hard' : 'soft'} clip at 9 dB, tone 6 kHz`,
     module: 'distortion',
-    processor: 'waveform-distortion',
+    processor: 'chisper-distortion',
     options: { ...STEREO, processorOptions: { params: { mode, drive: 9, tone: 6000, level: -2 } } },
     frames: RATE / 2,
     amplitude: 0.6,
@@ -287,18 +287,18 @@ export const SCENES = [
   .concat(OSC_SCENES);
 
 const ENTRY = `
-export { createLimiterWasm } from './apps/waveform/src/app/synth/common/limiter/limiter-wasm';
-export { createReverbWasm } from './apps/waveform/src/app/synth/fx/effects/reverb-wasm';
-export { createDistortionWasm } from './apps/waveform/src/app/synth/fx/effects/distortion-wasm';
+export { createLimiterWasm } from './apps/chisper/src/app/synth/common/limiter/limiter-wasm';
+export { createReverbWasm } from './apps/chisper/src/app/synth/fx/effects/reverb-wasm';
+export { createDistortionWasm } from './apps/chisper/src/app/synth/fx/effects/distortion-wasm';
 export {
   createOscScope,
   createTableStoreWasm,
   createVoiceSharedWasm,
   createVoiceWasm,
-} from './apps/waveform/src/app/synth/common/wavetable/wavetable-osc-wasm';
-export { buildLevels } from './apps/waveform/src/app/synth/common/wavetable/wavetable-mipmap';
-export { VOICE_PARAMETERS } from './apps/waveform/src/app/synth/common/wavetable/wavetable-osc-params';
-export { lfoTable } from './apps/waveform/src/app/synth/common/lfo/lfo-curve';
+} from './apps/chisper/src/app/synth/common/wavetable/wavetable-osc-wasm';
+export { buildLevels } from './apps/chisper/src/app/synth/common/wavetable/wavetable-mipmap';
+export { VOICE_PARAMETERS } from './apps/chisper/src/app/synth/common/wavetable/wavetable-osc-params';
+export { lfoTable } from './apps/chisper/src/app/synth/common/lfo/lfo-curve';
 `;
 let loaded = null;
 const load = async () => {

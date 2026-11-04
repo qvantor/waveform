@@ -4,9 +4,8 @@
 // drift of a session (the JIT, the cores the threads land on, the heat) weighs on both sides alike
 import fs from 'fs';
 import path from 'path';
-import { exec, out, root, tryExec } from './util.mjs';
+import { appDir, exec, out, perfBuildDir, root, tryExec } from './util.mjs';
 
-const BUILD = 'dist/apps/waveform-perf';
 const STAMP = 'perf-build-stamp.txt';
 const WASM_STAMP = 'wasm-stamp.txt';
 const DEPS_STAMP = 'deps-stamp.txt';
@@ -27,12 +26,18 @@ export const prepareReference = async (ref, { build = true } = {}) => {
     await exec('git', ['worktree', 'add', '--detach', '--force', dir, sha], { cwd: root });
   }
   // a commit before the test hook can't be driven
-  if (!fs.existsSync(path.join(dir, 'apps/waveform/src/app/perf/perf-api.ts')))
-    throw new Error(`--against=${ref}: ${short} has no perf build (apps/waveform/src/app/perf, a813450 on)`);
+  if (!fs.existsSync(path.join(dir, appDir(dir), 'src/app/perf/perf-api.ts')))
+    throw new Error(`--against=${ref}: ${short} has no perf build (src/app/perf of the app, a813450 on)`);
   // the dependencies of the repo (linked) while they are its own; other ones (package-lock.json: a tree before
   // an update of its tools would not build with those after it) installed in it, once
   const modules = path.join(dir, 'node_modules');
-  const lock = (folder) => fs.readFileSync(path.join(folder, 'package-lock.json'), 'utf8');
+  // (the name of the package left out: a tree from before the rename to Chisper has the same dependencies)
+  const lock = (folder) => {
+    const parsed = JSON.parse(fs.readFileSync(path.join(folder, 'package-lock.json'), 'utf8'));
+    delete parsed.name;
+    if (parsed.packages?.['']) delete parsed.packages[''].name;
+    return JSON.stringify(parsed);
+  };
   const linked = fs.lstatSync(modules, { throwIfNoEntry: false })?.isSymbolicLink() ?? false;
   if (lock(dir) === lock(root)) {
     if (!fs.existsSync(modules)) fs.symlinkSync(path.join(root, 'node_modules'), modules, 'dir');
@@ -49,7 +54,7 @@ export const prepareReference = async (ref, { build = true } = {}) => {
     notes.push(`the reference ${short} has other dependencies (package-lock.json): built with its own`);
   }
 
-  const siteDir = path.join(dir, BUILD);
+  const siteDir = perfBuildDir(dir);
   const stamp = path.join(dir, STAMP);
   const built = fs.existsSync(stamp) && fs.readFileSync(stamp, 'utf8') === sha;
   if (build && (!built || !fs.existsSync(path.join(siteDir, 'index.html')))) {

@@ -1,6 +1,6 @@
 // jsdom has no 2D context: a stub per canvas records what is drawn on it since the whole canvas was last cleared
 // (the live charts and the marks clear it before every drawing). The specs of the app take it as
-// `@waveform/ui-kit/test-utils`
+// `@chisper/ui-kit/test-utils`
 
 type Rect = [number, number, number, number];
 type Transform = [number, number, number, number, number, number];

@@ -93,7 +93,7 @@ const renderOscInPage = (page, { bundle, rate, frames, tables, voices, lfos }) =
       const channels = 2 * voices.length;
       const context = new OfflineAudioContext(channels, frames, rate);
       await context.audioWorklet.addModule(`/${bundle}.js`);
-      const store = new AudioWorkletNode(context, 'waveform-wavetable-store', {
+      const store = new AudioWorkletNode(context, 'chisper-wavetable-store', {
         numberOfInputs: 0,
         numberOfOutputs: 1,
       });
@@ -132,7 +132,7 @@ const renderOscInPage = (page, { bundle, rate, frames, tables, voices, lfos }) =
           ...gate.map(([frame, value]) => ({ kind: 'set', voice, param: 'gate', value, time: frame / rate })),
         ]),
       ];
-      const node = new AudioWorkletNode(context, 'waveform-wavetable-voices', {
+      const node = new AudioWorkletNode(context, 'chisper-wavetable-voices', {
         numberOfInputs: 0,
         numberOfOutputs: 1,
         outputChannelCount: [channels],

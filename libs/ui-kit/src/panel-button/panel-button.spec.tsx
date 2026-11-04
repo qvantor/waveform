@@ -121,8 +121,8 @@ describe('PanelLink', () => {
   });
 
   it('takes its name from aria-label with the icon alone, and keeps its class', () => {
-    render(<PanelLink href='/about/' icon={<svg />} aria-label='About Waveform' className='custom' />);
-    const link = screen.getByRole('link', { name: 'About Waveform' });
+    render(<PanelLink href='/about/' icon={<svg />} aria-label='About Chisper' className='custom' />);
+    const link = screen.getByRole('link', { name: 'About Chisper' });
     expect(link.textContent).toBe('');
     expect(link.classList.contains('custom')).toBe(true);
   });

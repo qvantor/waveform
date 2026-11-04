@@ -6,6 +6,7 @@
 import { readdirSync, writeFileSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { ffmpeg } from './common.mjs';
+import { isMain } from './main.mjs';
 
 const ROOT = join(import.meta.dirname, '../..');
 const DEMOS = join(ROOT, 'apps/site/public/demos');
@@ -45,4 +46,4 @@ const main = () => {
   writeFileSync(OUT, `{\n${lines.join(',\n')}\n}\n`);
 };
 
-if (process.argv[1] === import.meta.filename) main();
+if (isMain(import.meta)) main();

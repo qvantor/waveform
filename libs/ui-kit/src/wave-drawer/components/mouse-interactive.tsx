@@ -1,5 +1,5 @@
 import React from 'react';
-import { Vector2D, vector2d, number } from '@waveform/math';
+import { Vector2D, vector2d, number } from '@chisper/math';
 import { scaleLinear } from 'd3-scale';
 import { theme } from '../../common/constants';
 import { useLineChartContext, XAxis } from '../../line-chart';

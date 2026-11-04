@@ -1,4 +1,4 @@
-//! apps/waveform/src/app/synth/fx/effects/oversampler.ts: 4× up and down by polyphase windowed sincs
+//! apps/chisper/src/app/synth/fx/effects/oversampler.ts: 4× up and down by polyphase windowed sincs
 
 use crate::consts::{DOWN_PHASES, UP_PHASES};
 

@@ -1,5 +1,5 @@
 import React from 'react';
-import { number } from '@waveform/math';
+import { number } from '@chisper/math';
 import { onFrame } from './frame-ticker';
 import { liveRoutes, QUANTUM, Route, routedShare } from './mod-routes';
 import { ScaleMode, valueScale } from './value-scale';

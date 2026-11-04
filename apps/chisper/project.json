@@ -1,0 +1,47 @@
+{
+  "name": "chisper",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "apps/chisper/src",
+  "projectType": "application",
+  "tags": [],
+  "targets": {
+    "build": {
+      "outputs": ["{workspaceRoot}/dist/apps/{options.env.CHISPER_DIST}"],
+      "defaultConfiguration": "production",
+      "options": {
+        "env": { "NODE_ENV": "production", "CHISPER_DIST": "chisper" }
+      },
+      "configurations": {
+        "development": {
+          "env": { "NODE_ENV": "development", "CHISPER_DIST": "chisper" }
+        },
+        "production": {},
+        "perf": {
+          "env": { "NODE_ENV": "production", "CHISPER_DIST": "chisper-perf" }
+        }
+      }
+    },
+    "serve": {
+      "defaultConfiguration": "development",
+      "configurations": {
+        "development": {},
+        "production": {}
+      }
+    },
+    "test": {
+      "inputs": [
+        "default",
+        "^production",
+        "{workspaceRoot}/jest.preset.js",
+        "{workspaceRoot}/dsp/goldens/**/*",
+        "{workspaceRoot}/dsp/measurements/**/*",
+        {
+          "runtime": "cat tmp/wasm-perf/*.wasm 2>/dev/null | git hash-object --stdin"
+        },
+        {
+          "externalDependencies": ["jest", "@nx/jest", "ts-jest", "@nx/react", "babel-jest"]
+        }
+      ]
+    }
+  }
+}

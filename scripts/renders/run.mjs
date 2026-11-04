@@ -99,10 +99,10 @@ const stateOf = (name, oscs, slots) => {
 // init state with its first `oscs` oscillators on it (A alone by default); `removeTables` removes them
 const written = [];
 const tableState = (name, frames, flags = '00000000', oscs = 1) => {
-  const file = join(tables(), 'User', `waveform-test-${name}.wav`);
+  const file = join(tables(), 'User', `chisper-test-${name}.wav`);
   writeTable(file, frames, flags);
   written.push(file);
-  const path = `User/waveform-test-${name}.wav`;
+  const path = `User/chisper-test-${name}.wav`;
   return stateOf(
     name,
     Array.from({ length: oscs }, () => ({ path, frames: frames.length }))
@@ -288,11 +288,11 @@ if (runs('unison')) {
 // stacked voices), merged into unison.json: each voice its cents (modes, Detune 1: ±200), and its semitones of
 // the stack, its cents of the detune and its side (stacks, Detune 0.5: ±35 cents)
 if (runs('unison-modes')) {
-  const table = join(tables(), 'User', 'waveform-test-sine.wav');
+  const table = join(tables(), 'User', 'chisper-test-sine.wav');
   writeTable(table, [sine()], '00000000');
   const C4 = 440 * 2 ** ((60 - 69) / 12);
   const sineState = (name, params) =>
-    stateOf(name, [{ path: 'User/waveform-test-sine.wav', frames: 1, params }]);
+    stateOf(name, [{ path: 'User/chisper-test-sine.wav', frames: 1, params }]);
   // the peaks from `low` to `high` cents of C4, the cents refined by the parabola of their three bins
   const peaks = (channels, low, high) => {
     const [l, r] = channels.map(spectrum);
@@ -880,7 +880,7 @@ if (runs('spread')) {
     // the detune modes: do the voices follow their shares of the detune or their order
     for (const mode of ['kDetuneLinear', 'kDetuneSuper', 'kDetuneExp', 'kDetuneInv']) {
       const state = stateOf(`${name}-${mode}`, [
-        { path: `User/waveform-test-${name}.wav`, frames: COUNT, params: { kParamDetuneMode: mode } },
+        { path: `User/chisper-test-${name}.wav`, frames: COUNT, params: { kParamDetuneMode: mode } },
       ]);
       for (const spread of [-1, 1])
         jobs.push(
@@ -916,7 +916,7 @@ if (runs('spread')) {
 if (runs('blend')) {
   const C4 = 440 * 2 ** ((60 - 69) / 12);
   const name = 'blend-sine';
-  const path = `User/waveform-test-${name}.wav`;
+  const path = `User/chisper-test-${name}.wav`;
   const cents = (j, n) => (n === 1 ? 0 : 200 * ((2 * j) / (n - 1) - 1));
   const db = (amplitude) => (amplitude > 3e-5 ? Number((20 * Math.log10(amplitude)).toFixed(2)) : null);
   // the voices of n: each [cents, left, right] (dB against one voice: the main lobe of a Hann at its peak, null not

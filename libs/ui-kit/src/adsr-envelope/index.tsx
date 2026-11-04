@@ -1,6 +1,6 @@
 import React from 'react';
 import { styled } from 'styled-components';
-import { number, vector2d } from '@waveform/math';
+import { number, vector2d } from '@chisper/math';
 import { LineChart, useLineChartContext, Line, XAxis, YAxis } from '../line-chart';
 import { Handle, knobGeometry } from '../handle';
 import { theme } from '../common/constants';

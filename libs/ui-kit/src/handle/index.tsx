@@ -2,7 +2,7 @@ import React from 'react';
 import { styled } from 'styled-components';
 import { arc } from 'd3-shape';
 import cls from 'classnames';
-import { number, vector2d } from '@waveform/math';
+import { number, vector2d } from '@chisper/math';
 import { theme } from '../common/constants';
 import { absoluteCenterX, absoluteCenterXY } from '../common/styles';
 import { ScaleMode, valueScale } from '../common/utils';

@@ -419,7 +419,7 @@ const table = (header, rows) => [
 
 export const writeReport = (results, checks) => {
   const lines = [
-    '# Waveform perf suite',
+    '# Chisper perf suite',
     '',
     `${results.date} · ${results.machine.model} (${results.machine.cpu}, ${
       results.machine.memGB

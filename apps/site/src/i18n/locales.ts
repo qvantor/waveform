@@ -1,6 +1,6 @@
 // the languages of the promo page: each version is a page of its own slug (written for its own searches), so they
 // are plain routes, not the i18n routing of Astro (the same path under a prefix); the root (/) is the synth
-export const SITE = 'https://waveform.qvantor.org';
+export const SITE = 'https://chisper.qvantor.org';
 
 export const LANGS = ['en', 'es', 'de'] as const;
 export type Lang = (typeof LANGS)[number];
@@ -32,7 +32,7 @@ export const SYNTH_URL = absolute('/');
 export const presetUrl = (presetId: string) => `/?preset=${presetId}`;
 
 export const LINKS = {
-  github: 'https://github.com/qvantor/waveform',
+  github: 'https://github.com/qvantor/chisper',
   instagram: 'https://www.instagram.com/waveformsound/',
   youtube: 'https://www.youtube.com/@waveform-sound',
 };

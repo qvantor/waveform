@@ -1,5 +1,5 @@
 import React from 'react';
-import { Vector2D } from '@waveform/math';
+import { Vector2D } from '@chisper/math';
 
 const debounce = (fn: () => void, time = 300) => {
   let timer: ReturnType<typeof setTimeout> | undefined = undefined;

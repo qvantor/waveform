@@ -1,6 +1,6 @@
 import React from 'react';
 import { styled } from 'styled-components';
-import { number } from '@waveform/math';
+import { number } from '@chisper/math';
 import { theme } from '../common/constants';
 
 interface Props {

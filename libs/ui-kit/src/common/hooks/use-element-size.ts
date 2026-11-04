@@ -1,5 +1,5 @@
 import React from 'react';
-import { Vector2D } from '@waveform/math';
+import { Vector2D } from '@chisper/math';
 
 export const useElementSize = <T extends HTMLElement>() => {
   const ref = React.useRef<T>(null);

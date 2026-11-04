@@ -1,7 +1,7 @@
 import React from 'react';
 import { styled } from 'styled-components';
 import cls from 'classnames';
-import { number } from '@waveform/math';
+import { number } from '@chisper/math';
 import { theme } from '../common/constants';
 import { useElementSize } from '../common/hooks';
 import { Tooltip } from '../tooltip';

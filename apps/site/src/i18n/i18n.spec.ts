@@ -42,7 +42,7 @@ describe('the messages', () => {
   });
 
   it('starts every H1 with the name, in the colors of the logo (Hero.astro)', () => {
-    for (const lang of LANGS) expect(MESSAGES[lang].hero.h1).toMatch(/^Waveform\b/);
+    for (const lang of LANGS) expect(MESSAGES[lang].hero.h1).toMatch(/^Chisper\b/);
   });
 
   it('keeps titles and descriptions within what search results show', () => {
@@ -69,9 +69,9 @@ describe('the messages', () => {
 describe('the locales', () => {
   it('gives each language a path of its own under the site', () => {
     expect(LANGS.map(pageUrl)).toEqual([
-      'https://waveform.qvantor.org/wavetable-synth/',
-      'https://waveform.qvantor.org/es/sintetizador-wavetable/',
-      'https://waveform.qvantor.org/de/wavetable-synthesizer/',
+      'https://chisper.qvantor.org/wavetable-synth/',
+      'https://chisper.qvantor.org/es/sintetizador-wavetable/',
+      'https://chisper.qvantor.org/de/wavetable-synthesizer/',
     ]);
     expect(LOCALES.en.ogLocale).toBe('en_US');
   });

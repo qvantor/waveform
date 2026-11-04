@@ -1,5 +1,5 @@
 // the cases of the perf suite (README.md) as data: a snapshot of the synth (the format of getSnapshot(), the
-// sections left out are the defaults) and the notes held through it (window.__waveformPerf.run); the runner
+// sections left out are the defaults) and the notes held through it (window.__chisperPerf.run); the runner
 // opens a fresh page for each run. What doesn't need a browser is computed in the Jest specs (README: what
 // moved to the specs)
 
