@@ -4,8 +4,8 @@
 //! for a glide to the velocity of a note that takes the voice over; sources 4–7 its LFOs (lfo.rs). A bipolar
 //! route moves a param by amount × (level - ½) (a uni one: amount × level, to the bit). The pitch of an
 //! oscillator (Semi, Fine) is two params of base 0 (an offset of its detune within the bounds of its routes: the
-//! range of the knob from its value). The knobs of the LFOs are params too (targets 15–34: a Modulation of their
-//! own in the voice, sources ENV 1–3 and VELO): the times by a share of their travel (pow: the knob is max ·
+//! range of the knob from its value), so is the pitch of the noise. The knobs of the LFOs are params too (targets
+//! 19–38: a Modulation of their own in the voice, sources ENV 1–3 and VELO): the times by a share of their travel (pow: the knob is max ·
 //! share⁴), Phase around the cycle (not clamped)
 
 use crate::envelope::EnvelopeBlock;
@@ -16,8 +16,9 @@ use alloc::{vec, vec::Vec};
 use jsmath::{max, min, pow, sqrt};
 
 // the params a route moves, by id (the facade sends their names as these): the knobs of each oscillator
-// (position, spread, gain, then the offsets of its detune: Semi in cents, Fine, then the blend of its unison), then
-// the knobs of the filter
+// (position, spread, gain, then the offsets of its detune: Semi in cents, Fine, then the blend of its unison), the
+// knobs of the filter, then those of the noise (its level, its pan, the offsets of its pitch: Pitch in cents,
+// Fine)
 pub const POSITION1: usize = 0;
 pub const SPREAD1: usize = 1;
 pub const GAIN1: usize = 2;
@@ -29,8 +30,12 @@ pub const OSC_TARGETS: usize = 6;
 pub const CUTOFF: usize = 2 * OSC_TARGETS;
 pub const RESONANCE: usize = CUTOFF + 1;
 pub const FILTER_GAIN: usize = CUTOFF + 2;
+pub const NOISE_LEVEL: usize = FILTER_GAIN + 1;
+pub const NOISE_PAN: usize = NOISE_LEVEL + 1;
+pub const NOISE_PITCH: usize = NOISE_LEVEL + 2;
+pub const NOISE_FINE: usize = NOISE_LEVEL + 3;
 /// the params of the voice, then the knobs of LFO 1–4 (rate, delay, rise, smooth, phase each)
-pub const VOICE_TARGETS: usize = FILTER_GAIN + 1;
+pub const VOICE_TARGETS: usize = NOISE_FINE + 1;
 pub const TARGET_PARAMS: usize = VOICE_TARGETS + LFOS * KNOBS;
 
 /// knob `knob` of LFO `lfo` as a param of the routes

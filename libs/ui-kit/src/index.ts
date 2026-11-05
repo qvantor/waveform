@@ -50,7 +50,16 @@ export { Checkbox } from './checkbox';
 export { TapeSwitch } from './tape-switch';
 export { ModeSwitch } from './mode-switch';
 export { Lamp } from './lamp';
-export { AnchorIcon, DottedIcon, SwitchKey, SwitchKeys, TripletIcon } from './switch-key';
+export {
+  AnchorIcon,
+  DottedIcon,
+  LoopIcon,
+  OneShotIcon,
+  SwitchKey,
+  SwitchKeys,
+  TrackIcon,
+  TripletIcon,
+} from './switch-key';
 export { PanelButton, PanelLink } from './panel-button';
 export { SortableList } from './sortable-list';
 export { theme } from './common/constants';
@@ -62,7 +71,7 @@ export type { CascadeOption } from './select';
 export type { HandleProps, HandleModulation } from './handle';
 export type { NotePath } from './adsr-envelope';
 export type { Theme } from './common/constants';
-export { useIsMobile, useIsPortrait, useElementSize } from './common/hooks';
+export { useIsMobile, useIsPortrait, useElementSize, useCanvas } from './common/hooks';
 export { useLiveDraw, liveKnob, onFrame, singlePointerTracker, keepFocus } from './common/utils';
 export type { LiveKnob, ModTravel } from './common/utils';
 export type { AdsrSteps } from './adsr-envelope';

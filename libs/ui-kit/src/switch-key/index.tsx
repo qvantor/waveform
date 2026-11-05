@@ -7,7 +7,7 @@ import { text10 } from '../common/styles';
 import { theme } from '../common/constants';
 import { keepFocus } from '../common/utils';
 
-export { AnchorIcon, DottedIcon, TripletIcon } from './icons';
+export { AnchorIcon, DottedIcon, LoopIcon, OneShotIcon, TrackIcon, TripletIcon } from './icons';
 
 interface Props {
   on: boolean;

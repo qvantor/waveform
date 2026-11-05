@@ -1,4 +1,4 @@
-// builds RIFF WAVE files byte by byte, the way the wavetable files in S3 are laid out
+// builds RIFF WAVE files byte by byte, the way the wavetable files of the bucket are laid out
 
 export const PCM = 1;
 export const FLOAT = 3;

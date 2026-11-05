@@ -3,7 +3,7 @@
 // opens a fresh page for each run. What doesn't need a browser is computed in the Jest specs (README: what
 // moved to the specs)
 
-// the tables the cases play (S3 keys, 256 frames each)
+// the tables the cases play (their keys in the bucket, 256 frames each)
 export const TABLES = {
   saw303: 'ESW Core Tables/Analog/ESW Analog - 303 Saw.wav',
   pwm: 'ESW Core Tables/Basics/ESW Basics - PWM Saw 01.wav',

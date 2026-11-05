@@ -17,6 +17,9 @@ use jsmath::{ceil, max};
 pub const MIX_BUDGET_WASM: f64 = 360000.0;
 const SEGMENT: f64 = 32.0;
 pub const PARAMS: usize = 12;
+/// the rows of the io of a voice alone: its params, then the pitch bend of the block (the noise of Pitch Track reads
+/// it; the detunes have it already)
+pub const IO_ROWS: usize = PARAMS + 1;
 
 pub const VOICES: usize = 0;
 pub const UNISON: usize = 1;
@@ -68,9 +71,9 @@ pub struct Shared {
     spent: f64,
     pub counts: [f64; 10],
     phrases: Vec<Phrase>,
-    // the params of the block (lengths, then PARAMS × frames values) and the outputs (left, right)
+    // the params of the block and its bend (IO_ROWS × frames values, their lengths) and the outputs (left, right)
     pub params: Vec<f32>,
-    pub lengths: [f32; PARAMS],
+    pub lengths: [f32; IO_ROWS],
     pub output: Vec<f32>,
     frames: usize,
     // the weights of the 6-point Lagrange interpolation per ratio (the upsamplers of the TS, cached per scope; ratio 2
@@ -93,7 +96,7 @@ impl Default for Shared {
             counts: [0.0; 10],
             phrases: Vec::new(),
             params: Vec::new(),
-            lengths: [1.0; PARAMS],
+            lengths: [1.0; IO_ROWS],
             output: Vec::new(),
             frames: 0,
             upsamplers: Vec::new(),
@@ -292,10 +295,10 @@ impl Shared {
     /// room for the params and the outputs of a block of `frames`
     pub fn reserve_io(&mut self, frames: usize) {
         // (also after a trap left them out of the shared: osc_voice_process takes them while the voice renders)
-        if self.frames < frames || self.params.len() < PARAMS * self.frames.max(frames) {
+        if self.frames < frames || self.params.len() < IO_ROWS * self.frames.max(frames) {
             // (both allocated before the size is set: one that traps leaves the old size, the next block tries again)
             let size = self.frames.max(frames);
-            let params = vec![0.0; PARAMS * size];
+            let params = vec![0.0; IO_ROWS * size];
             let output = vec![0.0; 2 * size];
             self.params = params;
             self.output = output;

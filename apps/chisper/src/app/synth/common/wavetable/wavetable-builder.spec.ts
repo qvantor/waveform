@@ -1,3 +1,4 @@
+import { buildNoiseLevels } from './noise-levels';
 import { createTableBuilder } from './wavetable-builder';
 import * as mipmap from './wavetable-mipmap';
 import { buildLevels, tableBytes } from './wavetable-mipmap';
@@ -35,6 +36,21 @@ describe('wavetable builder', () => {
     expect(message.table).toBe('osc1');
     expect(message.version).toBe(1);
     expect(message.levels.data).toEqual(buildLevels([sine, saw]).data);
+    expect(transfer).toEqual([message.levels.data.buffer]);
+  });
+
+  it('builds a sample of the noise into its levels, posted whole at its rate', () => {
+    const { builder, port, run, connect } = setup();
+    connect();
+    const channels = [Float32Array.from({ length: 500 }, (_, i) => (i % 7) / 7 - 0.5)];
+    channels[0][3] = NaN;
+    builder.receive({ table: 'noise', version: 1, sample: { channels, rate: 44100 } });
+    run();
+    const [[message, transfer]] = port.postMessage.mock.calls;
+    expect(message).toMatchObject({ table: 'noise', version: 1, levels: { frames: 1, rate: 44100 } });
+    // (a value that isn't finite is 0)
+    expect(message.levels.data.every(Number.isFinite)).toBe(true);
+    expect(message.levels.data).toEqual(buildNoiseLevels(channels, 44100).data);
     expect(transfer).toEqual([message.levels.data.buffer]);
   });
 
@@ -185,6 +201,29 @@ describe('wavetable builder', () => {
         )
       );
       expect(buffers.size).toBe(1);
+    });
+
+    it('sends a sample of the noise as its levels at its rate, in chunks', () => {
+      const { builder, run, posted, ack, port } = chunked(3000);
+      const channels = [
+        Float32Array.from({ length: 4000 }, (_, i) => Math.sin(i / 7)),
+        new Float32Array(4000),
+      ];
+      builder.receive({ table: 'noise', version: 2, sample: { channels, rate: 44100 } });
+      run();
+      const { data, ...layout } = buildNoiseLevels(channels, 44100);
+      expect(posted()[0]).toEqual({ table: 'noise', version: 2, begin: { ...layout, length: data.length } });
+      expect(layout).toMatchObject({ frames: 2, rate: 44100 });
+      const received = new Float32Array(data.length);
+      for (;;) {
+        const [message] = port.postMessage.mock.lastCall as [
+          { chunk: ArrayBuffer; at: number; length: number; last: boolean },
+        ];
+        received.set(new Float32Array(message.chunk, 0, message.length), message.at);
+        if (message.last) break;
+        ack();
+      }
+      expect(received).toEqual(data);
     });
 
     it('sends the next table once the last chunk of a version is acked, and frees its levels', () => {

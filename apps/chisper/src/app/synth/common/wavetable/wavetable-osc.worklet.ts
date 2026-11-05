@@ -2,6 +2,7 @@ import bytes from '@chisper/wasm/wavetable-osc.wasm';
 import { lfoTable, LfosState, RETRIG } from '../lfo/lfo-curve';
 import { instantiateCore } from '../wasm/wasm-core';
 import type { StoreStatsMessage, VoiceEvent, VoiceOptions } from './voice-options';
+import { noiseLevels } from './noise-layout';
 import { createLevels, levelBase } from './wavetable-levels';
 import { STORE_PROCESSOR, VOICE_PARAMETERS, VOICES_PROCESSOR, VoiceParam } from './wavetable-osc-params';
 import {
@@ -44,13 +45,25 @@ const scope = createOscScope(instantiateCore<OscExports>(new WebAssembly.Module(
 // is freed with them (the first block of the first note 0.014 ms instead of 0.93 in Node, the module 2 ms longer:
 // before the first note); then the same voice in a scope of voices, its params from events (a step, a target and
 // ramps: the curves of the timelines), its velocity gliding to another one, bent (the pitch bend of the node,
-// gliding), stolen at its end
+// gliding), stolen at its end. Its noise: a stereo loop of silence of two levels under Pitch Track, its pitch moved
+// by ENV 2 (the steps at the points, a change of kernel and of level crossfading), then in the scope a mono
+// one-shot, its knobs changed
 const WARM_ENVELOPE = { attack: 0.001, hold: 0, decay: 0.01, sustain: 0.5, release: 0.01 };
 const WARM_VOICE: VoiceOptions = {
   osc: [
     { table: 'warm', unison: 4, phase: 0.5, phaseRand: 1 },
     { table: '', unison: 3, phase: 0, phaseRand: 0 },
   ],
+  noise: {
+    sample: 'warm-noise',
+    loop: true,
+    keytrack: true,
+    start: 0.9,
+    rand: 0.5,
+    level: 0.5,
+    pan: 0.3,
+    cents: 1500,
+  },
   start: 0,
   envelopes: [WARM_ENVELOPE, WARM_ENVELOPE, WARM_ENVELOPE],
   envStart: 0,
@@ -66,6 +79,8 @@ const WARM_VOICE: VoiceOptions = {
     { source: 1, param: 'lfo1.rate', amount: 0.5, min: 1 / 32, max: 100, scale: 'log' },
     { source: 1, param: 'lfo1.smooth', amount: 0.25, min: 0, max: 1, scale: 'pow' },
     { source: 1, param: 'lfo1.phase', amount: 0.25, min: 0, max: 1 },
+    { source: 1, param: 'noise.pitch', amount: 600, min: -4800, max: 4800 },
+    { source: 3, param: 'noise.level', amount: 0.25, min: 0, max: 1 },
   ],
   filter: { type: 'lowpass', cutoff: 4000, resonance: 3, gain: 0 },
   velocity: { level: 0.5, amp: 0.75 },
@@ -85,6 +100,7 @@ const warmLfos = (at: number, phase: number, shape: 'square' | 'triangle', insta
     ...(lfo === 0 && { table: lfoTable(shape) }),
   })),
 });
+const WARM_NOISE = WARM_VOICE.noise as NonNullable<VoiceOptions['noise']>;
 const prewarm = () => {
   const warmStore = createTableStoreWasm(scope);
   // two frames of silence of 32 harmonics, on levels of 1024 samples, of 512 from level 6: by the pitch a fade
@@ -92,6 +108,9 @@ const prewarm = () => {
   // lengths (5.9), and the steady blocks at 5.9 build a mix of both (the short one upsampled: `add_to_mix`);
   // two only in the top LEVEL_BAND of a third of an octave (`level_x` of the core), below it a level alone
   warmStore.set('warm', 1, createLevels(2, 32));
+  // (samples of silence: level 0, a one-shot level 1, a loop level 1)
+  warmStore.set('warm-noise', 1, noiseLevels([256, 128, 128], 2, 44100));
+  warmStore.set('warm-mono', 1, noiseLevels([256, 128, 128], 1, 44100));
   const pitches = [-1, 0.9, 5.9].map((x) => (sampleRate / 2 / levelBase(32)) * 2 ** ((x - 1) / 3));
   const warmShared = createVoiceSharedWasm(scope);
   warmShared.setLfos(warmLfos(0, 0, 'square', true));
@@ -117,7 +136,13 @@ const prewarm = () => {
   const events: VoiceEvent[] = [
     { kind: 'lfos', ...warmLfos(0, 0, 'square', true) },
     { kind: 'lfos', ...warmLfos(at(2), 0.5, 'triangle') },
-    { kind: 'on', voice: 0, options: WARM_VOICE, params: { spread1: 20, spread2: 10 } },
+    {
+      kind: 'on',
+      voice: 0,
+      options: { ...WARM_VOICE, noise: { ...WARM_NOISE, sample: 'warm-mono', loop: false, keytrack: false } },
+      params: { spread1: 20, spread2: 10 },
+    },
+    { kind: 'noise', voices: [0], noise: { level: 0.7, pan: -0.2, cents: 300 } },
     { kind: 'set', voice: 0, param: 'frequency', value: 220, time: at(1) },
     { kind: 'ramp', voice: 0, param: 'frequency', value: 330, time: at(3) },
     { kind: 'cancel', voice: 0, param: 'position1', time: at(1) },

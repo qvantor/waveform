@@ -9,7 +9,7 @@ const handler: Handler = async (event) => {
   const url = await getSignedUrl(
     client,
     new GetObjectCommand({
-      Bucket: process.env.BUCKET,
+      Bucket: process.env.R2_BUCKET,
       Key,
     }),
     { expiresIn: 21600 }

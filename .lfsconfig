@@ -1,0 +1,3 @@
+# The originals of the noise samples come only on request: git lfs pull -I assets/noises/originals -X ""
+[lfs]
+	fetchexclude = assets/noises/originals

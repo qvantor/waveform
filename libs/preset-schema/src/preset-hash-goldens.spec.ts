@@ -36,6 +36,18 @@ const FULL = {
     pr: 0,
     g: 0.5,
   },
+  noise: {
+    a: true,
+    p: ['Textures', 'Textures/Rain.wav'],
+    lp: false,
+    kt: true,
+    st: 0.125,
+    rd: 0.5,
+    s: -12,
+    f: 37,
+    pn: -0.25,
+    g: 0.7071,
+  },
   filter: { a: true, t: 'bandpass', cut: 1234.5678, res: 2, gain: -3 },
   env: {
     e1: {
@@ -137,6 +149,7 @@ const PRESETS: Record<string, unknown> = {
   // nested sections given in part: their defaults fill the rest
   partial: {
     osc2: { a: true },
+    noise: { a: true, g: 0.5 },
     env: { e2: { decay: 1 } },
     lfo: { l4: { shape: 'triangle' } },
     fx: { o: ['delay'], delay: { a: true } },
@@ -146,11 +159,11 @@ const PRESETS: Record<string, unknown> = {
 };
 
 const PRESET_HASHES: Record<string, string> = {
-  empty: '5e61ce1a7b7f4014cca765bf84952ce39d9830e76b6b312226e6e1f60b88845e',
-  full: '089a0db8449ac4efdb7ebabcfe81c63cc0d28b65d2cfbd197de2f0a43c11b0ea',
-  legacy: '636e0845ae8a63df5e6bdbbcc4711184243506ee16de7baf7f01f5362e2ae143',
-  partial: 'eba9735d3fe11d00eff6d0220a1d2570c099701ae8846ce17f531b9df68595fe',
-  'fx order without a type': '21177c11d521ded180733f986d86d0362db04092ed36d225cca4c66aafef6828',
+  empty: 'f184e30cd25676e9030b63aa2a1dc92a1c2a50205c23f10085c34926681aff38',
+  full: '981be29ea782998ecda097e327bd9f5f7dedd864d693d52b45396b73552bb59d',
+  legacy: 'c5aa6a84d3b39b616386c7eeaee4ecc5c6ff467cb8ca89fdd247522eaba70a3b',
+  partial: '2f9fea314f97428d3b2b9b52e0a48225f19ba3efb408438313c4b8f8b73ff029',
+  'fx order without a type': '46ef44df21021b7158f930c66444f0f5e80af58f320603c688ff2207463fcb06',
 };
 
 // not presets: the schema rejects them
@@ -159,6 +172,10 @@ const INVALID: Record<string, unknown> = {
   'a fractional unison': { osc1: { u: 1.5 } },
   'an infinite position': { osc1: { w: Infinity } },
   'no wavetable path': { osc1: { p: [] } },
+  'a noise pitch past 48 semitones': { noise: { s: 49 } },
+  'a fractional noise pitch': { noise: { s: 0.5 } },
+  'a noise pan past the right': { noise: { pn: 1.5 } },
+  'no noise path': { noise: { p: [] } },
   'an unknown filter type': { filter: { t: 'comb' } },
   'an LFO on the knob of an LFO': { mod: { 'lfo1:lfo2.rate': 0.5 } },
   'a route object without a flag': { mod: { 'env1:osc1.wave': { a: 0.5 } } },

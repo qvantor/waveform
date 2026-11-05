@@ -54,6 +54,8 @@ const WASM_CORES = [
 ];
 
 const WASM_CORE = 'src/app/synth/common/wasm/wasm-core';
+// the levels of a sample of the noise (a tree that has it)
+const NOISE_LEVELS = 'src/app/synth/common/wavetable/noise-levels';
 // the tables of the shapes of the LFOs (a tree that has them)
 const LFO_CURVE = 'src/app/synth/common/lfo/lfo-curve';
 
@@ -78,6 +80,7 @@ const loadDsp = async (source = root, name) => {
     }),
     ...(instantiate ? [[WASM_CORE, 'instantiateCore']] : []),
     ...(fs.existsSync(path.join(app, `${LFO_CURVE}.ts`)) ? [[LFO_CURVE, 'lfoTable']] : []),
+    ...(fs.existsSync(path.join(app, `${NOISE_LEVELS}.ts`)) ? [[NOISE_LEVELS, 'buildNoiseLevels']] : []),
   ]
     .map(([module, create]) => `export { ${create} } from './${module}';\n`)
     .join('')}`;
@@ -237,6 +240,35 @@ const createCases = (dsp) => {
     let frameAt = 0;
     return () => {
       voiceDsp.process(frameAt, typeof params === 'function' ? params(frameAt) : params, outL, outR);
+      frameAt += BLOCK;
+    };
+  };
+  // a voice with a noise (a tree before it: none) on a stereo sample of 2 s at 44.1 kHz, looped from its start, at
+  // `cents` (0: the widest kernel at 48 kHz, 700: one below the nyquist, its taps 1.5 times as many)
+  const noisy = Boolean(dsp.buildNoiseLevels && wasmStore);
+  if (noisy) {
+    let seed = 1;
+    const channel = () =>
+      Float32Array.from({ length: 2 * 44100 }, () => {
+        seed = (seed * 16807) % 2147483647;
+        return seed / 2147483647 - 0.5;
+      });
+    wasmStore.set('n', 1, dsp.buildNoiseLevels([channel(), channel()], 44100));
+  }
+  const noiseVoiceOf = (cents) => (oscs, params) => () => {
+    const voiceDsp = createVoice.wasm({
+      osc: oscs.map((unison) => (unison ? { table: 'a', unison, phase: 0, phaseRand: 1 } : null)),
+      noise: { sample: 'n', loop: true, keytrack: false, start: 0, rand: 0, level: 0.5, pan: 0.2, cents },
+      start: 0,
+      envelopes: [0, 1, 2].map(() => ({ attack: 0, hold: 0, decay: 0, sustain: 1, release: 0 })),
+      envStart: 0,
+      phrase: 0,
+      routes: [],
+      filter: null,
+    });
+    let frameAt = 0;
+    return () => {
+      voiceDsp.process(frameAt, params, outL, outR);
       frameAt += BLOCK;
     };
   };
@@ -511,6 +543,9 @@ const createCases = (dsp) => {
       oscScope && voiceOf('wasm'),
       store && voiceOf('ts')
     ),
+    // its cost over `voice u8 held`: the noise of a note
+    ...withTs({ 'voice u8 + noise': [[8, null], held] }, noisy && noiseVoiceOf(0), null),
+    ...withTs({ 'voice u8 + noise up 7': [[8, null], held] }, noisy && noiseVoiceOf(700), null),
     // blend, width (the channels of the oscillator and their pan), a stack and a position spread (a frame per
     // voice); its cost over `voice u8 held` (the blend a param of the oscillator, of a tree before it in the shape)
     ...withTs(

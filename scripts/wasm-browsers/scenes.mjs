@@ -62,9 +62,10 @@ const REVERB = {
   body: 2,
 };
 
-// the voices of the wavetable oscillator: a store node with the tables (posted to its port, the page waits for
-// their acks), the voices node with the events of every voice (its options and initial params, the steps of the
-// gate at frames exact in binary: a rate of 2^15). phaseRand 0: Math.random draws nothing that sounds
+// the voices of the wavetable oscillator: a store node with the tables and the samples of the noise (posted to its
+// port, the page waits for their acks), the voices node with the events of every voice (its options and initial
+// params, the steps of the gate at frames exact in binary: a rate of 2^15). phaseRand 0 and the Rand of a noise 0:
+// Math.random draws nothing that sounds
 const OSC_RATE = 32768;
 const saw = (size, harmonics, shift = 0) =>
   Array.from({ length: size }, (_, n) => {
@@ -74,16 +75,27 @@ const saw = (size, harmonics, shift = 0) =>
   });
 const FLAT = { attack: 0, hold: 0, decay: 0, sustain: 1, release: 0 };
 const ENV = { attack: 0.01, hold: 0.005, decay: 0.05, sustain: 0.6, release: 0.08 };
-const oscScene = (name, { tables, voices, frames, lfos = null }) => ({
+const oscScene = (name, { tables, samples = {}, voices, frames, lfos = null }) => ({
   name,
   module: 'wavetable-osc',
   kind: 'osc',
   rate: OSC_RATE,
   frames,
   tables,
+  samples,
   voices,
   lfos,
 });
+// a sample of the noise at 44.1 kHz: seeded white noise over a sine, `channels` of `seconds`
+const noiseSample = (seed, seconds, channels = 1) =>
+  Array.from({ length: channels }, (_, c) =>
+    Array.from({ length: Math.round(seconds * 44100) }, (_, n) => {
+      seed = (seed * 16807) % 2147483647;
+      return (
+        0.4 * ((seed / 2147483647) * 2 - 1) + 0.3 * Math.sin((2 * Math.PI * (220 + 110 * c) * n) / 44100)
+      );
+    })
+  );
 // the LFOs of a scene: at once, the shapes as tables of 2049 levels (lfoTable of the app, built in Node: the page
 // gets their bits)
 const lfo = (shape, change = {}) => ({
@@ -111,6 +123,46 @@ const note = (osc, params, gate = [], options = {}) => ({
   gate,
 });
 const OSC_SCENES = [
+  // a stereo loop up 17 semitones (a level of its own, a kernel below the nyquist), a mono one-shot under Pitch
+  // Track with ENV 2 on its pitch (moving steps: the kernels and the levels crossfade), released
+  oscScene('wavetable, noise: a stereo loop pitched up, a mono one-shot under Pitch Track and a route', {
+    frames: OSC_RATE / 2,
+    tables: { a: [saw(2048, 200)] },
+    samples: { n: noiseSample(11, 0.3, 2), m: noiseSample(5, 0.08) },
+    voices: [
+      note([null, null], { frequency: 220 }, [], {
+        noise: {
+          sample: 'n',
+          loop: true,
+          keytrack: false,
+          start: 0.25,
+          rand: 0,
+          level: 0.8,
+          pan: -0.3,
+          cents: 1700,
+        },
+      }),
+      note(
+        [{ table: 'a', unison: 1, phase: 0, phaseRand: 0 }, null],
+        { frequency: 330, gain1: 0.3 },
+        [[OSC_RATE / 4, 2.1]],
+        {
+          envelopes: [ENV, { attack: 0.05, hold: 0, decay: 0.1, sustain: 0.2, release: 0.05 }, FLAT],
+          noise: {
+            sample: 'm',
+            loop: false,
+            keytrack: true,
+            start: 0,
+            rand: 0,
+            level: 1,
+            pan: 0.5,
+            cents: -500,
+          },
+          routes: [{ source: 1, param: 'noise.pitch', amount: 1200, min: -4800, max: 4800 }],
+        }
+      ),
+    ],
+  }),
   oscScene('wavetable, a chord of unisons', {
     frames: OSC_RATE / 2,
     tables: { a: [saw(2048, 400), saw(2048, 60, 0.3)], b: [saw(2048, 900)] },
@@ -297,6 +349,7 @@ export {
   createVoiceWasm,
 } from './apps/chisper/src/app/synth/common/wavetable/wavetable-osc-wasm';
 export { buildLevels } from './apps/chisper/src/app/synth/common/wavetable/wavetable-mipmap';
+export { buildNoiseLevels } from './apps/chisper/src/app/synth/common/wavetable/noise-levels';
 export { VOICE_PARAMETERS } from './apps/chisper/src/app/synth/common/wavetable/wavetable-osc-params';
 export { lfoTable } from './apps/chisper/src/app/synth/common/lfo/lfo-curve';
 `;
@@ -328,12 +381,19 @@ export const sceneLfos = async (scene) => {
   };
 };
 
-// the levels of the tables of an oscillator scene (the page gets them as they are)
+// the levels of the tables and the samples of an oscillator scene (the page gets them as they are)
 export const sceneLevels = async (scene) => {
   const { dsp } = await load();
-  return Object.fromEntries(
-    Object.entries(scene.tables).map(([table, frames]) => [table, dsp.buildLevels(frames)])
-  );
+  return Object.fromEntries([
+    ...Object.entries(scene.tables).map(([table, frames]) => [table, dsp.buildLevels(frames)]),
+    ...Object.entries(scene.samples ?? {}).map(([sample, channels]) => [
+      sample,
+      dsp.buildNoiseLevels(
+        channels.map((channel) => Float32Array.from(channel)),
+        44100
+      ),
+    ]),
+  ]);
 };
 
 // the voices of an oscillator scene in Node: the params of a block as the browser gives them (one value, or 128

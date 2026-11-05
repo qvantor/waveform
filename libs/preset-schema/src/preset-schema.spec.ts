@@ -143,7 +143,17 @@ describe('normalizePreset', () => {
   it('rounds numbers and sorts keys', () => {
     const normalized = normalizePreset({ ...preset, filter: { ...preset.filter, cut: 1234.5678 } });
     expect(normalized.filter.cut).toBe(1235);
-    expect(Object.keys(normalized)).toEqual(['env', 'filter', 'fx', 'lfo', 'mod', 'osc1', 'osc2', 'v']);
+    expect(Object.keys(normalized)).toEqual([
+      'env',
+      'filter',
+      'fx',
+      'lfo',
+      'mod',
+      'noise',
+      'osc1',
+      'osc2',
+      'v',
+    ]);
     expect(Object.keys(normalized.osc1)).toEqual([
       'a',
       'b',
@@ -313,6 +323,45 @@ describe('normalizePreset', () => {
     expect(PRESET_DEFAULTS.osc1).toMatchObject({ g: 0.5, w: 0, d: 5, b: 0.75, u: 2, o: 0, s: 0, f: 0 });
     expect(PRESET_DEFAULTS.filter).toMatchObject({ cut: 440, res: 0, gain: 1 });
     expect(PRESET_DEFAULTS.v).toMatchObject({ port: 0, max: 8 });
+  });
+
+  it('fills the noise: off, a white noise looped from its start, Pitch Track off, at -24 dB in the centre', () => {
+    expect(normalizePreset({}).noise).toEqual({
+      a: false,
+      p: ['Analog', 'Analog/White.wav'],
+      lp: true,
+      kt: false,
+      st: 0,
+      rd: 0,
+      s: 0,
+      f: 0,
+      pn: 0,
+      g: 0.25,
+    });
+  });
+
+  it('keeps the falsy values of the noise and its ranges: Pitch whole within ±48, Fine ±100, the pan ±1', () => {
+    const falsy = { a: false, lp: false, kt: false, st: 0, rd: 0, s: 0, f: 0, pn: 0, g: 0 };
+    expect(normalizePreset({ noise: falsy }).noise).toMatchObject(falsy);
+    expect(normalizePreset({ noise: { a: true, s: -48, f: 100, pn: -1, st: 1, rd: 1 } }).noise).toMatchObject(
+      {
+        a: true,
+        s: -48,
+        f: 100,
+        pn: -1,
+        st: 1,
+        rd: 1,
+      }
+    );
+    const noise = (value: object) => presetDataSchema.safeParse({ noise: value }).success;
+    expect([
+      noise({ s: 49 }),
+      noise({ s: 1.5 }),
+      noise({ f: 101 }),
+      noise({ pn: -1.01 }),
+      noise({ g: 2 }),
+    ]).toEqual([false, false, false, false, false]);
+    expect(presetHash({ noise: { a: true } })).not.toBe(presetHash({}));
   });
 
   it('fills the range of the pitch bend with 2 semitones down and up, keeps 0..24', () => {

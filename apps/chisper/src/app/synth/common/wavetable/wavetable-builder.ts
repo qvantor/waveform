@@ -1,3 +1,4 @@
+import { buildNoiseLevels } from './noise-levels';
 import { expandFrames, playedFrames } from './wavetable-frames';
 import { buildLevels, tableBytes } from './wavetable-mipmap';
 import type { WavetableLevels } from './wavetable-levels';
@@ -55,7 +56,15 @@ export interface BuildMessage {
   // the frames play expanded to 256 by crossfades (a morph mark)
   morph?: boolean;
 }
-export type BuilderMessage = BuilderPortMessage | BuildMessage | StoreTableMessage | StatsRequest;
+// main thread → worker: a sample of the noise (its channels at `rate`), built into its levels (noise-levels.ts) and
+// sent to the store as a version of `table` (the noise model's id) is
+export interface BuildSampleMessage {
+  table: string;
+  version: number;
+  sample: { channels: Float32Array[]; rate: number };
+}
+export type BuilderMessage =
+  BuilderPortMessage | BuildMessage | BuildSampleMessage | StoreTableMessage | StatsRequest;
 
 // worker → main thread: the answer to a StatsRequest (the perf test hook): the tables waiting, the freed
 // buffers kept and their bytes, the builds and their milliseconds
@@ -94,7 +103,7 @@ export const createTableBuilder = (
   reply: (message: BuilderReply) => void = () => undefined
 ) => {
   let store: Port | null = null;
-  const pending = new Map<string, BuildMessage | StoreTableMessage>();
+  const pending = new Map<string, BuildMessage | BuildSampleMessage | StoreTableMessage>();
   const freed: ArrayBuffer[] = [];
   let scheduled = false;
   const timing = { builds: 0, lastMs: 0, totalMs: 0, maxMs: 0 };
@@ -174,17 +183,22 @@ export const createTableBuilder = (
     if (!store || transfer) return;
     for (const [table, message] of pending) {
       pending.delete(table);
-      if (!('frames' in message)) {
+      if (!('frames' in message) && !('sample' in message)) {
         store.postMessage(message);
         continue;
       }
       const begin = __PERF__ ? performance.now() : 0;
-      const { frames: own, morph = false } = message;
-      // (a sample that is not finite as 0: the frames come from the editors too, a NaN would play in every level)
-      own.forEach(finiteFrame);
       let levels: WavetableLevels;
       try {
-        levels = build(own, morph);
+        if ('sample' in message) {
+          levels = buildNoiseLevels(message.sample.channels, message.sample.rate);
+        } else {
+          const { frames: own, morph = false } = message;
+          // (a sample that is not finite as 0: the frames come from the editors too, a NaN would play in every
+          // level)
+          own.forEach(finiteFrame);
+          levels = build(own, morph);
+        }
       } catch (error) {
         // (an allocation that failed: the table keeps its version before, the next tables are built)
         fail(table, message.version, error);
@@ -198,12 +212,12 @@ export const createTableBuilder = (
         timing.maxMs = Math.max(timing.maxMs, ms);
       }
       if (chunkSize > 0) {
-        const { frames, harmonics, lengths, offsets, data } = levels;
+        const { frames, harmonics, lengths, offsets, data, rate } = levels;
         transfer = { table, version: message.version, levels, at: 0 };
         const begin: StoreBeginMessage = {
           table,
           version: message.version,
-          begin: { frames, harmonics, lengths, offsets, length: data.length },
+          begin: { frames, harmonics, lengths, offsets, length: data.length, ...(rate ? { rate } : {}) },
         };
         store.postMessage(begin);
         sendNext(store);

@@ -18,11 +18,11 @@ const list = async (keys: string[]) => {
 
 beforeEach(() => {
   send.mockReset();
-  process.env.BUCKET = 'tables';
+  process.env.R2_BUCKET = 'tables';
 });
 
 afterAll(() => {
-  delete process.env.BUCKET;
+  delete process.env.R2_BUCKET;
 });
 
 it('lists the bucket', async () => {

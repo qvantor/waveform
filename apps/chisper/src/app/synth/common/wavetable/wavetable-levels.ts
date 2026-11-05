@@ -13,6 +13,8 @@ export interface WavetableLevels {
   lengths: Int32Array;
   offsets: Int32Array;
   data: Float32Array<ArrayBuffer>;
+  // a sample of the noise (noise-levels.ts): its sample rate (none: a table)
+  rate?: number;
 }
 
 // the samples around a cycle: 1 before, 2 after

@@ -98,6 +98,8 @@ export const serve = ({ keys, site = siteDir, probe = probeFile }) =>
       if (url.pathname.startsWith('/api/')) return send(404);
       if (url.pathname === '/.netlify/functions/get-wavetables-list')
         return send(200, JSON.stringify(tableTree(keys)), TYPES['.json']);
+      // (no sample of the noise: the scenes play it off)
+      if (url.pathname === '/.netlify/functions/get-noises-list') return send(200, '[]', TYPES['.json']);
       if (url.pathname === '/.netlify/functions/get-wavetable') {
         const id = url.searchParams.get('id') ?? '';
         return id ? send(200, `/tables/${encodeURIComponent(fileName(id))}`) : send(400);

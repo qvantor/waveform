@@ -204,6 +204,31 @@ const oscillatorSchema = (active: boolean) =>
     )
     .prefault({});
 
+// the sample a noise starts with: its folder (a category) and its key in the bucket of the samples
+// (scripts/noises, netlify/functions/get-noises-list); it has to stay in the bucket
+export const DEFAULT_NOISE_PATH = ['Analog', 'Analog/White.wav'];
+// the most Pitch (semitones) moves the noise by, down and up
+export const NOISE_PITCH_MAX = 48;
+
+// the noise oscillator (off by default): its sample, looped or once, Pitch Track, the start of a note (a share of
+// the sample) and Rand (a random share × its square is added), Pitch (semitones) and Fine (cents) over the pitch of
+// the sample (with Pitch Track at C5), the pan (-1..1) and the level (its square the amplitude: 0.25 is -24 dB,
+// as the init patch of the renders)
+const noiseSchema = z
+  .object({
+    a: z.boolean().default(false),
+    p: z.array(z.string().min(1).max(256)).min(1).max(5).default(DEFAULT_NOISE_PATH),
+    lp: z.boolean().default(true),
+    kt: z.boolean().default(false),
+    st: range(0, 1).default(0),
+    rd: range(0, 1).default(0),
+    s: intRange(-NOISE_PITCH_MAX, NOISE_PITCH_MAX).default(0),
+    f: intRange(-FINE_MAX, FINE_MAX).default(0),
+    pn: range(-1, 1).default(0),
+    g: range(0, 1).default(0.25),
+  })
+  .prefault({});
+
 const filterSchema = z
   .object({
     a: z.boolean().default(false),
@@ -548,6 +573,7 @@ export const fxSnapSchema = z.preprocess(
 export const presetDataSchema = z.object({
   osc1: oscillatorSchema(true),
   osc2: oscillatorSchema(false),
+  noise: noiseSchema,
   filter: filterSchema,
   env: envSchema,
   lfo: lfoSectionSchema,
@@ -562,6 +588,8 @@ export type PresetData = z.infer<typeof presetDataSchema>;
 export const PRESET_DEFAULTS: PresetData = presetDataSchema.parse({});
 // the knobs of an oscillator in it: those of osc 1 and osc 2 alike (only `a` differs)
 export const OSC_DEFAULTS: Omit<PresetData['osc1'], 'a'> = PRESET_DEFAULTS.osc1;
+// the knobs of the noise in it
+export const NOISE_DEFAULTS: PresetData['noise'] = PRESET_DEFAULTS.noise;
 
 export const PRESET_NAME_MAX_LENGTH = 40;
 

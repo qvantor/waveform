@@ -1168,6 +1168,104 @@ describe('synth', () => {
     });
   });
 
+  describe('noise', () => {
+    it('plays none while off, its sample and knobs in the options of a note while on', async () => {
+      const { onPress, voices, noise } = await setup();
+      onPress([4, 'A']);
+      expect(voices()[0].options.noise).toBeUndefined();
+      const [model, actions] = noise;
+      actions.toggleActive();
+      actions.setNoiseValue('pitch', 7);
+      actions.setNoiseValue('fine', -5);
+      actions.setNoiseValue('pan', 0.25);
+      actions.setNoiseValue('rand', 0.5);
+      onPress([4, 'B']);
+      expect(voices()[1].options.noise).toEqual({
+        sample: model.id,
+        loop: true,
+        keytrack: false,
+        start: 0,
+        rand: 0.5,
+        level: 0.25,
+        pan: 0.25,
+        cents: 695,
+      });
+    });
+
+    it('routes its knobs, the pitch within the range of Pitch and Fine from their values; none without it', async () => {
+      const { onPress, voices, noise, modulation } = await setup();
+      const [, { addRoute }] = modulation;
+      addRoute('env2', 'noise.level', 0.5);
+      addRoute('lfo1', 'noise.pitch', 0.25);
+      addRoute('env3', 'noise.fine', -0.5);
+      onPress([4, 'A']);
+      expect(voices()[0].options.routes).toEqual([]);
+      noise[1].toggleActive();
+      noise[1].setNoiseValue('pitch', 12);
+      onPress([4, 'B']);
+      expect(voices()[1].options.routes).toEqual([
+        { source: 1, param: 'noise.level', amount: 0.5, min: 0, max: 1 },
+        // (an amount of 1: 96 semitones; bounds the knob's range less its 12 semitones)
+        { source: 4, param: 'noise.pitch', amount: 2400, min: -6000, max: 3600, bipolar: true },
+        { source: 2, param: 'noise.fine', amount: -100, min: -100, max: 100 },
+      ]);
+    });
+
+    it('sends new bounds to the notes routing its pitch when Pitch changes', async () => {
+      const { onPress, voices, noise, modulation } = await setup();
+      noise[1].toggleActive();
+      modulation[1].addRoute('env2', 'noise.pitch', 0.25);
+      onPress([4, 'A']);
+      noise[1].setNoiseValue('pitch', -12);
+      voices();
+      expect(voices()[0].messages.at(-1)).toEqual({
+        routes: [{ source: 1, param: 'noise.pitch', amount: 2400, min: -3600, max: 6000 }],
+      });
+    });
+
+    it('the notes that play it follow its level, pan and pitch, released ones too', async () => {
+      const { onPress, onRelease, voices, noise } = await setup();
+      onPress([4, 'A']);
+      noise[1].toggleActive();
+      onPress([4, 'B']);
+      onRelease([4, 'B']);
+      noise[1].setNoiseValue('level', 0.5);
+      noise[1].setNoiseValue('fine', 30);
+      const [without, played] = voices();
+      expect(without.messages).toEqual([]);
+      expect(played.messages).toEqual([
+        { noise: { level: 0.5, pan: 0, cents: 0 } },
+        { noise: { level: 0.5, pan: 0, cents: 30 } },
+      ]);
+      // its start and loop only start a voice
+      noise[1].setNoiseValue('start', 0.5);
+      noise[1].setLoop(false);
+      expect(voices()[1].messages).toHaveLength(2);
+    });
+
+    it('a mono voice is taken over by the next note unless another sample, loop or Pitch Track would play', async () => {
+      const { onPress, voices, noise, synthActions } = await setup();
+      synthActions.setMaxVoices(1);
+      noise[1].toggleActive();
+      onPress([4, 'A']);
+      onPress([4, 'B']);
+      expect(voices()).toHaveLength(1);
+      // (its start only starts a voice)
+      noise[1].setNoiseValue('start', 0.4);
+      onPress([4, 'C']);
+      expect(voices()).toHaveLength(1);
+      noise[1].setSamplePath(['Textures', 'Textures/Rain.wav']);
+      onPress([4, 'D']);
+      expect(voices()).toHaveLength(2);
+      noise[1].setKeytrack(true);
+      onPress([4, 'E']);
+      expect(voices()).toHaveLength(3);
+      noise[1].toggleActive();
+      onPress([4, 'F']);
+      expect(voices()).toHaveLength(4);
+    });
+  });
+
   describe('playing notes follow the knobs', () => {
     it('gain, detune, blend and wave glide to the knob, the octave is set at once', async () => {
       const { onPress, voices, param, osc1, audioCtx } = await setup();

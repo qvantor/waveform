@@ -475,6 +475,118 @@
       0.011288468725979328
     ]
   },
+  "noise: Pitch Track under a glide and a bend, its pitch and level moved by ENV 2 and VELO": {
+    "sha256": "03ce9879bc504cec98b264abbf5f05cac13dae8ce3746352b37c04bba2bf0e61",
+    "at": 0,
+    "head": [
+      -0.01998083107173443,
+      -0.006592918653041124,
+      0.02438582293689251,
+      0.06769081950187683,
+      0.10643772780895233,
+      0.11962238699197769,
+      0.09814710170030594,
+      0.0555538684129715
+    ]
+  },
+  "noise: Pitch Track under a glide and a bend, its pitch and level moved by ENV 2 and VELO: the sum of one node": {
+    "sha256": "03ce9879bc504cec98b264abbf5f05cac13dae8ce3746352b37c04bba2bf0e61",
+    "at": 0,
+    "head": [
+      -0.01998083107173443,
+      -0.006592918653041124,
+      0.02438582293689251,
+      0.06769081950187683,
+      0.10643772780895233,
+      0.11962238699197769,
+      0.09814710170030594,
+      0.0555538684129715
+    ]
+  },
+  "noise: a mono one-shot up an octave and a half (its levels) and down two at 44.1 kHz, released": {
+    "sha256": "77b62324024e57fa7da7a5b98eeb7357fc0785a8d76fabb562a729d80d415819",
+    "at": 1,
+    "head": [
+      0.00006520037277368829,
+      0.000296058104140684,
+      0.0002068184840027243,
+      0.0006387573084793985,
+      0.0009030969231389463,
+      0.0014960531843826175,
+      0.0016202975530177355,
+      0.0005321688367985189
+    ]
+  },
+  "noise: a mono one-shot up an octave and a half (its levels) and down two at 44.1 kHz, released: the sum of one node": {
+    "sha256": "66411bd0c9b2af789c310bb50210a4ace393c87cf0e2fe777642043660446a56",
+    "at": 1,
+    "head": [
+      0.00006520037277368829,
+      0.000296058104140684,
+      0.0002068184840027243,
+      0.0006387573084793985,
+      0.0009030969231389463,
+      0.0014960531843826175,
+      0.0016202975530177355,
+      0.0005321688367985189
+    ]
+  },
+  "noise: a stereo loop from a random start, panned, through a lowpass, with osc 1": {
+    "sha256": "ab43399917f53d595a7b574e7478e4b16b4aa9bf6316878a9ad7bcd9a6811d58",
+    "at": 0,
+    "head": [
+      -0.0010651538614183664,
+      0.02507730759680271,
+      0.12487512826919556,
+      0.2906424105167389,
+      0.4791828393936157,
+      0.6608098745346069,
+      0.813088595867157,
+      0.9210261106491089
+    ]
+  },
+  "noise: a stereo loop from a random start, panned, through a lowpass, with osc 1: the sum of one node": {
+    "sha256": "ab43399917f53d595a7b574e7478e4b16b4aa9bf6316878a9ad7bcd9a6811d58",
+    "at": 0,
+    "head": [
+      -0.0010651538614183664,
+      0.02507730759680271,
+      0.12487512826919556,
+      0.2906424105167389,
+      0.4791828393936157,
+      0.6608098745346069,
+      0.813088595867157,
+      0.9210261106491089
+    ]
+  },
+  "noise: its knobs on a playing note, a new route of an LFO, a legato note fading in": {
+    "sha256": "91628c567a9b6bf4f0f4e844b2f3e10a0e7b87703146b5ca46366405f6db37d5",
+    "at": 0,
+    "head": [
+      0.08752956986427307,
+      -0.021515674889087677,
+      -0.0813361182808876,
+      -0.08017244935035706,
+      0.0031918336171656847,
+      -0.03724675625562668,
+      0.05752843618392944,
+      0.12936216592788696
+    ]
+  },
+  "noise: its knobs on a playing note, a new route of an LFO, a legato note fading in: the sum of one node": {
+    "sha256": "3eaeeae19d8bc4b8e7bcf55b518e6c39f3caa7c9129a2d6a05c0ca42a02520c1",
+    "at": 0,
+    "head": [
+      0.08752956986427307,
+      -0.021515674889087677,
+      -0.0813361182808876,
+      -0.08017244935035706,
+      0.0031918336171656847,
+      -0.03724675625562668,
+      0.05752843618392944,
+      0.12936216592788696
+    ]
+  },
   "pitch env: ENV 2 on the detune of osc 1, 36 semitones down to the note in 80 ms; osc 2 a fifth up, -7 cents": {
     "sha256": "60c581aa27fa33b303a3f08f557158d0143492b955d56007953b275e3d4d90a7",
     "at": 1,

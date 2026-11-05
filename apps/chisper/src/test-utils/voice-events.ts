@@ -3,6 +3,7 @@ import type {
   VoiceEvent,
   VoiceEventsMessage,
   VoiceFilterOptions,
+  VoiceNoiseKnobs,
   VoicesLfos,
   VoiceOptions,
   VoiceRoute,
@@ -37,9 +38,12 @@ export interface VoiceView {
   values: Partial<Record<VoiceParam, number>>;
   // its params, the events of each played into a mock
   params: Record<VoiceParam, AudioParam>;
-  // the routes, the filters and the velocities sent to it, in order
+  // the routes, the filters, the velocities and the knobs of its noise sent to it, in order
   messages: (
-    { routes: VoiceRoute[] } | { filter: VoiceFilterOptions | null } | { velocity: VoiceVelocity }
+    | { routes: VoiceRoute[] }
+    | { filter: VoiceFilterOptions | null }
+    | { velocity: VoiceVelocity }
+    | { noise: VoiceNoiseKnobs }
   )[];
   // the node it plays in
   node: VoicesNodeStub;
@@ -108,13 +112,20 @@ export const voiceEvents = (context: BaseAudioContext, engine: { flush: () => vo
       lfos.push(event);
       return;
     }
-    if (event.kind === 'routes' || event.kind === 'filter' || event.kind === 'velocity') {
+    if (
+      event.kind === 'routes' ||
+      event.kind === 'filter' ||
+      event.kind === 'velocity' ||
+      event.kind === 'noise'
+    ) {
       const message =
         event.kind === 'routes'
           ? { routes: event.routes }
           : event.kind === 'filter'
             ? { filter: event.filter }
-            : { velocity: event.velocity };
+            : event.kind === 'noise'
+              ? { noise: event.noise }
+              : { velocity: event.velocity };
       event.voices.forEach((id) => byId.get(id)?.messages.push(message));
       return;
     }
@@ -176,9 +187,11 @@ const countEvents = (context: BaseAudioContext): VoiceWork => {
     messages: events.length,
     voices: all.filter(({ kind }) => kind === 'on').length,
     automation: all.filter(
-      ({ kind }) => !['on', 'routes', 'filter', 'velocity', 'bend', 'lfos'].includes(kind)
+      ({ kind }) => !['on', 'routes', 'filter', 'velocity', 'noise', 'bend', 'lfos'].includes(kind)
     ).length,
-    changes: all.filter(({ kind }) => ['routes', 'filter', 'velocity', 'bend', 'lfos'].includes(kind)).length,
+    changes: all.filter(({ kind }) =>
+      ['routes', 'filter', 'velocity', 'noise', 'bend', 'lfos'].includes(kind)
+    ).length,
   };
 };
 

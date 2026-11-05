@@ -91,7 +91,7 @@ Notes are ignored while a text field has focus.
 - Node.js (the version is in [`.nvmrc`](.nvmrc)) and npm
 - [rustup](https://rustup.rs/): the first build installs the Rust toolchain pinned in [`dsp/rust-toolchain.toml`](dsp/rust-toolchain.toml) with its `wasm32-unknown-unknown` target (`wasm-opt` comes with npm)
 - [mkcert](https://github.com/FiloSottile/mkcert) (`brew install mkcert` on macOS) for the local HTTPS certificate of `netlify dev`
-- For wavetables and presets: an S3 bucket with wavetable `.wav` files and a Postgres database (Neon, Supabase or any other)
+- For wavetables, noise samples and presets: two Cloudflare R2 buckets, one with wavetable `.wav` files and one with the noise samples (`scripts/noises`), each with a CORS policy allowing `GET` (see [`.env.example`](.env.example)), and a Postgres database (Neon, Supabase or any other)
 
 ### Installation
 
@@ -122,17 +122,19 @@ To run only the frontend use `npm run client:start`. Wavetables and presets won'
 
 ### Environment variables
 
-| Variable                                       | Description                                                          |
-| ---------------------------------------------- | -------------------------------------------------------------------- |
-| `BUCKET`, `ACCESS_KEY_ID`, `SECRET_ACCESS_KEY` | S3 bucket with wavetables (region `eu-central-1`)                    |
-| `DATABASE_URL`                                 | Postgres connection string (pooled)                                  |
-| `NX_PUBLIC_TURNSTILE_SITE_KEY`                 | Cloudflare Turnstile site key, inlined into the client at build time |
-| `TURNSTILE_SECRET`                             | Cloudflare Turnstile secret, used by functions                       |
-| `IP_HASH_SALT`                                 | Random string for hashing IPs (`openssl rand -hex 32`)               |
-| `MIN_UNIQUE_USERS`                             | Listeners who stayed a preset needs before it gets a score           |
-| `POPULAR_MIN_USERS`                            | Listeners who stayed a preset needs to be in Popular                 |
-| `SCORE_PRIOR_LISTENERS`                        | Listeners of the average share added to every preset's score         |
-| `REPORT_HIDE_THRESHOLD`                        | Reports (from different IPs, last 180 days) that hide a preset       |
+| Variable                                   | Description                                                          |
+| ------------------------------------------ | -------------------------------------------------------------------- |
+| `R2_ACCOUNT_ID`                            | Cloudflare R2 account (its S3 API)                                   |
+| `R2_BUCKET`, `R2_NOISES_BUCKET`            | R2 buckets of the wavetables and of the noise samples                |
+| `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | Keys of an R2 API token (Object Read & Write on both buckets)        |
+| `DATABASE_URL`                             | Postgres connection string (pooled)                                  |
+| `NX_PUBLIC_TURNSTILE_SITE_KEY`             | Cloudflare Turnstile site key, inlined into the client at build time |
+| `TURNSTILE_SECRET`                         | Cloudflare Turnstile secret, used by functions                       |
+| `IP_HASH_SALT`                             | Random string for hashing IPs (`openssl rand -hex 32`)               |
+| `MIN_UNIQUE_USERS`                         | Listeners who stayed a preset needs before it gets a score           |
+| `POPULAR_MIN_USERS`                        | Listeners who stayed a preset needs to be in Popular                 |
+| `SCORE_PRIOR_LISTENERS`                    | Listeners of the average share added to every preset's score         |
+| `REPORT_HIDE_THRESHOLD`                    | Reports (from different IPs, last 180 days) that hide a preset       |
 
 `.env.example` ships with Cloudflare test keys that always pass, which is handy for local development.
 
@@ -159,7 +161,7 @@ To run only the frontend use `npm run client:start`. Wavetables and presets won'
 
 - **Frontend**: TypeScript, React 19, RxJS, Web Audio API (AudioWorklet), Web Workers, Web MIDI API, antd 6, styled-components, react-query, dnd-kit
 - **DSP**: Rust compiled to WebAssembly with SIMD (`no_std`, no wasm-bindgen), binaryen `wasm-opt`
-- **Backend**: Netlify Functions (v2, including scheduled functions), Postgres, AWS S3, zod
+- **Backend**: Netlify Functions (v2, including scheduled functions), Postgres, Cloudflare R2, zod
 - **Tooling**: Nx monorepo, Jest, ESLint, Prettier, knip, cargo clippy and fmt, Playwright benchmarks, GitHub Actions
 
 ## Project structure

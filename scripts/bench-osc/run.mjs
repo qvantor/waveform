@@ -1,5 +1,5 @@
 // The benchmark of the wavetable oscillator against a native OscillatorNode (see README.md): bundles
-// bench-page.ts and the worklet with esbuild, downloads 3 tables of the bucket (S3 keys of .env) into
+// bench-page.ts and the worklet with esbuild, downloads 3 tables of the bucket (R2 keys of .env) into
 // tmp/bench-osc/tables, serves them on localhost (a secure context: AudioWorklet) and runs the page in
 // Chromium, WebKit and Firefox through Playwright, which is not a dependency of the project:
 //   npx -y -p playwright@1.50.1 node scripts/bench-osc/run.mjs [--browsers=chromium,webkit,firefox]

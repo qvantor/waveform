@@ -10,7 +10,7 @@ export interface Wavetable {
 
 export type LoadWavetable = (id: string) => Promise<Wavetable>;
 
-// the leaf of a wavetable path (the cascade value of a file) is its S3 key
+// the leaf of a wavetable path (the cascade value of a file) is its key in the bucket
 export const wavetableId = (path: (string | number)[]) =>
   path.length > 0 ? String(path[path.length - 1]) : '';
 

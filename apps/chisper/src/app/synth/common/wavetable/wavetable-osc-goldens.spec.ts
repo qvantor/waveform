@@ -14,6 +14,7 @@ import {
 } from '../../../../test-utils/parity';
 import { seeded } from '../../../../test-utils/seeded';
 import { wasmCore } from '../../../../test-utils/wasm';
+import { buildNoiseLevels } from './noise-levels';
 import { expandFrames } from './wavetable-frames';
 import { buildLevels } from './wavetable-mipmap';
 import {
@@ -21,6 +22,8 @@ import {
   UNISON_SHAPE,
   UNISON_STACKS,
   VoiceFilterOptions,
+  VoiceNoiseKnobs,
+  VoiceNoiseOptions,
   VoiceOptions,
   VoiceOscOptions,
   VoiceRoute,
@@ -56,17 +59,20 @@ interface ScenarioVoice {
   at: number;
   options: VoiceOptions;
   params: Params;
-  // the messages before a block: routes, filter, velocity (undefined: none)
+  // the messages before a block: routes, filter, velocity, the knobs of its noise (undefined: none)
   routes?: Record<number, VoiceRoute[]>;
   filters?: Record<number, VoiceFilterOptions | null>;
   velocities?: Record<number, VoiceVelocity>;
+  noises?: Record<number, VoiceNoiseKnobs>;
 }
 
 interface Scenario {
   rate: number;
   blocks: number[];
-  // the tables: frames of samples, set as version 1 before the first block
+  // the tables: frames of samples, set as version 1 before the first block; the samples of the noise (their
+  // channels at 44.1 kHz) too
   tables: Record<string, number[][]>;
+  samples?: Record<string, number[][]>;
   // new versions (or a removal: null) before a block
   versions?: Record<number, [string, number[][] | null][]>;
   voices: ScenarioVoice[];
@@ -151,7 +157,7 @@ const production = (options: VoiceOptions): VoiceOptions => ({
 });
 
 // a scope of voices on a store with the tables of a scenario (its new versions set by `before`)
-const scopeOf = ({ tables, versions = {} }: Scenario) => {
+const scopeOf = ({ tables, samples = {}, versions = {} }: Scenario) => {
   const scope = createOscScope(core);
   const store = createTableStoreWasm(scope);
   const shared = createVoiceSharedWasm(scope);
@@ -169,6 +175,17 @@ const scopeOf = ({ tables, versions = {} }: Scenario) => {
     }
   };
   Object.entries(tables).forEach(([table, frames]) => setTable(table, frames));
+  Object.entries(samples).forEach(([id, channels]) => {
+    store.set(
+      id,
+      1,
+      buildNoiseLevels(
+        channels.map((channel) => Float32Array.from(channel)),
+        44100
+      )
+    );
+    live.add(id);
+  });
   return {
     scope,
     store,
@@ -215,8 +232,12 @@ const run = (name: string, scenario: Scenario) => {
       if (filter !== undefined) wasm.setFilter(filter);
       const velocity = voice.velocities?.[block];
       if (velocity) wasm.setVelocity(velocity);
+      const noise = voice.noises?.[block];
+      if (noise) wasm.setNoise(noise);
       const [outL, outR] = [new Float32Array(n), new Float32Array(n)];
-      wasm.process(frame, bend.bent(blockParams(voice, frame, n), bendOfBlock, n), outL, outR);
+      // (the bend on the detunes, and as it is for the noise of Pitch Track)
+      const row = typeof bendOfBlock === 'number' ? Float32Array.of(bendOfBlock) : bendOfBlock;
+      wasm.process(frame, bend.bent(blockParams(voice, frame, n), bendOfBlock, n), outL, outR, row);
       expectFinite(name, block, outL);
       expectFinite(name, block, outR);
       hash.add(outL);
@@ -264,6 +285,8 @@ const runScope = (name: string, scenario: Scenario, trap?: { block: number; voic
       if (filter !== undefined) node.setFilter(id, filter);
       const velocity = voice.velocities?.[block];
       if (velocity) node.setVelocity(id, velocity);
+      const noise = voice.noises?.[block];
+      if (noise) node.setNoise(id, noise);
       const params = blockParams(voice, frame, n);
       if (trap?.block !== block || trap.voice !== id) node.params(id, params, n);
       else {
@@ -996,6 +1019,10 @@ const KNOBS: [string, number, number, ('log' | 'pow')?][] = [
   ['lfo3.rise', 0, 32, 'pow'],
   ['lfo4.smooth', 0, 0.5, 'pow'],
   ['lfo1.phase', 0, 1],
+  ['noise.level', 0, 1],
+  ['noise.pan', -1, 1],
+  ['noise.pitch', -4800, 4800],
+  ['noise.fine', -100, 100],
 ];
 const FILTERS = [
   'lowpass',
@@ -1124,6 +1151,22 @@ const randomGate = (random: Random, frames: number): ParamBlock => {
   };
 };
 
+// the knobs of a noise (the cents past the range of Pitch now and then: Pitch Track on a high note)
+const randomNoiseKnobs = (random: Random): VoiceNoiseKnobs => ({
+  level: random(),
+  pan: between(random, -1, 1),
+  cents: random() < 0.1 ? between(random, -12000, 12000) : between(random, -4800, 4800),
+});
+// a noise of a voice: the sample of the scope, or one the store hasn't (silent)
+const randomNoise = (random: Random): VoiceNoiseOptions => ({
+  sample: random() < 0.9 ? 'n' : 'm',
+  loop: random() < 0.6,
+  keytrack: random() < 0.3,
+  start: random() < 0.5 ? 0 : random(),
+  rand: random() < 0.5 ? 0 : random(),
+  ...randomNoiseKnobs(random),
+});
+
 const randomScenario = (random: Random, seed: number): Scenario => {
   const rate = pick(random, [44100, 48000, 48000, 96000]);
   const blocks = Array.from({ length: 8 + Math.floor(random() * 40) }, () =>
@@ -1131,6 +1174,13 @@ const randomScenario = (random: Random, seed: number): Scenario => {
   );
   const frames = blocks.reduce((a, b) => a + b, 0);
   const tables: Record<string, number[][]> = { a: randomFrames(random), b: randomFrames(random) };
+  // a sample of noise, mono or stereo, from a few frames (a level or two) to 0.3 s
+  const length = random() < 0.2 ? 1 + Math.floor(random() * 300) : 300 + Math.floor(random() * 13000);
+  const samples = {
+    n: Array.from({ length: random() < 0.5 ? 1 : 2 }, () =>
+      Array.from({ length }, () => (random() < 0.01 ? pick(random, [1, -1, 0]) : random() - 0.5))
+    ),
+  };
   const versions: Scenario['versions'] = {};
   if (random() < 0.3)
     versions[Math.floor(random() * blocks.length)] = [
@@ -1170,10 +1220,14 @@ const randomScenario = (random: Random, seed: number): Scenario => {
     const velocity = random() < 0.6 ? randomVelocity() : undefined;
     const velocities: Record<number, VoiceVelocity> = {};
     if (random() < 0.3) velocities[at + Math.floor(random() * 10)] = randomVelocity();
+    const noise = random() < 0.4 ? randomNoise(random) : null;
+    const noises: Record<number, VoiceNoiseKnobs> = {};
+    if (noise && random() < 0.4) noises[at + Math.floor(random() * 10)] = randomNoiseKnobs(random);
     return {
       at,
       options: {
         osc: [oscOf(), oscOf()],
+        noise,
         start,
         envelopes: [randomEnvelope(random), randomEnvelope(random), randomEnvelope(random)],
         envStart: legato ? Math.max(0, start - random() * 0.05) : start,
@@ -1199,13 +1253,151 @@ const randomScenario = (random: Random, seed: number): Scenario => {
       routes: message,
       filters,
       velocities,
+      noises,
     };
   });
-  return { rate, blocks, tables, versions, voices, bends, lfos: randomLfos(random, blocks, rate), seed };
+  return {
+    rate,
+    blocks,
+    tables,
+    samples,
+    versions,
+    voices,
+    bends,
+    lfos: randomLfos(random, blocks, rate),
+    seed,
+  };
 };
 
+// --- noise ---
+
+// a sample of noise at 44.1 kHz (seeded white noise over a sine), `channels` of `seconds`
+const noiseSample = (seed: number, seconds: number, channels = 1) => {
+  const random = seeded(seed);
+  return Array.from({ length: channels }, (_, c) =>
+    Array.from(
+      { length: Math.round(seconds * 44100) },
+      (_, i) => 0.4 * (random() - 0.5) + 0.3 * Math.sin((2 * Math.PI * (220 + 110 * c) * i) / 44100)
+    )
+  );
+};
+const NOISE: VoiceNoiseOptions = {
+  sample: 'n',
+  loop: true,
+  keytrack: false,
+  start: 0,
+  rand: 0,
+  level: 0.8,
+  pan: 0,
+  cents: 0,
+};
+const noisy = (noise: Partial<VoiceNoiseOptions>, options: Partial<VoiceOptions> = {}) =>
+  note({ osc: [null, null], noise: { ...NOISE, ...noise }, ...options });
+
+const NOISE_GOLDEN: [string, Scenario][] = [
+  [
+    'noise: a stereo loop from a random start, panned, through a lowpass, with osc 1',
+    {
+      rate: RATE,
+      blocks: quanta(0.3),
+      tables: { a: [SAW] },
+      samples: { n: noiseSample(1, 0.12, 2) },
+      voices: [
+        {
+          at: 0,
+          options: noisy(
+            { start: 0.3, rand: 0.7, pan: 0.4 },
+            {
+              osc: [osc(), null],
+              filter: { type: 'lowpass', cutoff: 3000, resonance: 6, gain: 0 },
+            }
+          ),
+          params: { frequency: constant(110) },
+        },
+      ],
+      seed: 21,
+    },
+  ],
+  [
+    'noise: a mono one-shot up an octave and a half (its levels) and down two at 44.1 kHz, released',
+    {
+      rate: 44100,
+      blocks: quanta(0.25, 44100),
+      tables: {},
+      samples: { n: noiseSample(2, 0.05) },
+      voices: [
+        {
+          at: 0,
+          options: noisy({ loop: false, cents: 1800 }, { envelopes: [ENV, FLAT, FLAT] }),
+          params: { gate: gateAt(4000) },
+        },
+        {
+          at: 3,
+          options: noisy({ loop: false, cents: -2400, level: 1 }, { start: (3 * 128) / 44100, phrase: 1 }),
+          params: {},
+        },
+      ],
+      seed: 22,
+    },
+  ],
+  [
+    'noise: Pitch Track under a glide and a bend, its pitch and level moved by ENV 2 and VELO',
+    {
+      rate: RATE,
+      blocks: quanta(0.4),
+      tables: {},
+      samples: { n: noiseSample(3, 0.2, 2) },
+      voices: [
+        {
+          at: 0,
+          options: noisy(
+            { keytrack: true, rand: 1 },
+            {
+              envelopes: [FLAT, { attack: 0.1, hold: 0, decay: 0.1, sustain: 0.3, release: 0 }, FLAT],
+              velocity: { level: 0.7, amp: 1 },
+              routes: [
+                { source: 1, param: 'noise.pitch', amount: 700, min: -4800, max: 4800 },
+                { source: 3, param: 'noise.level', amount: -0.4, min: 0, max: 1 },
+                { source: 1, param: 'noise.pan', amount: 1, min: -1, max: 1, bipolar: true },
+              ],
+            }
+          ),
+          params: { frequency: perSample((frame) => 220 * 2 ** Math.min(1, frame / 9600)) },
+        },
+      ],
+      bends: { 30: 200, 70: -100 },
+      seed: 23,
+    },
+  ],
+  [
+    'noise: its knobs on a playing note, a new route of an LFO, a legato note fading in',
+    {
+      rate: RATE,
+      blocks: quanta(0.35),
+      tables: { a: [SINE] },
+      samples: { n: noiseSample(4, 0.3) },
+      voices: [
+        {
+          at: 0,
+          options: noisy({ cents: 300 }),
+          params: {},
+          noises: { 20: { level: 0.3, pan: -0.8, cents: -700 }, 60: { level: 1, pan: 0.2, cents: 1250 } },
+          routes: { 40: [lfoRoute(4, 'noise.fine', 100, { min: -100, max: 100, bipolar: true })] },
+        },
+        {
+          at: 50,
+          options: noisy({ start: 0.5 }, { osc: [osc(), null], start: (50 * 128) / RATE, envStart: 0 }),
+          params: { frequency: constant(330) },
+        },
+      ],
+      lfos: { 0: lfosAtOnce([]) },
+      seed: 24,
+    },
+  ],
+];
+
 describe('wavetable oscillator wasm core', () => {
-  it.each([...GOLDEN, ...LFO_GOLDEN])('%s: its golden', (name, scenario) => {
+  it.each([...GOLDEN, ...LFO_GOLDEN, ...NOISE_GOLDEN])('%s: its golden', (name, scenario) => {
     const golden = run(name, scenario);
     goldens.check(name, golden);
     // the voices of one node: the same bits, and the golden of their sum

@@ -23,6 +23,8 @@ import { getFq, stringToNote, noteToString } from '../../services';
 import { urlSnapshotPlugin } from '../../../app';
 import type {
   VoiceFilterOptions,
+  VoiceNoiseKnobs,
+  VoiceNoiseOptions,
   VoiceOscOptions,
   VoiceRoute,
   VoiceStartedMessage,
@@ -59,6 +61,7 @@ import { DEFAULT_VELOCITY, InputControllerModule } from './input-controller';
 import { Envelopes, envelopeSeconds, EnvelopesModule, VelocityKnobs } from './envelopes';
 import type { LfoModule, LfoRanges } from './lfos';
 import { ModRoute, ModulationModule } from './modulation';
+import type { NoiseModel, NoiseModule } from './noise';
 import { OscillatorModel, OscillatorModule } from './oscillator';
 import { SynthCoreModule } from './synth-core';
 import type { TransportModule } from './transport';
@@ -71,6 +74,7 @@ interface Deps {
   lfo: LfoModule;
   modulation: ModulationModule;
   oscillator: [OscillatorModule, OscillatorModule];
+  noise: NoiseModule;
   filter: FilterModule;
 }
 
@@ -137,6 +141,28 @@ const movesPitch = (routes: ModRoute[], osc: number) =>
     return !off && definition?.kind === 'osc' && definition.osc === osc && definition.knob !== undefined;
   });
 
+// the noise of the notes (the noise model): its options at a note on (null: off), its knobs (Pitch and Fine bound
+// its routes), its sample (another one is another sound: mono starts a new voice)
+type VoiceNoise = Pick<NoiseModel, 'voiceNoise' | '$noise' | '$samplePath'>;
+const noisePitchOf = ({ $noise }: VoiceNoise): OscPitch => ({
+  semi: $noise.value.pitch,
+  fine: $noise.value.fine,
+});
+// what of the noise a voice keeps from its note on: on/off, its sample, loop, Pitch Track (not its start: it only
+// starts the voice)
+const noiseKey = (noise: VoiceNoise) => {
+  const options = noise.voiceNoise();
+  return JSON.stringify(
+    options && { path: noise.$samplePath.value, loop: options.loop, keytrack: options.keytrack }
+  );
+};
+// a route (on) moves the pitch of the noise (Pitch, Fine): its bounds follow those knobs
+const movesNoisePitch = (routes: ModRoute[]) =>
+  routes.some(({ target, off }) => {
+    const definition = MOD_TARGETS[target];
+    return !off && definition?.kind === 'noise' && definition.knob !== undefined;
+  });
+
 // a route of a voice (its amount a share of `range`, within `bounds`: routeAmount): the scale in it only when not
 // linear, bipolar only when it is
 const voiceRoute = (
@@ -158,15 +184,17 @@ const voiceRoute = (
 });
 
 // the routes of a note to its params: of the oscillators on for it (`osc`, null: off; the pitch an offset of its
-// detune within the range of the knob from its value now, `pitches`), of the filter while it is on, in the range
-// of its type (a knob its type doesn't use is left out), and to the knobs of the LFOs (Rate by its frequency; in
-// BPM within their divisions at the tempo, `lfoRanges`); an amount of 0 and a route switched off are left out (its
-// source isn't rendered for it)
+// detune within the range of the knob from its value now, `pitches`), of its noise (null: off; its pitch as the
+// pitch of an oscillator, `noisePitch`), of the filter while it is on, in the range of its type (a knob its type
+// doesn't use is left out), and to the knobs of the LFOs (Rate by its frequency; in BPM within their divisions at
+// the tempo, `lfoRanges`); an amount of 0 and a route switched off are left out (its source isn't rendered for it)
 const voiceRoutes = (
   routes: ModRoute[],
   osc: (VoiceOscOptions | null)[],
+  noise: VoiceNoiseOptions | null,
   filter: VoiceFilterOptions | null,
   pitches: OscPitch[],
+  noisePitch: OscPitch,
   lfoRanges: LfoRanges
 ): VoiceRoute[] =>
   routes.flatMap(({ source: id, target, amount, bipolar, off }) => {
@@ -179,6 +207,13 @@ const voiceRoutes = (
       const route = voiceRoute(source, param, amount, definition.scale, definition.range, bipolar);
       if (!definition.knob) return [route];
       const cents = PITCH_KNOB_CENTS[definition.knob] * pitches[definition.osc][definition.knob];
+      return [{ ...route, min: route.min - cents, max: route.max - cents }];
+    }
+    if (definition.kind === 'noise') {
+      if (!noise) return [];
+      const route = voiceRoute(source, target, amount, definition.scale, definition.range, bipolar);
+      if (!definition.knob) return [route];
+      const cents = PITCH_KNOB_CENTS[definition.knob] * noisePitch[definition.knob];
       return [{ ...route, min: route.min - cents, max: route.max - cents }];
     }
     if (definition.kind === 'lfo')
@@ -267,6 +302,7 @@ interface VoiceConfig {
   // the seconds of the context time of the note on (read once: out of legato envStart is the same)
   start: number;
   oscillators: VoiceOscillator[];
+  noise: VoiceNoise;
   // the frequency of the note, with portamento a glide to it from the note before
   pitch: Glide;
   // its velocity
@@ -290,11 +326,12 @@ interface VoiceConfig {
   mono: boolean;
 }
 
-// the voice of a note in the voices node and what it read at its note on: the options of its oscillators and its
-// routes
+// the voice of a note in the voices node and what it read at its note on: the options of its oscillators and of
+// its noise, its routes
 interface CreatedVoice {
   handle: VoiceHandle;
   osc: (VoiceOscOptions | null)[];
+  noise: VoiceNoiseOptions | null;
   routes: VoiceRoute[];
 }
 
@@ -306,6 +343,7 @@ const createVoiceHandle = ({
   createVoice,
   start: now,
   oscillators,
+  noise: noiseSource,
   pitch,
   velocity: { level, amp },
   phrase: { id: phrase, envelopes, start: envStart },
@@ -321,10 +359,20 @@ const createVoiceHandle = ({
     OSC_PARAMS.forEach((param) => (values[oscParamName(param, index)] = params[param]));
     return oscOptions(oscillator);
   });
-  const routes = voiceRoutes(modRoutes, osc, filter, pitchesOf(oscillators), lfoRanges());
+  const noise = noiseSource.voiceNoise();
+  const routes = voiceRoutes(
+    modRoutes,
+    osc,
+    noise,
+    filter,
+    pitchesOf(oscillators),
+    noisePitchOf(noiseSource),
+    lfoRanges()
+  );
   const handle = createVoice(
     {
       osc,
+      ...(noise && { noise }),
       start: now,
       envelopes,
       envStart,
@@ -343,7 +391,7 @@ const createVoiceHandle = ({
     param.setValueAtTime(pitch.from, now);
     scheduleGlide(param, pitch);
   }
-  return { handle, osc, routes };
+  return { handle, osc, noise, routes };
 };
 
 // a note: its voice plays in the voices node, ENV 1 shapes it there and the node tells its end once ENV 1 is
@@ -351,8 +399,11 @@ const createVoiceHandle = ({
 class Voice {
   private config: VoiceConfig;
   private handle: VoiceHandle;
-  // the options of the oscillators its voice read at the note on (null: off when it was pressed)
+  // the options of the oscillators and of the noise its voice read at the note on (null: off when it was pressed),
+  // what of the noise it keeps (noiseKey)
   private osc: (VoiceOscOptions | null)[];
+  noise: VoiceNoiseOptions | null;
+  private noiseKey: string;
   // the milliseconds of the note on (performance.now): the time its key is held, currentTime moves by device
   // buffers
   private pressedAt = performance.now();
@@ -379,7 +430,7 @@ class Voice {
   velocity: NoteVelocity;
 
   // from createVoiceHandle, the voicing makes a voice only for a handle
-  constructor(config: VoiceConfig, { handle, osc, routes }: CreatedVoice) {
+  constructor(config: VoiceConfig, { handle, osc, noise, routes }: CreatedVoice) {
     this.config = config;
     this.handle = handle;
     this.startedAt = config.start;
@@ -387,6 +438,8 @@ class Voice {
     this.pitch = config.pitch;
     this.current = config.phrase;
     this.osc = osc;
+    this.noise = noise;
+    this.noiseKey = noiseKey(config.noise);
     this.velocity = config.velocity;
     this.routes = JSON.stringify(routes);
     handle.onStarted = (started, scheduled) => {
@@ -429,11 +482,11 @@ class Voice {
     this.startedAt = at;
   }
 
-  // it plays the oscillators of the knobs: on/off, the unison and its shape are read at its note on (the phases
-  // only start it: taken over, it goes on with them)
+  // it plays the oscillators and the noise of the knobs: on/off, the unison and its shape, the sample, loop and
+  // Pitch Track are read at its note on (the phases and the start only start it: taken over, it goes on with them)
   playsKnobs() {
     const knobs = this.config.oscillators.map((oscillator) => withoutPhases(oscOptions(oscillator)));
-    return isEqual(this.osc.map(withoutPhases), knobs);
+    return isEqual(this.osc.map(withoutPhases), knobs) && this.noiseKey === noiseKey(this.config.noise);
   }
 
   // mono: the voice plays `note` instead, its pitch glides there in `seconds` along the curve from where it is
@@ -514,8 +567,10 @@ class Voice {
     const next = voiceRoutes(
       routes,
       this.osc,
+      this.noise,
       filter,
       pitchesOf(this.config.oscillators),
+      noisePitchOf(this.config.noise),
       this.config.lfoRanges()
     );
     const json = JSON.stringify(next);
@@ -540,6 +595,8 @@ interface VoicingContext {
   setRoutes: Wavetables['setRoutes'];
   setFilter: Wavetables['setFilter'];
   setVelocity: Wavetables['setVelocity'];
+  // the knobs of the noise of playing voices changed
+  setNoise: Wavetables['setNoise'];
   // the wavetable oscillator can play (its module is ready)
   isReady: () => boolean;
 
@@ -547,6 +604,7 @@ interface VoicingContext {
   $legato: PrimitiveBS<boolean>;
   $portamento: PrimitiveBS<number>;
   oscillators: VoiceOscillator[];
+  noise: VoiceNoise;
   $envelopes: EnvelopesModule[0]['$envelopes'];
   // the tempo now (the envelopes in BPM)
   tempo: () => number;
@@ -602,7 +660,8 @@ class Voicing {
   // portamento it glides from `from` (the last key held). In mono a note starts a phrase of its own: its voice
   // takes the next notes over, no other voice joins it
   private getVoice = (note: Note, from: Note | undefined): Voice | null => {
-    const { audioCtx, createVoice, $legato, $portamento, $envelopes, $routes, oscillators } = this.config;
+    const { audioCtx, createVoice, $legato, $portamento, $envelopes, $routes, oscillators, noise } =
+      this.config;
     const { voiceFilter, lfoRanges, tempo, $voiceStarts, $maxVoices } = this.config;
     const now = audioCtx.currentTime;
     const own: Phrase = {
@@ -622,6 +681,7 @@ class Voicing {
       note,
       start: now,
       oscillators,
+      noise,
       pitch:
         from && $portamento.value > 0
           ? { from: getFq(from), to: frequency, start: now, seconds: $portamento.value / 1000 }
@@ -912,6 +972,13 @@ class Voicing {
       [...this.sounding].map((voice) => voice.id),
       filter
     );
+
+  // the knobs of the noise changed: the voices that play one glide to its level and its pan, take its pitch
+  setNoise = (knobs: VoiceNoiseKnobs) =>
+    this.config.setNoise(
+      [...this.sounding].filter((voice) => voice.noise).map((voice) => voice.id),
+      knobs
+    );
 }
 
 export const synth = ({
@@ -922,6 +989,7 @@ export const synth = ({
   lfo,
   modulation: [{ $routes }],
   oscillator: oscillators,
+  noise: [noise],
   filter: [{ voiceFilter, $voiceFilter }],
 }: Deps) =>
   rxModel(() => {
@@ -942,6 +1010,7 @@ export const synth = ({
       setRoutes: wavetables.setRoutes,
       setFilter: wavetables.setFilter,
       setVelocity: wavetables.setVelocity,
+      setNoise: wavetables.setNoise,
       isReady: () => wavetables.$status.value === 'ready',
       $maxVoices,
       $legato,
@@ -955,6 +1024,7 @@ export const synth = ({
       $fxNote,
       $voiceStarts,
       oscillators: oscillators.map(([osc]) => osc),
+      noise,
       onCount: () => $voicesCount.next(voicing.voicesCount),
     };
     const voicing = new Voicing(voicingContext);
@@ -1048,6 +1118,18 @@ export const synth = ({
             if (movesPitch($routes.value, osc)) voicing.setRoutes($routes.value, voiceFilter());
           })
       ),
+      // the playing notes with a noise follow its knobs (its level and pan glide, its pitch steps)
+      noise.$params.pipe(skip(1)).subscribe((knobs) => voicing.setNoise(knobs)),
+      // the routes of its pitch keep Pitch and Fine within their range from their values
+      noise.$noise
+        .pipe(
+          map(({ pitch, fine }) => [pitch, fine]),
+          distinctUntilChanged(isEqual),
+          skip(1)
+        )
+        .subscribe(() => {
+          if (movesNoisePitch($routes.value)) voicing.setRoutes($routes.value, voiceFilter());
+        }),
     ])
     .plugins(
       urlSnapshotPlugin({

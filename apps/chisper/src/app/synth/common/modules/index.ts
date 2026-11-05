@@ -4,9 +4,11 @@ export { KeyboardControllerProvider, useKeyboardController, KEYBOARD_OCTAVES } f
 export { EnvelopesProvider, useEnvelopes } from './envelopes';
 export { LfoProvider, useLfos } from './lfos';
 export { ModulationProvider, useModulation } from './modulation';
+export { NoiseProvider, useNoise } from './noise';
 export { Oscillator1Provider, Oscillator2Provider, useOscillator1, useOscillator2 } from './oscillator';
 export { SynthProvider, useSynth } from './synth';
 export { SynthCoreProvider, useSynthCore } from './synth-core';
 export { SoundSwitchProvider, useSoundSwitch } from './sound-switch';
 export { TransportProvider, useTransport } from './transport';
 export type { OscillatorModule, OscillatorModel, OscillatorActions } from './oscillator';
+export type { NoiseModel } from './noise';

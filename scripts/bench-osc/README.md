@@ -16,7 +16,7 @@ page runs on a page of its own: the OfflineAudioContexts of a page keep their wo
 table of up to 64 MB each in its memory) and Chromium stopped making new instances.
 
 `run.mjs` bundles `bench-page.ts` and the worklet module with esbuild, downloads 3 tables of the bucket
-(the S3 keys of `.env`) into `tmp/bench-osc/tables`, serves both on localhost (a secure context: AudioWorklet)
+(the R2 keys of `.env`) into `tmp/bench-osc/tables`, serves both on localhost (a secure context: AudioWorklet)
 and runs the page in each browser. Playwright is not a dependency of the project: `npx -p` puts it on the
 `PATH`, `run.mjs` loads it from there. The report goes to `tmp/bench-osc/report.md` (and `report.json`); the
 exit code is 1 if a criterion failed.

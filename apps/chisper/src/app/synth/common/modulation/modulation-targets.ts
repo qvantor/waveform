@@ -10,6 +10,7 @@ import {
   LfoKnob,
   MOD_SOURCES,
   FINE_MAX,
+  NOISE_PITCH_MAX,
   SEMI_MAX,
 } from '@chisper/preset-schema';
 import { rangesOf } from '../../filter/constants';
@@ -77,7 +78,19 @@ interface LfoTarget {
   range: [number, number];
 }
 
-export type ModTarget = OscTarget | FilterTarget | FxTarget | LfoTarget;
+// a knob of the noise in the voice node of each note (noise.rs): its level (0..1, the amplitude its square), its
+// pan (-1..1), its pitch (Pitch on its semitones smoothly, Fine: offsets of base 0 in cents within the range of
+// the knob from its value, as the pitch of an oscillator)
+interface NoiseTarget {
+  kind: 'noise';
+  param: 'level' | 'pan' | 'pitch' | 'fine';
+  label: string;
+  scale: ModScale;
+  range: [number, number];
+  knob?: PitchKnob;
+}
+
+export type ModTarget = OscTarget | FilterTarget | FxTarget | LfoTarget | NoiseTarget;
 
 const fxTargets = Object.fromEntries(
   FX_TYPES.flatMap((fx) =>
@@ -122,6 +135,28 @@ const oscTargets = (osc: number): Record<string, OscTarget> => {
   };
 };
 
+const noiseTargets: Record<string, NoiseTarget> = {
+  'noise.level': { kind: 'noise', param: 'level', label: 'Level', scale: 'linear', range: [0, 1] },
+  'noise.pan': { kind: 'noise', param: 'pan', label: 'Pan', scale: 'linear', range: [-1, 1] },
+  // an amount of 1 their whole range: 96 semitones, 200 cents
+  'noise.pitch': {
+    kind: 'noise',
+    param: 'pitch',
+    label: 'Pitch',
+    scale: 'linear',
+    range: pitchRange('semi', NOISE_PITCH_MAX),
+    knob: 'semi',
+  },
+  'noise.fine': {
+    kind: 'noise',
+    param: 'fine',
+    label: 'Fine',
+    scale: 'linear',
+    range: pitchRange('fine', FINE_MAX),
+    knob: 'fine',
+  },
+};
+
 const filterTargets: Record<string, FilterTarget> = {
   'filter.cutoff': { kind: 'filter', param: 'cutoff', label: 'Cutoff' },
   'filter.resonance': { kind: 'filter', param: 'resonance', label: 'Res' },
@@ -148,6 +183,7 @@ const lfoTargets = Object.fromEntries(
 export const MOD_TARGETS: Record<string, ModTarget> = {
   ...oscTargets(0),
   ...oscTargets(1),
+  ...noiseTargets,
   ...filterTargets,
   ...fxTargets,
   ...lfoTargets,

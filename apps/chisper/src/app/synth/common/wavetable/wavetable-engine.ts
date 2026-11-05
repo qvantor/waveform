@@ -9,6 +9,7 @@ import type {
   BuilderStats,
   BuilderStatsMessage,
   BuildMessage,
+  BuildSampleMessage,
 } from './wavetable-builder';
 import type {
   StatsRequest,
@@ -18,6 +19,7 @@ import type {
   VoiceEvent,
   VoiceEventsMessage,
   VoiceFilterOptions,
+  VoiceNoiseKnobs,
   VoiceOptions,
   VoiceRoute,
   VoicesReportMessage,
@@ -99,7 +101,12 @@ export const createWavetableEngine = (
 ) => {
   const $status = new BehaviorSubject<WavetableStatus>('loading');
   const $tables = new BehaviorSubject<Record<string, TableState>>({});
-  const tables = new Map<string, { version: number; frames: ArrayLike<number>[]; morph: boolean }>();
+  // (a sample of the noise: its channels at its rate)
+  const tables = new Map<
+    string,
+    | { version: number; frames: ArrayLike<number>[]; morph: boolean }
+    | { version: number; sample: { channels: ArrayLike<number>[]; rate: number } }
+  >();
   // the tables whose refused version was sent again once the store freed memory (once a version: refused again,
   // it waits for retryTable)
   const retried = new Set<string>();
@@ -226,11 +233,24 @@ export const createWavetableEngine = (
     if (tables.get(table)?.version === version) setState(table, state);
   };
 
-  // the frames are copied into arrays of their own, transferred to the worker
+  // the frames (the channels of a sample) are copied into arrays of their own, transferred to the worker
   const send = (table: string) => {
     const entry = tables.get(table);
     if (!worker || !entry) return;
     setState(table, 'sending');
+    if ('sample' in entry) {
+      const channels = entry.sample.channels.map((channel) => Float32Array.from(channel));
+      const message: BuildSampleMessage = {
+        table,
+        version: entry.version,
+        sample: { channels, rate: entry.sample.rate },
+      };
+      worker.postMessage(
+        message,
+        channels.map(({ buffer }) => buffer)
+      );
+      return;
+    }
     const frames = entry.frames.map((frame) => Float32Array.from(frame));
     const message: BuildMessage = { table, version: entry.version, frames, morph: entry.morph };
     worker.postMessage(
@@ -338,6 +358,13 @@ export const createWavetableEngine = (
       retried.delete(table);
       send(table);
     },
+    // a new version of a sample of the noise (its channels at `rate`, read when it is sent): a table of the store
+    // as the oscillators' are (its state in $tables, retryTable, removeTable); the worker builds its levels
+    setSample: (table: string, channels: ArrayLike<number>[], rate: number) => {
+      tables.set(table, { version: nextVersion(table), sample: { channels, rate } });
+      retried.delete(table);
+      send(table);
+    },
     // the latest version of a table the store refused or the worker failed to build, sent again (a refusal after
     // it is sent again once more when the store frees memory)
     retryTable: (table: string) => {
@@ -391,6 +418,9 @@ export const createWavetableEngine = (
     },
     setVelocity: (ids: number[], velocity: VoiceVelocity) => {
       if (ids.length > 0) enqueue({ kind: 'velocity', voices: ids, velocity });
+    },
+    setNoise: (ids: number[], noise: VoiceNoiseKnobs) => {
+      if (ids.length > 0) enqueue({ kind: 'noise', voices: ids, noise });
     },
     // the pitch bend of every voice (cents on top of their detunes), new ones start with it: the node glides there
     setBend: (cents: number) => {

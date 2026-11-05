@@ -17,6 +17,7 @@ pub mod filter;
 pub mod glided;
 pub mod lfo;
 pub mod modulation;
+pub mod noise;
 pub mod scope;
 pub mod shared;
 pub mod store;
@@ -29,8 +30,9 @@ use dsp_core::biquad::FilterType;
 use envelope::EnvelopeParams;
 use filter::FilterOptions;
 use modulation::VoiceRoute;
+use noise::{NoiseKnobs, NoiseOptions};
 use scope::Scope;
-use shared::{Shared, LFO_STATE, PARAMS};
+use shared::{Shared, IO_ROWS, LFO_STATE, PARAMS};
 use store::Store;
 use velocity::VoiceVelocity;
 use voice::{OscOptions, Params, UnisonShape, Voice, VoiceOptions, MAX_UNISON};
@@ -101,12 +103,42 @@ fn read_velocity(reader: &mut Reader) -> VoiceVelocity {
     }
 }
 
+// the knobs of the noise of a playing note: level, pan, cents
+fn read_noise_knobs(reader: &mut Reader) -> NoiseKnobs {
+    NoiseKnobs {
+        level: reader.next(),
+        pan: reader.next(),
+        cents: reader.next(),
+    }
+}
+
+// the noise of a note: present, sample, loop, keytrack, start, rand, its random share, then its knobs
+fn read_noise(reader: &mut Reader) -> Option<NoiseOptions> {
+    let present = reader.next() != 0.0;
+    let sample = reader.next() as u32;
+    let looped = reader.next() != 0.0;
+    let keytrack = reader.next() != 0.0;
+    let (start, rand, draw) = (reader.next(), reader.next(), reader.next());
+    let NoiseKnobs { level, pan, cents } = read_noise_knobs(reader);
+    present.then_some(NoiseOptions {
+        sample,
+        looped,
+        keytrack,
+        start,
+        rand,
+        draw,
+        level,
+        pan,
+        cents,
+    })
+}
+
 // (one copy for osc_voice_new and osc_scope_on)
 #[inline(never)]
 // VoiceOptions: start, envStart, phrase; per oscillator present, table, unison, phase, phaseRand and its 8 random
 // shares, its UnisonShape (width, stack, detune, position spread and the 8 random shares of a random
-// detune); the envelopes (count, then 8 each: the stages and the curves), the velocity (VELO, amp), the filter,
-// the routes
+// detune); the noise (read_noise); the envelopes (count, then 8 each: the stages and the curves), the velocity
+// (VELO, amp), the filter, the routes
 fn read_voice_options(reader: &mut Reader) -> VoiceOptions {
     let start = reader.next();
     let env_start = reader.next();
@@ -134,6 +166,7 @@ fn read_voice_options(reader: &mut Reader) -> VoiceOptions {
             shape,
         })
     });
+    let noise = read_noise(reader);
     let count = reader.next() as usize;
     let envelopes = (0..count)
         .map(|_| EnvelopeParams {
@@ -150,6 +183,7 @@ fn read_voice_options(reader: &mut Reader) -> VoiceOptions {
     let routes = read_routes(reader);
     VoiceOptions {
         osc,
+        noise,
         start,
         envelopes,
         env_start,
@@ -251,6 +285,19 @@ pub unsafe extern "C" fn osc_scope_filter(scope: *mut Scope, id: f64) {
         at: 0,
     });
     (*scope).set_filter(id, filter);
+}
+
+/// the knobs of the noise of voice `id` changed (in the command buffer: level, pan, cents)
+///
+/// # Safety
+/// `scope` comes from osc_scope_new and was not freed
+#[no_mangle]
+pub unsafe extern "C" fn osc_scope_noise(scope: *mut Scope, id: f64) {
+    let knobs = read_noise_knobs(&mut Reader {
+        values: command(),
+        at: 0,
+    });
+    (*scope).set_noise(id, knobs);
 }
 
 /// the pitch bend of every voice of the node, cents on top of the detune of each oscillator: it glides there in
@@ -424,7 +471,7 @@ pub unsafe extern "C" fn osc_shared_free(shared: *mut Shared) {
 }
 
 /// a slot for a version of `table` of `length` samples, its layout in the command buffer (harmonics, lengths,
-/// offsets: `levels` each); -1: refused (no memory for it)
+/// offsets: `levels` each), a sample of the noise at `rate` (0: a table); -1: refused (no memory for it)
 ///
 /// # Safety
 /// `store` comes from osc_store_new and was not freed
@@ -436,6 +483,7 @@ pub unsafe extern "C" fn osc_store_begin(
     frames: i32,
     levels: usize,
     length: usize,
+    rate: f64,
 ) -> i32 {
     let command = command();
     let layout: [Vec<i32>; 3] = core::array::from_fn(|k| {
@@ -444,7 +492,7 @@ pub unsafe extern "C" fn osc_store_begin(
             .map(|v| *v as i32)
             .collect()
     });
-    match (*store).begin(table, version, frames, layout, length) {
+    match (*store).begin(table, version, frames, layout, length, rate) {
         Some(slot) => slot as i32,
         None => -1,
     }
@@ -595,7 +643,8 @@ pub unsafe extern "C" fn osc_shared_stats(shared: *mut Shared) {
 }
 
 /// room for the params and the outputs of a block of `frames`: the params of the block (param k from
-/// k · osc_io_stride), their lengths at osc_io_lengths (1: one value), the outputs at osc_io_output
+/// k · osc_io_stride, then the pitch bend: row PARAMS), their lengths at osc_io_lengths (1: one value), the
+/// outputs at osc_io_output
 ///
 /// # Safety
 /// `shared` comes from osc_shared_new and was not freed
@@ -672,12 +721,14 @@ pub unsafe extern "C" fn osc_voice_process(
     let mut output = core::mem::take(&mut shared.output);
     let stride = shared.io_frames();
     let lengths = shared.lengths;
-    let params: Params = core::array::from_fn(|k| {
+    let row = |k: usize| {
         let length = if lengths[k] > 1.0 { frames } else { 1 };
         &buffer[k * stride..k * stride + length]
-    });
+    };
+    let params: Params = core::array::from_fn(row);
+    let bend = row(IO_ROWS - 1);
     let (out_l, out_r) = output[..2 * frames].split_at_mut(frames);
-    let playing = (*voice).process(frame, &params, out_l, out_r, &mut *store, shared);
+    let playing = (*voice).process(frame, &params, bend, out_l, out_r, &mut *store, shared);
     shared.params = buffer;
     shared.output = output;
     playing as i32
@@ -707,6 +758,19 @@ pub unsafe extern "C" fn osc_voice_set_filter(voice: *mut Voice) {
         at: 0,
     });
     (*voice).set_filter(filter);
+}
+
+/// the knobs of the noise changed (in the command buffer: level, pan, cents)
+///
+/// # Safety
+/// `voice` comes from osc_voice_new and was not freed
+#[no_mangle]
+pub unsafe extern "C" fn osc_voice_set_noise(voice: *mut Voice) {
+    let knobs = read_noise_knobs(&mut Reader {
+        values: command(),
+        at: 0,
+    });
+    (*voice).set_noise(knobs);
 }
 
 /// a note took the voice over (mono): its velocity glides to the one in the command buffer (VELO, amp)

@@ -9,7 +9,7 @@ import {
   riff,
   wavetableFile,
 } from '../../../test-utils/wav-file';
-import { parseWav } from './wav';
+import { parseWav, parseWavChannels } from './wav';
 
 const floats = (...values: number[]) => Float32Array.from(values);
 
@@ -79,6 +79,16 @@ describe('parseWav', () => {
     const wav = parseWav(riff(fmt({ channels: 2 }), data([0.5, -1, 0.25, -1, -0.5, -1])));
 
     expect(wav.samples).toEqual(floats(0.5, 0.25, -0.5));
+  });
+
+  it('reads every channel apart (a sample of the noise), not finite ones as 0, PCM too', () => {
+    const stereo = parseWavChannels(riff(fmt({ channels: 2 }), data([0.5, -1, 0.25, NaN, -0.5, 1])));
+    expect(stereo).toEqual({ sampleRate: 44100, channels: [floats(0.5, 0.25, -0.5), floats(-1, 0, 1)] });
+    const pcm = parseWavChannels(
+      riff(fmt({ channels: 2, format: PCM, bits: 16 }), data([16384, -32768], { format: PCM, bits: 16 }))
+    );
+    expect(pcm.channels).toEqual([floats(0.5), floats(-1)]);
+    expect(parseWavChannels(wavetableFile(floats(0.25, 0.5))).channels).toEqual([floats(0.25, 0.5)]);
   });
 
   it('skips unknown chunks, also odd-sized ones with their pad byte', () => {

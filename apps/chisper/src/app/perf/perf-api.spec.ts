@@ -77,6 +77,7 @@ const setup = async ({ ready = true } = {}) => {
     mod: modules.modulation,
     osc1: modules.osc1,
     osc2: modules.osc2,
+    noise: modules.noise,
     filter: modules.filter,
     fx: fxModule,
     synth: modules.synth,

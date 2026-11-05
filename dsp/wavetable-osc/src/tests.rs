@@ -57,7 +57,9 @@ fn layout() -> [alloc::vec::Vec<i32>; 3] {
 
 // a version of `length` samples of `value`, every chunk of it come (one)
 fn version(store: &mut Store, table: u32, version: f64, length: usize, value: f32) -> u32 {
-    let slot = store.begin(table, version, 1, layout(), length).expect("a slot");
+    let slot = store
+        .begin(table, version, 1, layout(), length, 0.0)
+        .expect("a slot");
     store.chunk(slot, 0, length).expect("its room").fill(value);
     slot
 }
@@ -93,12 +95,12 @@ fn a_version_stays_until_no_one_holds_it() {
 #[test]
 fn a_freed_buffer_is_reused_by_a_table_it_holds() {
     let mut store = Store::default();
-    let slot = store.begin(1, 1.0, 1, layout(), 8).expect("a slot");
+    let slot = store.begin(1, 1.0, 1, layout(), 8, 0.0).expect("a slot");
     let first = store.chunk(slot, 0, 8).expect("its room").as_ptr();
     assert!(store.commit(slot));
     store.remove(1);
     // a shorter table takes it too
-    let slot = store.begin(2, 1.0, 1, layout(), 6).expect("a slot");
+    let slot = store.begin(2, 1.0, 1, layout(), 6, 0.0).expect("a slot");
     assert_eq!(store.chunk(slot, 0, 6).expect("its room").as_ptr(), first);
     // a slot never committed is not a version
     assert_eq!(store.latest(2), None);
@@ -118,17 +120,17 @@ fn the_smallest_buffer_that_holds_a_table_is_taken_the_others_wait() {
     let small = store.levels(store.latest(2).expect("a version")).data.as_ptr();
     store.remove(1);
     store.remove(2);
-    let slot = store.begin(3, 1.0, 1, layout(), 8).expect("a slot");
+    let slot = store.begin(3, 1.0, 1, layout(), 8, 0.0).expect("a slot");
     assert_eq!(store.chunk(slot, 0, 8).expect("its room").as_ptr(), small);
     // the large one is still in the pool
-    let large = store.begin(4, 1.0, 1, layout(), 90).expect("a slot");
+    let large = store.begin(4, 1.0, 1, layout(), 90, 0.0).expect("a slot");
     assert!(store.chunk(large, 0, 90).is_some());
 }
 
 #[test]
 fn the_chunks_come_in_order_within_the_length_of_the_version() {
     let mut store = Store::default();
-    let slot = store.begin(1, 1.0, 1, layout(), 10).expect("a slot");
+    let slot = store.begin(1, 1.0, 1, layout(), 10, 0.0).expect("a slot");
     // not the next one: before it, after it, past the length
     assert!(store.chunk(slot, 4, 4).is_none());
     assert!(store.chunk(slot, 0, 11).is_none());
@@ -144,7 +146,7 @@ fn the_chunks_come_in_order_within_the_length_of_the_version() {
     assert!(!store.commit(slot));
     assert_eq!(store.latest(1), None);
     assert!(store.chunk(slot, 8, 2).is_none());
-    let slot = store.begin(1, 2.0, 1, layout(), 10).expect("a slot");
+    let slot = store.begin(1, 2.0, 1, layout(), 10, 0.0).expect("a slot");
     store.chunk(slot, 0, 6).expect("the first").fill(1.0);
     store.chunk(slot, 6, 4).expect("the last").fill(3.0);
     assert!(store.commit(slot));
@@ -180,18 +182,18 @@ fn a_mix_without_memory_is_none() {
 #[test]
 fn an_aborted_slot_gives_its_buffer_back() {
     let mut store = Store::default();
-    let slot = store.begin(1, 1.0, 1, layout(), 8).expect("a slot");
+    let slot = store.begin(1, 1.0, 1, layout(), 8, 0.0).expect("a slot");
     let first = store.chunk(slot, 0, 4).expect("its room").as_ptr();
     store.abort(slot);
     assert!(store.chunk(slot, 4, 4).is_none());
     assert!(!store.commit(slot));
     assert_eq!(store.latest(1), None);
     // its buffer goes to a table of its size, its slot to the next version
-    let again = store.begin(2, 1.0, 1, layout(), 8).expect("a slot");
+    let again = store.begin(2, 1.0, 1, layout(), 8, 0.0).expect("a slot");
     assert_eq!(again, slot);
     assert_eq!(store.chunk(again, 0, 8).expect("its room").as_ptr(), first);
     // every slot of a worker that stopped
-    let other = store.begin(3, 1.0, 1, layout(), 8).expect("a slot");
+    let other = store.begin(3, 1.0, 1, layout(), 8, 0.0).expect("a slot");
     store.abort_all();
     assert!(store.chunk(again, 8, 0).is_none() && store.chunk(other, 0, 8).is_none());
 }
@@ -199,7 +201,7 @@ fn an_aborted_slot_gives_its_buffer_back() {
 #[test]
 fn a_version_of_a_table_still_coming_is_aborted_by_the_next() {
     let mut store = Store::default();
-    let slot = store.begin(1, 1.0, 1, layout(), 8).expect("a slot");
+    let slot = store.begin(1, 1.0, 1, layout(), 8, 0.0).expect("a slot");
     let next = version(&mut store, 1, 2.0, 8, 0.0);
     // (its slot taken again by the next one)
     assert_eq!(next, slot);
@@ -207,8 +209,8 @@ fn a_version_of_a_table_still_coming_is_aborted_by_the_next() {
     assert_eq!(store.stats()[0], 1.0);
     assert!(store.latest(1).is_some());
     // another table keeps its slot
-    let a = store.begin(2, 1.0, 1, layout(), 8).expect("a slot");
-    let b = store.begin(3, 1.0, 1, layout(), 8).expect("a slot");
+    let a = store.begin(2, 1.0, 1, layout(), 8, 0.0).expect("a slot");
+    let b = store.begin(3, 1.0, 1, layout(), 8, 0.0).expect("a slot");
     assert!(store.chunk(a, 0, 8).is_some() && store.chunk(b, 0, 8).is_some());
 }
 
@@ -420,6 +422,7 @@ fn note() -> VoiceOptions {
     };
     VoiceOptions {
         osc: [None, None],
+        noise: None,
         start: 0.0,
         envelopes: vec![flat; 3],
         env_start: 0.0,
@@ -481,7 +484,9 @@ fn constant_frames(store: &mut Store, version: f64, values: &[f32]) {
     let level = n * (LEN + FRAME_GUARD);
     let layout = [vec![1, 0], vec![LEN as i32, 1], vec![0, level as i32]];
     let length = level + n * (1 + FRAME_GUARD);
-    let slot = store.begin(1, version, n as i32, layout, length).expect("a slot");
+    let slot = store
+        .begin(1, version, n as i32, layout, length, 0.0)
+        .expect("a slot");
     let data = store.chunk(slot, 0, length).expect("its room");
     for (j, value) in values.iter().enumerate() {
         data[j * (LEN + FRAME_GUARD)..(j + 1) * (LEN + FRAME_GUARD)].fill(*value);
@@ -493,7 +498,7 @@ fn constant_frames(store: &mut Store, version: f64, values: &[f32]) {
 fn silent_frames(store: &mut Store, version: f64, n: usize) {
     let length = n * (1 + FRAME_GUARD);
     let slot = store
-        .begin(1, version, n as i32, [vec![0], vec![1], vec![0]], length)
+        .begin(1, version, n as i32, [vec![0], vec![1], vec![0]], length, 0.0)
         .expect("a slot");
     store.chunk(slot, 0, length).expect("its room").fill(0.0);
     assert!(store.commit(slot));
@@ -512,7 +517,9 @@ fn two_level_frames(store: &mut Store, lengths: [usize; 2], values: [&[f32]; 2])
         offsets.clone(),
     ];
     let length = sizes[0] + sizes[1] + n * (1 + FRAME_GUARD);
-    let slot = store.begin(1, 1.0, n as i32, layout, length).expect("a slot");
+    let slot = store
+        .begin(1, 1.0, n as i32, layout, length, 0.0)
+        .expect("a slot");
     let data = store.chunk(slot, 0, length).expect("its room");
     for (l, level) in values.iter().enumerate() {
         let size = lengths[l] + FRAME_GUARD;
@@ -576,6 +583,7 @@ fn play(
         voice.process(
             frame as f64,
             &params,
+            &[0.0],
             &mut left[frame..end],
             &mut right[frame..end],
             store,
@@ -1046,6 +1054,7 @@ fn the_gain_of_a_voice_follows_an_lfo_of_the_shared_from_its_note_on() {
         voice.process(
             frame as f64,
             &params,
+            &[0.0],
             &mut out[frame..frame + 128],
             &mut right[frame..frame + 128],
             &mut store,
@@ -1184,6 +1193,7 @@ fn the_routes_on_the_pitch_add_their_offsets_to_the_detune_within_their_bounds()
             voice.process(
                 frame as f64,
                 &params,
+                &[0.0],
                 &mut left[frame..frame + 128],
                 &mut right[frame..frame + 128],
                 &mut store,
@@ -1258,6 +1268,7 @@ fn play_blend(
         voice.process(
             frame as f64,
             &params,
+            &[0.0],
             &mut left[frame..frame + 128],
             &mut right[frame..frame + 128],
             &mut store,

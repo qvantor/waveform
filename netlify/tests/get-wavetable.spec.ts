@@ -12,11 +12,11 @@ const get = (queryStringParameters: Record<string, string> | null) =>
 
 beforeEach(() => {
   getSignedUrlMock.mockReset().mockResolvedValue('https://s3.example/signed');
-  process.env.BUCKET = 'tables';
+  process.env.R2_BUCKET = 'tables';
 });
 
 afterAll(() => {
-  delete process.env.BUCKET;
+  delete process.env.R2_BUCKET;
 });
 
 it('returns a signed url of the file for 6 hours', async () => {

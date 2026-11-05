@@ -10,11 +10,12 @@ import type { TransportModule } from '../app/synth/common/modules/transport';
 import type { SoundSwitchModule } from '../app/synth/common/modules/sound-switch';
 import type { FxNote } from '../app/synth/fx/effects/fx-modulation';
 import { inputController } from '../app/synth/common/modules/input-controller';
+import { noise } from '../app/synth/common/modules/noise';
 import { oscillator } from '../app/synth/common/modules/oscillator';
 import { synth } from '../app/synth/common/modules/synth';
 import { synthCore } from '../app/synth/common/modules/synth-core';
 import { transport } from '../app/synth/common/modules/transport';
-import type { LoadWavetable } from '../app/synth/services';
+import type { LoadNoiseSample, LoadWavetable } from '../app/synth/services';
 import { initModel } from './model-registry';
 import { MessageChannelStub } from './worker-stub';
 
@@ -42,6 +43,12 @@ export const createOscillator = (
   loadWavetable: LoadWavetable = () => new Promise(() => undefined)
 ) => initModel(oscillator({ synthCore: synthCoreModule, loadWavetable }), name, initial);
 
+// the noise: its sample never loads by default (no fetch in jsdom)
+export const createNoise = (
+  synthCoreModule = createSynthCore(),
+  loadNoiseSample: LoadNoiseSample = () => new Promise(() => undefined)
+) => initModel(noise({ synthCore: synthCoreModule, loadNoiseSample }), 'noise', undefined);
+
 export const createEnvelopes = (transportModule = createTransport()) =>
   initModel(envelopes({ transport: transportModule }), 'env', undefined);
 
@@ -52,9 +59,13 @@ export const createLfos = (
   transportModule = createTransport(synthCoreModule)
 ) => initModel(lfos({ synthCore: synthCoreModule, transport: transportModule }), 'lfo', undefined);
 
-// the whole voice chain: synth core, the transport, input, envelopes, the LFOs, modulation, both oscillators and the
-// filter (the loader of their tables: never by default)
-export const createSynth = (initialWavePath = ['default'], loadWavetable?: LoadWavetable) => {
+// the whole voice chain: synth core, the transport, input, envelopes, the LFOs, modulation, both oscillators, the
+// noise and the filter (the loaders of their tables and its sample: never by default)
+export const createSynth = (
+  initialWavePath = ['default'],
+  loadWavetable?: LoadWavetable,
+  loadNoiseSample?: LoadNoiseSample
+) => {
   const synthCoreModule = createSynthCore();
   const transportModule = createTransport(synthCoreModule);
   const inputControllerModule = createInputController();
@@ -63,6 +74,7 @@ export const createSynth = (initialWavePath = ['default'], loadWavetable?: LoadW
   const modulationModule = createModulation();
   const osc1 = createOscillator(synthCoreModule, 'osc1', { active: true, initialWavePath }, loadWavetable);
   const osc2 = createOscillator(synthCoreModule, 'osc2', { active: false, initialWavePath }, loadWavetable);
+  const noiseModule = createNoise(synthCoreModule, loadNoiseSample);
   const filterModule = initModel(filter({ synthCore: synthCoreModule }), 'filter', undefined);
   const synthModule = initModel(
     synth({
@@ -73,6 +85,7 @@ export const createSynth = (initialWavePath = ['default'], loadWavetable?: LoadW
       lfo: lfosModule,
       modulation: modulationModule,
       oscillator: [osc1, osc2],
+      noise: noiseModule,
       filter: filterModule,
     }),
     'synth',
@@ -88,6 +101,7 @@ export const createSynth = (initialWavePath = ['default'], loadWavetable?: LoadW
     filter: filterModule,
     osc1,
     osc2,
+    noise: noiseModule,
     synth: synthModule,
   };
 };

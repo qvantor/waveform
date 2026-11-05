@@ -20,13 +20,19 @@ export const tables = () => {
   return process.env.RENDERS_TABLES;
 };
 
+// the folder of its noise samples (`relativePathToNoiseSample` is under it): beside the tables, in Samples
+export const noisesFolder = () => tables().replace(/Tables\/?$/, 'Samples/Factory Non-Tonal/Noises');
+
 // a small unsigned integer of CBOR as the states have it (one of 24 and up is encoded on a byte of its own)
 const uint = (n) => (n < 24 ? n : { uint: n, info: 24 });
 
 // the init state (`host state`) with oscillator i of `oscs` (A, B: `Oscillator<i>`) on `Tables/<path>` (a table of
 // `frames` frames of 2048 samples) and with its plain params `params`; one not listed keeps the init's. Mod slot i
-// of `slots` routes `source` to `param` (its id) named `name` of `Oscillator<osc>` by `amount` (%), `bipolar`
-export const editedState = (initFile, oscs, slots = []) => {
+// of `slots` routes `source` to `param` (its id) named `name` of `Oscillator<osc>` by `amount` (%), `bipolar`.
+// `noise` puts the noise oscillator (`Oscillator3`, its `NoiseOsc3`) on the sample at `path` (under the noises of
+// the Audio Unit, noisesFolder(): `frames` frames of `channels` at `rate`) with the plain params of its sampler
+// `params` (kParamOneShot…)
+export const editedState = (initFile, oscs, slots = [], noise = null) => {
   const init = readFileSync(initFile);
   const length = Number(init.readBigUInt64LE(9));
   const header = JSON.parse(init.subarray(17, 17 + length).toString());
@@ -40,6 +46,14 @@ export const editedState = (initFile, oscs, slots = []) => {
     }
     if (params) set(osc, 'plainParams', { map: Object.entries(params) });
   });
+  if (noise) {
+    const sampler = get(get(doc, 'Oscillator3'), 'NoiseOsc3');
+    set(sampler, 'relativePathToNoiseSample', noise.path);
+    set(sampler, 'numFrames', noise.frames);
+    set(sampler, 'numChannels', noise.channels);
+    set(sampler, 'sampleRate', noise.rate);
+    if (noise.params) set(sampler, 'plainParams', { map: Object.entries(noise.params) });
+  }
   slots.forEach(({ source, osc, param, name, amount, bipolar }, i) => {
     const params = [['kParamAmount', { f64: amount }], ...(bipolar ? [['kParamBipolar', { f32: 1 }]] : [])];
     set(doc, `ModSlot${i}`, {
@@ -90,4 +104,27 @@ export const writeTable = (file, frames, flags) => {
     chunk('data', data),
   ]);
   writeFileSync(file, chunk('RIFF', body));
+};
+
+// a sample of the noise oscillator: float32 at 44.1 kHz, one or two channels (interleaved), no mark
+export const writeSample = (file, channels) => {
+  const n = channels.length;
+  const frames = channels[0].length;
+  const head = Buffer.alloc(44);
+  head.write('RIFF', 0, 'latin1');
+  head.writeUInt32LE(36 + frames * n * 4, 4);
+  head.write('WAVEfmt ', 8, 'latin1');
+  head.writeUInt32LE(16, 16);
+  head.writeUInt16LE(3, 20);
+  head.writeUInt16LE(n, 22);
+  head.writeUInt32LE(44100, 24);
+  head.writeUInt32LE(44100 * n * 4, 28);
+  head.writeUInt16LE(n * 4, 32);
+  head.writeUInt16LE(32, 34);
+  head.write('data', 36, 'latin1');
+  head.writeUInt32LE(frames * n * 4, 40);
+  const data = Buffer.alloc(frames * n * 4);
+  for (let f = 0; f < frames; f++)
+    for (let c = 0; c < n; c++) data.writeFloatLE(channels[c][f], (f * n + c) * 4);
+  writeFileSync(file, Buffer.concat([head, data]));
 };

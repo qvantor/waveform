@@ -6,9 +6,11 @@ use crate::envelope::{EnvelopeBlock, EnvelopeParams};
 use crate::filter::{FilterOptions, VoiceFilter};
 use crate::lfo::{LfoBlock, LfoGlobal, DELAY, KNOBS, LFOS, RATE, RISE, SMOOTH};
 use crate::modulation::{
-    lfo_target, Modulation, Sources, VoiceRoute, BLEND1, CUTOFF, FILTER_GAIN, FINE1, GAIN1, LFO, OSC_TARGETS,
-    PITCH1, POSITION1, RESONANCE, SPREAD1, TARGET_PARAMS, VOICE_TARGETS,
+    lfo_target, Modulation, Sources, VoiceRoute, BLEND1, CUTOFF, FILTER_GAIN, FINE1, GAIN1, LFO, NOISE_FINE,
+    NOISE_LEVEL, NOISE_PAN, NOISE_PITCH, OSC_TARGETS, PITCH1, POSITION1, RESONANCE, SPREAD1, TARGET_PARAMS,
+    VOICE_TARGETS,
 };
+use crate::noise::{Noise, NoiseKnobs, NoiseOptions, NoiseRoutes};
 use crate::shared::{Scratch, Shared, DIRECT_SAMPLES, MIX_SAMPLES, PARAMS, UNISON, VOICES};
 use crate::store::{EntryRef, Levels, Store, FRAME_GUARD};
 use crate::velocity::{Velocity, VoiceVelocity, Volume};
@@ -254,6 +256,7 @@ fn detune_share(detune: u32, v: usize, n: usize) -> f64 {
 /// VoiceOptions
 pub struct VoiceOptions {
     pub osc: [Option<OscOptions>; 2],
+    pub noise: Option<NoiseOptions>,
     pub start: f64,
     pub envelopes: Vec<EnvelopeParams>,
     pub env_start: f64,
@@ -1323,6 +1326,8 @@ pub struct Voice {
     pub started_at: f64,
     unison: f64,
     oscs: Vec<Osc>,
+    // the noise of the note (none: off for it)
+    noise: Option<Noise>,
     modulation: Modulation,
     points_length: usize,
     // its LFOs (run while a route of a param reads one; their levels allocated only then), the routes of their
@@ -1414,6 +1419,10 @@ impl Voice {
         accesses[CUTOFF] = true;
         accesses[RESONANCE] = true;
         accesses[FILTER_GAIN] = true;
+        let noise = options.noise.map(|noise| Noise::new(sample_rate, noise));
+        if noise.is_some() {
+            accesses[NOISE_LEVEL..=NOISE_FINE].fill(true);
+        }
         let modulation = Modulation::new(sample_rate, envelopes.len(), true, &options.routes, accesses);
         // the knobs of the LFOs: no LFO moves them
         let mut lfo_accesses = [false; TARGET_PARAMS];
@@ -1453,6 +1462,7 @@ impl Voice {
             started_at: -1.0,
             unison: 0.0,
             oscs,
+            noise,
             modulation,
             points_length: 0,
             lfos,
@@ -1463,14 +1473,17 @@ impl Voice {
     }
 
     /// the voice joins its phrase and holds the latest version of the table of each oscillator (the placeholder
-    /// sine until one has arrived); nothing here allocates: once the voice is boxed, nothing of it traps before it
-    /// can give them back (end)
+    /// sine until one has arrived) and of the sample of its noise (none: silent); nothing here allocates: once the
+    /// voice is boxed, nothing of it traps before it can give them back (end)
     pub fn attach(&mut self, store: &mut Store, shared: &mut Shared) {
         self.joined = shared.join_phrase(self.phrase, !self.in_phrase);
         for osc in self.oscs.iter_mut() {
             if let Some(latest) = store.latest(osc.table) {
                 osc.entry = store.acquire(latest);
             }
+        }
+        if let Some(noise) = self.noise.as_mut() {
+            noise.attach(store);
         }
         if cfg!(feature = "perf") {
             shared.counts[VOICES] += 1.0;
@@ -1479,6 +1492,9 @@ impl Voice {
 
     fn grow(&mut self, length: usize, shared: &mut Shared) {
         shared.grow(length);
+        if let Some(noise) = self.noise.as_mut() {
+            noise.grow(length);
+        }
         let points = shared.scratch.points.len();
         if points == self.points_length {
             return;
@@ -1491,7 +1507,7 @@ impl Voice {
         }
     }
 
-    fn start(&mut self, params: &Params, i: usize, shared: &mut Shared) {
+    fn start(&mut self, params: &Params, i: usize, store: &Store, shared: &mut Shared) {
         self.started = true;
         self.started_at = self.block_frame + i as f64;
         self.hold_from = self.started_at;
@@ -1539,6 +1555,9 @@ impl Voice {
             }
             self.unison += osc.voices as f64;
         }
+        if let Some(noise) = self.noise.as_mut() {
+            noise.start(store, if in_phrase { fade_length } else { 0 }, fade_length);
+        }
         if cfg!(feature = "perf") {
             shared.counts[UNISON] += self.unison;
         }
@@ -1566,6 +1585,9 @@ impl Voice {
                 store.release(next);
             }
             osc.entry = EntryRef::Sine;
+        }
+        if let Some(noise) = self.noise.as_mut() {
+            noise.end(store);
         }
         for osc in self.oscs.iter_mut() {
             release_mixes(osc, shared);
@@ -1674,17 +1696,28 @@ impl Voice {
         self.filter.set(filter);
     }
 
+    /// the knobs of its noise changed: its level and its pan glide there, its cents step
+    pub fn set_noise(&mut self, knobs: NoiseKnobs) {
+        if let Some(noise) = self.noise.as_mut() {
+            noise.set(knobs);
+            self.wake_routes();
+        }
+    }
+
     /// a note took the voice over (mono): its VELO and its amp glide to the velocity of that note
     pub fn set_velocity(&mut self, velocity: VoiceVelocity) {
         self.velocity.set(velocity);
         self.wake_routes();
     }
 
-    /// a block starting at `frame` into the outputs; false once the voice has ended
+    /// a block starting at `frame` into the outputs, `bend` the pitch bend of the node (cents: one value or one a
+    /// sample; on the detunes already, the noise of Pitch Track reads it); false once the voice has ended
+    #[allow(clippy::too_many_arguments)]
     pub fn process(
         &mut self,
         frame: f64,
         params: &Params,
+        bend: &[f32],
         out_l: &mut [f32],
         out_r: &mut [f32],
         store: &mut Store,
@@ -1706,7 +1739,7 @@ impl Voice {
             return true;
         }
         if !self.started {
-            self.start(params, a as usize, shared);
+            self.start(params, a as usize, store, shared);
         }
         let gate = params[GATE];
         // (a constant gate is seen at its first sample: the others change nothing)
@@ -1758,15 +1791,25 @@ impl Voice {
         if self.filter.on {
             self.filter.glide(n);
         }
+        if let Some(noise) = self.noise.as_mut() {
+            noise.glide(a as usize, b as usize);
+        }
         if self.modulation.active {
-            let filter = &self.filter;
-            // the params of both oscillators (the offsets of the pitch from 0), then the knobs of the filter
+            let (filter, noise) = (&self.filter, self.noise.as_ref());
+            // the params of both oscillators (the offsets of the pitch from 0), the knobs of the filter, then those
+            // of the noise (the offsets of its pitch from 0)
             let bases: [&[f32]; TARGET_PARAMS] = core::array::from_fn(|param| {
                 if param < CUTOFF {
                     let (index, kind) = (param / OSC_TARGETS, param % OSC_TARGETS);
                     base_param(kind).map_or(ZERO, |kind| params[OSC_PARAMS_AT + OSC_PARAMS * index + kind])
-                } else if param < VOICE_TARGETS {
+                } else if param <= FILTER_GAIN {
                     filter.base(param - CUTOFF)
+                } else if param < VOICE_TARGETS {
+                    match (noise, param) {
+                        (Some(noise), NOISE_LEVEL) => noise.level_base(n),
+                        (Some(noise), NOISE_PAN) => noise.pan_base(n),
+                        _ => ZERO,
+                    }
                 } else {
                     &[][..]
                 }
@@ -1798,6 +1841,27 @@ impl Voice {
             };
             for osc in self.oscs.iter_mut() {
                 render_osc(&ctx, osc, &self.modulation, params, a, b, store, shared);
+            }
+            if let Some(noise) = self.noise.as_mut() {
+                let modulation = &self.modulation;
+                let routes = NoiseRoutes {
+                    level: modulation.moved(NOISE_LEVEL),
+                    pan: modulation.moved(NOISE_PAN),
+                    pitch: modulation.moved(NOISE_PITCH),
+                    fine: modulation.moved(NOISE_FINE),
+                };
+                let s = &mut shared.scratch;
+                noise.render(
+                    store,
+                    self.sample_rate,
+                    &routes,
+                    params[FREQUENCY],
+                    bend,
+                    &mut s.left,
+                    &mut s.right,
+                    a,
+                    b,
+                );
             }
         }
         out_l.fill(0.0);
