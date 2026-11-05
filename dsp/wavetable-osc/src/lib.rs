@@ -594,6 +594,16 @@ pub unsafe extern "C" fn osc_store_stats(store: *mut Store) {
     command()[..3].copy_from_slice(&(*store).stats());
 }
 
+/// the kernels of the noise `from` built go to `store`, unless it has its own (the prewarm's to the store of the
+/// worklet)
+///
+/// # Safety
+/// `store` and `from` come from osc_store_new, are not the same and were not freed
+#[no_mangle]
+pub unsafe extern "C" fn osc_store_take_kernels(store: *mut Store, from: *mut Store) {
+    (*store).take_kernels(&mut *from);
+}
+
 /// the store keeps the versions it frees (table, version) until osc_store_freed reads them (the specs)
 ///
 /// # Safety

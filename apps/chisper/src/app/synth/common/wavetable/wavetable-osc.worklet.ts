@@ -14,6 +14,7 @@ import {
   createVoiceWasm,
   OscExports,
   StoreFreedBytesMessage,
+  TableStoreWasm,
   VoiceScopeWasm,
 } from './wavetable-osc-wasm';
 import { registerVoicesProcessor } from './voices-processor';
@@ -45,9 +46,9 @@ const scope = createOscScope(instantiateCore<OscExports>(new WebAssembly.Module(
 // is freed with them (the first block of the first note 0.014 ms instead of 0.93 in Node, the module 2 ms longer:
 // before the first note); then the same voice in a scope of voices, its params from events (a step, a target and
 // ramps: the curves of the timelines), its velocity gliding to another one, bent (the pitch bend of the node,
-// gliding), stolen at its end. Its noise: a stereo loop of silence of two levels under Pitch Track, its pitch moved
-// by ENV 2 (the steps at the points, a change of kernel and of level crossfading), then in the scope a mono
-// one-shot, its knobs changed
+// gliding), stolen at its end. Its noise: a stereo loop of silence of two levels and the pair under Pitch Track, its
+// pitch moved by ENV 2 (the steps at the points, a change of kernel and of level crossfading), then in the scope a
+// mono one-shot an octave down (the pair), its knobs changed (up: into the bank, crossfading)
 const WARM_ENVELOPE = { attack: 0.001, hold: 0, decay: 0.01, sustain: 0.5, release: 0.01 };
 const WARM_VOICE: VoiceOptions = {
   osc: [
@@ -101,69 +102,89 @@ const warmLfos = (at: number, phase: number, shape: 'square' | 'triangle', insta
   })),
 });
 const WARM_NOISE = WARM_VOICE.noise as NonNullable<VoiceOptions['noise']>;
-const prewarm = () => {
+// (the kernels of the noise the warm store built go to `store`: built as the module loads, not with its first
+// sample on the audio thread)
+const prewarm = (store: TableStoreWasm) => {
   const warmStore = createTableStoreWasm(scope);
-  // two frames of silence of 32 harmonics, on levels of 1024 samples, of 512 from level 6: by the pitch a fade
-  // between them reads one level (x = 1 + 3·log2(base·f / nyquist) below 0), two of one length (0.9) or of two
-  // lengths (5.9), and the steady blocks at 5.9 build a mix of both (the short one upsampled: `add_to_mix`);
-  // two only in the top LEVEL_BAND of a third of an octave (`level_x` of the core), below it a level alone
-  warmStore.set('warm', 1, createLevels(2, 32));
-  // (samples of silence: level 0, a one-shot level 1, a loop level 1)
-  warmStore.set('warm-noise', 1, noiseLevels([256, 128, 128], 2, 44100));
-  warmStore.set('warm-mono', 1, noiseLevels([256, 128, 128], 1, 44100));
-  const pitches = [-1, 0.9, 5.9].map((x) => (sampleRate / 2 / levelBase(32)) * 2 ** ((x - 1) / 3));
   const warmShared = createVoiceSharedWasm(scope);
-  warmShared.setLfos(warmLfos(0, 0, 'square', true));
-  const voice = createVoiceWasm(scope, sampleRate, WARM_VOICE, warmStore, Math.random, warmShared);
-  const [outL, outR] = [new Float32Array(128), new Float32Array(128)];
-  const params = Object.fromEntries(
-    VOICE_PARAMETERS.map(({ name, defaultValue }) => [name, Float32Array.of(defaultValue)])
-  ) as Record<VoiceParam, Float32Array>;
-  params.spread1 = Float32Array.of(20);
-  params.spread2 = Float32Array.of(10);
-  // up and down across the frames at each pitch, a block apart (a fade lasts up to 5 ms), then still
-  const up = Float32Array.from({ length: 128 }, (_, i) => i / 128);
-  const down = up.map((value) => 1 - value);
-  for (let block = 0; block < 10; block++) {
-    if (block === 3) warmShared.setLfos(warmLfos((4 * 128) / sampleRate, 0.5, 'triangle'));
-    params.frequency = Float32Array.of(pitches[Math.min(2, block >> 1)]);
-    params.position1 = block < 6 ? (block % 4 < 2 ? up : down) : Float32Array.of(0.5);
-    voice.process(block * 128, params, outL, outR);
+  try {
+    // two frames of silence of 32 harmonics, on levels of 1024 samples, of 512 from level 6: by the pitch a fade
+    // between them reads one level (x = 1 + 3·log2(base·f / nyquist) below 0), two of one length (0.9) or of two
+    // lengths (5.9), and the steady blocks at 5.9 build a mix of both (the short one upsampled: `add_to_mix`);
+    // two only in the top LEVEL_BAND of a third of an octave (`level_x` of the core), below it a level alone
+    warmStore.set('warm', 1, createLevels(2, 32));
+    // (samples of silence: level 0, a one-shot level 1, a loop level 1, the pair)
+    warmStore.set('warm-noise', 1, noiseLevels([256, 128, 128, 640, 512], 2, 44100, undefined, true));
+    warmStore.set('warm-mono', 1, noiseLevels([256, 128, 128, 640, 512], 1, 44100, undefined, true));
+    const pitches = [-1, 0.9, 5.9].map((x) => (sampleRate / 2 / levelBase(32)) * 2 ** ((x - 1) / 3));
+    warmShared.setLfos(warmLfos(0, 0, 'square', true));
+    const voice = createVoiceWasm(scope, sampleRate, WARM_VOICE, warmStore, Math.random, warmShared);
+    const [outL, outR] = [new Float32Array(128), new Float32Array(128)];
+    const params = Object.fromEntries(
+      VOICE_PARAMETERS.map(({ name, defaultValue }) => [name, Float32Array.of(defaultValue)])
+    ) as Record<VoiceParam, Float32Array>;
+    params.spread1 = Float32Array.of(20);
+    params.spread2 = Float32Array.of(10);
+    // up and down across the frames at each pitch, a block apart (a fade lasts up to 5 ms), then still
+    const up = Float32Array.from({ length: 128 }, (_, i) => i / 128);
+    const down = up.map((value) => 1 - value);
+    for (let block = 0; block < 10; block++) {
+      if (block === 3) warmShared.setLfos(warmLfos((4 * 128) / sampleRate, 0.5, 'triangle'));
+      params.frequency = Float32Array.of(pitches[Math.min(2, block >> 1)]);
+      params.position1 = block < 6 ? (block % 4 < 2 ? up : down) : Float32Array.of(0.5);
+      voice.process(block * 128, params, outL, outR);
+    }
+    voice.end();
+    const voices = createVoiceScopeWasm(scope, sampleRate, warmStore, warmShared);
+    const at = (block: number) => (block * 128) / sampleRate;
+    const events: VoiceEvent[] = [
+      { kind: 'lfos', ...warmLfos(0, 0, 'square', true) },
+      { kind: 'lfos', ...warmLfos(at(2), 0.5, 'triangle') },
+      {
+        kind: 'on',
+        voice: 0,
+        options: {
+          ...WARM_VOICE,
+          noise: { ...WARM_NOISE, sample: 'warm-mono', loop: false, keytrack: false, cents: -1200 },
+        },
+        params: { spread1: 20, spread2: 10 },
+      },
+      { kind: 'set', voice: 0, param: 'frequency', value: 220, time: at(1) },
+      { kind: 'ramp', voice: 0, param: 'frequency', value: 330, time: at(3) },
+      { kind: 'cancel', voice: 0, param: 'position1', time: at(1) },
+      { kind: 'target', voice: 0, param: 'position1', value: 0.5, time: at(1), constant: 0.0033 },
+      { kind: 'set', voice: 0, param: 'position1', value: 0.5, time: at(3) },
+      { kind: 'velocity', voices: [0], velocity: { level: 1, amp: 1 } },
+      { kind: 'bend', cents: 200 },
+      { kind: 'set', voice: 0, param: 'gate', value: -1, time: at(4) },
+    ];
+    voices.apply(events);
+    for (let block = 0; block < 6; block++) {
+      // (its noise from the pair into the bank)
+      if (block === 2)
+        voices.apply([
+          { kind: 'knobs', voices: [0], module: 'noise', values: { level: 0.7, pan: -0.2, cents: 300 } },
+        ]);
+      voices.process(block * 128, outL, outR);
+      voices.reports();
+    }
+    voices.free();
+  } finally {
+    // (also those of a prewarm that failed after them)
+    store.takeKernels(warmStore);
   }
-  voice.end();
-  const voices = createVoiceScopeWasm(scope, sampleRate, warmStore, warmShared);
-  const at = (block: number) => (block * 128) / sampleRate;
-  const events: VoiceEvent[] = [
-    { kind: 'lfos', ...warmLfos(0, 0, 'square', true) },
-    { kind: 'lfos', ...warmLfos(at(2), 0.5, 'triangle') },
-    {
-      kind: 'on',
-      voice: 0,
-      options: { ...WARM_VOICE, noise: { ...WARM_NOISE, sample: 'warm-mono', loop: false, keytrack: false } },
-      params: { spread1: 20, spread2: 10 },
-    },
-    { kind: 'knobs', voices: [0], module: 'noise', values: { level: 0.7, pan: -0.2, cents: 300 } },
-    { kind: 'set', voice: 0, param: 'frequency', value: 220, time: at(1) },
-    { kind: 'ramp', voice: 0, param: 'frequency', value: 330, time: at(3) },
-    { kind: 'cancel', voice: 0, param: 'position1', time: at(1) },
-    { kind: 'target', voice: 0, param: 'position1', value: 0.5, time: at(1), constant: 0.0033 },
-    { kind: 'set', voice: 0, param: 'position1', value: 0.5, time: at(3) },
-    { kind: 'velocity', voices: [0], velocity: { level: 1, amp: 1 } },
-    { kind: 'bend', cents: 200 },
-    { kind: 'set', voice: 0, param: 'gate', value: -1, time: at(4) },
-  ];
-  voices.apply(events);
-  for (let block = 0; block < 6; block++) {
-    voices.process(block * 128, outL, outR);
-    voices.reports();
-  }
-  voices.free();
   warmStore.free();
   warmShared.free();
 };
-prewarm();
 
 const store = createTableStoreWasm(scope);
+// (a prewarm that fails, a trap of the core on some engine, leaves its functions to the first note and its store,
+// shared and voices where they are: a voice may still hold their versions; the oscillators play all the same)
+try {
+  prewarm(store);
+} catch (error) {
+  console.error('The prewarm of the wavetable oscillator failed', error);
+}
 const shared = createVoiceSharedWasm(scope);
 // the voices of the node of the context (the counters of the perf build read them)
 let voices: VoiceScopeWasm | null = null;

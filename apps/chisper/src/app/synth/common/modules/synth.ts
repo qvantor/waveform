@@ -134,8 +134,8 @@ const oscOptions = ({ id, $active, $osc, $unisonShape }: VoiceOscillator): Voice
 const withoutPhases = (options: VoiceOscOptions | null) => options && { ...options, phase: 0, phaseRand: 0 };
 
 // the noise of the notes (the noise model): its options at a note on (null: off), its knobs (Pitch and Fine bound
-// its routes), its sample (another one is another sound: mono starts a new voice)
-type VoiceNoise = Pick<NoiseModel, 'voiceNoise' | '$noise' | '$samplePath'>;
+// its routes), the sample new notes play (another one is another sound: mono starts a new voice)
+type VoiceNoise = Pick<NoiseModel, 'voiceNoise' | '$noise' | '$playedSample'>;
 
 // the sources of a note (modules of voice-modules.ts: its oscillators by their index, its noise) as its voice read
 // them at its note on, null: off for it
@@ -171,13 +171,15 @@ const movesPitch = (routes: ModRoute[], kind: SourceKind, instance = 0) =>
 
 // what of each source a voice keeps from its note on (another one is another sound: mono starts a new voice for
 // it): an oscillator on/off, its unison and its shape (not its phases: they only start it, a voice taken over goes on
-// with them); the noise on/off, its sample, loop and Pitch Track (not its start)
+// with them); the noise on/off, its sample, loop and Pitch Track (not its start). The sample is the one the store
+// holds, which a voice takes at its note on: a new one on its way plays the one before, so do the notes that take
+// the voice over meanwhile; once it is stored the next note starts a new voice
 type VoiceSources = { oscillators: VoiceOscillator[]; noise: VoiceNoise };
 const SOURCE_KEYS: Record<SourceKind, (sources: VoiceSources) => unknown> = {
   osc: ({ oscillators }) => oscillators.map((oscillator) => withoutPhases(oscOptions(oscillator))),
   noise: ({ noise }) => {
     const options = noise.voiceNoise();
-    return options && { path: noise.$samplePath.value, loop: options.loop, keytrack: options.keytrack };
+    return options && { sample: noise.$playedSample.value, loop: options.loop, keytrack: options.keytrack };
   },
 };
 const sourceKeys = (sources: VoiceSources) =>

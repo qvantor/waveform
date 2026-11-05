@@ -5,6 +5,10 @@ import { createRequire } from 'module';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+// (the domains of the buckets as the app has them; Node strips the types)
+import { bucketUrl, WAVETABLES_ORIGIN } from '../apps/chisper/src/app/synth/services/buckets.ts';
+
+export { WAVETABLES_ORIGIN };
 
 // (fileURLToPath: in a URL a path with spaces or non-ASCII letters is percent-encoded)
 export const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -40,7 +44,7 @@ export const readEnv = () => {
 };
 
 // a bucket of the site, Cloudflare R2 through its S3 API (the R2_* of .env): the tables (R2_BUCKET) or the noise
-// samples (R2_NOISES_BUCKET)
+// samples (R2_NOISES_BUCKET); scripts/noises/upload.mjs writes there
 export const siteBucket = (bucket = 'R2_BUCKET') => {
   readEnv();
   const names = ['R2_ACCOUNT_ID', bucket, 'R2_ACCESS_KEY_ID', 'R2_SECRET_ACCESS_KEY'];
@@ -60,8 +64,8 @@ export const siteBucket = (bucket = 'R2_BUCKET') => {
 
 export const fileName = (key) => key.split('/').at(-1);
 
-// the tables of the bucket of the site (their keys) into `dir`, once: a table already in one of `cacheDirs` is
-// copied
+// the tables of the bucket of the site (their keys) into `dir`, once, from its domain (public: no keys); a table
+// already in one of `cacheDirs` is copied
 export const downloadTables = async (keys, dir, { cacheDirs = [] } = {}) => {
   fs.mkdirSync(dir, { recursive: true });
   const missing = [];
@@ -74,12 +78,11 @@ export const downloadTables = async (keys, dir, { cacheDirs = [] } = {}) => {
     if (cached) fs.copyFileSync(cached, file);
     else missing.push(key);
   }
-  if (!missing.length) return;
-  const { GetObjectCommand } = require('@aws-sdk/client-s3');
-  const { client, Bucket } = siteBucket();
   for (const key of missing) {
-    const { Body } = await client.send(new GetObjectCommand({ Bucket, Key: key }));
-    fs.writeFileSync(path.join(dir, fileName(key)), Buffer.from(await Body.transformToByteArray()));
+    const url = bucketUrl(WAVETABLES_ORIGIN, key);
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`${url} responded ${res.status}`);
+    fs.writeFileSync(path.join(dir, fileName(key)), Buffer.from(await res.arrayBuffer()));
     console.log(`downloaded ${key}`);
   }
 };

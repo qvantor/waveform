@@ -30,7 +30,7 @@ const formatSemitones = (semitones: number) => {
 
 // the wheel: the bend of the input controller (a MIDI input moves it too), its tooltip in semitones. It renders
 // alone with the bend, not the ranges beside it
-const Wheel = () => {
+const Wheel = ({ width }: { width?: number }) => {
   const [{ $bend }, { setBend }] = useInputController();
   const [{ $bendDown, $bendUp }] = useSynth();
   // once a frame: a MIDI input may send hundreds of bends a second
@@ -40,6 +40,7 @@ const Wheel = () => {
   const up = useBehaviorSubject($bendUp);
   return (
     <PitchWheel
+      width={width}
       value={bend}
       onChange={setBend}
       formatValue={(value) => formatSemitones(bendCents(value, down, up) / 100)}
@@ -50,15 +51,17 @@ const Wheel = () => {
 interface Props {
   // the wheel alone (the phone): the range is the preset's
   compact?: boolean;
+  // px of the slot of the wheel (the drum fills it)
+  wheelWidth?: number;
 }
 
 // the pitch bend wheel left of the keys, as high as its place, and beside it its range up and down in semitones
 // (the preset's). A render of the keys around it (every note) renders none of it
-export const PitchBend = React.memo(({ compact = false }: Props) => {
+export const PitchBend = React.memo(({ compact = false, wheelWidth }: Props) => {
   const [{ $bendDown, $bendUp }, { setBendDown, setBendUp }] = useSynth();
   const down = useBehaviorSubject($bendDown);
   const up = useBehaviorSubject($bendUp);
-  if (compact) return <Wheel />;
+  if (compact) return <Wheel width={wheelWidth} />;
   return (
     <Root>
       <Ranges>
@@ -79,7 +82,7 @@ export const PitchBend = React.memo(({ compact = false }: Props) => {
           onChange={setBendDown}
         />
       </Ranges>
-      <Wheel />
+      <Wheel width={wheelWidth} />
     </Root>
   );
 });

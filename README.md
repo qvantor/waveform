@@ -118,13 +118,14 @@ npm start
 
 This builds the Rust cores and the worklet bundles (and rebuilds them on every change), then starts `netlify dev` (functions on `https://localhost:8888`) and the dev server on [http://localhost:4200](http://localhost:4200). The dev server proxies `/api/*` and `/.netlify/*` to the functions. `netlify dev` doesn't start without the certificate from `npm run certs`; rerun it when your LAN IP changes.
 
-To run only the frontend use `npm run client:start`. Wavetables and presets won't load in that mode.
+To run only the frontend use `npm run client:start`. The lists of the wavetables and noise samples and the
+presets won't load in that mode (the tables of the patch do: they come from the domain of their bucket).
 
 ### Environment variables
 
 | Variable                                   | Description                                                          |
 | ------------------------------------------ | -------------------------------------------------------------------- |
-| `R2_ACCOUNT_ID`                            | Cloudflare R2 account (its S3 API)                                   |
+| `R2_ACCOUNT_ID`                            | Cloudflare R2 account (its S3 API: the lists of the buckets)         |
 | `R2_BUCKET`, `R2_NOISES_BUCKET`            | R2 buckets of the wavetables and of the noise samples                |
 | `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY` | Keys of an R2 API token (Object Read & Write on both buckets)        |
 | `DATABASE_URL`                             | Postgres connection string (pooled)                                  |

@@ -1,6 +1,7 @@
 import { applySnapshot, getSnapshot } from '../../../app';
 import { createNoise, createSynthCore, stopModels } from '../../../../test-utils/models';
 import type { NoiseSample } from '../../services';
+import type { TableState } from '../wavetable/wavetable-engine';
 
 const flush = () => new Promise((resolve) => setTimeout(resolve));
 const SAMPLE: NoiseSample = { channels: [Float32Array.of(0.5, -0.5, 0.25)], sampleRate: 44100 };
@@ -123,6 +124,32 @@ describe('noise', () => {
       expect(retryTable).toHaveBeenCalledWith(model.id);
     });
 
+    it('new notes play the latest one stored: none before, the one before while the next is on its way or refused', async () => {
+      const { model, actions, resolve, wavetables } = createLoading();
+      const sampleState = (state: TableState) =>
+        wavetables.$tables.next({ ...wavetables.$tables.value, [model.id]: state });
+      actions.toggleActive();
+      await resolve('Analog/White.wav');
+      sampleState('sending');
+      expect(model.$playedSample.value).toBeNull();
+      sampleState('stored');
+      expect(model.$playedSample.value).toBe('Analog/White.wav');
+      actions.setSamplePath(['Textures', 'Textures/Rain.wav']);
+      // (loading)
+      expect(model.$playedSample.value).toBe('Analog/White.wav');
+      await resolve('Textures/Rain.wav');
+      sampleState('sending');
+      expect(model.$playedSample.value).toBe('Analog/White.wav');
+      sampleState('refused');
+      expect(model.$playedSample.value).toBe('Analog/White.wav');
+      sampleState('failed');
+      expect(model.$playedSample.value).toBe('Analog/White.wav');
+      // sent again (Retry) and stored
+      sampleState('sending');
+      sampleState('stored');
+      expect(model.$playedSample.value).toBe('Textures/Rain.wav');
+    });
+
     it('is removed from the wavetable oscillator with the model', () => {
       const synthCore = createSynthCore();
       const removeTable = jest.spyOn(synthCore[0].wavetables, 'removeTable');
@@ -227,6 +254,20 @@ describe('noise', () => {
       expect(model.$active.value).toBe(false);
       expect(model.$samplePath.value).toEqual(['Analog', 'Analog/White.wav']);
       expect(model.$noise.value).toMatchObject({ level: 0.25, keytrack: false, loop: true });
+    });
+
+    it('loads the sample of the path it applies only: on after the path, off before it', async () => {
+      const { load, resolve } = createLoading();
+      applySnapshot({ noise: { a: true, p: ['Textures', 'Textures/Rain.wav'] } });
+      expect(load.mock.calls).toEqual([['Textures/Rain.wav']]);
+      await resolve('Textures/Rain.wav');
+      applySnapshot({ noise: { a: true, p: ['Analog', 'Analog/Pink.wav'] } });
+      expect(load).toHaveBeenLastCalledWith('Analog/Pink.wav');
+      await resolve('Analog/Pink.wav');
+      // off with another path: none; on again on the path loaded: none
+      applySnapshot({ noise: { a: false, p: ['Textures', 'Textures/Rain.wav'] } });
+      applySnapshot({ noise: { a: true, p: ['Analog', 'Analog/Pink.wav'] } });
+      expect(load).toHaveBeenCalledTimes(2);
     });
 
     it('round-trips its state', () => {

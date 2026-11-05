@@ -88,6 +88,9 @@ export const noise = ({
       distinctUntilChanged()
     );
     const $params = new BehaviorSubject<VoiceNoiseKnobs>(noiseParams($noise.value));
+    // the key of the sample new notes play: the latest one the wavetable oscillator stored (null: none yet; one
+    // still on its way, refused or failed: the one before plays). Mono keeps a voice while it is the same
+    const $playedSample = new PrimitiveBS<string | null>(null);
     // its notes play the sample of its path: loaded and in the wavetable oscillator (stored, or refused or failed:
     // the version before plays)
     const samplePlayed = () => !$sampleLoading.value && wavetables.$tables.value[id] !== 'sending';
@@ -107,6 +110,7 @@ export const noise = ({
       $sampleLoading,
       $sampleState,
       $params,
+      $playedSample,
       samplePlayed,
       voiceNoise,
     };
@@ -130,35 +134,43 @@ export const noise = ({
         .subscribe($params)
     )
     // the sample of the path while it is on (also from presets), whatever screen is shown
-    .subscriptions(({ id, $active, $samplePath, $sample, $sampleLoading }) => {
+    .subscriptions(({ id, $active, $samplePath, $sample, $sampleLoading, $sampleState, $playedSample }) => {
       // the sample loaded or loading: cleared on a failure, to load it again
       let sampleId = '';
-      return combineLatest([$active, $samplePath])
-        .pipe(
-          filter(([active]) => active),
-          map(([, path]) => wavetableId(path)),
-          filter((key) => key !== '' && key !== sampleId),
-          // a newer path cancels the pending load
-          switchMap((key) => {
-            sampleId = key;
-            $sampleLoading.next(true);
-            return defer(() => load(key)).pipe(
-              retry({ count: 2, delay: 1000 }),
-              catchError((error) => {
-                console.error(`Failed to load the noise ${key}`, error);
-                sampleId = '';
-                return of(null);
-              })
-            );
-          })
-        )
-        .subscribe((sample) => {
-          if (sample) {
-            wavetables.setSample(id, sample.channels, sample.sampleRate);
-            $sample.next(sample);
-          }
-          $sampleLoading.next(false);
-        });
+      // the key of the sample last sent to the wavetable oscillator: new notes play it once it is stored
+      let sent: string | null = null;
+      return [
+        combineLatest([$active, $samplePath])
+          .pipe(
+            filter(([active]) => active),
+            map(([, path]) => wavetableId(path)),
+            filter((key) => key !== '' && key !== sampleId),
+            // a newer path cancels the pending load
+            switchMap((key) => {
+              sampleId = key;
+              $sampleLoading.next(true);
+              return defer(() => load(key)).pipe(
+                map((sample) => ({ key, sample })),
+                retry({ count: 2, delay: 1000 }),
+                catchError((error) => {
+                  console.error(`Failed to load the noise ${key}`, error);
+                  sampleId = '';
+                  return of(null);
+                })
+              );
+            })
+          )
+          .subscribe((loaded) => {
+            if (loaded) {
+              // (before it is sent: an engine may store it at once)
+              sent = loaded.key;
+              wavetables.setSample(id, loaded.sample.channels, loaded.sample.sampleRate);
+              $sample.next(loaded.sample);
+            }
+            $sampleLoading.next(false);
+          }),
+        $sampleState.pipe(filter((state) => state === 'stored')).subscribe(() => $playedSample.next(sent)),
+      ];
     })
     .plugins(
       urlSnapshotPlugin({
@@ -176,8 +188,11 @@ export const noise = ({
         }),
         // a missing key: its default
         applySnap: (snap, { $active, $samplePath, $noise }) => {
-          $active.next(snap.a ?? NOISE_DEFAULTS.a);
+          const active = snap.a ?? NOISE_DEFAULTS.a;
+          // switched off before its path, on after it: no sample of another path loads
+          if (!active) $active.next(false);
           $samplePath.next(snap.p ?? NOISE_DEFAULTS.p);
+          $active.next(active);
           $noise.next({
             loop: snap.lp ?? KNOB_DEFAULTS.loop,
             keytrack: snap.kt ?? KNOB_DEFAULTS.keytrack,

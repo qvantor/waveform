@@ -1,9 +1,11 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
 import FFT from 'fft.js';
+import { seeded } from '../../../../test-utils/seeded';
 import { VOICE_DEFAULTS } from '../../../../test-utils/voice-dsp';
 import { wasmCore } from '../../../../test-utils/wasm';
 import type { EnvelopeParams } from '../envelope/envelope-curve';
+import { NOISE_SEAM } from './noise-layout';
 import { buildNoiseLevels } from './noise-levels';
 import type {
   VoiceFilterOptions,
@@ -202,17 +204,47 @@ const spectrumOf = (x: Float32Array) => {
     dB((2 * Math.hypot(out[2 * k], out[2 * k + 1])) / WINDOW_SUM + 1e-12)
   );
 };
-// the loudest component of x more than `away` Hz off `hz` (dB of a full-scale sine)
-const loudestOff = (x: Float32Array, hz: number, rate: number, away = 300) => {
+// the loudest component of x more than `away` Hz off `hz` and below `below` Hz (dB of a full-scale sine)
+const loudestOff = (x: Float32Array, hz: number, rate: number, away = 300, below = rate) => {
   const spectrum = spectrumOf(x);
   let loudest = -Infinity;
   spectrum.forEach((level, k) => {
-    if (Math.abs((k * rate) / SIZE - hz) > away && k > 2) loudest = Math.max(loudest, level);
+    const at = (k * rate) / SIZE;
+    if (Math.abs(at - hz) > away && k > 2 && at < below) loudest = Math.max(loudest, level);
   });
   return loudest;
 };
+// EDGE of noise.rs: the pair is read up to this step, the content of the sample past the nyquist of the output
+// folding above 2 - EDGE of it (0.76); above it the bank, a cutoff at the nyquist at most folding its transition
+// there too, the rest of the band under -55 dB
+const EDGE = 1.24;
+const FOLD = 2 - EDGE;
+// the loudest alias or image of a tone of `hz` read at `step` where it may be: everywhere at a step up to 1, below
+// FOLD of the nyquist above it
+const strayOf = (x: Float32Array, hz: number, rate: number, step: number) =>
+  loudestOff(x, hz, rate, 300, step <= 1 ? rate : (FOLD * rate) / 2);
+// its bound: the images of the pair, the stopband of the bank
+const strayBound = (step: number) => (step <= EDGE ? -85 : -55);
+// the largest deviation of x from the sine of `hz` fitted to it (least squares) over its samples from `from` on (dB
+// of a full-scale sine): a click stands out of it (under the spectrum of the last SIZE samples it spreads)
+const deviationOf = (x: Float32Array, hz: number, rate: number, from = 4800) => {
+  const w = (2 * Math.PI * hz) / rate;
+  let [s, c, ss, cc, sc] = [0, 0, 0, 0, 0];
+  for (let i = from; i < x.length; i++) {
+    const [a, b] = [Math.sin(w * i), Math.cos(w * i)];
+    [s, c, ss, cc, sc] = [s + x[i] * a, c + x[i] * b, ss + a * a, cc + b * b, sc + a * b];
+  }
+  const det = ss * cc - sc * sc;
+  const [p, q] = [(s * cc - c * sc) / det, (c * ss - s * sc) / det];
+  let worst = 0;
+  for (let i = from; i < x.length; i++)
+    worst = Math.max(worst, Math.abs(x[i] - p * Math.sin(w * i) - q * Math.cos(w * i)));
+  return dB(worst);
+};
 
 const SINE_1K = [sine(1000, 3)];
+// 3010 periods over an odd count of frames: no level past level 0 has a whole number of frames a pass
+const SINE_1K_ODD = [sine(1000, 132741 / SOURCE_RATE)];
 const SINE_15K = [sine(15000, 3)];
 
 describe('the noise of a voice', () => {
@@ -328,7 +360,11 @@ describe('the noise of a voice', () => {
       const share = startShare({ start: 0.8, rand: 0.5 }, () => 0.9);
       expect(Math.min(share, 1 - share)).toBeCloseTo(0, 4);
       const [l, r] = play({ sample: turn, noise: { start: 0.8, rand: 0.5, loop: false }, random: () => 0.9 });
-      expect(Math.max(...l.subarray(64).map(Math.abs), ...r.subarray(64).map(Math.abs))).toBe(0);
+      // (the ring of the interpolator of the pair past the end under -100 dB, then nothing: its window has left it)
+      const loudest = (from: number) =>
+        Math.max(...l.subarray(from).map(Math.abs), ...r.subarray(from).map(Math.abs));
+      expect(loudest(64)).toBeLessThan(1e-5);
+      expect(loudest(80)).toBe(0);
     });
 
     it('draws a share only with a noise: a voice without one draws as before', () => {
@@ -374,20 +410,37 @@ describe('the noise of a voice', () => {
     });
 
     it.each([
-      ['at its pitch', 0, 0.7],
-      ['two octaves up (a level of its own)', 2400, 0.95],
-      ['up a fifth (a kernel below the nyquist)', 700, 0.55],
-    ])('loops a seamless sample seamlessly %s', (_, cents, start) => {
+      ['at its pitch', 0, 0.7, -80],
+      ['two octaves up (a level of its own)', 2400, 0.95, -80],
+      // (the short kernels of the bank: their gain at a tone differs a little by phase)
+      ['up a fifth (a kernel of the bank)', 700, 0.55, -70],
+    ])('loops a seamless sample seamlessly %s', (_, cents, start, bound) => {
       // 1 kHz over 3 s, from where its seam comes within the last SIZE samples of 1.2 s
       const [left] = play({ sample: SINE_1K, noise: { cents, start }, seconds: 1.2 });
       const hz = 1000 * 2 ** (cents / 1200);
+      expect(loudestOff(left, hz, 48000)).toBeLessThan(bound);
+    });
+
+    it.each([
+      ['two octaves up (level 1)', 2400, 0.95],
+      ['three octaves up (level 2)', 3600, 0.5],
+      ['four octaves up (level 3)', 4800, 0],
+    ])('loops a seamless sample of an odd length seamlessly %s', (_, cents, start) => {
+      // (a pass every 36120, 18060, 9030 samples, a seam within the last SIZE of 1.2 s too)
+      expect(SINE_1K_ODD[0].length % 2).toBe(1);
+      const [left] = play({ sample: SINE_1K_ODD, noise: { cents, start }, seconds: 1.2 });
+      const hz = 1000 * 2 ** (cents / 1200);
+      // (each level read around its ceil(n / 2^l) frames clicked at its seams, -29, -19 and -14 dB; the spectrum
+      // under -80 all the same)
+      expect(deviationOf(left, hz, 48000)).toBeLessThan(-70);
       expect(loudestOff(left, hz, 48000)).toBeLessThan(-80);
     });
   });
 
   describe('band limit', () => {
-    // a sine of 15 kHz at 44.1 kHz: its images (pitched down) and aliases (up) at most -70 dB, its level within 1 dB
-    // where it is below the nyquist (the renders: images at -28 dB down an octave)
+    // a sine of 15 kHz at 44.1 kHz: its images (pitched down) under -85 dB, its aliases (up) only above 0.76 of the
+    // nyquist (under -85 dB below it from the pair, -55 from the bank), its level within 1 dB where it is below the
+    // nyquist (the renders: images at -28 dB down an octave)
     it.each([
       [48000, 0],
       [48000, 1],
@@ -395,6 +448,7 @@ describe('the noise of a voice', () => {
       [48000, -12],
       [48000, -24],
       [44100, 1],
+      [44100, 3],
       [44100, 7],
       [44100, -12],
       [96000, 12],
@@ -402,12 +456,84 @@ describe('the noise of a voice', () => {
       const [left] = play({ sample: SINE_15K, noise: { cents: 100 * st }, rate, seconds: (2 * SIZE) / rate });
       const hz = 15000 * 2 ** (st / 12);
       if (hz < rate / 2) expect(dB(amplitudeOf(left, hz, rate))).toBeGreaterThan(-1);
-      expect(loudestOff(left, hz, rate)).toBeLessThan(-70);
+      const step = (SOURCE_RATE / rate) * 2 ** (st / 12);
+      expect(strayOf(left, hz, rate, step)).toBeLessThan(strayBound(step));
+    });
+
+    it.each([
+      [44100, 20000, 300],
+      [44100, 20000, 700],
+      [44100, 21000, 1500],
+      [48000, 20000, 500],
+      [48000, 21000, 900],
+    ])(
+      'folds the top of the sample only above 0.76 of the nyquist: at %d Hz, %d Hz up %d cents',
+      (rate, source, cents) => {
+        // (past the nyquist of the output: from the pair at its level, from the bank by its transition)
+        const [left] = play({
+          sample: [sine(source, 3)],
+          noise: { cents },
+          rate,
+          seconds: (2 * SIZE) / rate,
+        });
+        const hz = source * 2 ** (cents / 1200);
+        const step = (SOURCE_RATE / rate) * 2 ** (cents / 1200);
+        expect(step).toBeGreaterThan(1);
+        expect(strayOf(left, hz, rate, step)).toBeLessThan(strayBound(step));
+      }
+    );
+
+    // level 0 upsampled by 2, read through a short kernel: flat to 0.9 of the nyquist of the sample, its images under
+    // -85 dB
+    it.each([
+      [48000, -1200],
+      [48000, 0],
+      [44100, 0],
+    ])('reads the pair at a step up to 1: at %d Hz, %d cents', (rate, cents) => {
+      for (const share of [0.5, 0.7, 0.9]) {
+        const source = share * (SOURCE_RATE / 2);
+        const hz = source * 2 ** (cents / 1200);
+        const [left] = play({
+          sample: [sine(source, 3)],
+          noise: { cents },
+          rate,
+          seconds: (2 * SIZE) / rate,
+        });
+        expect(Math.abs(dB(amplitudeOf(left, hz, rate)))).toBeLessThan(0.05);
+        expect(loudestOff(left, hz, rate)).toBeLessThan(-85);
+      }
+    });
+
+    it('crosses a step of EDGE under a moving pitch without a step of its level (the pair into the bank)', () => {
+      // a quadrature of 1 kHz (L sin, R cos: the amplitude of each sample is their hypot) gliding from +300 to +500
+      // cents at 44.1 kHz by ENV 2: a step from 1.19 to 1.33
+      const quadrature = [
+        sine(1000, 3),
+        Float32Array.from({ length: 3 * SOURCE_RATE }, (_, i) =>
+          Math.fround(Math.cos((2 * Math.PI * 1000 * i) / SOURCE_RATE))
+        ),
+      ];
+      const rise = { ...FLAT, attack: 0.3 };
+      const [left, right] = play({
+        sample: quadrature,
+        noise: { cents: 300 },
+        rate: 44100,
+        seconds: 0.4,
+        envelopes: [FLAT, rise, FLAT],
+        routes: [{ source: 1, param: 'noise.pitch', amount: 200, min: -4800, max: 4800 }],
+      });
+      let worst = 0;
+      left.forEach((l, i) => (worst = Math.max(worst, Math.abs(Math.hypot(l, right[i]) - 1))));
+      // (the ripple of the short kernels of the bank: 0.02 dB)
+      expect(worst).toBeLessThan(2e-3);
+      // (it went past a step of EDGE: above 1.24 kHz at its end)
+      expect(frequencyOf(left, 44100, 0.35 * 44100)).toBeGreaterThan(1300);
     });
 
     it('keeps the treble up to 0.74 of the nyquist at any step', () => {
-      // (the cutoffs an eighth of an octave apart, the stopband of each at most at the nyquist of the output)
-      for (const cents of [5, 40, 90, 160, 500, 1150, 1500]) {
+      // (the pair up to a step of EDGE; above it the cutoffs an eighth of an octave apart, each at the nyquist of
+      // the output at most)
+      for (const cents of [5, 40, 90, 160, 370, 380, 390, 500, 1150, 1500]) {
         const step = (SOURCE_RATE / 44100) * 2 ** (cents / 1200);
         const hz = 0.73 * 22050;
         const source = hz / step;
@@ -488,6 +614,73 @@ describe('the noise of a voice', () => {
       const [held] = play({ sample: turn, seconds: 0.3 });
       const [again] = play({ sample: turn, seconds: 0.3, gate: (frame) => (frame >= 40 * BLOCK ? 1.5 : 1) });
       expect(again).toEqual(held);
+    });
+  });
+
+  describe('levels', () => {
+    it('adds the pair: level 0 upsampled by 2, its one-shot (its ring before its start in the guard) and its loop', () => {
+      const n = 1000;
+      const ones = new Float32Array(n).fill(1);
+      const levels = buildNoiseLevels([ones], SOURCE_RATE);
+      const count = levels.lengths.length;
+      expect(Array.from(levels.lengths.slice(count - 2))).toEqual([2 * n + 128, 2 * n]);
+      expect(Array.from(levels.harmonics)).toEqual([...new Array(count - 2).fill(0), 2, 2]);
+      const at = (k: number, frame: number) => levels.data[levels.offsets[k] + frame];
+      const [once, loop] = [count - 2, count - 1];
+      // a loop of ones is ones, so is the one-shot away from its ends; the one-shot rings around them
+      for (const frame of [0, 1, 500, 1999]) expect(at(loop, frame)).toBeCloseTo(1, 4);
+      for (const frame of [300, 1000, 1700]) expect(at(once, frame)).toBe(at(loop, frame));
+      // (the step from 0 to the ones band-limited: half way at the point -0.5 of the sample, its ring before it)
+      expect(at(once, -1)).toBeCloseTo(0.5, 6);
+      expect(at(once, 0)).toBeGreaterThan(0.9);
+      expect(Math.abs(at(once, -4))).toBeGreaterThan(1e-3);
+      expect(at(once, 2 * n + 128)).toBe(0);
+    });
+
+    // frame k of a level (its index in the layout) of channel c, past its ends too
+    const frameOf = (levels: WavetableLevels, index: number, c: number, k: number) =>
+      levels.data[levels.offsets[index] + k * levels.frames + c];
+
+    it.each([
+      [101, 1],
+      [102, 2],
+      [100, 1],
+      [1001, 1],
+    ])(
+      'goes on past the ends of the loop levels on their grid: a loop of %d frames, %d channels',
+      (n, width) => {
+        // a loop of noise, its levels and those of its passes one after another once: level l of the loop at frame k
+        // (past its ends too: its guards, the frames a window of the bank reads) is frame k of a pass of level l, on
+        // its grid (pass q = 2^L: at frame q·n / 2^l of level l), far from where the passes start and end
+        const random = seeded(n);
+        const loop = Array.from({ length: width }, () =>
+          Float32Array.from({ length: n }, () => Math.fround(2 * random() - 1))
+        );
+        const levels = buildNoiseLevels(loop, SOURCE_RATE);
+        const count = (levels.lengths.length - 3) / 2;
+        const q = 2 ** count;
+        const passes = buildNoiseLevels(
+          loop.map((channel) => Float32Array.from({ length: 2 * q * n }, (_, i) => channel[i % n])),
+          SOURCE_RATE
+        );
+        for (let l = 1; l <= count; l++) {
+          const frames = levels.lengths[count + l];
+          expect(frames).toBe(Math.ceil(n / 2 ** l));
+          const pass = (q * n) / 2 ** l;
+          for (let c = 0; c < width; c++) {
+            const ks = Array.from({ length: frames + 2 * NOISE_SEAM }, (_, f) => f - NOISE_SEAM);
+            expect(ks.map((k) => frameOf(levels, count + l, c, k))).toEqual(
+              ks.map((k) => frameOf(passes, l, c, pass + k))
+            );
+          }
+        }
+      }
+    );
+
+    it('has 12 levels past level 0 at most (a step of 2^13 is silent)', () => {
+      // (44100 frames: 13 levels of 4 frames at least)
+      expect((buildNoiseLevels([sine(100, 1)], SOURCE_RATE).lengths.length - 3) / 2).toBe(12);
+      expect((buildNoiseLevels([sine(100, 0.05)], SOURCE_RATE).lengths.length - 3) / 2).toBe(9);
     });
   });
 

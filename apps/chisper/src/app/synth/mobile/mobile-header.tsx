@@ -100,11 +100,11 @@ export const MobileHeader = ({ portrait, mode, onModeChange, screen, onScreenCha
       <TapeSwitch options={SYNTH_SCREENS} value={screen} onChange={onScreenChange} switchOnDrag />
     </Tabs>
     <Presets
+      leading={<AboutLink />}
       actions={
         <>
           <MidiInput />
           <SettingsButton />
-          <AboutLink />
         </>
       }
     />

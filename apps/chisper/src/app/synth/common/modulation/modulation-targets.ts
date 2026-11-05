@@ -155,7 +155,7 @@ const oscTargets = (osc: number): Record<string, OscTarget> => {
 
 const noiseTargets: Record<string, NoiseTarget> = withRoutes<Omit<NoiseTarget, 'route'>>(
   {
-    'noise.level': { kind: 'noise', param: 'level', label: 'Level', scale: 'linear', range: [0, 1] },
+    'noise.level': { kind: 'noise', param: 'level', label: 'Gain', scale: 'linear', range: [0, 1] },
     'noise.pan': { kind: 'noise', param: 'pan', label: 'Pan', scale: 'linear', range: [-1, 1] },
     // an amount of 1 their whole range: 96 semitones, 200 cents
     'noise.pitch': {

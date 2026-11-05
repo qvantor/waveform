@@ -39,11 +39,7 @@ const options: CascadeOption[] = [
 const setup = (value: string[], opts = options) => {
   const setValue = jest.fn();
   const user = userEvent.setup();
-  render(
-    <CascadeSelect options={opts} value={value} setValue={setValue} loading={false}>
-      Current
-    </CascadeSelect>
-  );
+  render(<CascadeSelect options={opts} value={value} setValue={setValue} loading={false} label='Current' />);
   const cascader = () => (Cascader as unknown as jest.Mock).mock.lastCall?.[0] as CascaderProps;
   return { setValue, user, cascader };
 };
@@ -54,7 +50,7 @@ const previous = () => screen.getByRole('button', { name: 'Previous' });
 describe('CascadeSelect', () => {
   afterEach(() => (Cascader as unknown as jest.Mock).mockClear());
 
-  it('shows its children', () => {
+  it('shows its label', () => {
     setup(['A', 'A/1.wav']);
     expect(screen.getByText('Current')).toBeDefined();
   });

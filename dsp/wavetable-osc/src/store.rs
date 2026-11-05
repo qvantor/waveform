@@ -5,7 +5,8 @@
 //! the chunk is zeroed: the audio thread never fills 64 MB), commit() makes it the latest once every chunk has
 //! come (a stale version, older than the latest, is freed at once). A sample of the noise (noise.rs) is a version
 //! too, its levels at its rate (not 0): its room allocated as it is (a buffer of the pool of 64 MB would hold
-//! 2 MB), given back to the allocator, not the pool; the first one builds the kernels of the noise
+//! 2 MB), given back to the allocator, not the pool; the first one builds the kernels of the noise, unless the
+//! store took those of another (the prewarm's: take_kernels)
 
 use crate::noise::Kernels;
 use alloc::{boxed::Box, vec, vec::Vec};
@@ -67,7 +68,8 @@ pub struct Store {
     // the bytes of the versions freed since the wrapper last read it (it sets it back to 0): memory for a version
     // refused before
     pub freed_bytes: f64,
-    // the windowed sincs the noise reads its samples through (built with the first sample)
+    // the windowed sincs the noise reads its samples through (built with the first sample, or taken from a store
+    // that built them: take_kernels)
     pub kernels: Option<Box<Kernels>>,
 }
 
@@ -119,6 +121,14 @@ impl Store {
 
     fn find(&self, table: u32) -> Option<usize> {
         self.current.iter().position(|(id, _)| *id == table)
+    }
+
+    /// the kernels of the noise `from` built, unless the store has its own: the worklet builds them once, as it
+    /// loads (the prewarm), not with its first sample on the audio thread
+    pub fn take_kernels(&mut self, from: &mut Store) {
+        if self.kernels.is_none() {
+            self.kernels = from.kernels.take();
+        }
     }
 
     /// the latest version of a table, None: none yet

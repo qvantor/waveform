@@ -1,6 +1,7 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { CascadeOption } from '@chisper/ui-kit';
+import { fetchList } from '../../services/fetch';
 
 // the list of netlify/functions/get-noises-list: the folders of the samples (their categories), a sample its key
 interface Sample {
@@ -27,7 +28,7 @@ export const samplesToOptions = (data: Element[]): CascadeOption[] =>
 export const useNoiseSamples = () => {
   const { data } = useQuery<Element[]>({
     queryKey: ['noises'],
-    queryFn: () => fetch('/.netlify/functions/get-noises-list').then((res) => res.json()),
+    queryFn: () => fetchList<Element>('/.netlify/functions/get-noises-list'),
     staleTime: 24 * 60 * 60 * 1000,
   });
   return React.useMemo(() => samplesToOptions(data ?? []), [data]);

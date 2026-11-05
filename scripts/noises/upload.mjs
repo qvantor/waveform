@@ -1,14 +1,16 @@
 // The samples of the noise oscillator (tmp/noises/<folder>/<name>.wav, made by scripts/noises/process.mjs) into the
 // noise bucket of the site as <folder>/<name>.wav (R2: R2_NOISES_BUCKET and the R2_* of .env;
-// netlify/functions/get-noises-list lists them, the folders are the categories): a file the bucket hasn't or has
-// other bytes of (its md5 against the ETag) is put, with --delete a sample gone from the folder is removed. A dry
-// run (what it would do) unless --apply: it writes to the bucket the site plays from.
+// netlify/functions/get-noises-list lists them, the folders are the categories, in the order of order.json, put
+// with them): a file the bucket hasn't or has other bytes of (its md5 against the ETag) is put, with --delete a
+// sample gone from the folder is removed. A dry run (what it would do) unless --apply: it writes to the bucket the
+// site plays from.
 //   node scripts/noises/upload.mjs [--from=tmp/noises] [--delete] [--apply]
 import { createHash } from 'node:crypto';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join, relative, resolve } from 'node:path';
 import { siteBucket } from '../bench-common.mjs';
+import { ORDER_FILE } from './manifest.mjs';
 
 const require = createRequire(import.meta.url);
 const { DeleteObjectsCommand, ListObjectsV2Command, PutObjectCommand } = require('@aws-sdk/client-s3');
@@ -36,6 +38,9 @@ const walk = (dir) =>
 walk(from);
 if (local.size === 0)
   throw new Error(`no samples in ${relative(root, from)}: node scripts/noises/process.mjs`);
+// their order in the synth (none: by key)
+if (existsSync(join(from, ORDER_FILE))) local.set(ORDER_FILE, join(from, ORDER_FILE));
+else console.log(`no ${ORDER_FILE} in ${relative(root, from)}: the synth lists the samples by key`);
 
 // the samples in the bucket: their key and ETag (the md5 of a file put whole)
 const remote = new Map();
@@ -68,7 +73,7 @@ for (const [key, path] of puts)
       Bucket,
       Key: key,
       Body: readFileSync(path),
-      ContentType: 'audio/wav',
+      ContentType: key === ORDER_FILE ? 'application/json' : 'audio/wav',
     })
   );
 for (let i = 0; i < deletes.length; i += 1000)

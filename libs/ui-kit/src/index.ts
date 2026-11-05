@@ -43,6 +43,7 @@ export { FqAnalyser } from './fq-analyser';
 export { QUIET_MS } from './common/utils/meter-loop';
 export { Filter, FilterResponse, frequencyResponseDb } from './filter';
 export { Select, CascadeSelect } from './select';
+export { MiddleEllipsis } from './middle-ellipsis';
 export { DraggableNumber } from './draggable-number';
 export { DragValue } from './drag-value';
 export { SegmentDisplay } from './segment-display';

@@ -116,7 +116,28 @@ describe('SwitchKeys', () => {
     const keys = within(group).getAllByRole('button');
     expect(keys.map((key) => key.getAttribute('aria-label'))).toEqual(['Tempo sync', 'Triplets']);
     expect(group.classList.contains('stack')).toBe(false);
+    expect(group.classList.contains('fill')).toBe(false);
+    expect(group.style.flexGrow).toBe('');
     expect(group.hasAttribute('aria-disabled')).toBe(false);
+  });
+
+  it('fills a strip with the plates beside it: as many shares of its width as it has keys', () => {
+    render(
+      <div>
+        <SwitchKeys aria-label='Playback' fill>
+          <SwitchKey on name='Loop' />
+          <SwitchKey on={false} name='One-shot' />
+          {null}
+        </SwitchKeys>
+        <SwitchKeys aria-label='Pitch' fill>
+          <SwitchKey on={false} name='Pitch Track' />
+        </SwitchKeys>
+      </div>
+    );
+    const groups = ['Playback', 'Pitch'].map((name) => screen.getByRole('group', { name }));
+    expect(groups.map((group) => group.classList.contains('fill'))).toEqual([true, true]);
+    // a key not rendered takes no share
+    expect(groups.map((group) => group.style.flexGrow)).toEqual(['2', '1']);
   });
 
   it('stacks the first key over the others; all of it off: faded as a whole, every key disabled, its reason', () => {

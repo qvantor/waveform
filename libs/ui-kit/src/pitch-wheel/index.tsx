@@ -7,11 +7,10 @@ import { useElementSize } from '../common/hooks';
 import { Tooltip } from '../tooltip';
 import { ValueTooltip } from '../tooltip/value-tooltip';
 
-// px of the slot
+// px of the slot by default (the drum fills it)
 export const PITCH_WHEEL_WIDTH = 26;
 // px of the slot around the drum
 const INSET = 3;
-const DRUM_WIDTH = PITCH_WHEEL_WIDTH - 2 * INSET;
 // the drum turns ±60° over the range of the value
 const MAX_ANGLE = Math.PI / 3;
 // the ribs of the drum, 15° apart
@@ -19,16 +18,16 @@ const RIB_STEP = Math.PI / 12;
 // px of the mark facing straight out
 const MARK_HEIGHT = 3;
 // px of the ribs and the mark from the sides of the drum
-const BAR = { x: 2, width: DRUM_WIDTH - 4 };
+const BAR_INSET = 2;
 // the steps of the value (a 14-bit wheel has 16384)
 const PRECISION = 1000;
 
 // the dark slot the drum turns in, as high as its place (a flex row stretches it)
-const Body = styled.div`
+const Body = styled.div<{ $width: number }>`
   position: relative;
   flex: none;
   align-self: stretch;
-  width: ${PITCH_WHEEL_WIDTH}px;
+  width: ${({ $width }) => $width}px;
   border-radius: ${theme.borderRadius.m};
   background: ${theme.colors.primaryDark};
   box-shadow: inset 0 1px 3px rgb(0 0 0 / 60%);
@@ -92,56 +91,68 @@ interface Props {
   // the full name before the value in the tooltip while it is held, its accessible name
   name?: string;
   formatValue?: (value: number) => React.ReactNode;
+  // px of the slot
+  width?: number;
   className?: string;
 }
 
-// the ribs and the mark of a drum of a radius turned by an angle (0: the mark faces the front), each where it is
-// on the drum: as tall and as opaque as it faces the front. A render of the keys around it draws nothing
-const DrumFace = React.memo(({ radius: r, angle }: { radius: number; angle: number }) => {
-  const y = (phi: number) => r - r * Math.sin(phi);
-  const ribs: React.ReactNode[] = [];
-  const first = Math.ceil((-Math.PI / 2 - angle) / RIB_STEP);
-  const last = Math.floor((Math.PI / 2 - angle) / RIB_STEP);
-  for (let k = first; k <= last; k++) {
-    const phi = angle + k * RIB_STEP;
-    // the mark is in place of rib 0, one at an edge faces nowhere (cos ±90° isn't quite 0)
-    if (k === 0 || Math.cos(phi) < 1e-9) continue;
-    // a groove with the light on its lower edge: the drum is lit from above
-    ribs.push(
-      <g key={k} opacity={Math.cos(phi)}>
-        <rect className='groove' {...BAR} y={y(phi) - 1} height={1} />
-        <rect className='ridge' {...BAR} y={y(phi)} height={1} />
-      </g>
+// the ribs and the mark of a drum of a radius and a width turned by an angle (0: the mark faces the front), each
+// where it is on the drum: as tall and as opaque as it faces the front. A render of the keys around it draws nothing
+const DrumFace = React.memo(
+  ({ radius: r, width, angle }: { radius: number; width: number; angle: number }) => {
+    const y = (phi: number) => r - r * Math.sin(phi);
+    const bar = { x: BAR_INSET, width: width - 2 * BAR_INSET };
+    const ribs: React.ReactNode[] = [];
+    const first = Math.ceil((-Math.PI / 2 - angle) / RIB_STEP);
+    const last = Math.floor((Math.PI / 2 - angle) / RIB_STEP);
+    for (let k = first; k <= last; k++) {
+      const phi = angle + k * RIB_STEP;
+      // the mark is in place of rib 0, one at an edge faces nowhere (cos ±90° isn't quite 0)
+      if (k === 0 || Math.cos(phi) < 1e-9) continue;
+      // a groove with the light on its lower edge: the drum is lit from above
+      ribs.push(
+        <g key={k} opacity={Math.cos(phi)}>
+          <rect className='groove' {...bar} y={y(phi) - 1} height={1} />
+          <rect className='ridge' {...bar} y={y(phi)} height={1} />
+        </g>
+      );
+    }
+    const mark = MARK_HEIGHT * Math.cos(angle);
+    return (
+      <>
+        {ribs}
+        <rect
+          className='mark'
+          data-testid='pitch-wheel-mark'
+          {...bar}
+          y={y(angle) - mark / 2}
+          height={mark}
+          rx={1}
+        />
+      </>
     );
   }
-  const mark = MARK_HEIGHT * Math.cos(angle);
-  return (
-    <>
-      {ribs}
-      <rect
-        className='mark'
-        data-testid='pitch-wheel-mark'
-        {...BAR}
-        y={y(angle) - mark / 2}
-        height={mark}
-        rx={1}
-      />
-    </>
-  );
-});
+);
 
 // a pitch bend wheel as on a hardware keyboard: a drum dragged up or down from where it is (its mark follows the
 // pointer, the full travel turns it 60° each way), it springs back to the middle once let go, also when the
 // window loses focus or its pointerup was lost (a move without a button). It shows the value it is given (a bend
 // of a MIDI input too)
-export const PitchWheel = ({ value, onChange, name = 'Pitch bend', formatValue, className }: Props) => {
+export const PitchWheel = ({
+  value,
+  onChange,
+  name = 'Pitch bend',
+  formatValue,
+  width = PITCH_WHEEL_WIDTH,
+  className,
+}: Props) => {
   const [active, setActive] = React.useState(false);
   // the pointer that holds it, where it pressed, the value then and the last one it gave (not the value shown: it
   // may come a frame later, a render of the keys between would give the one before)
   const drag = React.useRef<{ pointerId: number; y: number; from: number; last: number } | null>(null);
   const changed = React.useRef(onChange);
   changed.current = onChange;
-  const [drumRef, [, drumHeight]] = useElementSize<HTMLDivElement>();
+  const [drumRef, [drumWidth, drumHeight]] = useElementSize<HTMLDivElement>();
   const radius = drumHeight / 2;
 
   const emit = React.useCallback((next: number) => {
@@ -206,6 +217,7 @@ export const PitchWheel = ({ value, onChange, name = 'Pitch bend', formatValue, 
     // above it: the wheel is at the bottom of the screen
     <Tooltip bottom='calc(100% + 6px)' content={<ValueTooltip name={name}>{formatted}</ValueTooltip>}>
       <Body
+        $width={width}
         className={className}
         onPointerDown={onPointerDown}
         role='slider'
@@ -218,9 +230,9 @@ export const PitchWheel = ({ value, onChange, name = 'Pitch bend', formatValue, 
       >
         <Center />
         <Drum ref={drumRef} className={cls({ active })} aria-hidden>
-          {drumHeight > 0 && (
-            <svg width={DRUM_WIDTH} height={drumHeight}>
-              <DrumFace radius={radius} angle={value * MAX_ANGLE} />
+          {drumWidth > 0 && drumHeight > 0 && (
+            <svg width={drumWidth} height={drumHeight}>
+              <DrumFace radius={radius} width={drumWidth} angle={value * MAX_ANGLE} />
             </svg>
           )}
         </Drum>

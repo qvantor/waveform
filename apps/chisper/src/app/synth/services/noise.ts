@@ -1,3 +1,5 @@
+import { bucketUrl, NOISES_ORIGIN } from './buckets';
+import { fetchOk } from './fetch';
 import { parseWavChannels } from './wav';
 
 // a sample of the noise oscillator: its channels (one or two) at its own rate (the engine plays it at any rate of
@@ -9,16 +11,9 @@ export interface NoiseSample {
 
 export type LoadNoiseSample = (id: string) => Promise<NoiseSample>;
 
-const fetchOk = async (url: string) => {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`${url} responded ${res.status}`);
-  return res;
-};
-
-// its signed url from the function, then the file as stored (no resampling)
+// the file from the domain of the bucket, as stored (no resampling)
 const fetchNoiseSample: LoadNoiseSample = async (id) => {
-  const res = await fetchOk(`/.netlify/functions/get-noise?id=${encodeURIComponent(id)}`);
-  const file = await fetchOk(await res.text());
+  const file = await fetchOk(bucketUrl(NOISES_ORIGIN, id));
   const { channels, sampleRate } = parseWavChannels(await file.arrayBuffer());
   if (channels.length === 0 || channels[0].length === 0) throw new Error(`${id} has no samples`);
   return { channels: channels.slice(0, 2), sampleRate };

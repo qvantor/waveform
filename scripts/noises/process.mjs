@@ -1,14 +1,16 @@
 // The noise samples from their originals (assets/noises/originals, Git LFS, not fetched by default:
 // git lfs pull -I assets/noises/originals -X "") by assets/noises/manifest.json, into tmp/noises:
 // <folder>/<name>.wav (float32, the rate of the manifest), report.json and index.html (each source with
-// the part kept, and its result). macOS: afconvert decodes and resamples.
+// the part kept, and its result), order.json (the keys of every sample of the manifest in its order: the order
+// of the synth, upload.mjs puts it into the bucket). macOS: afconvert decodes and resamples.
 //   node scripts/noises/process.mjs [--only=id,id] [--out=tmp/noises]
 //
 // Manifest: `defaults` { rate, maxSeconds, attackMs, gapMs } and `sounds`, each { id, name, folder, kind }
 // and either an original of Freesound { file, sha256, author, url, license } or `generate` (the type and
 // params of a generator of generate.mjs, its id a name); its own maxSeconds, attackMs, gapMs (null: no
 // silence splits it), highpass (Hz, 24 dB/oct: the rumble under a recording) or start/end (seconds of the
-// original, cut before anything). kind: one-shot, attack (a kick's first attackMs) or loop (dsp.mjs).
+// original, cut before anything). kind: one-shot, attack (a kick's first attackMs) or loop (dsp.mjs). The sounds
+// of a folder are in the order of the synth: the basic ones first.
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -16,7 +18,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 
 import { db, highpass, processSound } from './dsp.mjs';
 import { GENERATORS, generate } from './generate.mjs';
-import { KINDS, ORIGINALS, ROOT, readManifest } from './manifest.mjs';
+import { KINDS, ORDER_FILE, ORIGINALS, ROOT, readManifest, sampleKey, sampleOrder } from './manifest.mjs';
 import { decode, writeWav } from './wav.mjs';
 
 const LFS_POINTER = 'version https://git-lfs.github.com/spec/v1';
@@ -130,7 +132,7 @@ function main() {
       ...Object.fromEntries(['maxSeconds', 'attackMs', 'gapMs'].filter((k) => k in s).map((k) => [k, s[k]])),
     };
     const t = processSound(channels, rate, { ...opts, kind: s.kind });
-    const file = `${s.folder}/${s.name}.wav`;
+    const file = sampleKey(s);
     mkdirSync(dirname(join(OUT, file)), { recursive: true });
     writeWav(join(OUT, file), rate, t.out);
     let sq = 0;
@@ -182,6 +184,7 @@ function main() {
     )
   );
   writeFileSync(join(OUT, 'index.html'), page(rows));
+  writeFileSync(join(OUT, ORDER_FILE), JSON.stringify(sampleOrder(manifest), null, 2) + '\n');
   console.log(`${rows.length} → ${relative(ROOT, OUT)}`);
 }
 

@@ -1,5 +1,6 @@
 import React from 'react';
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
+import { Handle, HandleProps } from '@chisper/ui-kit';
 import { drawn, withElementSize } from '@chisper/ui-kit/test-utils';
 import { createModulation, createSynthCore } from '../../../test-utils/models';
 import { ModulationContext } from '../common/modules/modulation';
@@ -22,6 +23,11 @@ const LIST = [
   },
   { name: 'Textures', children: [{ Key: 'Textures/Rain.v2.wav', Size: 10 }] },
 ];
+// the knobs are counted by their renders
+jest.mock('@chisper/ui-kit', () => {
+  const actual = jest.requireActual('@chisper/ui-kit');
+  return { ...actual, Handle: jest.fn(actual.Handle) };
+});
 jest.mock('./hooks/use-noise-samples', () => {
   const actual = jest.requireActual('./hooks/use-noise-samples');
   return { ...actual, useNoiseSamples: () => actual.samplesToOptions(LIST) };
@@ -97,6 +103,20 @@ describe('NoiseSection', () => {
     expect(model.$noise.value.keytrack).toBe(true);
   });
 
+  it('has its keys in the window, over the overview, Start and Rand under it', () => {
+    const { canvas } = setup();
+    const overview = canvas() as HTMLCanvasElement;
+    const [playback, pitch] = ['Playback', 'Pitch'].map((name) => screen.getByRole('group', { name }));
+    const start = screen.getByText('Start');
+    expect(playback.parentElement).toBe(pitch.parentElement);
+    // in the block, in this order
+    const block = playback.parentElement?.parentElement as HTMLElement;
+    const elements = Array.from(block.querySelectorAll('*'));
+    const order = [playback, pitch, overview, start].map((element) => elements.indexOf(element));
+    expect(order).not.toContain(-1);
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+  });
+
   it('shows Start and Rand in percent, and the knobs of the noise', () => {
     const { actions } = setup();
     act(() => {
@@ -105,7 +125,7 @@ describe('NoiseSection', () => {
     });
     expect(screen.getByText('25%')).toBeInTheDocument();
     expect(screen.getByText('50%')).toBeInTheDocument();
-    ['Pitch', 'Fine', 'Pan', 'Level'].forEach((label) => expect(screen.getByText(label)).toBeInTheDocument());
+    ['Pitch', 'Fine', 'Pan', 'Gain'].forEach((label) => expect(screen.getByText(label)).toBeInTheDocument());
   });
 
   it('routes the knobs (their menus show the routes) and restores their defaults', () => {
@@ -125,7 +145,7 @@ describe('NoiseSection', () => {
     expect(modulation[0].$routes.value).toContainEqual(
       expect.objectContaining({ source: 'lfo1', target: 'noise.pitch', bipolar: true })
     );
-    fireEvent.click(within(menuOf('Level')).getByRole('button', { name: /Default/ }));
+    fireEvent.click(within(menuOf('Gain')).getByRole('button', { name: /Default/ }));
     expect(model.$noise.value.level).toBe(0.25);
   });
 
@@ -146,6 +166,27 @@ describe('NoiseSection', () => {
     expect(rects[0]).toEqual([0, 2, 1, 72]);
     expect(rects[160]).toEqual([80, 0, 40, 100]);
     expect(rects[161]).toEqual([80, 0, 1, 100]);
+  });
+
+  it('renders a knob alone on a step of it, Start and the keys without the knobs', () => {
+    const { actions, canvas } = setup();
+    // the labels of the knobs a change renders
+    const rendered = (change: () => void) => {
+      const before = (Handle as jest.Mock).mock.calls.length;
+      act(change);
+      return (Handle as jest.Mock).mock.calls.slice(before).map(([props]) => (props as HandleProps).label);
+    };
+    expect(rendered(() => actions.setNoiseValue('pitch', 5))).toEqual(['Pitch']);
+    expect(rendered(() => actions.setNoiseValue('level', 0.5))).toEqual(['Gain']);
+    expect(rendered(() => actions.setNoiseValue('start', 0.5))).toEqual([]);
+    expect(rendered(() => actions.setLoop(false))).toEqual([]);
+    // the overview follows Start: its line in the middle
+    expect(
+      drawn(canvas())
+        .flatMap(({ rects }) => rects)
+        .at(-1)
+    ).toEqual([80, 0, 1, 100]);
+    expect(screen.getByRole('button', { name: 'One-shot' })).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('tells why its sample does not play while it is on, Retry sends it again', () => {
@@ -180,12 +221,12 @@ describe('noise section helpers', () => {
     ]);
   });
 
-  it('labels a path by its option, one the list has not by the name of its file', () => {
-    const options = samplesToOptions(LIST);
-    expect(pathLabel(options, ['Analog', 'Analog/Pink noise.wav'])).toBe('Pink noise');
-    expect(pathLabel(options, ['Gone', 'Gone/Old.wav'])).toBe('Old');
-    expect(pathLabel([], ['Analog', 'Analog/White.wav'])).toBe('White');
-    expect(pathLabel(options, [])).toBe('');
+  it('labels a path by the name of its sample, as its option, also one the list has not', () => {
+    const [analog] = samplesToOptions(LIST);
+    const [pink] = 'children' in analog ? analog.children : [];
+    expect(pathLabel(['Analog', pink.value])).toBe(pink.label);
+    expect(pathLabel(['Gone', 'Gone/Old.wav'])).toBe('Old');
+    expect(pathLabel([])).toBe('');
   });
 
   it('takes the lowest and highest values of each column, of every channel', () => {

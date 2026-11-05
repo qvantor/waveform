@@ -181,18 +181,16 @@ export interface VoiceWork {
   changes: number;
 }
 
+// the events that change playing voices (not a note on nor the automation of a param; typed: a kind renamed fails)
+const CHANGES: VoiceEvent['kind'][] = ['routes', 'filter', 'velocity', 'knobs', 'bend', 'lfos'];
 const countEvents = (context: BaseAudioContext): VoiceWork => {
   const events = voicesNodes(context).flatMap((node) => eventsOf(node));
   const all = events.flatMap((message) => message.events);
   return {
     messages: events.length,
     voices: all.filter(({ kind }) => kind === 'on').length,
-    automation: all.filter(
-      ({ kind }) => !['on', 'routes', 'filter', 'velocity', 'noise', 'bend', 'lfos'].includes(kind)
-    ).length,
-    changes: all.filter(({ kind }) =>
-      ['routes', 'filter', 'velocity', 'noise', 'bend', 'lfos'].includes(kind)
-    ).length,
+    automation: all.filter(({ kind }) => kind !== 'on' && !CHANGES.includes(kind)).length,
+    changes: all.filter(({ kind }) => CHANGES.includes(kind)).length,
   };
 };
 

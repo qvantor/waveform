@@ -63,6 +63,7 @@ export interface OscExports extends CoreExports {
   osc_store_track_freed: (store: number, on: boolean) => void;
   osc_store_freed: (store: number) => number;
   osc_store_freed_bytes: (store: number) => number;
+  osc_store_take_kernels: (store: number, from: number) => void;
   osc_shared_new: () => number;
   osc_shared_free: (shared: number) => void;
   osc_shared_stats: (shared: number) => void;
@@ -321,6 +322,9 @@ export const createTableStoreWasm = (scope: OscScope, onFree?: (levels: Wavetabl
       const [tables, versions, bytes] = scope.command();
       return { tables, versions, bytes };
     },
+    // the kernels of the noise another store of the scope built (the prewarm's), unless it has its own: its first
+    // sample builds none
+    takeKernels: (from: { handle: number }) => exports.osc_store_take_kernels(handle, from.handle),
     // (once no voice plays from it)
     free: () => exports.osc_store_free(handle),
   };

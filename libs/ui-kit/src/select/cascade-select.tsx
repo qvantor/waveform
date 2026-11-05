@@ -2,36 +2,36 @@ import React from 'react';
 import { styled } from 'styled-components';
 import { Cascader, Spin } from 'antd';
 import { isEqual } from 'lodash';
+import { MiddleEllipsis } from '../middle-ellipsis';
 import { SelectDumb, ContentContainer } from './select-dumb';
 
-// a name longer than its place is cut with an ellipsis (it never widens the row)
+// a name longer than its place is cut in its middle (it never widens the row)
 const Root = styled.div`
   ${ContentContainer}
   /* the Spin of antd 6 around it sets a line height of its own: the row as high as the other selects */
   line-height: normal;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 `;
 
 const SelectDumbInternal = styled(SelectDumb)`
   min-width: 0;
+`;
 
-  .ant-spin-nested-loading {
-    width: 100%;
-    min-width: 0;
-  }
+// the Spin around the name takes the room the arrows leave, never more: a long name is cut, the row stays as wide
+// as its place
+const Loading = styled(Spin)`
+  flex: 1 1 0;
+  min-width: 0;
 `;
 
 type CascadeOptionWithChildren = {
   value: string;
-  label: React.ReactNode;
+  label: string;
   children: CascadeOption[];
 };
 
 type CascadeOptionValue = {
   value: string;
-  label: React.ReactNode;
+  label: string;
 };
 
 export type CascadeOption = CascadeOptionWithChildren | CascadeOptionValue;
@@ -41,6 +41,8 @@ interface Props {
   value: (string | number)[];
   setValue: (value: (string | number)[]) => void;
   loading: boolean;
+  // the name shown of the value
+  label: string;
 }
 
 // paths of the files (options without children) in the order they are shown
@@ -60,13 +62,7 @@ export const skipSingleFolders = (
 };
 
 // value and setValue are whole paths, the single folders included
-export const CascadeSelect = ({
-  options,
-  value,
-  setValue,
-  loading,
-  children,
-}: React.PropsWithChildren<Props>) => {
+export const CascadeSelect = ({ options, value, setValue, loading, label }: Props) => {
   const leaves = React.useMemo(() => leafPaths(options), [options]);
   const { prefix, options: shownOptions } = skipSingleFolders(options);
   // a value out of the skipped folders is passed as it is
@@ -86,12 +82,14 @@ export const CascadeSelect = ({
 
   return (
     <SelectDumbInternal prev={step(-1)} next={step(1)}>
-      <Spin spinning={loading}>
+      <Loading spinning={loading}>
         {/* the values of the options are strings (the names of the folders and the files) */}
         <Cascader options={shownOptions} onChange={onChange} value={shownValue as string[]}>
-          <Root>{children}</Root>
+          <Root>
+            <MiddleEllipsis text={label} />
+          </Root>
         </Cascader>
-      </Spin>
+      </Loading>
     </SelectDumbInternal>
   );
 };

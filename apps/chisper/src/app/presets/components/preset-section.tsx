@@ -64,12 +64,14 @@ const SectionName = styled(RowButton)`
 `;
 
 interface SectionProps {
+  // keys before Save (the About key, under ◀)
+  leading?: React.ReactNode;
   // more keys after Save and Share
   actions?: React.ReactNode;
   className?: string;
 }
 
-export const PresetSection = ({ actions, className }: SectionProps) => {
+export const PresetSection = ({ leading, actions, className }: SectionProps) => {
   const [{ $saveRequest }] = useApp();
   const [{ $current, $dirty }, { next, prev, reset }] = usePresets();
   const current = useBehaviorSubject($current);
@@ -113,6 +115,7 @@ export const PresetSection = ({ actions, className }: SectionProps) => {
         </IconButton>
       </Row>
       <Row>
+        {leading}
         <Tooltip title='Save as a new preset (⌘S)'>
           <PanelButton icon={<AiOutlineSave />} onClick={() => setSaveOpen(true)}>
             Save

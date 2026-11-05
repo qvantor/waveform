@@ -1,6 +1,7 @@
 // what the browsers load: the perf build of the app (the test hook in it), the onset probe, the tables of the
 // cases, served on localhost (a secure context) with the functions of the wavetables mocked and no presets API
-// (the app starts at Init)
+// (the app starts at Init); the app fetches its tables from the domain of their bucket, the pages take them from
+// the downloaded ones (openPage of browser.mjs)
 import fs from 'fs';
 import http from 'http';
 import path from 'path';
@@ -100,6 +101,7 @@ export const serve = ({ keys, site = siteDir, probe = probeFile }) =>
         return send(200, JSON.stringify(tableTree(keys)), TYPES['.json']);
       // (no sample of the noise: the scenes play it off)
       if (url.pathname === '/.netlify/functions/get-noises-list') return send(200, '[]', TYPES['.json']);
+      // (the link of a table of a tree from before the domains of the buckets, an A/B reference)
       if (url.pathname === '/.netlify/functions/get-wavetable') {
         const id = url.searchParams.get('id') ?? '';
         return id ? send(200, `/tables/${encodeURIComponent(fileName(id))}`) : send(400);

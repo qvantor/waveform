@@ -17,13 +17,25 @@ export const FOLDERS = [
   'Textures',
   'Atmospheres',
 ];
+// The order of the samples in the synth, next to them and in the bucket (netlify/functions/get-noises-list).
+export const ORDER_FILE = 'order.json';
 
 export const readManifest = () => JSON.parse(readFileSync(join(NOISES, 'manifest.json'), 'utf8'));
 
-// Sounds by folder (in FOLDERS order), then by name.
+// The key of a sample in the bucket, its file under tmp/noises.
+export const sampleKey = (sound) => `${sound.folder}/${sound.name}.wav`;
+
+// Sounds by folder (in FOLDERS order), those of a folder in the order of the list: the basic ones first.
+export const sortSounds = (sounds) =>
+  [...sounds].sort((a, b) => FOLDERS.indexOf(a.folder) - FOLDERS.indexOf(b.folder));
+
+// The keys of the samples in the order of the synth.
+export const sampleOrder = (manifest) => sortSounds(manifest.sounds).map(sampleKey);
+
+// A new sound goes last in its folder.
 export function writeManifest(manifest) {
-  const sounds = [...manifest.sounds].sort(
-    (a, b) => FOLDERS.indexOf(a.folder) - FOLDERS.indexOf(b.folder) || a.name.localeCompare(b.name)
+  writeFileSync(
+    join(NOISES, 'manifest.json'),
+    JSON.stringify({ ...manifest, sounds: sortSounds(manifest.sounds) }, null, 2) + '\n'
   );
-  writeFileSync(join(NOISES, 'manifest.json'), JSON.stringify({ ...manifest, sounds }, null, 2) + '\n');
 }

@@ -2,6 +2,7 @@ import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { CascadeOption } from '@chisper/ui-kit';
 import prettyBytes from 'pretty-bytes';
+import { fetchList } from '../../services/fetch';
 
 interface Wavetable {
   Key: string;
@@ -28,7 +29,7 @@ export const wavetablesToOptions = (data: Element[]): CascadeOption[] =>
 export const useWavetables = () => {
   const { data } = useQuery<Element[]>({
     queryKey: ['wavetables'],
-    queryFn: () => fetch('/.netlify/functions/get-wavetables-list').then((res) => res.json()),
+    queryFn: () => fetchList<Element>('/.netlify/functions/get-wavetables-list'),
     staleTime: 24 * 60 * 60 * 1000,
   });
   return React.useMemo(() => wavetablesToOptions(data ?? []), [data]);

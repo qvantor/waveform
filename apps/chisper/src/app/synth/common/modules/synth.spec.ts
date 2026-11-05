@@ -6,10 +6,11 @@ import { withoutAudioWorklet } from '../../../../test-utils/no-audio-worklet';
 import { WorkerStub } from '../../../../test-utils/worker-stub';
 import { withCurves, played } from '../../../../test-utils/envelopes';
 import { eventsOf, voiceEvents, VoiceView, voicesNodes } from '../../../../test-utils/voice-events';
-import { getFq } from '../../services';
+import { getFq, LoadNoiseSample } from '../../services';
 import { RELEASE_GATE, VoiceParam } from '../wavetable/wavetable-osc-params';
 import { curveShape, envelopeValue } from '../envelope/envelope-curve';
 import { UNISON_SHAPE } from '../wavetable/voice-options';
+import type { TableState } from '../wavetable/wavetable-engine';
 import { glideValue } from './glide';
 
 // the wavetable oscillator loads its module asynchronously
@@ -19,8 +20,11 @@ const f32 = Math.fround;
 // the velocity of the computer keyboard and the piano (100) as a share of 127: VELO on a line, the amp at Amp 1
 const KEY = 100 / 127;
 
-const setup = async ({ ready = true } = {}) => {
-  const modules = createSynth();
+const setup = async ({
+  ready = true,
+  loadNoiseSample,
+}: { ready?: boolean; loadNoiseSample?: LoadNoiseSample } = {}) => {
+  const modules = createSynth(['default'], undefined, loadNoiseSample);
   const [{ audioCtx, preGain, wavetables }] = modules.synthCore;
   const createGain = jest.spyOn(audioCtx, 'createGain');
   const [, { onPress, onRelease }] = modules.inputController;
@@ -1244,25 +1248,57 @@ describe('synth', () => {
     });
 
     it('a mono voice is taken over by the next note unless another sample, loop or Pitch Track would play', async () => {
-      const { onPress, voices, noise, synthActions } = await setup();
+      const sample = { channels: [Float32Array.of(0.5, -0.5)], sampleRate: 44100 };
+      const { onPress, voices, noise, synthActions, wavetables } = await setup({
+        loadNoiseSample: async () => sample,
+      });
+      const [model, actions] = noise;
+      // where its sample is in the wavetable oscillator (no store in the specs)
+      const sampleState = (state: TableState) =>
+        wavetables.$tables.next({ ...wavetables.$tables.value, [model.id]: state });
       synthActions.setMaxVoices(1);
-      noise[1].toggleActive();
+      actions.toggleActive();
+      await flush();
+      sampleState('stored');
       onPress([4, 'A']);
       onPress([4, 'B']);
       expect(voices()).toHaveLength(1);
       // (its start only starts a voice)
-      noise[1].setNoiseValue('start', 0.4);
+      actions.setNoiseValue('start', 0.4);
       onPress([4, 'C']);
       expect(voices()).toHaveLength(1);
-      noise[1].setSamplePath(['Textures', 'Textures/Rain.wav']);
+      // another sample on its way: the voice plays the one before, as a new one would; once stored, a new voice
+      actions.setSamplePath(['Textures', 'Textures/Rain.wav']);
+      await flush();
+      sampleState('sending');
       onPress([4, 'D']);
-      expect(voices()).toHaveLength(2);
-      noise[1].setKeytrack(true);
+      expect(voices()).toHaveLength(1);
+      sampleState('stored');
       onPress([4, 'E']);
-      expect(voices()).toHaveLength(3);
-      noise[1].toggleActive();
+      expect(voices()).toHaveLength(2);
+      actions.setKeytrack(true);
       onPress([4, 'F']);
+      expect(voices()).toHaveLength(3);
+      actions.toggleActive();
+      onPress([4, 'G']);
       expect(voices()).toHaveLength(4);
+    });
+
+    it('a mono voice started before its sample was stored plays none: the next note once it is starts a new one', async () => {
+      const sample = { channels: [Float32Array.of(0.5, -0.5)], sampleRate: 44100 };
+      const { onPress, voices, noise, synthActions, wavetables } = await setup({
+        loadNoiseSample: async () => sample,
+      });
+      const [model, actions] = noise;
+      synthActions.setMaxVoices(1);
+      actions.toggleActive();
+      onPress([4, 'A']);
+      await flush();
+      onPress([4, 'B']);
+      expect(voices()).toHaveLength(1);
+      wavetables.$tables.next({ ...wavetables.$tables.value, [model.id]: 'stored' });
+      onPress([4, 'C']);
+      expect(voices()).toHaveLength(2);
     });
   });
 

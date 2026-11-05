@@ -243,8 +243,10 @@ const createCases = (dsp) => {
       frameAt += BLOCK;
     };
   };
-  // a voice with a noise (a tree before it: none) on a stereo sample of 2 s at 44.1 kHz, looped from its start, at
-  // `cents` (0: the widest kernel at 48 kHz, 700: one below the nyquist, its taps 1.5 times as many)
+  // a voice with a noise (a tree before it: none) on a stereo sample of 2 s at 44.1 kHz (`sample` 'm': a mono one,
+  // as the white noise a noise starts with), looped from its start, at `cents` (0: a step of 0.92 at 48 kHz, read
+  // from the pair of a tree that has it; 400: 1.16, the pair of a tree that reads it up to a step of 1.24, else the
+  // bank; 700: 1.38, a kernel of the bank below the nyquist; 1900: 2.76, a kernel of the bank on loop level 1)
   const noisy = Boolean(dsp.buildNoiseLevels && wasmStore);
   if (noisy) {
     let seed = 1;
@@ -254,24 +256,28 @@ const createCases = (dsp) => {
         return seed / 2147483647 - 0.5;
       });
     wasmStore.set('n', 1, dsp.buildNoiseLevels([channel(), channel()], 44100));
+    wasmStore.set('m', 1, dsp.buildNoiseLevels([channel()], 44100));
   }
-  const noiseVoiceOf = (cents) => (oscs, params) => () => {
-    const voiceDsp = createVoice.wasm({
-      osc: oscs.map((unison) => (unison ? { table: 'a', unison, phase: 0, phaseRand: 1 } : null)),
-      noise: { sample: 'n', loop: true, keytrack: false, start: 0, rand: 0, level: 0.5, pan: 0.2, cents },
-      start: 0,
-      envelopes: [0, 1, 2].map(() => ({ attack: 0, hold: 0, decay: 0, sustain: 1, release: 0 })),
-      envStart: 0,
-      phrase: 0,
-      routes: [],
-      filter: null,
-    });
-    let frameAt = 0;
-    return () => {
-      voiceDsp.process(frameAt, params, outL, outR);
-      frameAt += BLOCK;
+  const noiseVoiceOf =
+    (cents, sample = 'n') =>
+    (oscs, params) =>
+    () => {
+      const voiceDsp = createVoice.wasm({
+        osc: oscs.map((unison) => (unison ? { table: 'a', unison, phase: 0, phaseRand: 1 } : null)),
+        noise: { sample, loop: true, keytrack: false, start: 0, rand: 0, level: 0.5, pan: 0.2, cents },
+        start: 0,
+        envelopes: [0, 1, 2].map(() => ({ attack: 0, hold: 0, decay: 0, sustain: 1, release: 0 })),
+        envStart: 0,
+        phrase: 0,
+        routes: [],
+        filter: null,
+      });
+      let frameAt = 0;
+      return () => {
+        voiceDsp.process(frameAt, params, outL, outR);
+        frameAt += BLOCK;
+      };
     };
-  };
   // a chord of 12 notes × 2 × u8 struck again every ATTACK blocks, about the time its 192 unison voices take to go
   // onto their mix tables under the budget: the direct path, the builds, the note on (the peak of a block is
   // there); one shared a core, its pool of mix tables as in a scope
@@ -545,7 +551,10 @@ const createCases = (dsp) => {
     ),
     // its cost over `voice u8 held`: the noise of a note
     ...withTs({ 'voice u8 + noise': [[8, null], held] }, noisy && noiseVoiceOf(0), null),
+    ...withTs({ 'voice u8 + noise up 4': [[8, null], held] }, noisy && noiseVoiceOf(400), null),
     ...withTs({ 'voice u8 + noise up 7': [[8, null], held] }, noisy && noiseVoiceOf(700), null),
+    ...withTs({ 'voice u8 + noise up 19': [[8, null], held] }, noisy && noiseVoiceOf(1900), null),
+    ...withTs({ 'voice u8 + noise, mono': [[8, null], held] }, noisy && noiseVoiceOf(0, 'm'), null),
     // blend, width (the channels of the oscillator and their pan), a stack and a position spread (a frame per
     // voice); its cost over `voice u8 held` (the blend a param of the oscillator, of a tree before it in the shape)
     ...withTs(

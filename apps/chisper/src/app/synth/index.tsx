@@ -55,8 +55,8 @@ const Root = styled.div`
   background: ${theme.colors.primaryLowContrast};
 `;
 
-// the noise (half the width of the filter), the oscillators and the filter after them, in the order the sound goes
-const COLUMNS = '1fr 3fr 3fr 2fr';
+// the oscillators, the noise (half the width of the filter) and the filter after them, in the order the sound goes
+const COLUMNS = '3fr 3fr 1fr 2fr';
 const SynthRow = styled.div`
   display: grid;
   grid-template-columns: ${COLUMNS};
@@ -64,15 +64,15 @@ const SynthRow = styled.div`
   gap: 1px;
 `;
 
-// the columns of the row above (fr shares what the gaps leave: the same tracks, so the lines meet), ENV under the
-// noise and OSC 1
+// the columns of the row above (fr shares what the gaps leave: the same tracks, so the lines meet): ENV under OSC 1,
+// the LFOs under OSC 2 and the noise
 const ModRow = styled.div`
   display: grid;
   grid-template-columns: ${COLUMNS};
   background: ${theme.colors.primaryLowContrast};
   gap: 1px;
 
-  & > :first-child {
+  & > :nth-child(2) {
     grid-column: span 2;
   }
 `;
@@ -109,9 +109,9 @@ const HeaderEq = styled(FqAnalyser)`
 
 const SynthRowInternal = () => (
   <SynthRow>
-    <NoiseSection />
     <Oscillator1 />
     <Oscillator2 />
+    <NoiseSection />
     <FilterSection />
   </SynthRow>
 );
@@ -319,11 +319,11 @@ const HeaderInternal = ({ screen, onScreenChange }: ScreenProps) => (
     <HeaderRight>
       <TapeSwitch options={SYNTH_SCREENS} value={screen} onChange={onScreenChange} switchOnDrag />
       <PresetSection
+        leading={<AboutLink />}
         actions={
           <>
             <MidiInput />
             <SettingsButton />
-            <AboutLink />
           </>
         }
       />
