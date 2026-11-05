@@ -209,9 +209,10 @@ impl Scope {
         }
     }
 
-    pub fn set_noise(&mut self, id: f64, knobs: crate::noise::NoiseKnobs) {
+    /// new knobs of `module` (a `knobs` event) for voice `id`
+    pub fn set_knobs(&mut self, id: f64, module: usize, values: &[f64]) {
         if let Some(voice) = self.voice(id) {
-            voice.voice.set_noise(knobs);
+            voice.voice.set_knobs(module, values);
         }
     }
 

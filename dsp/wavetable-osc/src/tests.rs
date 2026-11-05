@@ -986,8 +986,9 @@ fn a_silent_table_keeps_the_frame_of_the_position_for_the_version_after_it() {
 
 #[test]
 fn the_gain_of_a_voice_follows_an_lfo_of_the_shared_from_its_note_on() {
-    use crate::modulation::{VoiceRoute, GAIN1};
+    use crate::modulation::VoiceRoute;
     use crate::shared::LFO_STATE;
+    use crate::targets::{target, GAIN, OSC};
     let mut store = Store::default();
     constant_frames(&mut store, 1.0, &[0.5]);
     let mut shared = Shared::default();
@@ -1012,7 +1013,7 @@ fn the_gain_of_a_voice_follows_an_lfo_of_the_shared_from_its_note_on() {
     };
     let route = VoiceRoute {
         source: 4.0,
-        param: GAIN1,
+        param: target(OSC, 0, GAIN),
         amount: 0.5,
         min: 0.0,
         max: 1.0,
@@ -1082,7 +1083,17 @@ fn the_gain_of_a_voice_follows_an_lfo_of_the_shared_from_its_note_on() {
 #[test]
 fn the_routes_on_the_pitch_add_their_offsets_to_the_detune_within_their_bounds() {
     use crate::envelope::EnvelopeBlock;
-    use crate::modulation::{Modulation, Sources, VoiceRoute, FINE1, PITCH1, TARGET_PARAMS};
+    use crate::modulation::{BaseOf, Modulation, Sources, VoiceRoute};
+    use crate::targets::{target, FINE, OSC, PITCH};
+    const PITCH1: usize = target(OSC, 0, PITCH);
+    const FINE1: usize = target(OSC, 0, FINE);
+    // the offsets of the pitch: of base 0
+    struct Zero;
+    impl BaseOf for Zero {
+        fn base(&self, _module: usize, _instance: usize, _knob: usize) -> &[f32] {
+            &[0.0]
+        }
+    }
     // ENV 2 a kick: its level 1 at the note on, down to 0 in 80 ms
     let kick = EnvelopeParams {
         attack: 0.0,
@@ -1115,17 +1126,13 @@ fn the_routes_on_the_pitch_add_their_offsets_to_the_detune_within_their_bounds()
     envelopes[1] = kick;
     let blocks = 75;
     // the offsets the routes give the pitch of osc 1 from 0, block by block
-    let mut accesses = [false; TARGET_PARAMS];
-    accesses[PITCH1] = true;
-    accesses[FINE1] = true;
-    let mut modulation = Modulation::new(RATE, 3, false, &[pitch, fine], accesses);
+    let mut modulation = Modulation::new(RATE, 3, false, &[pitch, fine], 1 << PITCH1 | 1 << FINE1);
     let mut levels: Vec<EnvelopeBlock> = envelopes
         .iter()
         .map(|params| EnvelopeBlock::new(*params, RATE, 0.0))
         .collect();
     let velocity = Glided::new(0.0);
-    let zero = [0.0f32];
-    let bases: [&[f32]; TARGET_PARAMS] = core::array::from_fn(|_| &zero[..]);
+    let bases = Zero;
     let offsets: Vec<[Vec<f32>; 2]> = (0..blocks)
         .map(|block| {
             let frame = (block * 128) as f64;

@@ -233,7 +233,7 @@ const run = (name: string, scenario: Scenario) => {
       const velocity = voice.velocities?.[block];
       if (velocity) wasm.setVelocity(velocity);
       const noise = voice.noises?.[block];
-      if (noise) wasm.setNoise(noise);
+      if (noise) wasm.setKnobs('noise', noise);
       const [outL, outR] = [new Float32Array(n), new Float32Array(n)];
       // (the bend on the detunes, and as it is for the noise of Pitch Track)
       const row = typeof bendOfBlock === 'number' ? Float32Array.of(bendOfBlock) : bendOfBlock;
@@ -286,7 +286,7 @@ const runScope = (name: string, scenario: Scenario, trap?: { block: number; voic
       const velocity = voice.velocities?.[block];
       if (velocity) node.setVelocity(id, velocity);
       const noise = voice.noises?.[block];
-      if (noise) node.setNoise(id, noise);
+      if (noise) node.setKnobs(id, 'noise', noise);
       const params = blockParams(voice, frame, n);
       if (trap?.block !== block || trap.voice !== id) node.params(id, params, n);
       else {

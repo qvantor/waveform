@@ -4,7 +4,9 @@
 //! options of a voice, its routes and the layout of a table come through osc_command (a Float64Array of the
 //! wrapper, wavetable-osc-wasm.ts), the params and the outputs of a block through osc_io. The voices of a node play
 //! in a scope (scope.rs): their params as AudioParams would give them (timeline.rs), the events of the main thread
-//! and the options of a new voice through osc_command too, the sum of their outputs at osc_scope_output
+//! and the options of a new voice through osc_command too, the sum of their outputs at osc_scope_output. A voice is
+//! made of modules: its sources (source.rs: the oscillators, the noise) into its bus, its filter, its envelopes and
+//! LFOs; the knobs the routes move are those of the modules of targets.rs
 
 #![cfg_attr(target_arch = "wasm32", no_std)]
 
@@ -20,7 +22,9 @@ pub mod modulation;
 pub mod noise;
 pub mod scope;
 pub mod shared;
+pub mod source;
 pub mod store;
+pub mod targets;
 pub mod timeline;
 pub mod velocity;
 pub mod voice;
@@ -50,6 +54,19 @@ fn command() -> &'static mut [f64; COMMAND_SIZE] {
 #[no_mangle]
 pub extern "C" fn osc_command() -> *mut f64 {
     core::ptr::addr_of_mut!(COMMAND) as *mut f64
+}
+
+/// the modules of the knobs the routes move (targets.rs) into the command buffer: their count, then the instances and
+/// the knobs of each in the order of their ids; the count of the ids
+#[no_mangle]
+pub extern "C" fn osc_targets() -> usize {
+    let command = command();
+    command[0] = targets::MODULES.len() as f64;
+    for (m, (instances, knobs)) in targets::MODULES.iter().enumerate() {
+        command[1 + 2 * m] = *instances as f64;
+        command[2 + 2 * m] = *knobs as f64;
+    }
+    targets::TARGETS
 }
 
 // reads the command buffer in order
@@ -103,7 +120,7 @@ fn read_velocity(reader: &mut Reader) -> VoiceVelocity {
     }
 }
 
-// the knobs of the noise of a playing note: level, pan, cents
+// the knobs of the noise: level, pan, cents
 fn read_noise_knobs(reader: &mut Reader) -> NoiseKnobs {
     NoiseKnobs {
         level: reader.next(),
@@ -133,39 +150,42 @@ fn read_noise(reader: &mut Reader) -> Option<NoiseOptions> {
     })
 }
 
+// an oscillator of a note: present, table, unison, phase, phaseRand and its 8 random shares, its UnisonShape (width,
+// stack, detune, position spread and the 8 random shares of a random detune)
+fn read_osc(reader: &mut Reader) -> Option<OscOptions> {
+    let present = reader.next() != 0.0;
+    let table = reader.next() as u32;
+    let unison = reader.next();
+    let phase = reader.next();
+    let phase_rand = reader.next();
+    let random: [f64; MAX_UNISON] = core::array::from_fn(|_| reader.next());
+    let shape = UnisonShape {
+        width: reader.next(),
+        stack: reader.next() as u32,
+        detune: reader.next() as u32,
+        position_spread: reader.next(),
+        detune_random: core::array::from_fn(|_| reader.next()),
+    };
+    present.then_some(OscOptions {
+        table,
+        unison,
+        phase,
+        phase_rand,
+        random,
+        shape,
+    })
+}
+
 // (one copy for osc_voice_new and osc_scope_on)
 #[inline(never)]
-// VoiceOptions: start, envStart, phrase; per oscillator present, table, unison, phase, phaseRand and its 8 random
-// shares, its UnisonShape (width, stack, detune, position spread and the 8 random shares of a random
-// detune); the noise (read_noise); the envelopes (count, then 8 each: the stages and the curves), the velocity
-// (VELO, amp), the filter, the routes
+// VoiceOptions: start, envStart, phrase; its sources in the order of their slots, each a block with whether it is on
+// first (read_osc × 2, read_noise; a new source after them); the envelopes (count, then 8 each: the stages and the
+// curves), the velocity (VELO, amp), the filter, the routes
 fn read_voice_options(reader: &mut Reader) -> VoiceOptions {
     let start = reader.next();
     let env_start = reader.next();
     let phrase = reader.next();
-    let osc = core::array::from_fn(|_| {
-        let present = reader.next() != 0.0;
-        let table = reader.next() as u32;
-        let unison = reader.next();
-        let phase = reader.next();
-        let phase_rand = reader.next();
-        let random: [f64; MAX_UNISON] = core::array::from_fn(|_| reader.next());
-        let shape = UnisonShape {
-            width: reader.next(),
-            stack: reader.next() as u32,
-            detune: reader.next() as u32,
-            position_spread: reader.next(),
-            detune_random: core::array::from_fn(|_| reader.next()),
-        };
-        present.then_some(OscOptions {
-            table,
-            unison,
-            phase,
-            phase_rand,
-            random,
-            shape,
-        })
-    });
+    let osc = core::array::from_fn(|_| read_osc(reader));
     let noise = read_noise(reader);
     let count = reader.next() as usize;
     let envelopes = (0..count)
@@ -287,17 +307,14 @@ pub unsafe extern "C" fn osc_scope_filter(scope: *mut Scope, id: f64) {
     (*scope).set_filter(id, filter);
 }
 
-/// the knobs of the noise of voice `id` changed (in the command buffer: level, pan, cents)
+/// new knobs of `module` (targets.rs) for voice `id`, `count` values in the command buffer (the noise: level, pan,
+/// cents); a voice that doesn't play the module takes nothing
 ///
 /// # Safety
 /// `scope` comes from osc_scope_new and was not freed
 #[no_mangle]
-pub unsafe extern "C" fn osc_scope_noise(scope: *mut Scope, id: f64) {
-    let knobs = read_noise_knobs(&mut Reader {
-        values: command(),
-        at: 0,
-    });
-    (*scope).set_noise(id, knobs);
+pub unsafe extern "C" fn osc_scope_knobs(scope: *mut Scope, id: f64, module: usize, count: usize) {
+    (*scope).set_knobs(id, module, &command()[..count.min(COMMAND_SIZE)]);
 }
 
 /// the pitch bend of every voice of the node, cents on top of the detune of each oscillator: it glides there in
@@ -760,17 +777,13 @@ pub unsafe extern "C" fn osc_voice_set_filter(voice: *mut Voice) {
     (*voice).set_filter(filter);
 }
 
-/// the knobs of the noise changed (in the command buffer: level, pan, cents)
+/// new knobs of `module` (targets.rs), `count` values in the command buffer (the noise: level, pan, cents)
 ///
 /// # Safety
 /// `voice` comes from osc_voice_new and was not freed
 #[no_mangle]
-pub unsafe extern "C" fn osc_voice_set_noise(voice: *mut Voice) {
-    let knobs = read_noise_knobs(&mut Reader {
-        values: command(),
-        at: 0,
-    });
-    (*voice).set_noise(knobs);
+pub unsafe extern "C" fn osc_voice_set_knobs(voice: *mut Voice, module: usize, count: usize) {
+    (*voice).set_knobs(module, &command()[..count.min(COMMAND_SIZE)]);
 }
 
 /// a note took the voice over (mono): its velocity glides to the one in the command buffer (VELO, amp)

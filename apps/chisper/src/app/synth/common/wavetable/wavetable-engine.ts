@@ -12,6 +12,7 @@ import type {
   BuildSampleMessage,
 } from './wavetable-builder';
 import type {
+  KnobsModule,
   StatsRequest,
   StoreStatsMessage,
   StoreStoredMessage,
@@ -19,7 +20,7 @@ import type {
   VoiceEvent,
   VoiceEventsMessage,
   VoiceFilterOptions,
-  VoiceNoiseKnobs,
+  VoiceModuleKnobs,
   VoiceOptions,
   VoiceRoute,
   VoicesReportMessage,
@@ -419,8 +420,9 @@ export const createWavetableEngine = (
     setVelocity: (ids: number[], velocity: VoiceVelocity) => {
       if (ids.length > 0) enqueue({ kind: 'velocity', voices: ids, velocity });
     },
-    setNoise: (ids: number[], noise: VoiceNoiseKnobs) => {
-      if (ids.length > 0) enqueue({ kind: 'noise', voices: ids, noise });
+    // new knobs of a module of playing voices (those no param carries: the noise's)
+    setKnobs: <M extends KnobsModule>(ids: number[], module: M, values: VoiceModuleKnobs[M]) => {
+      if (ids.length > 0) enqueue({ kind: 'knobs', voices: ids, module, values } as VoiceEvent);
     },
     // the pitch bend of every voice (cents on top of their detunes), new ones start with it: the node glides there
     setBend: (cents: number) => {

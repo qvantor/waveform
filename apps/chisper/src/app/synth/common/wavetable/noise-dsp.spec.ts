@@ -442,7 +442,7 @@ describe('the noise of a voice', () => {
         sample: SINE_1K,
         seconds: 0.3,
         before: (frame, voice) => {
-          if (frame === AT) voice.setNoise({ level: 0.5, pan: 0, cents: 1200 });
+          if (frame === AT) voice.setKnobs('noise', { level: 0.5, pan: 0, cents: 1200 });
         },
       });
       expect(frequencyOf(left, 48000, AT)).toBeCloseTo(2000, 0);

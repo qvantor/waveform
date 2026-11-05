@@ -19,7 +19,11 @@
 //! over its segment
 
 use crate::glided::{glide_length, Glided};
+use crate::shared::Shared;
+use crate::source::{RenderCx, Source, StartCx, ZERO};
 use crate::store::{EntryRef, Levels, Store};
+use crate::targets::{mask, target, LEVEL, NOISE, NOISE_FINE, NOISE_PITCH, PAN};
+use crate::voice::{Params, FREQUENCY};
 use alloc::{vec, vec::Vec};
 use dsp_core::simd::F64x2;
 use jsmath::{ceil, floor, log2, max, min, pow, sin, sqrt, PI};
@@ -366,15 +370,8 @@ impl Noise {
         }
     }
 
-    /// the voice holds the latest version of the sample (none yet: silent)
-    pub fn attach(&mut self, store: &mut Store) {
-        if let Some(latest) = store.latest(self.sample) {
-            self.entry = Some(store.acquire(latest));
-        }
-    }
-
     /// its first sample: from its share of the sample; a note of a legato phrase fades in over `fade` samples
-    pub fn start(&mut self, store: &Store, fade: i32, fade_length: i32) {
+    pub fn begin(&mut self, store: &Store, fade: i32, fade_length: i32) {
         self.fade = fade;
         self.fade_length = fade_length.max(1);
         if let Some(entry) = self.entry {
@@ -386,29 +383,10 @@ impl Noise {
         }
     }
 
-    /// the version goes back (the voice ends)
-    pub fn end(&mut self, store: &mut Store) {
-        if let Some(entry) = self.entry.take() {
-            store.release(entry);
-        }
-    }
-
     pub fn set(&mut self, knobs: NoiseKnobs) {
         self.level.glide(knobs.level, self.glide);
         self.pan.glide(knobs.pan, self.glide);
         self.cents = knobs.cents;
-    }
-
-    /// the level and the pan of the block (before the routes read them as their bases)
-    pub fn glide(&mut self, a: usize, b: usize) {
-        self.level.render(a, b);
-        self.pan.render(a, b);
-        if self.level.constant {
-            self.level_one[0] = self.level.values[a];
-        }
-        if self.pan.constant {
-            self.pan_one[0] = self.pan.values[a];
-        }
     }
 
     /// the bases of the routes of the level and the pan in the block of `n`
@@ -446,16 +424,9 @@ impl Noise {
         ratio * pow(2.0, cents / 1200.0) * (read(frequency, i) as f64 / TRACK_HZ)
     }
 
-    /// room for the points of a block of `n` (before it renders: nothing allocates then)
-    pub fn grow(&mut self, n: usize) {
-        if self.steps.len() < n / SEGMENT + 2 {
-            self.steps = vec![0.0; n / SEGMENT + 2];
-        }
-    }
-
     /// the samples a..b of a block added to `left` and `right` (the channels of the voice)
     #[allow(clippy::too_many_arguments)]
-    pub fn render(
+    pub fn render_into(
         &mut self,
         store: &Store,
         sample_rate: f64,
@@ -693,6 +664,96 @@ impl Noise {
     }
 }
 
+impl Source for Noise {
+    fn targets(&self) -> u128 {
+        mask(NOISE, 0)
+    }
+
+    /// the voice holds the latest version of the sample (none yet: silent)
+    fn attach(&mut self, store: &mut Store) {
+        if let Some(latest) = store.latest(self.sample) {
+            self.entry = Some(store.acquire(latest));
+        }
+    }
+
+    /// room for the points of a block of `length`
+    fn grow(&mut self, length: usize, _points: usize) {
+        if self.steps.len() < length / SEGMENT + 2 {
+            self.steps = vec![0.0; length / SEGMENT + 2];
+        }
+    }
+
+    fn start(&mut self, cx: &StartCx) -> usize {
+        self.begin(cx.store, cx.fade, cx.fade_length);
+        0
+    }
+
+    /// the level and the pan of the block
+    fn glide(&mut self, a: usize, b: usize) {
+        self.level.render(a, b);
+        self.pan.render(a, b);
+        if self.level.constant {
+            self.level_one[0] = self.level.values[a];
+        }
+        if self.pan.constant {
+            self.pan_one[0] = self.pan.values[a];
+        }
+    }
+
+    /// its level and its pan, the offsets of its pitch from 0
+    fn base<'a>(&'a self, knob: usize, _params: &'a Params<'a>, n: usize) -> &'a [f32] {
+        match knob {
+            LEVEL => self.level_base(n),
+            PAN => self.pan_base(n),
+            _ => ZERO,
+        }
+    }
+
+    /// into the left and the right of the bus (a mono sample both, by its pan), its pitch with Pitch Track from the
+    /// frequency of the note and the bend
+    fn render(&mut self, cx: &RenderCx, store: &mut Store, shared: &mut Shared) {
+        let moved = |knob| cx.modulation.moved(target(NOISE, 0, knob));
+        let routes = NoiseRoutes {
+            level: moved(LEVEL),
+            pan: moved(PAN),
+            pitch: moved(NOISE_PITCH),
+            fine: moved(NOISE_FINE),
+        };
+        let bus = &mut shared.scratch.bus;
+        self.render_into(
+            store,
+            cx.ctx.sample_rate,
+            &routes,
+            cx.params[FREQUENCY],
+            cx.bend,
+            &mut bus.left,
+            &mut bus.right,
+            cx.a,
+            cx.b,
+        );
+    }
+
+    /// the version goes back
+    fn release(&mut self, store: &mut Store) {
+        if let Some(entry) = self.entry.take() {
+            store.release(entry);
+        }
+    }
+
+    /// level, pan, cents: the level and the pan glide in 10 ms, the cents step
+    fn set_knobs(&mut self, module: usize, values: &[f64]) -> bool {
+        if module != NOISE || values.len() < 3 {
+            return false;
+        }
+        self.set(NoiseKnobs {
+            level: values[0],
+            pan: values[1],
+            cents: values[2],
+        });
+        true
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -746,8 +807,8 @@ mod tests {
     fn play(store: &mut Store, options: NoiseOptions, blocks: usize) -> (Vec<f32>, Vec<f32>) {
         let mut noise = Noise::new(RATE, options);
         noise.attach(store);
-        noise.grow(128);
-        noise.start(store, 0, 1);
+        noise.grow(128, 0);
+        noise.begin(store, 0, 1);
         let (mut left, mut right) = (vec![0.0f32; 128 * blocks], vec![0.0f32; 128 * blocks]);
         for k in 0..blocks {
             let (l, r) = (
@@ -755,9 +816,9 @@ mod tests {
                 &mut right[128 * k..128 * (k + 1)],
             );
             noise.glide(0, 128);
-            noise.render(store, RATE, &NO_ROUTES, &[440.0], &[0.0], l, r, 0, 128);
+            noise.render_into(store, RATE, &NO_ROUTES, &[440.0], &[0.0], l, r, 0, 128);
         }
-        noise.end(store);
+        noise.release(store);
         (left, right)
     }
 
@@ -843,16 +904,16 @@ mod tests {
             },
         );
         noise.attach(&mut store);
-        noise.grow(128);
-        noise.start(&store, 0, 1);
+        noise.grow(128, 0);
+        noise.begin(&store, 0, 1);
         let (mut l, mut r) = (vec![0.0f32; 128], vec![0.0f32; 128]);
         noise.glide(0, 128);
-        noise.render(&store, RATE, &NO_ROUTES, &[440.0], &[0.0], &mut l, &mut r, 0, 128);
+        noise.render_into(&store, RATE, &NO_ROUTES, &[440.0], &[0.0], &mut l, &mut r, 0, 128);
         assert!(l[..100].iter().all(|v| *v == 0.5) && l[100..].iter().all(|v| *v == 0.0));
         noise.glide(0, 128);
-        noise.render(&store, RATE, &NO_ROUTES, &[440.0], &[0.0], &mut l, &mut r, 0, 128);
+        noise.render_into(&store, RATE, &NO_ROUTES, &[440.0], &[0.0], &mut l, &mut r, 0, 128);
         assert!(noise.done);
-        noise.end(&mut store);
+        noise.release(&mut store);
     }
 
     #[test]

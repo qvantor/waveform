@@ -17,6 +17,7 @@ import { rangesOf } from '../../filter/constants';
 import { FX_REGISTRY, MIX_PARAMS } from '../../fx/effects';
 import type { ModRoute } from '../modules/modulation';
 import type { FxRoute } from '../../fx/effects/fx-modulation';
+import { routeParam } from '../wavetable/voice-modules';
 
 // the knobs a source (ENV 1–3, VELO, LFO 1–4) can be assigned to, by id (`osc1.wave`): the drop targets of the
 // tabs and the keys of the routes in the preset. An amount is a share of the range of the knob in its scale: in
@@ -24,6 +25,9 @@ import type { FxRoute } from '../../fx/effects/fx-modulation';
 // for a pow one (the times of the LFOs) a share of its travel
 
 export type ModScale = 'linear' | 'log' | 'pow';
+
+// the knobs of the voice of each note are those of the modules of voice-modules.ts: `route`, the name of a route to
+// one of them on the wire (routeParam)
 
 // a param of the voice node of each note (wavetable-osc-params.ts), moved by the envelopes of the note;
 // range: of the knob, in the units of the param (the Wave knob shows frames, its param is a share of the
@@ -33,6 +37,7 @@ interface OscTarget {
   kind: 'osc';
   osc: number;
   param: 'position' | 'spread' | 'gain' | 'pitch' | 'fine' | 'blend';
+  route: string;
   label: string;
   scale: ModScale;
   range: [number, number];
@@ -53,6 +58,7 @@ const pitchRange = (knob: PitchKnob, max: number): [number, number] => [
 interface FilterTarget {
   kind: 'filter';
   param: FilterNumerics;
+  route: string;
   label: string;
 }
 
@@ -73,6 +79,7 @@ interface LfoTarget {
   kind: 'lfo';
   lfo: number;
   param: LfoKnob;
+  route: string;
   label: string;
   scale: ModScale;
   range: [number, number];
@@ -84,6 +91,7 @@ interface LfoTarget {
 interface NoiseTarget {
   kind: 'noise';
   param: 'level' | 'pan' | 'pitch' | 'fine';
+  route: string;
   label: string;
   scale: ModScale;
   range: [number, number];
@@ -103,9 +111,18 @@ const fxTargets = Object.fromEntries(
   )
 );
 
+// the targets of a module of the voice with the names of their routes
+const withRoutes = <T extends { param: string }>(
+  targets: Record<string, T>,
+  route: (param: T['param']) => string
+): Record<string, T & { route: string }> =>
+  Object.fromEntries(
+    Object.entries(targets).map(([id, target]) => [id, { ...target, route: route(target.param) }])
+  );
+
 const oscTargets = (osc: number): Record<string, OscTarget> => {
   const id = (knob: string) => `osc${osc + 1}.${knob}`;
-  return {
+  const targets: Record<string, Omit<OscTarget, 'route'>> = {
     [id('gain')]: { kind: 'osc', osc, param: 'gain', label: 'Gain', scale: 'linear', range: [0, 1] },
     [id('wave')]: { kind: 'osc', osc, param: 'position', label: 'Wave', scale: 'linear', range: [0, 1] },
     // the unison detune: the spread of the voices in cents
@@ -133,35 +150,42 @@ const oscTargets = (osc: number): Record<string, OscTarget> => {
       knob: 'fine',
     },
   };
+  return withRoutes(targets, (param) => routeParam('osc', osc, param));
 };
 
-const noiseTargets: Record<string, NoiseTarget> = {
-  'noise.level': { kind: 'noise', param: 'level', label: 'Level', scale: 'linear', range: [0, 1] },
-  'noise.pan': { kind: 'noise', param: 'pan', label: 'Pan', scale: 'linear', range: [-1, 1] },
-  // an amount of 1 their whole range: 96 semitones, 200 cents
-  'noise.pitch': {
-    kind: 'noise',
-    param: 'pitch',
-    label: 'Pitch',
-    scale: 'linear',
-    range: pitchRange('semi', NOISE_PITCH_MAX),
-    knob: 'semi',
+const noiseTargets: Record<string, NoiseTarget> = withRoutes<Omit<NoiseTarget, 'route'>>(
+  {
+    'noise.level': { kind: 'noise', param: 'level', label: 'Level', scale: 'linear', range: [0, 1] },
+    'noise.pan': { kind: 'noise', param: 'pan', label: 'Pan', scale: 'linear', range: [-1, 1] },
+    // an amount of 1 their whole range: 96 semitones, 200 cents
+    'noise.pitch': {
+      kind: 'noise',
+      param: 'pitch',
+      label: 'Pitch',
+      scale: 'linear',
+      range: pitchRange('semi', NOISE_PITCH_MAX),
+      knob: 'semi',
+    },
+    'noise.fine': {
+      kind: 'noise',
+      param: 'fine',
+      label: 'Fine',
+      scale: 'linear',
+      range: pitchRange('fine', FINE_MAX),
+      knob: 'fine',
+    },
   },
-  'noise.fine': {
-    kind: 'noise',
-    param: 'fine',
-    label: 'Fine',
-    scale: 'linear',
-    range: pitchRange('fine', FINE_MAX),
-    knob: 'fine',
-  },
-};
+  (param) => routeParam('noise', 0, param)
+);
 
-const filterTargets: Record<string, FilterTarget> = {
-  'filter.cutoff': { kind: 'filter', param: 'cutoff', label: 'Cutoff' },
-  'filter.resonance': { kind: 'filter', param: 'resonance', label: 'Res' },
-  'filter.gain': { kind: 'filter', param: 'gain', label: 'Gain' },
-};
+const filterTargets: Record<string, FilterTarget> = withRoutes<Omit<FilterTarget, 'route'>>(
+  {
+    'filter.cutoff': { kind: 'filter', param: 'cutoff', label: 'Cutoff' },
+    'filter.resonance': { kind: 'filter', param: 'resonance', label: 'Res' },
+    'filter.gain': { kind: 'filter', param: 'gain', label: 'Gain' },
+  },
+  (param) => routeParam('filter', 0, param)
+);
 
 // the knobs of each LFO: Rate in Hz (the knob shows its period)
 const LFO_KNOBS: Record<LfoKnob, Pick<LfoTarget, 'label' | 'scale' | 'range'>> = {
@@ -175,7 +199,7 @@ const lfoTargets = Object.fromEntries(
   LFOS.flatMap((id, lfo) =>
     (Object.keys(LFO_KNOBS) as LfoKnob[]).map((param): [string, LfoTarget] => [
       `${id}.${param}`,
-      { kind: 'lfo', lfo, param, ...LFO_KNOBS[param] },
+      { kind: 'lfo', lfo, param, route: routeParam('lfo', lfo, param), ...LFO_KNOBS[param] },
     ])
   )
 );

@@ -142,7 +142,7 @@ const prewarm = () => {
       options: { ...WARM_VOICE, noise: { ...WARM_NOISE, sample: 'warm-mono', loop: false, keytrack: false } },
       params: { spread1: 20, spread2: 10 },
     },
-    { kind: 'noise', voices: [0], noise: { level: 0.7, pan: -0.2, cents: 300 } },
+    { kind: 'knobs', voices: [0], module: 'noise', values: { level: 0.7, pan: -0.2, cents: 300 } },
     { kind: 'set', voice: 0, param: 'frequency', value: 220, time: at(1) },
     { kind: 'ramp', voice: 0, param: 'frequency', value: 330, time: at(3) },
     { kind: 'cancel', voice: 0, param: 'position1', time: at(1) },

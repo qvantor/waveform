@@ -32,11 +32,28 @@ pub const PEAK_COST: usize = 7;
 pub const MIXES: usize = 8;
 pub const MIX_BYTES: usize = 9;
 
+/// the channels the sources of a voice add into in a block (source.rs), then through the filter and ENV 1 into its
+/// outputs: left, right and the middle voices (of an odd unison; a source in the middle) in `center`, added into both
+/// sides by the output stage. One for the voices of a scope (they render one after another): no room per voice
 #[derive(Default)]
-pub struct Scratch {
+pub struct Bus {
     pub left: Vec<f32>,
     pub right: Vec<f32>,
     pub center: Vec<f32>,
+}
+
+impl Bus {
+    /// a..b silent before the sources add into it
+    pub fn clear(&mut self, a: usize, b: usize) {
+        self.left[a..b].fill(0.0);
+        self.right[a..b].fill(0.0);
+        self.center[a..b].fill(0.0);
+    }
+}
+
+#[derive(Default)]
+pub struct Scratch {
+    pub bus: Bus,
     pub a_left: Vec<f32>,
     pub a_right: Vec<f32>,
     pub a_center: Vec<f32>,
@@ -205,9 +222,9 @@ impl Shared {
         if length > self.size {
             let s = &mut self.scratch;
             for buffer in [
-                &mut s.left,
-                &mut s.right,
-                &mut s.center,
+                &mut s.bus.left,
+                &mut s.bus.right,
+                &mut s.bus.center,
                 &mut s.a_left,
                 &mut s.a_right,
                 &mut s.a_center,

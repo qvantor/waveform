@@ -71,9 +71,15 @@ const cargo = (perf) => {
   return targetDir;
 };
 
-const optimize = (from, to) => {
+// the functions of a core -O3 doesn't inline (patterns of their names in the build of cargo): the render of each
+// source of a voice stays a function of its own (inlined into Voice::process, its one caller, its loops would share
+// the registers of everything else the voice does in a block)
+const NO_INLINE = { 'wavetable-osc': ['*Noise11render_into*'] };
+
+const optimize = (from, to, crate) => {
   // the features of the module from its target_features section; -O3, no --fast-math
-  run(wasmOpt, [from, '-O3', '--detect-features', '-o', to]);
+  const kept = (NO_INLINE[crate] ?? []).map((pattern) => `--no-inline=${pattern}`);
+  run(wasmOpt, [from, ...kept, '-O3', '--detect-features', '-o', to]);
 };
 
 const only = args.find((arg) => arg.startsWith('--only='))?.slice('--only='.length);
@@ -90,7 +96,7 @@ const build = () => {
     for (const { crate, name } of CORES) {
       const from = artifact(targetDir, crate);
       if (crate === 'jsmath-check') copyFileSync(from, join(out, `${name}.wasm`));
-      else optimize(from, join(out, `${name}.wasm`));
+      else optimize(from, join(out, `${name}.wasm`), crate);
     }
   }
   const into = VARIANTS.map(([, out]) => out).join(' and ');

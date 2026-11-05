@@ -1,20 +1,21 @@
-//! createVoiceDsp of apps/chisper/src/app/synth/common/wavetable/wavetable-osc-dsp.ts: a voice of a note, both
-//! oscillators with their unison voices into one stereo output, ported bit for bit (the comments of the
-//! algorithm are in the TS)
+//! createVoiceDsp of apps/chisper/src/app/synth/common/wavetable/wavetable-osc-dsp.ts: a voice of a note, its
+//! sources (both oscillators with their unison voices, its noise: source.rs) into its bus, then its filter and ENV 1
+//! into one stereo output, ported bit for bit (the comments of the algorithm are in the TS)
 
 use crate::envelope::{EnvelopeBlock, EnvelopeParams};
 use crate::filter::{FilterOptions, VoiceFilter};
 use crate::lfo::{LfoBlock, LfoGlobal, DELAY, KNOBS, LFOS, RATE, RISE, SMOOTH};
-use crate::modulation::{
-    lfo_target, Modulation, Sources, VoiceRoute, BLEND1, CUTOFF, FILTER_GAIN, FINE1, GAIN1, LFO, NOISE_FINE,
-    NOISE_LEVEL, NOISE_PAN, NOISE_PITCH, OSC_TARGETS, PITCH1, POSITION1, RESONANCE, SPREAD1, TARGET_PARAMS,
-    VOICE_TARGETS,
-};
-use crate::noise::{Noise, NoiseKnobs, NoiseOptions, NoiseRoutes};
-use crate::shared::{Scratch, Shared, DIRECT_SAMPLES, MIX_SAMPLES, PARAMS, UNISON, VOICES};
+use crate::modulation::{lfo_target, BaseOf, Modulation, Sources, VoiceRoute, LFO};
+use crate::noise::{Noise, NoiseOptions};
+use crate::shared::{Bus, Scratch, Shared, DIRECT_SAMPLES, MIX_SAMPLES, PARAMS, UNISON, VOICES};
+use crate::source::{each_source, RenderCx, Slots, Source, StartCx, ZERO};
 use crate::store::{EntryRef, Levels, Store, FRAME_GUARD};
+use crate::targets::{
+    self, mask, BLEND, CUTOFF, FILTER, FILTER_GAIN, FINE, GAIN, LFO_KNOBS, OSC, PITCH, POSITION, RESONANCE,
+    SPREAD,
+};
 use crate::velocity::{Velocity, VoiceVelocity, Volume};
-use alloc::{vec, vec::Vec};
+use alloc::{boxed::Box, vec, vec::Vec};
 use jsmath::{ceil, cos, floor, log2, max, min, pow, round, sin, PI};
 
 pub const MAX_UNISON: usize = 8;
@@ -70,7 +71,7 @@ const RELEASE_LEAD: f64 = 0.05;
 
 // the params of a block in the order of VOICE_PARAMETERS: frequency, gate, then position, detune, spread, gain,
 // blend of each oscillator
-const FREQUENCY: usize = 0;
+pub(crate) const FREQUENCY: usize = 0;
 const GATE: usize = 1;
 // the params of the oscillators, OSC_PARAMS each, from OSC_PARAMS_AT
 const OSC_PARAMS_AT: usize = GATE + 1;
@@ -88,20 +89,17 @@ pub const DETUNES: [usize; 2] = [
 
 pub type Params<'a> = [&'a [f32]; PARAMS];
 
-// the param of a block a route of an oscillator moves (POSITION1, SPREAD1, GAIN1, BLEND1: OSC_PARAM_POSITION…), none
-// for the offsets of its pitch (PITCH1, FINE1: of base 0, added to its detune)
-fn base_param(kind: usize) -> Option<usize> {
-    match kind {
-        POSITION1 => Some(OSC_PARAM_POSITION),
-        SPREAD1 => Some(OSC_PARAM_SPREAD),
-        GAIN1 => Some(OSC_PARAM_GAIN),
-        BLEND1 => Some(OSC_PARAM_BLEND),
+// the param of a block a route of an oscillator moves (its knobs POSITION, SPREAD, GAIN, BLEND: OSC_PARAM_POSITION…),
+// none for the offsets of its pitch (PITCH, FINE: of base 0, added to its detune)
+fn base_param(knob: usize) -> Option<usize> {
+    match knob {
+        POSITION => Some(OSC_PARAM_POSITION),
+        SPREAD => Some(OSC_PARAM_SPREAD),
+        GAIN => Some(OSC_PARAM_GAIN),
+        BLEND => Some(OSC_PARAM_BLEND),
         _ => None,
     }
 }
-
-// the base of the offsets of the pitch
-const ZERO: &[f32] = &[0.0];
 
 // the detune of an oscillator (with the pitch bend on it) plus the offsets of its pitch the routes give (Semi,
 // Fine), worked out only where it is read: its first sample and the points of the pitch (without an offset the
@@ -1160,7 +1158,7 @@ impl PitchBand {
     }
 }
 
-struct Osc {
+pub(crate) struct Osc {
     table: u32,
     phase: f64,
     phase_rand: f64,
@@ -1212,12 +1210,54 @@ struct Osc {
 }
 
 impl Osc {
+    fn new(index: usize, config: &OscOptions) -> Osc {
+        // (a unison that isn't a number is one voice: NaN passes min and max)
+        let unison = (min(MAX_UNISON as f64, max(1.0, round(config.unison))) as usize).max(1);
+        Osc {
+            table: config.table,
+            phase: config.phase,
+            phase_rand: config.phase_rand,
+            voices: unison,
+            level: 1.0,
+            phases: [0.0; MAX_UNISON],
+            fades: [0; MAX_UNISON],
+            saved_phases: [0.0; MAX_UNISON],
+            saved_fades: [0; MAX_UNISON],
+            frame_fades: [[FrameFade::NONE; MAX_UNISON]; 2],
+            frames_settled: false,
+            random: config.random,
+            entry: EntryRef::Sine,
+            next: None,
+            crossfade: 0.0,
+            incs: Vec::new(),
+            logs: Vec::new(),
+            factors: [1.0; MAX_UNISON],
+            factors_spread: f64::NAN,
+            cached: false,
+            last: [f64::NAN; 4],
+            last_entry: None,
+            mixes: Default::default(),
+            built: [MixKey::NONE; MAX_UNISON],
+            mix_keys: [MixKey::NONE; MAX_UNISON],
+            bands: [PitchBand::NONE; MAX_UNISON],
+            sources: [SourceFade::NONE; MAX_UNISON],
+            index,
+            shape: config.shape,
+            shares: [0.0; MAX_UNISON],
+            stack_cents: [0.0; MAX_UNISON],
+            gains: [1.0; MAX_UNISON],
+            blend_at: None,
+            width: None,
+            position_spread: position_spread_of(&config.shape),
+        }
+    }
+
     fn param(&self, kind: usize) -> usize {
         OSC_PARAMS_AT + OSC_PARAMS * self.index + kind
     }
-    // the param a route moves of this oscillator: `kind` that of osc 1 (POSITION1…)
-    fn target(&self, kind: usize) -> usize {
-        OSC_TARGETS * self.index + kind
+    // the param a route moves of this oscillator: its knob `knob` (POSITION…)
+    fn target(&self, knob: usize) -> usize {
+        targets::target(OSC, self.index, knob)
     }
     // a unison of 3 or more: centre voices and others (one of 1 or 2 is all centre)
     fn blends(&self) -> bool {
@@ -1298,6 +1338,119 @@ fn shape_unison(osc: &mut Osc) {
     });
 }
 
+impl Source for Osc {
+    fn targets(&self) -> u128 {
+        mask(OSC, self.index)
+    }
+
+    /// the latest version of its table (the placeholder sine until one has arrived)
+    fn attach(&mut self, store: &mut Store) {
+        if let Some(latest) = store.latest(self.table) {
+            self.entry = store.acquire(latest);
+        }
+    }
+
+    /// the steps and logs of the pitch of its voices at the points of a block
+    fn grow(&mut self, _length: usize, points: usize) {
+        if self.incs.len() == MAX_UNISON * points {
+            return;
+        }
+        self.incs = vec![0.0; MAX_UNISON * points];
+        self.logs = vec![0.0; MAX_UNISON * points];
+        self.cached = false;
+    }
+
+    /// its unison: one voice at no spread (a stack, a position spread or a route that raises the spread keep them
+    /// all), their shapes, phases and fades
+    fn start(&mut self, cx: &StartCx) -> usize {
+        let spread = cx.params[self.param(OSC_PARAM_SPREAD)];
+        // (a stack or a position spread sound at no detune too)
+        if read(spread, cx.i) as f64 <= 0.0
+            && !cx.modulation.raises(self.target(SPREAD))
+            && self.shape.stack == STACK_OFF
+            && self.position_spread == 0.0
+        {
+            self.voices = 1;
+        }
+        self.level = UNISON_LEVELS[self.voices - 1];
+        shape_unison(self);
+        for v in 0..self.voices {
+            let share = if v == 0 { cx.note_share } else { self.random[v] };
+            let phase = self.phase + share * self.phase_rand;
+            self.phases[v] = phase - floor(phase);
+            // a note at a random phase starts at once (its click on a fast attack is part of the sound; the TS core
+            // faded it in); a note of a legato phrase fades in, it would step to the level of the phrase
+            self.fades[v] = cx.fade;
+        }
+        self.voices
+    }
+
+    /// its param of the block (the offsets of its pitch from 0)
+    fn base<'a>(&'a self, knob: usize, params: &'a Params<'a>, _n: usize) -> &'a [f32] {
+        base_param(knob).map_or(ZERO, |kind| params[self.param(kind)])
+    }
+
+    fn render(&mut self, cx: &RenderCx, store: &mut Store, shared: &mut Shared) {
+        render_osc(cx.ctx, self, cx.modulation, cx.params, cx.a, cx.b, store, shared);
+    }
+
+    /// its version and the one a crossfade goes to (nothing that allocates)
+    fn release(&mut self, store: &mut Store) {
+        if self.entry != EntryRef::Sine {
+            store.release(self.entry);
+        }
+        if let Some(next) = self.next.take() {
+            store.release(next);
+        }
+        self.entry = EntryRef::Sine;
+    }
+
+    /// its mix tables
+    fn free(&mut self, shared: &mut Shared) {
+        release_mixes(self, shared);
+    }
+}
+
+// the bases of the knobs the routes of a voice move, by the module that has each: an oscillator its param of the block,
+// the filter its knob, the noise its level and pan (the offsets of a pitch from 0)
+struct VoiceBases<'a> {
+    slots: &'a Slots,
+    filter: &'a VoiceFilter,
+    params: &'a Params<'a>,
+    n: usize,
+}
+
+impl BaseOf for VoiceBases<'_> {
+    fn base(&self, module: usize, instance: usize, knob: usize) -> &[f32] {
+        if module == FILTER {
+            return self.filter.base(knob);
+        }
+        self.slots.base(module, instance, knob, self.params, self.n)
+    }
+}
+
+// the bases of the knobs of the LFOs in a block (one value each; per sample while one changes in it)
+struct LfoBases<'a> {
+    one: &'a [f32],
+    each: &'a [f32],
+    changing: &'a [bool; LFOS * KNOBS],
+    n: usize,
+}
+
+impl BaseOf for LfoBases<'_> {
+    fn base(&self, module: usize, instance: usize, knob: usize) -> &[f32] {
+        if module != LFO_KNOBS {
+            return ZERO;
+        }
+        let j = instance * KNOBS + knob;
+        if self.changing[j] {
+            &self.each[j * self.n..(j + 1) * self.n]
+        } else {
+            &self.one[j..j + 1]
+        }
+    }
+}
+
 pub struct Voice {
     sample_rate: f64,
     log2_nyquist: f64,
@@ -1325,9 +1478,8 @@ pub struct Voice {
     block_frame: f64,
     pub started_at: f64,
     unison: f64,
-    oscs: Vec<Osc>,
-    // the noise of the note (none: off for it)
-    noise: Option<Noise>,
+    // its sources (source.rs): those off for the note have no slot
+    slots: Slots,
     modulation: Modulation,
     points_length: usize,
     // its LFOs (run while a route of a param reads one; their levels allocated only then), the routes of their
@@ -1366,67 +1518,21 @@ impl Voice {
         let in_phrase = env_start_frame < start_frame;
         // (the room of its phrase, attach() joins it without allocating)
         shared.reserve_phrase();
-        let mut oscs = Vec::with_capacity(2);
+        let mut slots = Slots {
+            oscs: [None, None],
+            noise: options.noise.map(|noise| Noise::new(sample_rate, noise)),
+        };
         for (index, config) in options.osc.iter().enumerate() {
-            let Some(config) = config else { continue };
-            // (a unison that isn't a number is one voice: NaN passes min and max)
-            let unison = (min(MAX_UNISON as f64, max(1.0, round(config.unison))) as usize).max(1);
-            oscs.push(Osc {
-                table: config.table,
-                phase: config.phase,
-                phase_rand: config.phase_rand,
-                voices: unison,
-                level: 1.0,
-                phases: [0.0; MAX_UNISON],
-                fades: [0; MAX_UNISON],
-                saved_phases: [0.0; MAX_UNISON],
-                saved_fades: [0; MAX_UNISON],
-                frame_fades: [[FrameFade::NONE; MAX_UNISON]; 2],
-                frames_settled: false,
-                random: config.random,
-                entry: EntryRef::Sine,
-                next: None,
-                crossfade: 0.0,
-                incs: Vec::new(),
-                logs: Vec::new(),
-                factors: [1.0; MAX_UNISON],
-                factors_spread: f64::NAN,
-                cached: false,
-                last: [f64::NAN; 4],
-                last_entry: None,
-                mixes: Default::default(),
-                built: [MixKey::NONE; MAX_UNISON],
-                mix_keys: [MixKey::NONE; MAX_UNISON],
-                bands: [PitchBand::NONE; MAX_UNISON],
-                sources: [SourceFade::NONE; MAX_UNISON],
-                index,
-                shape: config.shape,
-                shares: [0.0; MAX_UNISON],
-                stack_cents: [0.0; MAX_UNISON],
-                gains: [1.0; MAX_UNISON],
-                blend_at: None,
-                width: None,
-                position_spread: position_spread_of(&config.shape),
-            });
-        }
-        // the params the routes move: those of the oscillators on, the knobs of the filter
-        let mut accesses = [false; TARGET_PARAMS];
-        for osc in &oscs {
-            for kind in 0..OSC_TARGETS {
-                accesses[osc.target(kind)] = true;
+            if let Some(config) = config {
+                slots.oscs[index] = Some(Box::new(Osc::new(index, config)));
             }
         }
-        accesses[CUTOFF] = true;
-        accesses[RESONANCE] = true;
-        accesses[FILTER_GAIN] = true;
-        let noise = options.noise.map(|noise| Noise::new(sample_rate, noise));
-        if noise.is_some() {
-            accesses[NOISE_LEVEL..=NOISE_FINE].fill(true);
-        }
+        // the params the routes move: the knobs of the sources on, of the filter
+        let mut accesses = mask(FILTER, 0);
+        each_source!(slots, source => accesses |= source.targets());
         let modulation = Modulation::new(sample_rate, envelopes.len(), true, &options.routes, accesses);
         // the knobs of the LFOs: no LFO moves them
-        let mut lfo_accesses = [false; TARGET_PARAMS];
-        lfo_accesses[VOICE_TARGETS..].fill(true);
+        let lfo_accesses = (0..LFOS).fold(0, |bits, lfo| bits | mask(LFO_KNOBS, lfo));
         let lfo_mod = Modulation::new(sample_rate, envelopes.len(), false, &options.routes, lfo_accesses);
         let mut lfos: [LfoBlock; LFOS] =
             core::array::from_fn(|_| LfoBlock::new(sample_rate, env_start_frame));
@@ -1461,8 +1567,7 @@ impl Voice {
             block_frame: 0.0,
             started_at: -1.0,
             unison: 0.0,
-            oscs,
-            noise,
+            slots,
             modulation,
             points_length: 0,
             lfos,
@@ -1472,19 +1577,12 @@ impl Voice {
         }
     }
 
-    /// the voice joins its phrase and holds the latest version of the table of each oscillator (the placeholder
-    /// sine until one has arrived) and of the sample of its noise (none: silent); nothing here allocates: once the
-    /// voice is boxed, nothing of it traps before it can give them back (end)
+    /// the voice joins its phrase and every source holds the latest version it plays (the table of an oscillator,
+    /// the placeholder sine until one has arrived; the sample of the noise, none: silent); nothing here allocates:
+    /// once the voice is boxed, nothing of it traps before it can give them back (end)
     pub fn attach(&mut self, store: &mut Store, shared: &mut Shared) {
         self.joined = shared.join_phrase(self.phrase, !self.in_phrase);
-        for osc in self.oscs.iter_mut() {
-            if let Some(latest) = store.latest(osc.table) {
-                osc.entry = store.acquire(latest);
-            }
-        }
-        if let Some(noise) = self.noise.as_mut() {
-            noise.attach(store);
-        }
+        each_source!(self.slots, source => source.attach(store));
         if cfg!(feature = "perf") {
             shared.counts[VOICES] += 1.0;
         }
@@ -1492,19 +1590,9 @@ impl Voice {
 
     fn grow(&mut self, length: usize, shared: &mut Shared) {
         shared.grow(length);
-        if let Some(noise) = self.noise.as_mut() {
-            noise.grow(length);
-        }
         let points = shared.scratch.points.len();
-        if points == self.points_length {
-            return;
-        }
+        each_source!(self.slots, source => source.grow(length, points));
         self.points_length = points;
-        for osc in self.oscs.iter_mut() {
-            osc.incs = vec![0.0; MAX_UNISON * points];
-            osc.logs = vec![0.0; MAX_UNISON * points];
-            osc.cached = false;
-        }
     }
 
     fn start(&mut self, params: &Params, i: usize, store: &Store, shared: &mut Shared) {
@@ -1527,37 +1615,24 @@ impl Voice {
         if !self.in_phrase {
             shared.start_phrase(self.phrase, self.started_at);
         }
-        let fade_length = self.fade_length;
-        let in_phrase = self.in_phrase;
-        // the share of the note: the lowest voice of every oscillator starts at it (dsp/measurements/phases.json:
-        // two oscillators on one pitch sound the same on every note)
-        let note_share = self.oscs.first().map_or(0.0, |osc| osc.random[0]);
-        for osc in self.oscs.iter_mut() {
-            let spread = params[osc.param(OSC_PARAM_SPREAD)];
-            // (a stack or a position spread sound at no detune too)
-            if read(spread, i) as f64 <= 0.0
-                && !self.modulation.raises(osc.target(SPREAD1))
-                && osc.shape.stack == STACK_OFF
-                && osc.position_spread == 0.0
-            {
-                osc.voices = 1;
-            }
-            osc.level = UNISON_LEVELS[osc.voices - 1];
-            shape_unison(osc);
-            for v in 0..osc.voices {
-                let share = if v == 0 { note_share } else { osc.random[v] };
-                let phase = osc.phase + share * osc.phase_rand;
-                osc.phases[v] = phase - floor(phase);
-                // a note at a random phase starts at once (its click on a fast attack is part of the sound;
-                // the TS core faded it in); a note of a legato phrase fades in, it would step to the level of the
-                // phrase
-                osc.fades[v] = if in_phrase { fade_length } else { 0 };
-            }
-            self.unison += osc.voices as f64;
-        }
-        if let Some(noise) = self.noise.as_mut() {
-            noise.start(store, if in_phrase { fade_length } else { 0 }, fade_length);
-        }
+        let cx = StartCx {
+            params,
+            i,
+            store,
+            modulation: &self.modulation,
+            // the share of the note: the lowest voice of every oscillator starts at it (dsp/measurements/phases.json:
+            // two oscillators on one pitch sound the same on every note)
+            note_share: self
+                .slots
+                .oscs
+                .iter()
+                .flatten()
+                .next()
+                .map_or(0.0, |osc| osc.random[0]),
+            fade: if self.in_phrase { self.fade_length } else { 0 },
+            fade_length: self.fade_length,
+        };
+        each_source!(self.slots, source => self.unison += source.start(&cx) as f64);
         if cfg!(feature = "perf") {
             shared.counts[UNISON] += self.unison;
         }
@@ -1576,22 +1651,9 @@ impl Voice {
             shared.counts[VOICES] -= 1.0;
             shared.counts[UNISON] -= self.unison;
         }
-        // the versions of both oscillators first: they release nothing that allocates, the mixes may
-        for osc in self.oscs.iter_mut() {
-            if osc.entry != EntryRef::Sine {
-                store.release(osc.entry);
-            }
-            if let Some(next) = osc.next.take() {
-                store.release(next);
-            }
-            osc.entry = EntryRef::Sine;
-        }
-        if let Some(noise) = self.noise.as_mut() {
-            noise.end(store);
-        }
-        for osc in self.oscs.iter_mut() {
-            release_mixes(osc, shared);
-        }
+        // the versions of every source first: they release nothing that allocates, the mixes may
+        each_source!(self.slots, source => source.release(store));
+        each_source!(self.slots, source => source.free(shared));
     }
 
     fn retrigger(&mut self, at: f64) {
@@ -1663,18 +1725,12 @@ impl Voice {
                     }
                 }
             }
-            let (one, each) = (&self.lfo_one, &shared.scratch.lfo_bases);
-            let bases: [&[f32]; TARGET_PARAMS] = core::array::from_fn(|param| {
-                if param < VOICE_TARGETS {
-                    return &[][..];
-                }
-                let j = param - VOICE_TARGETS;
-                if changing[j] {
-                    &each[j * n..(j + 1) * n]
-                } else {
-                    &one[j..j + 1]
-                }
-            });
+            let bases = LfoBases {
+                one: &self.lfo_one,
+                each: &shared.scratch.lfo_bases,
+                changing: &changing,
+                n,
+            };
             let sources = Sources {
                 envelopes: &self.envelopes,
                 velocity: &self.velocity.level,
@@ -1696,10 +1752,11 @@ impl Voice {
         self.filter.set(filter);
     }
 
-    /// the knobs of its noise changed: its level and its pan glide there, its cents step
-    pub fn set_noise(&mut self, knobs: NoiseKnobs) {
-        if let Some(noise) = self.noise.as_mut() {
-            noise.set(knobs);
+    /// new knobs of `module` (a `knobs` event: the noise's level, pan and cents), for its sources that play it
+    pub fn set_knobs(&mut self, module: usize, values: &[f64]) {
+        let mut taken = false;
+        each_source!(self.slots, source => taken |= source.set_knobs(module, values));
+        if taken {
             self.wake_routes();
         }
     }
@@ -1791,29 +1848,15 @@ impl Voice {
         if self.filter.on {
             self.filter.glide(n);
         }
-        if let Some(noise) = self.noise.as_mut() {
-            noise.glide(a as usize, b as usize);
-        }
+        each_source!(self.slots, source => source.glide(a as usize, b as usize));
         if self.modulation.active {
-            let (filter, noise) = (&self.filter, self.noise.as_ref());
-            // the params of both oscillators (the offsets of the pitch from 0), the knobs of the filter, then those
-            // of the noise (the offsets of its pitch from 0)
-            let bases: [&[f32]; TARGET_PARAMS] = core::array::from_fn(|param| {
-                if param < CUTOFF {
-                    let (index, kind) = (param / OSC_TARGETS, param % OSC_TARGETS);
-                    base_param(kind).map_or(ZERO, |kind| params[OSC_PARAMS_AT + OSC_PARAMS * index + kind])
-                } else if param <= FILTER_GAIN {
-                    filter.base(param - CUTOFF)
-                } else if param < VOICE_TARGETS {
-                    match (noise, param) {
-                        (Some(noise), NOISE_LEVEL) => noise.level_base(n),
-                        (Some(noise), NOISE_PAN) => noise.pan_base(n),
-                        _ => ZERO,
-                    }
-                } else {
-                    &[][..]
-                }
-            });
+            // (asked only for the params the routes move)
+            let bases = VoiceBases {
+                slots: &self.slots,
+                filter: &self.filter,
+                params,
+                n,
+            };
             let sources = Sources {
                 envelopes: &self.envelopes,
                 velocity: &self.velocity.level,
@@ -1822,12 +1865,7 @@ impl Voice {
             self.modulation.apply(&bases, &sources, frame, a, b, n);
         }
         let (a, b) = (a as usize, b as usize);
-        {
-            let s = &mut shared.scratch;
-            s.left[a..b].fill(0.0);
-            s.right[a..b].fill(0.0);
-            s.center[a..b].fill(0.0);
-        }
+        shared.scratch.bus.clear(a, b);
         if b > a {
             let ctx = Ctx {
                 points_length: self.points_length,
@@ -1839,38 +1877,24 @@ impl Voice {
                 crossfade_length: self.crossfade_length,
                 frame_fade_limit: self.frame_fade_limit,
             };
-            for osc in self.oscs.iter_mut() {
-                render_osc(&ctx, osc, &self.modulation, params, a, b, store, shared);
-            }
-            if let Some(noise) = self.noise.as_mut() {
-                let modulation = &self.modulation;
-                let routes = NoiseRoutes {
-                    level: modulation.moved(NOISE_LEVEL),
-                    pan: modulation.moved(NOISE_PAN),
-                    pitch: modulation.moved(NOISE_PITCH),
-                    fine: modulation.moved(NOISE_FINE),
-                };
-                let s = &mut shared.scratch;
-                noise.render(
-                    store,
-                    self.sample_rate,
-                    &routes,
-                    params[FREQUENCY],
-                    bend,
-                    &mut s.left,
-                    &mut s.right,
-                    a,
-                    b,
-                );
-            }
+            let cx = RenderCx {
+                ctx: &ctx,
+                params,
+                bend,
+                modulation: &self.modulation,
+                a,
+                b,
+            };
+            each_source!(self.slots, source => source.render(&cx, store, shared));
         }
         out_l.fill(0.0);
         out_r.fill(0.0);
         // ENV 1 × the amp of the velocity, in the same pass (at an amp of 1: the output of ENV 1, to the bit)
         let volume = Volume::new(&self.envelopes[0], &self.velocity.amp, a);
-        let s = &shared.scratch;
+        let s = &shared.scratch.bus;
         if self.filter.on {
-            let moved = [CUTOFF, RESONANCE, FILTER_GAIN].map(|param| self.modulation.moved(param));
+            let moved = [CUTOFF, RESONANCE, FILTER_GAIN]
+                .map(|knob| self.modulation.moved(targets::target(FILTER, 0, knob)));
             self.filter
                 .process((&s.left, &s.right, &s.center), out_l, out_r, a, b, volume, moved);
         } else if volume.constant() && volume.gain == 1.0 {
@@ -1912,12 +1936,12 @@ impl Voice {
 }
 
 // what the render functions of an oscillator read of its voice
-struct Ctx {
+pub(crate) struct Ctx {
     points_length: usize,
     log2_nyquist: f64,
     // the step of a voice at the nyquist (pow(2, log2_nyquist) / the rate: as a step of a pitch at it is worked out)
     nyquist_inc: f64,
-    sample_rate: f64,
+    pub(crate) sample_rate: f64,
     block_frame: f64,
     fade_length: i32,
     crossfade_length: f64,
@@ -2205,7 +2229,7 @@ fn render_fade(
     )
 }
 
-// the channels a render of an oscillator adds into: those of the voice, or those of the oscillator (a: its
+// the channels a render of an oscillator adds into: the bus of the voice, or those of the oscillator (a: its
 // version, b: the version a crossfade goes to)
 #[derive(Clone, Copy)]
 enum Channels {
@@ -2228,9 +2252,7 @@ impl Channels {
 // blend moves), and `fading`
 fn channel_of(s: &mut Scratch, channels: Channels, channel: usize) -> (&mut [f32], &mut [f32]) {
     let Scratch {
-        left,
-        right,
-        center,
+        bus: Bus { left, right, center },
         a_left,
         a_right,
         a_center,
@@ -2270,9 +2292,7 @@ fn two_channels(
     cb: usize,
 ) -> (&mut [f32], Option<&mut [f32]>) {
     let Scratch {
-        left,
-        right,
-        center,
+        bus: Bus { left, right, center },
         a_left,
         a_right,
         a_center,
@@ -2806,19 +2826,19 @@ fn render_osc(
     let frequency = params[FREQUENCY];
     let detune = Detune {
         values: params[osc.param(OSC_PARAM_DETUNE)],
-        offsets: [PITCH1, FINE1].map(|kind| modulation.moved(osc.target(kind))),
+        offsets: [PITCH, FINE].map(|knob| modulation.moved(osc.target(knob))),
     };
     let spread = modulation
-        .moved(osc.target(SPREAD1))
+        .moved(osc.target(SPREAD))
         .unwrap_or(params[osc.param(OSC_PARAM_SPREAD)]);
     let position = modulation
-        .moved(osc.target(POSITION1))
+        .moved(osc.target(POSITION))
         .unwrap_or(params[osc.param(OSC_PARAM_POSITION)]);
     let gain = modulation
-        .moved(osc.target(GAIN1))
+        .moved(osc.target(GAIN))
         .unwrap_or(params[osc.param(OSC_PARAM_GAIN)]);
     let blend = modulation
-        .moved(osc.target(BLEND1))
+        .moved(osc.target(BLEND))
         .unwrap_or(params[osc.param(OSC_PARAM_BLEND)]);
     // a blend that moves in the block: the voices at their pans, the centre ones apart from the others (split), each
     // group × its gain, at the points of the modulation and linear between them (mix_blend); a still one: the gains
@@ -3050,9 +3070,7 @@ fn render_osc(
 #[inline(always)]
 fn mix_osc(s: &mut Scratch, a: usize, b: usize, width: Option<(f64, f64)>, gain: impl Fn(usize) -> f64) {
     let Scratch {
-        left,
-        right,
-        center,
+        bus: Bus { left, right, center },
         a_left,
         a_right,
         a_center,
@@ -3092,9 +3110,7 @@ fn mix_osc(s: &mut Scratch, a: usize, b: usize, width: Option<(f64, f64)>, gain:
 #[inline(never)]
 fn mix_blend(s: &mut Scratch, a: usize, b: usize, width: Option<(f64, f64)>, blend: &[f32], gain: &[f32]) {
     let Scratch {
-        left,
-        right,
-        center,
+        bus: Bus { left, right, center },
         a_left,
         a_right,
         a_center,

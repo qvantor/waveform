@@ -436,4 +436,27 @@ describe('the voices of one node', () => {
     expect(voices.stats()).toEqual({ voices: 1, events: 0 });
     voices.free();
   });
+
+  it('takes the knobs of a module a voice does not play as nothing: the same bits as none', () => {
+    const knobs: VoiceEvent = {
+      kind: 'knobs',
+      voices: [1],
+      module: 'noise',
+      values: { level: 1, pan: 1, cents: 1200 },
+    };
+    const play = (withKnobs: boolean) => {
+      const { voices } = node();
+      voices.apply([
+        { kind: 'on', voice: 1, options: note(), params: { frequency: 100 } },
+        ...(withKnobs ? [knobs] : []),
+      ]);
+      const blocks = [0, 1, 2].map((block) => render(voices, block * BLOCK));
+      voices.free();
+      return blocks.flatMap(({ left, right }) => [left, right]);
+    };
+    const [without, with_] = [play(false), play(true)];
+    with_.forEach((channel, k) =>
+      expectSameBits('knobs of the noise', k >> 1, k % 2 ? 'right' : 'left', without[k], channel)
+    );
+  });
 });

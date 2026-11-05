@@ -67,8 +67,8 @@ export const UNISON_SHAPE: UnisonShape = {
 };
 
 // the knobs of the noise of a note (the noise model): its level 0..1 (the amplitude is its square), its pan -1..1,
-// its pitch in cents (Pitch · 100 + Fine); a playing note follows them (a `noise` event: the level and the pan
-// glide in 10 ms, the cents step)
+// its pitch in cents (Pitch · 100 + Fine); a playing note follows them (a `knobs` event of the noise: the level and
+// the pan glide in 10 ms, the cents step)
 export interface VoiceNoiseKnobs {
   level: number;
   pan: number;
@@ -120,11 +120,18 @@ export interface VoiceOptions {
   mono?: boolean;
 }
 
+// the knobs of the modules of a voice no param of it carries, which playing voices follow (one `knobs` event for
+// every module: KNOB_ORDER of voice-modules.ts on the wire)
+export interface VoiceModuleKnobs {
+  noise: VoiceNoiseKnobs;
+}
+export type KnobsModule = keyof VoiceModuleKnobs;
+
 // main thread → voices processor, the events of a task in the order they were made: a voice of a note (`on`), the
 // automation of its params (the AudioParam call of the same name: setValueAtTime, setTargetAtTime,
 // exponentialRampToValueAtTime, cancelScheduledValues, linearRampToValueAtTime (the synth makes none); values in
-// f32, times in seconds of the context), the routes, the filter and the velocity of playing voices, and the pitch
-// bend of the node. An event of a voice that has ended changes nothing
+// f32, times in seconds of the context), the routes, the filter, the velocity and the knobs of a module of playing
+// voices, and the pitch bend of the node. An event of a voice that has ended changes nothing
 export interface VoiceOn {
   kind: 'on';
   voice: number;
@@ -158,12 +165,10 @@ export interface VoicesVelocity {
   voices: number[];
   velocity: VoiceVelocity;
 }
-// the knobs of the noise of playing voices changed
-export interface VoicesNoise {
-  kind: 'noise';
-  voices: number[];
-  noise: VoiceNoiseKnobs;
-}
+// the knobs of a module of playing voices changed (those that don't play it take nothing)
+export type VoicesKnobs = {
+  [M in KnobsModule]: { kind: 'knobs'; voices: number[]; module: M; values: VoiceModuleKnobs[M] };
+}[KnobsModule];
 // the pitch bend of every voice of the node (cents on top of the detune of each oscillator): it glides there in
 // 10 ms, new voices start with it; `instantly` it is there (a node made again)
 export interface VoicesBend {
@@ -182,7 +187,7 @@ export type VoiceEvent =
   | VoicesRoutes
   | VoicesFilter
   | VoicesVelocity
-  | VoicesNoise
+  | VoicesKnobs
   | VoicesBend
   | VoicesLfos;
 export interface VoiceEventsMessage {

@@ -116,15 +116,16 @@ export const voiceEvents = (context: BaseAudioContext, engine: { flush: () => vo
       event.kind === 'routes' ||
       event.kind === 'filter' ||
       event.kind === 'velocity' ||
-      event.kind === 'noise'
+      event.kind === 'knobs'
     ) {
+      // (the knobs of a module under its name: { noise: … })
       const message =
         event.kind === 'routes'
           ? { routes: event.routes }
           : event.kind === 'filter'
             ? { filter: event.filter }
-            : event.kind === 'noise'
-              ? { noise: event.noise }
+            : event.kind === 'knobs'
+              ? { [event.module]: event.values }
               : { velocity: event.velocity };
       event.voices.forEach((id) => byId.get(id)?.messages.push(message));
       return;
