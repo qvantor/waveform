@@ -133,7 +133,7 @@ try {
           play
         );
         const sampleRate = await page.evaluate(
-          () => window.__waveformPerf.models.synthCore[0].audioCtx.sampleRate
+          () => window.__chisperPerf.models.synthCore[0].audioCtx.sampleRate
         );
         const quanta = analyzeQuanta(events, { sampleRate });
         const glitches = countGlitches(events);
@@ -157,7 +157,7 @@ try {
       const before = (await call('stats')).engine;
       // the loudness of the output over half a second (an analyser on the output of the limiter)
       const rms = await page.evaluate(async () => {
-        const { audioCtx, output } = window.__waveformPerf.models.synthCore[0];
+        const { audioCtx, output } = window.__chisperPerf.models.synthCore[0];
         const analyser = audioCtx.createAnalyser();
         analyser.fftSize = 2048;
         output.connect(analyser);
@@ -178,7 +178,7 @@ try {
       await sleep(500);
       const after = (await call('stats')).engine;
       const statuses = await page.evaluate(() => {
-        const { models } = window.__waveformPerf;
+        const { models } = window.__chisperPerf;
         return {
           wavetables: models.synthCore[0].wavetables.$status.value,
           limiter: models.synthCore[0].masterLimiter.$status.value,

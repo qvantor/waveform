@@ -9,7 +9,12 @@ export { loadPlaywright, parseArgs, require, root } from '../bench-common.mjs';
 export const out = path.join(root, 'tmp/bench-perf');
 export const tablesDir = path.join(out, 'tables');
 export const tracesDir = path.join(out, 'traces');
-export const siteDir = path.join(root, 'dist/apps/waveform-perf');
+// the folder of the app in a tree (the repo, the worktree of a reference): apps/waveform in a tree from before the
+// rename to Chisper; its perf build is that folder of dist with -perf
+export const appDir = (tree) =>
+  fs.existsSync(path.join(tree, 'apps/chisper')) ? 'apps/chisper' : 'apps/waveform';
+export const perfBuildDir = (tree) => path.join(tree, 'dist', `${appDir(tree)}-perf`);
+export const siteDir = perfBuildDir(root);
 export const here = path.join(root, 'scripts/bench-perf');
 
 export const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -64,14 +69,15 @@ export const keepAwake = () => {
 
 // --- the code of the app in Node ---
 
-// bundles modules of the app (`contents`: an entry of exports, paths from the root of `source`, the repo or the
-// worktree of a reference) for Node, imports the bundle; `__PERF__` as the code is meant to run
-export const loadApp = async ({ source = root, contents, name, perf = false }) => {
+// bundles modules of the app (`contents`: an entry of exports, paths from `resolveDir`, by default the root of
+// `source`, the repo or the worktree of a reference) for Node, imports the bundle; `__PERF__` as the code is meant
+// to run
+export const loadApp = async ({ source = root, resolveDir = source, contents, name, perf = false }) => {
   const esbuild = require('esbuild');
   const outfile = path.join(out, 'node', `${name}.mjs`);
   fs.mkdirSync(path.dirname(outfile), { recursive: true });
   await esbuild.build({
-    stdin: { contents, resolveDir: source, loader: 'ts' },
+    stdin: { contents, resolveDir, loader: 'ts' },
     bundle: true,
     format: 'esm',
     platform: 'node',

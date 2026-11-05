@@ -17,7 +17,7 @@ const SESSIONS = 5;
 let latencyCode = null;
 const noteLatency = async () => {
   latencyCode ??= loadApp({
-    contents: "export { noteLatency } from './apps/waveform/src/app/perf/latency';",
+    contents: "export { noteLatency } from './apps/chisper/src/app/perf/latency';",
     name: 'latency',
   });
   return (await latencyCode).noteLatency;

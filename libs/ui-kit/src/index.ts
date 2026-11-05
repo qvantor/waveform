@@ -51,7 +51,7 @@ export { TapeSwitch } from './tape-switch';
 export { ModeSwitch } from './mode-switch';
 export { Lamp } from './lamp';
 export { AnchorIcon, DottedIcon, SwitchKey, SwitchKeys, TripletIcon } from './switch-key';
-export { PanelButton } from './panel-button';
+export { PanelButton, PanelLink } from './panel-button';
 export { SortableList } from './sortable-list';
 export { theme } from './common/constants';
 export * from './common/styles';

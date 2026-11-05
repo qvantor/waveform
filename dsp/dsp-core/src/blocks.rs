@@ -1,4 +1,4 @@
-//! apps/waveform/src/app/synth/fx/effects/dsp.ts: the sample-by-sample blocks of the effects
+//! apps/chisper/src/app/synth/fx/effects/dsp.ts: the sample-by-sample blocks of the effects
 
 use crate::simd::F64x2;
 use crate::{int32, power_of_two_above, wrap};

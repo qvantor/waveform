@@ -1,0 +1,245 @@
+---
+import { BAR_WIDTH, WAVE_HEIGHT, clipOf, isoDuration, wavePath } from '../data/clips';
+import { demoPath, type Demo } from '../data/demos';
+import { fill, type Messages } from '../i18n';
+import { presetUrl } from '../i18n/locales';
+import { clock } from '../scripts/clock';
+
+interface Props {
+  demo: Demo;
+  m: Messages;
+}
+
+const CATEGORY_COLORS: Record<Demo['category'], string> = {
+  bass: 'var(--second-accent)',
+  lead: 'var(--fourth-accent)',
+  pluck: 'var(--third-accent)',
+  keys: 'var(--accent)',
+  pad: 'var(--dark-high)',
+  fx: '#e74c3c',
+};
+
+// a clip: its category and preset, a player (the script of player.ts), what it lets hear as text (people without
+// sound and crawlers read it) and a link that opens its preset in the synth
+const { demo, m } = Astro.props;
+const { duration, peaks } = clipOf(demo.slug);
+const span = peaks.length;
+const name = demo.name;
+---
+
+<article
+  class='card'
+  data-player
+  data-duration={duration}
+  style={`--tint: ${CATEGORY_COLORS[demo.category]}`}
+>
+  <div class='title'>
+    <span class='label'>{m.card.categories[demo.category]}</span>
+    <h3>{name}</h3>
+  </div>
+  <div class='screen'>
+    <button
+      class='play'
+      type='button'
+      data-play
+      aria-pressed='false'
+      aria-label={fill(m.card.play, { name })}
+    >
+      <svg viewBox='0 0 24 24' aria-hidden='true'>
+        <path class='icon-play' d='M8 5.5v13l10.5-6.5z'></path>
+        <path class='icon-pause' d='M7 5.5h3.5v13H7zM13.5 5.5H17v13h-3.5z'></path>
+      </svg>
+    </button>
+    <div
+      class='wave'
+      data-wave
+      data-span={span}
+      role='slider'
+      tabindex='0'
+      aria-label={fill(m.card.seek, { name })}
+      aria-valuemin='0'
+      aria-valuemax={Math.round(duration)}
+      aria-valuenow='0'
+      aria-valuetext={`0:00 / ${clock(duration)}`}
+    >
+      <svg
+        viewBox={`0 0 ${span} ${WAVE_HEIGHT}`}
+        preserveAspectRatio='none'
+        stroke-width={BAR_WIDTH}
+        aria-hidden='true'
+      >
+        <defs>
+          <linearGradient
+            id={`played-color-${demo.slug}`}
+            x1='0'
+            y1='0'
+            x2={span}
+            y2='0'
+            gradientUnits='userSpaceOnUse'
+          >
+            <stop offset='0' stop-color='#3498db'></stop>
+            <stop offset='0.8' stop-color='#2ecc71'></stop>
+          </linearGradient>
+          <clipPath id={`played-${demo.slug}`}>
+            <rect data-progress x='0' y='0' width='0' height={WAVE_HEIGHT}></rect>
+          </clipPath>
+        </defs>
+        <g class='bars'>
+          <path id={`wave-${demo.slug}`} d={wavePath(peaks)}></path>
+        </g>
+        <use
+          href={`#wave-${demo.slug}`}
+          stroke={`url(#played-color-${demo.slug})`}
+          clip-path={`url(#played-${demo.slug})`}
+        ></use>
+      </svg>
+    </div>
+    <time datetime={isoDuration(duration)}>{clock(duration)}</time>
+  </div>
+  <p class='caption'>{m.demos[demo.slug]}</p>
+  <a class='open' href={presetUrl(demo.presetId)}>
+    {m.card.open}
+    <span aria-hidden='true'> →</span>
+  </a>
+  <audio preload='none' src={demoPath(demo.slug)}></audio>
+</article>
+
+<style>
+  /* a raised dark surface, lit in green while it plays */
+  .card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 16px;
+    background: linear-gradient(160deg, var(--surface-high), var(--surface));
+    border-radius: 10px;
+    box-shadow: var(--raised);
+    overflow: hidden;
+    transition: box-shadow 200ms;
+  }
+
+  /* a line of the category's color along the top */
+  .card::before {
+    content: '';
+    position: absolute;
+    inset: 0 0 auto;
+    height: 3px;
+    background: linear-gradient(90deg, var(--tint), transparent 85%);
+  }
+
+  .card:hover,
+  .card:global(.playing) {
+    box-shadow:
+      0 0 0 1px rgb(46 204 113 / 35%),
+      0 18px 50px -16px rgb(46 204 113 / 25%);
+  }
+
+  .title {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  h3 {
+    font-size: 18px;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+
+  /* a dark screen of the synth's charts: the key, the wave, the length */
+  .screen {
+    display: grid;
+    grid-template-columns: 40px 1fr auto;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px 8px 8px;
+    background: var(--page);
+    border-radius: var(--radius-m);
+    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 5%);
+  }
+
+  .play {
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border: none;
+    border-radius: 50%;
+    background: var(--key-glow);
+    color: var(--dark);
+    cursor: pointer;
+    transition:
+      box-shadow 200ms,
+      transform 120ms;
+  }
+
+  .play:hover {
+    transform: scale(1.06);
+  }
+
+  .play[aria-pressed='true'] {
+    box-shadow:
+      0 0 0 4px rgb(46 204 113 / 22%),
+      0 0 18px 2px rgb(46 204 113 / 45%);
+  }
+
+  .play svg {
+    width: 22px;
+    height: 22px;
+    fill: currentColor;
+  }
+
+  .icon-pause,
+  .play[aria-pressed='true'] .icon-play {
+    display: none;
+  }
+
+  .play[aria-pressed='true'] .icon-pause {
+    display: inline;
+  }
+
+  .wave {
+    height: 40px;
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+
+  .wave svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+
+  .bars {
+    stroke: var(--dark-high);
+  }
+
+  time {
+    min-width: 34px;
+    font-size: 13px;
+    font-variant-numeric: tabular-nums;
+    color: var(--primary-medium);
+    text-align: right;
+  }
+
+  .caption {
+    font-size: 15px;
+    line-height: 1.45;
+    color: var(--text-muted);
+  }
+
+  .open {
+    margin-top: auto;
+    align-self: flex-start;
+    font-size: 14px;
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  .open:hover {
+    text-decoration: underline;
+  }
+</style>

@@ -1,4 +1,4 @@
-//! apps/waveform/src/app/synth/common/lfo/lfo-curve.ts: the LFOs LFO 1–4, the same operations in the same order (a
+//! apps/chisper/src/app/synth/common/lfo/lfo-curve.ts: the LFOs LFO 1–4, the same operations in the same order (a
 //! level of a voice at its points is the one of the TS runner at them, but for a route of Rate: its base in f32,
 //! as the routes read it). What the voices of a scope share is in the shared (LfoGlobal: the clock of each LFO, its
 //! knobs from the time a state takes over, its shape crossfaded into a new one); each voice runs each LFO a route

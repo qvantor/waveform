@@ -2,11 +2,11 @@
 // Firefox): the wavetable oscillator worklet against a native OscillatorNode with the PeriodicWave of the
 // same frame, rendered in OfflineAudioContexts. Each function returns plain numbers, run.mjs checks them
 // against the criteria of the spec
-import { wave } from '@waveform/math';
-import { buildLevels } from '../../apps/waveform/src/app/synth/common/wavetable/wavetable-mipmap';
-import type { WavetableLevels } from '../../apps/waveform/src/app/synth/common/wavetable/wavetable-levels';
-import bytes from '@waveform/wasm/wavetable-osc.wasm';
-import { instantiateCore } from '../../apps/waveform/src/app/synth/common/wasm/wasm-core';
+import { wave } from '@chisper/math';
+import { buildLevels } from '../../apps/chisper/src/app/synth/common/wavetable/wavetable-mipmap';
+import type { WavetableLevels } from '../../apps/chisper/src/app/synth/common/wavetable/wavetable-levels';
+import bytes from '@chisper/wasm/wavetable-osc.wasm';
+import { instantiateCore } from '../../apps/chisper/src/app/synth/common/wasm/wasm-core';
 import {
   createOscScope,
   createTableStoreWasm,
@@ -14,19 +14,19 @@ import {
   createVoiceWasm,
   OscExports,
   OscScope,
-} from '../../apps/waveform/src/app/synth/common/wavetable/wavetable-osc-wasm';
+} from '../../apps/chisper/src/app/synth/common/wavetable/wavetable-osc-wasm';
 import {
   STORE_PROCESSOR,
   VOICE_PARAMETERS,
   VOICES_PROCESSOR,
   VoiceParam,
-} from '../../apps/waveform/src/app/synth/common/wavetable/wavetable-osc-params';
+} from '../../apps/chisper/src/app/synth/common/wavetable/wavetable-osc-params';
 import type {
   VoiceAutomation,
   VoiceEvent,
-} from '../../apps/waveform/src/app/synth/common/wavetable/voice-options';
-import { unisonPower, voiceLevel } from '../../apps/waveform/src/app/synth/common/wavetable/unison-levels';
-import { parseWav } from '../../apps/waveform/src/app/synth/services/wav';
+} from '../../apps/chisper/src/app/synth/common/wavetable/voice-options';
+import { unisonPower, voiceLevel } from '../../apps/chisper/src/app/synth/common/wavetable/unison-levels';
+import { parseWav } from '../../apps/chisper/src/app/synth/services/wav';
 import { analyze, frameOf, kaiser, sawFrame, SIZE } from './sound.mjs';
 
 const WORKLET_URL = 'wavetable-osc.js';

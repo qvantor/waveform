@@ -2,7 +2,7 @@ import React from 'react';
 import { styled, css } from 'styled-components';
 import cls from 'classnames';
 import hexToRgba from 'hex-to-rgba';
-import { number } from '@waveform/math';
+import { number } from '@chisper/math';
 import { theme } from '../common/constants';
 import { scaleTicks, TickKind } from '../common/constants/scale-ticks';
 import { valueScale } from '../common/utils';

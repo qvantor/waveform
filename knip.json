@@ -1,12 +1,12 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "entry": [
-    "apps/waveform/src/main.tsx",
-    "apps/waveform/src/polyfills.ts",
-    "apps/waveform/src/**/*.worklet.ts",
-    "apps/waveform/src/**/*.worker.ts",
-    "apps/waveform/src/app/perf/perf-hook.perf.tsx",
-    "apps/waveform/webpack.config.js",
+    "apps/chisper/src/main.tsx",
+    "apps/chisper/src/polyfills.ts",
+    "apps/chisper/src/**/*.worklet.ts",
+    "apps/chisper/src/**/*.worker.ts",
+    "apps/chisper/src/app/perf/perf-hook.perf.tsx",
+    "apps/chisper/webpack.config.js",
     "libs/*/src/index.ts",
     "netlify/functions/*.{ts,mts}",
     "scripts/*.mjs",
@@ -17,15 +17,18 @@
     "scripts/renders/run.mjs",
     "scripts/**/*.test.mjs",
     "{apps/*,libs/*,netlify}/jest.config.ts",
-    "**/*.spec.{ts,tsx}",
-    "{apps/waveform,libs/ui-kit}/src/test-setup.ts",
-    "apps/waveform/src/test-utils/*.{ts,tsx}",
-    "apps/waveform/__mocks__/*.ts",
+    "{apps,libs,netlify}/**/*.spec.{ts,tsx}",
+    "{apps/chisper,libs/ui-kit}/src/test-setup.ts",
+    "apps/chisper/src/test-utils/*.{ts,tsx}",
+    "apps/chisper/__mocks__/*.ts",
     "dsp/gen/*.{mjs,ts}",
-    "apps/waveform/wasm-babel-plugin.js"
+    "apps/chisper/wasm-babel-plugin.js",
+    "scripts/site/*.mjs",
+    "apps/site/tests/*.test.mjs"
   ],
   "project": [
     "apps/**/*.{ts,tsx,js}",
+    "apps/site/src/**/*.astro",
     "libs/**/*.{ts,tsx}",
     "netlify/**/*.{ts,mts}",
     "scripts/**/*.mjs",
@@ -49,6 +52,13 @@
     "@pmmmwh/react-refresh-webpack-plugin"
   ],
   "ignoreBinaries": ["mkcert", "caffeinate", "notifyutil", "swiftc"],
-  "ignoreUnresolved": ["^[\\w.-]+=apps/waveform/src/.+\\.(worklet|worker)\\.ts$", "^@waveform/wasm/"],
-  "ignoreExportsUsedInFile": true
+  "ignoreUnresolved": ["^[\\w.-]+=apps/chisper/src/.+\\.(worklet|worker)\\.ts$"],
+  "ignoreExportsUsedInFile": true,
+  "astro": {
+    "config": ["apps/site/astro.config.mjs"],
+    "entry": ["apps/site/src/pages/**/*.astro"]
+  },
+  "eslint": {
+    "config": ["eslint.config.mjs", "{apps,libs}/*/eslint.config.mjs"]
+  }
 }

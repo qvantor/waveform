@@ -1,6 +1,6 @@
 import React from 'react';
 import { styled } from 'styled-components';
-import { Vector2D } from '@waveform/math';
+import { Vector2D } from '@chisper/math';
 import { Deactivated } from '../../common/styles';
 import { liveKnob } from '../../common/utils';
 import { HandleModulation } from '../../handle';

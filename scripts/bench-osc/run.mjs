@@ -49,7 +49,7 @@ const bundle = async () => {
     format: 'esm',
     logLevel: 'warning',
     tsconfig: path.join(root, 'tsconfig.base.json'),
-    // the code of the perf build out, as in production (apps/waveform/src/globals.d.ts)
+    // the code of the perf build out, as in production (apps/chisper/src/globals.d.ts)
     define: { __PERF__: 'false' },
     // the bytes of the core inlined, as `npm run worklets` does
     loader: { '.wasm': 'binary' },
@@ -65,9 +65,9 @@ const bundle = async () => {
     entryPoints: {
       'wavetable-osc': path.join(
         root,
-        'apps/waveform/src/app/synth/common/wavetable/wavetable-osc.worklet.ts'
+        'apps/chisper/src/app/synth/common/wavetable/wavetable-osc.worklet.ts'
       ),
-      'wavetable-worker': path.join(root, 'apps/waveform/src/app/synth/common/wavetable/wavetable.worker.ts'),
+      'wavetable-worker': path.join(root, 'apps/chisper/src/app/synth/common/wavetable/wavetable.worker.ts'),
     },
     outdir: site,
   });

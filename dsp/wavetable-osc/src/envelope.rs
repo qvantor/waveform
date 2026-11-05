@@ -1,4 +1,4 @@
-//! apps/waveform/src/app/synth/common/envelope/envelope-curve.ts and envelope-block.ts: the envelopes of a note,
+//! apps/chisper/src/app/synth/common/envelope/envelope-curve.ts and envelope-block.ts: the envelopes of a note,
 //! rendered block by block, exact to the sample. The attack, the decay and the release are curved by `curves` (k
 //! of curve_shape, 0 linear: the linear stages are worked out as the TS does, bit for bit); the TS voice plays
 //! every stage linear

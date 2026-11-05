@@ -1,7 +1,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom';
 import { styled } from 'styled-components';
-import { number } from '@waveform/math';
+import { number } from '@chisper/math';
 import { absoluteCenterX } from '../common/styles';
 import { singlePointerTracker } from '../common/utils';
 

@@ -1,0 +1,94 @@
+---
+import DemoCard from './DemoCard.astro';
+import Ribbon from './Ribbon.astro';
+import { demosOf } from '../data/demos';
+import type { Messages } from '../i18n';
+
+interface Props {
+  m: Messages;
+}
+
+const { m } = Astro.props;
+---
+
+<section class='listen' id='listen' aria-labelledby='listen-title'>
+  <div class='ribbon'>
+    <Ribbon id='listen-ribbon' />
+  </div>
+  <div class='column'>
+    <span class='label' style='--tint: var(--accent)'>
+      Demos
+    </span>
+    <h2 id='listen-title'>{m.listen.h2}</h2>
+    <p class='lead'>{m.listen.lead}</p>
+    <div class='demos'>
+      {demosOf('listen').map((demo) => (
+        <DemoCard demo={demo} m={m} />
+      ))}
+    </div>
+  </div>
+</section>
+
+<style>
+  /* a dark screen of the synth across the page, lit by the colors of the logo */
+  .listen {
+    position: relative;
+    padding: 72px 0 80px;
+    overflow: hidden;
+    color: var(--text);
+    background:
+      radial-gradient(700px 380px at 12% 0%, rgb(52 152 219 / 22%), transparent 70%),
+      radial-gradient(700px 420px at 95% 100%, rgb(46 204 113 / 18%), transparent 70%),
+      linear-gradient(180deg, #0f171e, var(--dark) 40%, #0d141a);
+  }
+
+  .ribbon {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 18px;
+    height: 180px;
+    opacity: 0.35;
+    pointer-events: none;
+  }
+
+  .column {
+    position: relative;
+  }
+
+  h2 {
+    margin-top: 12px;
+    font-size: 36px;
+    font-weight: 700;
+    line-height: 1.12;
+  }
+
+  .lead {
+    max-width: 760px;
+    margin-top: 14px;
+    color: var(--text-muted);
+  }
+
+  .demos {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
+    margin-top: 32px;
+  }
+
+  @media (max-width: 960px) {
+    .demos {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
+  @media (max-width: 860px) {
+    .listen {
+      padding: 48px 0 56px;
+    }
+
+    h2 {
+      font-size: 28px;
+    }
+  }
+</style>

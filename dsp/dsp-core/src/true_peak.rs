@@ -1,4 +1,4 @@
-//! apps/waveform/src/app/synth/common/limiter/true-peak.ts: the 4× true peak of a stream, the interpolation
+//! apps/chisper/src/app/synth/common/limiter/true-peak.ts: the 4× true peak of a stream, the interpolation
 //! skipped while the last TAPS samples are too quiet to reach the threshold; both channels of the limiter in the
 //! lanes of f64x2, each lane the detector of the TS
 

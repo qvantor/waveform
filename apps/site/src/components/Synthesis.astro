@@ -1,0 +1,275 @@
+---
+import WavetableDiagram from './WavetableDiagram.astro';
+import { FEATURE_COLORS } from '../art/scenes';
+import { ART_FILL, frameAt, svgPoints } from '../art/wavetable';
+import type { Messages } from '../i18n';
+
+interface Props {
+  m: Messages;
+}
+
+// What wavetable synthesis is, after the clips, before the features: its wave behind it (art/scenes.ts) and a card
+// each for how it works (the table and the Wave knob), the music it makes (its styles) and where it plays (a panel
+// of the synth), each with its picture over its title and text; the cards are frosted glass, the wave passes behind
+// them blurred
+const { m } = Astro.props;
+const s = m.synthesis;
+
+// the dots of the styles, in the colors of the features
+const TINTS = [
+  FEATURE_COLORS.unison,
+  FEATURE_COLORS.wavetables,
+  FEATURE_COLORS.modulation,
+  FEATURE_COLORS.filter,
+  FEATURE_COLORS.effects,
+  FEATURE_COLORS.playing,
+];
+
+// a light panel of the synth: one period of a frame on its dark chart, filled to the zero
+// line as the synth fills its wave, and the Wave knob beside it (its travel of 270° from the bottom left, the green
+// arc up to its value, the mark at it)
+const SCREEN = { width: 300, height: 170 };
+const CHART = { left: 12, top: 12, width: 176, height: 146 };
+const SAMPLES = 96;
+const values = Array.from({ length: SAMPLES + 1 }, (_, i) => frameAt(0.55, i / SAMPLES));
+const peak = Math.max(...values.map(Math.abs));
+const zero = CHART.top + CHART.height / 2;
+const wave = values.flatMap((value, i) => [
+  CHART.left + (i / SAMPLES) * CHART.width,
+  zero - (value / peak) * 0.36 * CHART.height,
+]);
+const area = `${svgPoints(wave)} ${CHART.left + CHART.width},${zero} ${CHART.left},${zero}`;
+
+const KNOB = { name: 'Wave', x: 244, y: 72, radius: 22, ring: 30, value: 0.55 };
+const at = (radius: number, share: number) => {
+  const angle = ((135 + 270 * share) * Math.PI) / 180;
+  return [KNOB.x + radius * Math.cos(angle), KNOB.y + radius * Math.sin(angle)].map((v) => v.toFixed(1));
+};
+const arc = (from: number, to: number) => {
+  const [x1, y1] = at(KNOB.ring, from);
+  const [x2, y2] = at(KNOB.ring, to);
+  return `M${x1} ${y1}A${KNOB.ring} ${KNOB.ring} 0 ${(to - from) * 270 > 180 ? 1 : 0} 1 ${x2} ${y2}`;
+};
+const [markX, markY] = at(KNOB.radius - 8, KNOB.value);
+---
+
+<section
+  class='synthesis section'
+  id='synthesis'
+  aria-labelledby='synthesis-title'
+  style={`--tint: ${FEATURE_COLORS.synthesis}`}
+>
+  <canvas class='scene-canvas' data-scene='synthesis' aria-hidden='true'></canvas>
+  <div class='column'>
+    <span class='label'>Wavetable</span>
+    <h2 id='synthesis-title'>{s.h2}</h2>
+    <div class='cards'>
+      <article class='card' style={`--tint: ${FEATURE_COLORS.synthesis}`}>
+        <div class='picture'>
+          <WavetableDiagram label={s.table.alt} />
+        </div>
+        <h3>{s.table.h3}</h3>
+        <p>{s.table.text}</p>
+      </article>
+      <article class='card' style={`--tint: ${FEATURE_COLORS.modulation}`}>
+        <div class='picture'>
+          <ul class='genres'>
+            {s.styles.genres.map((genre, i) => (
+              <li style={`--dot: ${TINTS[i % TINTS.length]}`}>{genre}</li>
+            ))}
+          </ul>
+        </div>
+        <h3>{s.styles.h3}</h3>
+        <p>{s.styles.text}</p>
+      </article>
+      <article class='card' style={`--tint: ${FEATURE_COLORS.wavetables}`}>
+        <div class='picture'>
+          <div class='synth' aria-hidden='true'>
+            <svg viewBox={`0 0 ${SCREEN.width} ${SCREEN.height}`}>
+              <defs>
+                <linearGradient id='synth-fill' x1='0' y1='0' x2='0' y2='1'>
+                  <stop offset='0' stop-color={`rgb(${ART_FILL.rgb})`} stop-opacity='0.55'></stop>
+                  <stop offset='1' stop-color={`rgb(${ART_FILL.rgb})`} stop-opacity='0.05'></stop>
+                </linearGradient>
+              </defs>
+              <rect
+                x={CHART.left}
+                y={CHART.top}
+                width={CHART.width}
+                height={CHART.height}
+                rx='4'
+                fill='#22313f'
+              ></rect>
+              <line
+                x1={CHART.left}
+                y1={zero}
+                x2={CHART.left + CHART.width}
+                y2={zero}
+                stroke='#fff'
+                stroke-opacity='0.12'
+              ></line>
+              <polygon points={area} fill='url(#synth-fill)'></polygon>
+              <polyline
+                points={svgPoints(wave)}
+                fill='none'
+                stroke='#2ecc71'
+                stroke-width='2'
+                stroke-linejoin='round'
+              ></polyline>
+              <path d={arc(0, 1)} fill='none' stroke='#95a5a6' stroke-opacity='0.35' stroke-width='6'></path>
+              <path
+                d={arc(0, KNOB.value)}
+                fill='none'
+                stroke='#2ecc71'
+                stroke-width='6'
+                stroke-linecap='round'
+              ></path>
+              <circle
+                cx={KNOB.x}
+                cy={KNOB.y}
+                r={KNOB.radius}
+                fill='#fdfefe'
+                stroke='#2c3e50'
+                stroke-opacity='0.15'
+              ></circle>
+              <circle cx={markX} cy={markY} r='3' fill='#2c3e50'></circle>
+              <text x={KNOB.x} y={KNOB.y + 58} text-anchor='middle'>
+                {KNOB.name}
+              </text>
+            </svg>
+          </div>
+        </div>
+        <h3>{s.online.h3}</h3>
+        <p>{s.online.text}</p>
+      </article>
+    </div>
+  </div>
+</section>
+
+<style>
+  /* its wave stays behind its own content and doesn't widen the page */
+  .synthesis {
+    isolation: isolate;
+    overflow-x: clip;
+  }
+
+  h2 {
+    margin-top: 12px;
+  }
+
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 18px;
+    margin-top: 32px;
+  }
+
+  /* frosted glass over the wave: its picture on a screen of the synth lit in its color, then its title and text */
+  .card {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px 12px 22px;
+    background: linear-gradient(160deg, rgb(29 42 54 / 42%), rgb(23 34 44 / 22%));
+    border-radius: 12px;
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 7%),
+      var(--raised);
+    -webkit-backdrop-filter: blur(10px) saturate(150%);
+    backdrop-filter: blur(10px) saturate(150%);
+  }
+
+  .picture {
+    position: relative;
+    display: grid;
+    place-items: center;
+    aspect-ratio: 4 / 3;
+    overflow: hidden;
+    border-radius: 8px;
+    background:
+      radial-gradient(closest-side at 50% 55%, color-mix(in srgb, var(--tint) 26%, transparent), transparent),
+      linear-gradient(rgb(255 255 255 / 4%) 1px, transparent 1px) 0 0 / 28px 28px,
+      linear-gradient(90deg, rgb(255 255 255 / 4%) 1px, transparent 1px) 0 0 / 28px 28px,
+      linear-gradient(180deg, rgb(22 33 43 / 80%), rgb(18 26 34 / 70%));
+    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 6%);
+  }
+
+  .picture :global(.drawing) {
+    width: 100%;
+    height: 100%;
+  }
+
+  h3 {
+    margin-top: 6px;
+    padding: 0 6px;
+    font-size: 19px;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+
+  p {
+    padding: 0 6px;
+    color: var(--text-muted);
+  }
+
+  /* the styles as small keys, a dot of a color before each */
+  .genres {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-content: center;
+    gap: 8px;
+    margin: 0;
+    padding: 18px;
+    list-style: none;
+  }
+
+  .genres li {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 11px 5px 9px;
+    border-radius: 999px;
+    background: rgb(255 255 255 / 6%);
+    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 12%);
+    font-size: 13px;
+    color: var(--text);
+  }
+
+  .genres li::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--dot);
+    box-shadow: 0 0 6px 1px color-mix(in srgb, var(--dot) 60%, transparent);
+  }
+
+  /* a light panel of the synth, raised over its screen */
+  .synth {
+    width: 84%;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow:
+      0 0 0 1px rgb(255 255 255 / 12%),
+      0 20px 40px -18px rgb(0 0 0 / 80%);
+  }
+
+  .synth svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    background: var(--primary);
+  }
+
+  .synth text {
+    font: 600 14px var(--font);
+    fill: var(--dark-medium);
+  }
+
+  @media (max-width: 960px) {
+    .cards {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+</style>

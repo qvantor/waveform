@@ -1,6 +1,6 @@
 import React from 'react';
 import { styled } from 'styled-components';
-import { Vector2D } from '@waveform/math';
+import { Vector2D } from '@chisper/math';
 import { useLineChartContext } from '../line-chart';
 
 // the path of a note on the chart of its envelope: its corners [seconds after its start, seconds on the chart,

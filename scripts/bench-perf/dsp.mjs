@@ -5,25 +5,24 @@
 // algorithms (a hot loop that boxes doubles), not of the engines
 import fs from 'node:fs';
 import path from 'node:path';
-import { loadApp, median, root } from './util.mjs';
+import { appDir, loadApp, median, root } from './util.mjs';
 
 const BLOCK = 128;
 const RATE = 48000;
 const SAMPLES = 7;
 
-const ENTRY = `
-export { buildLevels } from './apps/waveform/src/app/synth/common/wavetable/wavetable-mipmap';
-`;
+// the paths of the modules below are from the folder of the app of each tree (appDir)
+const ENTRY = "export { buildLevels } from './src/app/synth/common/wavetable/wavetable-mipmap';\n";
 
 // the TS cores of a tree that has them (before stage 5 of the plan: an A/B run against main of that time)
 const TS_CORES = [
   {
-    module: 'apps/waveform/src/app/synth/common/wavetable/wavetable-osc-dsp',
+    module: 'src/app/synth/common/wavetable/wavetable-osc-dsp',
     create: 'createVoiceDsp, createVoiceShared, createTableStore',
   },
-  { module: 'apps/waveform/src/app/synth/fx/effects/reverb-dsp', create: 'createReverbDsp' },
-  { module: 'apps/waveform/src/app/synth/fx/effects/distortion-dsp', create: 'createDistortionDsp' },
-  { module: 'apps/waveform/src/app/synth/common/limiter/limiter-dsp', create: 'createLimiterDsp' },
+  { module: 'src/app/synth/fx/effects/reverb-dsp', create: 'createReverbDsp' },
+  { module: 'src/app/synth/fx/effects/distortion-dsp', create: 'createDistortionDsp' },
+  { module: 'src/app/synth/common/limiter/limiter-dsp', create: 'createLimiterDsp' },
 ];
 
 // the Rust cores (dsp/, `npm run wasm`: tmp/wasm, as in production) of the tree that has them: its facade and
@@ -31,22 +30,22 @@ const TS_CORES = [
 const WASM_CORES = [
   {
     core: 'limiter',
-    facade: 'apps/waveform/src/app/synth/common/limiter/limiter-wasm',
+    facade: 'src/app/synth/common/limiter/limiter-wasm',
     create: 'createLimiterWasm',
   },
   {
     core: 'reverb',
-    facade: 'apps/waveform/src/app/synth/fx/effects/reverb-wasm',
+    facade: 'src/app/synth/fx/effects/reverb-wasm',
     create: 'createReverbWasm',
   },
   {
     core: 'distortion',
-    facade: 'apps/waveform/src/app/synth/fx/effects/distortion-wasm',
+    facade: 'src/app/synth/fx/effects/distortion-wasm',
     create: 'createDistortionWasm',
   },
   {
     core: 'wavetable-osc',
-    facade: 'apps/waveform/src/app/synth/common/wavetable/wavetable-osc-wasm',
+    facade: 'src/app/synth/common/wavetable/wavetable-osc-wasm',
     create: 'createOscScope, createTableStoreWasm, createVoiceSharedWasm, createVoiceWasm',
     // (a tree of the voices node: its scope too; the params of a block in their order: a tree whose oscillators
     // have the blend of their unison as a param has blend1)
@@ -54,34 +53,35 @@ const WASM_CORES = [
   },
 ];
 
-const WASM_CORE = 'apps/waveform/src/app/synth/common/wasm/wasm-core';
+const WASM_CORE = 'src/app/synth/common/wasm/wasm-core';
 // the tables of the shapes of the LFOs (a tree that has them)
-const LFO_CURVE = 'apps/waveform/src/app/synth/common/lfo/lfo-curve';
+const LFO_CURVE = 'src/app/synth/common/lfo/lfo-curve';
 
 // as in production: the counters of the perf build out. A tree with wasm cores bundles their facades too and
 // instantiates them (one instance per core, as one AudioWorkletGlobalScope)
 const loadDsp = async (source = root, name) => {
+  const app = path.join(source, appDir(source));
   const cores = WASM_CORES.filter(
     ({ core, facade }) =>
-      fs.existsSync(path.join(source, `${facade}.ts`)) &&
+      fs.existsSync(path.join(app, `${facade}.ts`)) &&
       fs.existsSync(path.join(source, `tmp/wasm/${core}.wasm`))
   );
-  const ts = TS_CORES.filter(({ module }) => fs.existsSync(path.join(source, `${module}.ts`)));
+  const ts = TS_CORES.filter(({ module }) => fs.existsSync(path.join(app, `${module}.ts`)));
   // (instantiated by its instantiateCore, as the worklets do: a tree that guards the calls of its cores pays for it)
-  const instantiate = cores.length > 0 && fs.existsSync(path.join(source, `${WASM_CORE}.ts`));
+  const instantiate = cores.length > 0 && fs.existsSync(path.join(app, `${WASM_CORE}.ts`));
   const contents = `${ENTRY}${[
     ...ts.map(({ module, create }) => [module, create]),
     ...cores.map(({ facade, create, optional = [] }) => {
-      const code = fs.readFileSync(path.join(source, `${facade}.ts`), 'utf8');
+      const code = fs.readFileSync(path.join(app, `${facade}.ts`), 'utf8');
       const present = optional.filter((name) => new RegExp(`export const ${name}\\b`).test(code));
       return [facade, [create, ...present].join(', ')];
     }),
     ...(instantiate ? [[WASM_CORE, 'instantiateCore']] : []),
-    ...(fs.existsSync(path.join(source, `${LFO_CURVE}.ts`)) ? [[LFO_CURVE, 'lfoTable']] : []),
+    ...(fs.existsSync(path.join(app, `${LFO_CURVE}.ts`)) ? [[LFO_CURVE, 'lfoTable']] : []),
   ]
     .map(([module, create]) => `export { ${create} } from './${module}';\n`)
     .join('')}`;
-  const dsp = await loadApp({ source, contents, name });
+  const dsp = await loadApp({ source, resolveDir: app, contents, name });
   const wasm = Object.fromEntries(
     cores.map(({ core }) => {
       const module = new WebAssembly.Module(fs.readFileSync(path.join(source, `tmp/wasm/${core}.wasm`)));

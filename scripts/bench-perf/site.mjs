@@ -5,7 +5,7 @@ import fs from 'fs';
 import http from 'http';
 import path from 'path';
 import { downloadTables as download, fileName } from '../bench-common.mjs';
-import { exec, out, require, root, siteDir, sourceStamp, tablesDir } from './util.mjs';
+import { appDir, exec, out, require, root, siteDir, sourceStamp, tablesDir } from './util.mjs';
 
 const probeFile = path.join(out, 'perf/probe.js');
 const stampFile = path.join(out, 'site-stamp.txt');
@@ -24,17 +24,28 @@ export const buildSite = async ({ force = false } = {}) => {
     fs.mkdirSync(out, { recursive: true });
     fs.writeFileSync(stampFile, stamp);
   }
-  const esbuild = require('esbuild');
-  await esbuild.build({
-    entryPoints: [path.join(root, 'apps/waveform/src/app/perf/probe.worklet.ts')],
+  await buildProbe(root, probeFile);
+  return siteDir;
+};
+
+// the onset probe of a tree (the worktree of a reference: the name of its processor is the one its page asks for, a
+// tree from before the rename to Chisper has another one), the probe of the working tree if it has none
+export const buildProbe = async (
+  tree,
+  outfile = path.join(out, 'perf', `probe-${path.basename(tree)}.js`)
+) => {
+  const entry = path.join(tree, appDir(tree), 'src/app/perf/probe.worklet.ts');
+  if (!fs.existsSync(entry)) return probeFile;
+  await require('esbuild').build({
+    entryPoints: [entry],
     bundle: true,
     format: 'esm',
     logLevel: 'warning',
-    // code of the perf build (apps/waveform/src/globals.d.ts)
+    // code of the perf build (apps/chisper/src/globals.d.ts)
     define: { __PERF__: 'true' },
-    outfile: probeFile,
+    outfile,
   });
-  return siteDir;
+  return outfile;
 };
 
 const TYPES = {
@@ -75,8 +86,8 @@ const HEADERS = {
 };
 
 // the server of a run, on a free port of localhost: a perf build (`site`: the one of the working tree, or of the
-// reference of an A/B run), the probe and the tables
-export const serve = ({ keys, site = siteDir }) =>
+// reference of an A/B run), its probe (`probe`, buildProbe) and the tables
+export const serve = ({ keys, site = siteDir, probe = probeFile }) =>
   new Promise((resolve) => {
     const server = http.createServer((req, res) => {
       const url = new URL(req.url, 'http://localhost');
@@ -100,12 +111,12 @@ export const serve = ({ keys, site = siteDir }) =>
       }
       const file =
         pathname === '/perf/probe.js'
-          ? probeFile
+          ? probe
           : pathname.startsWith('/tables/')
             ? path.join(tablesDir, pathname.slice('/tables/'.length))
             : path.join(site, pathname);
-      // within one of the served folders, not a sibling of one (waveform-perf-old)
-      const inside = [site, tablesDir, path.dirname(probeFile)].some(
+      // within one of the served folders, not a sibling of one (chisper-perf-old)
+      const inside = [site, tablesDir, path.dirname(probe)].some(
         (dir) => file === dir || file.startsWith(dir + path.sep)
       );
       if (!inside) return send(404);

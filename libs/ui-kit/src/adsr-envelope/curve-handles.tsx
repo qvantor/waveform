@@ -1,7 +1,7 @@
 import React from 'react';
 import { styled } from 'styled-components';
 import cls from 'classnames';
-import { number } from '@waveform/math';
+import { number } from '@chisper/math';
 import { useLineChartContext } from '../line-chart';
 import { theme } from '../common/constants';
 import { singlePointerTracker } from '../common/utils';

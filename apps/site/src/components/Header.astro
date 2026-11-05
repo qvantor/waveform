@@ -1,0 +1,54 @@
+---
+import Logo from './Logo.astro';
+import type { Messages } from '../i18n';
+
+interface Props {
+  m: Messages;
+}
+
+// the wordmark and the key into the synth; the languages are in the footer (and in the alternates of the head)
+const { m } = Astro.props;
+---
+
+<header class='header'>
+  <div class='column bar'>
+    <Logo />
+    <a class='key key-glow open' href='/'>
+      {m.openSynth}
+    </a>
+  </div>
+</header>
+
+<style>
+  /* stays on top, the page under it blurred */
+  .header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: rgb(14 21 27 / 72%);
+    backdrop-filter: saturate(160%) blur(14px);
+    -webkit-backdrop-filter: saturate(160%) blur(14px);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    min-height: 68px;
+  }
+
+  .open {
+    min-height: 40px;
+    padding: 0 16px;
+    font-size: 12px;
+  }
+
+  /* a phone: the wordmark alone (the first section has the key) */
+  @media (max-width: 560px) {
+    .open {
+      display: none;
+    }
+  }
+</style>

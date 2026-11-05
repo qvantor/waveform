@@ -1,0 +1,85 @@
+---
+import { ART_FILL, DIAGRAM, diagramFrames, diagramTrack, svgArea, svgPoints } from '../art/wavetable';
+
+interface Props {
+  // what it shows, for those who don't see it
+  label: string;
+}
+
+// a wavetable as the synth draws one on its dark screens (the screen is its card's): its frames stacked from a
+// sine (frame 1, at the back) to a saw (the last, at the front), the one the Wave knob plays lit and filled to its
+// zero line, the knob on its track along the stack; the numbers of the frames and the name of the knob are the
+// synth's, the same in every language
+const { label } = Astro.props;
+const frames = diagramFrames();
+const lit = frames[DIAGRAM.played];
+const { first, last, knob } = diagramTrack();
+// the first frame over the back end of the track, the last under its front end, the knob's name left of it
+const labels = [
+  { x: first[0], y: first[1] - 16, anchor: 'middle', name: '1', knob: false },
+  { x: last[0], y: last[1] + 32, anchor: 'middle', name: '256', knob: false },
+  { x: knob[0] - 16, y: knob[1] + 7, anchor: 'end', name: 'Wave', knob: true },
+];
+---
+
+<svg class='drawing' viewBox={`0 0 ${DIAGRAM.width} ${DIAGRAM.height}`} role='img' aria-label={label}>
+  <defs>
+    <linearGradient id='diagram-fill' x1='0' y1='0' x2='0' y2='1'>
+      <stop offset='0' stop-color={`rgb(${ART_FILL.rgb})`} stop-opacity={ART_FILL.top}></stop>
+      <stop offset='1' stop-color={`rgb(${ART_FILL.rgb})`} stop-opacity={ART_FILL.bottom}></stop>
+    </linearGradient>
+  </defs>
+  <g fill='none' stroke-linejoin='round'>
+    {frames.map((frame) => (
+      <>
+        {frame.glow > 0 && <polygon points={svgArea(frame)} fill='url(#diagram-fill)' stroke='none' />}
+        <polyline
+          points={svgPoints(frame.xy)}
+          stroke={frame.color}
+          stroke-opacity={frame.alpha.toFixed(2)}
+          stroke-width={frame.width.toFixed(2)}
+        />
+      </>
+    ))}
+  </g>
+  <line
+    x1={first[0]}
+    y1={first[1]}
+    x2={last[0]}
+    y2={last[1]}
+    stroke='#fff'
+    stroke-opacity='0.16'
+    stroke-width='4'
+    stroke-linecap='round'
+  ></line>
+  <line
+    x1={knob[0]}
+    y1={knob[1]}
+    x2={lit.left}
+    y2={lit.zero}
+    stroke={lit.color}
+    stroke-width='1.5'
+    stroke-dasharray='3 4'
+  ></line>
+  <circle cx={knob[0]} cy={knob[1]} r='7' fill={lit.color} stroke='#fff' stroke-width='2'></circle>
+  {labels.map(({ x, y, anchor, name, knob }) => (
+    <text class:list={{ knob }} x={x} y={y} text-anchor={anchor}>
+      {name}
+    </text>
+  ))}
+</svg>
+
+<style>
+  .drawing {
+    display: block;
+  }
+
+  text {
+    font: 600 22px var(--font);
+    fill: var(--text-muted);
+  }
+
+  .knob {
+    fill: var(--text);
+  }
+</style>

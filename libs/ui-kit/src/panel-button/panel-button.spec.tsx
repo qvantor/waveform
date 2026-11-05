@@ -1,7 +1,7 @@
 import React from 'react';
 import { act, render, screen } from '@testing-library/react';
 import { userEvent } from '@testing-library/user-event';
-import { PanelButton } from './index';
+import { PanelButton, PanelLink } from './index';
 
 describe('PanelButton', () => {
   it('renders the icon and the label and fires onClick', async () => {
@@ -105,5 +105,25 @@ describe('PanelButton', () => {
       act(() => resize());
       expect(label.classList.contains('hidden')).toBe(false);
     });
+  });
+});
+
+describe('PanelLink', () => {
+  it('is a link of the icon and the label', () => {
+    render(
+      <PanelLink href='/about/' icon={<svg data-testid='icon' />}>
+        About
+      </PanelLink>
+    );
+    const link = screen.getByRole('link', { name: 'About' });
+    expect(link.getAttribute('href')).toBe('/about/');
+    expect(screen.getByTestId('icon')).toBeTruthy();
+  });
+
+  it('takes its name from aria-label with the icon alone, and keeps its class', () => {
+    render(<PanelLink href='/about/' icon={<svg />} aria-label='About Chisper' className='custom' />);
+    const link = screen.getByRole('link', { name: 'About Chisper' });
+    expect(link.textContent).toBe('');
+    expect(link.classList.contains('custom')).toBe(true);
   });
 });

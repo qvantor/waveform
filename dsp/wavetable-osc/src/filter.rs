@@ -1,4 +1,4 @@
-//! apps/waveform/src/app/synth/common/wavetable/voice-filter.ts: the filter of a voice after the oscillators, its
+//! apps/chisper/src/app/synth/common/wavetable/voice-filter.ts: the filter of a voice after the oscillators, its
 //! knobs glide, the routes move them; the coefficients of a BiquadFilterNode
 
 use crate::velocity::Volume;

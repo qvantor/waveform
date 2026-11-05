@@ -1,0 +1,400 @@
+---
+import { Picture } from 'astro:assets';
+import WavetableArt from './WavetableArt.astro';
+import { ART_EXTENT } from '../art/wavetable';
+import poster from '../assets/synth-poster.png';
+import { marks, type Messages } from '../i18n';
+import { SITE } from '../i18n/locales';
+
+interface Props {
+  m: Messages;
+}
+
+const { m } = Astro.props;
+// the name in the colors of the logo: every title starts with it (i18n.spec.ts)
+const BRAND = 'Chisper';
+// where its waves start and their length, as shares of the box of the drawing (placed by them: .art)
+const extent = `--from: ${ART_EXTENT.from.toFixed(4)}; --span: ${(ART_EXTENT.to - ART_EXTENT.from).toFixed(4)}`;
+---
+
+<section class='hero' aria-labelledby='title'>
+  <div class='scene' aria-hidden='true'>
+    <div class='art' data-art style={extent}>
+      <WavetableArt />
+      <canvas hidden></canvas>
+    </div>
+  </div>
+  <div class='column intro'>
+    <h1 id='title'>
+      <span class='brand'>{BRAND}</span>
+      {m.hero.h1.slice(BRAND.length)}
+    </h1>
+    <p class='lead'>
+      {marks(m.hero.lead).map(({ text, strong }) => (strong ? <strong>{text}</strong> : text))}
+    </p>
+    <div class='ctas'>
+      <a class='key key-glow' href='/'>
+        {m.openSynth}
+      </a>
+      <a class='key key-ghost' href='#listen'>
+        <svg viewBox='0 0 24 24' aria-hidden='true'>
+          <path d='M8 5.5v13l10.5-6.5z'></path>
+        </svg>
+        {m.hero.listen}
+      </a>
+    </div>
+  </div>
+</section>
+
+<div class='shot-band'>
+  <div class='column'>
+    <figure class='window'>
+      <div class='bar' aria-hidden='true'>
+        <span class='dots'>
+          <i></i>
+          <i></i>
+          <i></i>
+        </span>
+        <span class='address'>{new URL(SITE).host}</span>
+      </div>
+      <div class='screen'>
+        <Picture
+          src={poster}
+          alt=''
+          formats={['avif', 'webp']}
+          widths={[440, 880, 1280]}
+          sizes='(min-width: 920px) 880px, calc(100vw - 40px)'
+          loading='lazy'
+        />
+        <video
+          data-autoplay
+          muted
+          loop
+          playsinline
+          preload='none'
+          width='1280'
+          height='800'
+          aria-label={m.hero.screenshotAlt}
+        >
+          <source src='/video/synth.mp4' type='video/mp4' />
+          <source src='/video/synth.webm' type='video/webm' />
+        </video>
+      </div>
+    </figure>
+    <p class='details'>
+      {marks(m.hero.details).map(({ text, strong }) => (strong ? <strong>{text}</strong> : text))}
+    </p>
+  </div>
+</div>
+
+<script>
+  import { animateArt } from '../scripts/art';
+  import { playWhenSeen } from '../scripts/video';
+
+  animateArt();
+  playWhenSeen();
+</script>
+
+<style>
+  /* a dark screen of the synth: its grid, lights of the logo's colors, the wavetable moving across it */
+  .hero {
+    --text-width: 600px;
+    position: relative;
+    isolation: isolate;
+    overflow: hidden;
+    padding: 104px 0 184px;
+    color: var(--text);
+    background:
+      radial-gradient(760px 520px at 74% 48%, rgb(46 204 113 / 15%), transparent 70%),
+      radial-gradient(640px 520px at 6% -10%, rgb(52 152 219 / 20%), transparent 70%),
+      linear-gradient(180deg, #0f171e, var(--dark) 55%, #0e151b);
+  }
+
+  /* faded out towards the bottom of the section, where it clips the frames */
+  .scene {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    mask-image: linear-gradient(180deg, #000 calc(100% - 240px), transparent);
+  }
+
+  .scene::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(rgb(255 255 255 / 4%) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(255 255 255 / 4%) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: radial-gradient(ellipse 80% 70% at 60% 45%, #000 20%, transparent 80%);
+  }
+
+  /* its waves from OVERLAP behind the end of the text to the right edge of the page, in the middle of its height
+     (the section clips what is higher): the end of the text is that of the column (global.css) */
+  .art {
+    --text-end: calc(max(var(--gutter), (100% - var(--column)) / 2) + var(--text-width));
+    --overlap: 120px;
+    --width: calc((100% - var(--text-end) + var(--overlap)) / var(--span));
+    position: absolute;
+    top: 50%;
+    left: calc(var(--text-end) - var(--overlap) - var(--from) * var(--width));
+    width: var(--width);
+    aspect-ratio: 3 / 2;
+    transform: translateY(-50%);
+  }
+
+  .art svg,
+  .art canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  /* a shade behind the text, so it reads over the frames */
+  .scene::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      90deg,
+      rgb(15 23 30 / 92%) 0%,
+      rgb(15 23 30 / 80%) calc(50% - 80px),
+      rgb(15 23 30 / 0%) calc(50% + 180px)
+    );
+  }
+
+  .intro {
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+  }
+
+  .intro > * {
+    max-width: var(--text-width);
+  }
+
+  /* the title a little wider than the text under it: a long German compound stays on its line */
+  .intro > h1 {
+    max-width: calc(var(--text-width) + 120px);
+  }
+
+  h1 {
+    font-size: 60px;
+    font-weight: 700;
+    line-height: 1.02;
+    letter-spacing: -1.2px;
+    text-wrap: balance;
+  }
+
+  .brand {
+    background: var(--logo);
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+  }
+
+  /* the first sentence, bright, its words under a stroke of the logo's colors */
+  .lead {
+    font-size: 22px;
+    line-height: 1.45;
+    letter-spacing: -0.2px;
+    color: var(--text);
+    text-wrap: pretty;
+  }
+
+  .lead strong {
+    font-weight: 600;
+    color: #fff;
+    background: linear-gradient(90deg, rgb(52 152 219 / 42%), rgb(46 204 113 / 42%)) 0 84% / 100% 0.4em
+      no-repeat;
+    border-radius: 2px;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+  }
+
+  /* what it has, under the synth playing: quieter, its words only brighter */
+  .details {
+    max-width: 720px;
+    margin: 28px auto 0;
+    font-size: 17px;
+    line-height: 1.65;
+    color: var(--text-muted);
+    text-align: center;
+    text-wrap: balance;
+  }
+
+  .details strong {
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .ctas {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  .ctas svg {
+    width: 18px;
+    height: 18px;
+    fill: var(--accent);
+  }
+
+  /* the synth playing, in a window rising over the bottom of the screen, on a glow of the logo's colors */
+  .shot-band {
+    position: relative;
+    margin-top: -136px;
+    padding-bottom: 80px;
+  }
+
+  .window {
+    position: relative;
+    max-width: 880px;
+    margin: 0 auto;
+  }
+
+  .window::before {
+    content: '';
+    position: absolute;
+    inset: 10% 2% -8%;
+    background:
+      radial-gradient(closest-side at 30% 50%, rgb(52 152 219 / 38%), transparent),
+      radial-gradient(closest-side at 70% 50%, rgb(46 204 113 / 32%), transparent);
+    filter: blur(44px);
+  }
+
+  .bar,
+  .screen {
+    position: relative;
+  }
+
+  /* the bar of a browser: three lights of the synth's colors, the address */
+  .bar {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    height: 34px;
+    padding: 0 14px;
+    border-radius: 12px 12px 0 0;
+    background: linear-gradient(180deg, #24323f, #1b2733);
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 8%);
+  }
+
+  .dots {
+    display: flex;
+    gap: 7px;
+  }
+
+  .dots i {
+    width: 11px;
+    height: 11px;
+    border-radius: 50%;
+    background: #e74c3c;
+  }
+
+  .dots i:nth-child(2) {
+    background: #f1c40f;
+  }
+
+  .dots i:nth-child(3) {
+    background: #2ecc71;
+  }
+
+  .address {
+    padding: 3px 14px;
+    border-radius: 999px;
+    background: rgb(255 255 255 / 6%);
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  /* the first frame of the video under it (lazy, at the size of the screen): the video covers it once it plays,
+     with nothing before its first frame */
+  .screen {
+    position: relative;
+    aspect-ratio: 1280 / 800;
+    overflow: hidden;
+    border-radius: 0 0 12px 12px;
+    background: var(--primary);
+  }
+
+  .screen :global(img),
+  video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+
+  .window::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 12px;
+    box-shadow:
+      0 0 0 1px rgb(255 255 255 / 12%),
+      0 40px 80px -30px rgb(0 0 0 / 85%);
+    pointer-events: none;
+  }
+
+  /* a phone: the frames over the title, the text on the shade under them */
+  @media (max-width: 960px) {
+    .art {
+      top: -24px;
+      left: -8vw;
+      width: max(116vw, 440px);
+      transform: none;
+    }
+
+    .scene::after {
+      background: linear-gradient(
+        180deg,
+        rgb(15 23 30 / 0%) 0,
+        rgb(15 23 30 / 10%) 150px,
+        rgb(15 23 30 / 82%) 320px,
+        rgb(15 23 30 / 94%) 100%
+      );
+    }
+  }
+
+  @media (max-width: 860px) {
+    .hero {
+      padding: 236px 0 96px;
+    }
+
+    h1 {
+      font-size: 40px;
+      letter-spacing: -0.8px;
+    }
+
+    .lead {
+      font-size: 19px;
+    }
+
+    .details {
+      font-size: 16px;
+    }
+
+    .shot-band {
+      margin-top: -64px;
+      padding-bottom: 56px;
+    }
+
+    .bar {
+      height: 26px;
+      padding: 0 10px;
+    }
+
+    .dots i {
+      width: 8px;
+      height: 8px;
+    }
+
+    .address {
+      font-size: 10px;
+      padding: 2px 10px;
+    }
+  }
+</style>

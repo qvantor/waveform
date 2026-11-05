@@ -1,23 +1,23 @@
 <div align="center">
 
-# Waveform
+# Chisper
 
-**Experimental wavetable synth in your browser**
+**Chisper is a free wavetable synthesizer that runs in the browser on a computer, a Chromebook or a phone: no download, no account.**
 
 Built with TypeScript, Rust (WebAssembly), RxJS and the Web Audio API. Nothing to install and no account needed: open it and play.
 
-[![CI](https://github.com/qvantor/waveform/actions/workflows/ci.yml/badge.svg)](https://github.com/qvantor/waveform/actions/workflows/ci.yml)
+[![CI](https://github.com/qvantor/chisper/actions/workflows/ci.yml/badge.svg)](https://github.com/qvantor/chisper/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-PolyForm_Noncommercial_1.0.0-blue)](LICENSE)
 ![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
 ![Rust](https://img.shields.io/badge/Rust-000000?logo=rust&logoColor=white)
 ![WebAssembly](https://img.shields.io/badge/WebAssembly-654FF0?logo=webassembly&logoColor=white)
 ![React 19](https://img.shields.io/badge/React_19-20232A?logo=react&logoColor=61DAFB)
 ![Web Audio API](https://img.shields.io/badge/Web_Audio_API-FF6F00)
-[![Netlify](https://img.shields.io/badge/deployed_on-Netlify-00C7B7?logo=netlify&logoColor=white)](https://waveform.qvantor.org/)
+[![Netlify](https://img.shields.io/badge/deployed_on-Netlify-00C7B7?logo=netlify&logoColor=white)](https://chisper.qvantor.org/)
 
-[**▶ Live demo**](https://waveform.qvantor.org/) · [Features](#features) · [Getting started](#getting-started) · [Architecture](#architecture) · [Contributing](#contributing)
+[**▶ Live demo**](https://chisper.qvantor.org/) · [Features](#features) · [Getting started](#getting-started) · [Architecture](#architecture) · [Contributing](#contributing)
 
-![Waveform playing the "Scream bass" preset](screenshot.webp)
+![Chisper playing the "Scream bass" preset](screenshot.webp)
 
 </div>
 
@@ -96,8 +96,8 @@ Notes are ignored while a text field has focus.
 ### Installation
 
 ```bash
-git clone https://github.com/qvantor/waveform.git
-cd waveform
+git clone https://github.com/qvantor/chisper.git
+cd chisper
 npm ci
 cp .env.example .env   # then fill in the values
 mkcert -install        # once per machine: trusts the mkcert CA
@@ -143,7 +143,7 @@ To run only the frontend use `npm run client:start`. Wavetables and presets won'
 | `npm start`              | Functions and dev server together                                           |
 | `npm run client:start`   | Frontend only                                                               |
 | `npm run certs`          | Local HTTPS certificate for `netlify dev` (needs mkcert)                    |
-| `npm run build`          | Production build to `dist/apps/waveform`                                    |
+| `npm run build`          | Production build to `dist/apps/chisper`                                     |
 | `npm run wasm`           | Rust cores of the worklets to WebAssembly (`tmp/wasm`, `tmp/wasm-perf`)     |
 | `npm run worklets`       | AudioWorklet and Web Worker bundles with esbuild (`tmp/worklets`)           |
 | `npm run test:all`       | All Jest tests (`npx nx test <project>` for one project)                    |
@@ -165,7 +165,7 @@ To run only the frontend use `npm run client:start`. Wavetables and presets won'
 ## Project structure
 
 ```
-apps/waveform/          React app: synth modules, worklets, UI, presets client
+apps/chisper/           React app: synth modules, worklets, UI, presets client
 libs/
   math/                 number, vector and typed-array helpers, FFT wave utilities, biquad coefficients
   rxjs-react/           rxModel: RxJS state models bound to React context
@@ -213,7 +213,7 @@ Contributions are welcome! To get started:
 3. Run `npm run precheck`: formatting, types, lint, knip, the Rust checks and tests must pass, the same checks CI runs on every PR. A change of the sound of a Rust core needs its golden hashes recorded again (`UPDATE_GOLDENS=1`, see [CLAUDE.md](CLAUDE.md)).
 4. Open a pull request.
 
-Found a bug or have an idea? [Open an issue](https://github.com/qvantor/waveform/issues).
+Found a bug or have an idea? [Open an issue](https://github.com/qvantor/chisper/issues).
 
 ## License
 

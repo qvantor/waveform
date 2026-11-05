@@ -1,0 +1,74 @@
+---
+import type { Messages } from '../i18n';
+
+interface Props {
+  m: Messages;
+}
+
+// the answers are in the HTML whether a question is open or not (crawlers read them)
+const { m } = Astro.props;
+---
+
+<section class='section' id='faq' aria-labelledby='faq-title'>
+  <div class='column'>
+    <h2 id='faq-title'>{m.faq.h2}</h2>
+    <div class='items'>
+      {m.faq.items.map(({ q, a }) => (
+        <details>
+          <summary>{q}</summary>
+          <p>{a}</p>
+        </details>
+      ))}
+    </div>
+  </div>
+</section>
+
+<style>
+  /* the questions on one raised surface, a line between them */
+  .items {
+    display: grid;
+    gap: 1px;
+    margin-top: 28px;
+    background: var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+    box-shadow: var(--raised);
+  }
+
+  details {
+    background: var(--surface);
+  }
+
+  details[open] {
+    background: var(--surface-high);
+  }
+
+  summary {
+    display: flex;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 18px 20px;
+    font-weight: 600;
+    cursor: pointer;
+    list-style: none;
+  }
+
+  summary::-webkit-details-marker {
+    display: none;
+  }
+
+  summary::after {
+    content: '+';
+    font-weight: 400;
+    color: var(--accent);
+  }
+
+  details[open] summary::after {
+    content: '−';
+  }
+
+  details p {
+    padding: 0 20px 20px;
+    color: var(--text-muted);
+  }
+</style>

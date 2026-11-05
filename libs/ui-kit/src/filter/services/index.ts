@@ -1,4 +1,4 @@
-import { biquad } from '@waveform/math';
+import { biquad } from '@chisper/math';
 import { FilterProps } from '../types';
 
 type Coefficients = biquad.Coefficients;

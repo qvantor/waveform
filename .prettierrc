@@ -2,5 +2,14 @@
   "singleQuote": true,
   "printWidth": 110,
   "jsxSingleQuote": true,
-  "trailingComma": "es5"
+  "trailingComma": "es5",
+  "plugins": ["prettier-plugin-astro"],
+  "overrides": [
+    {
+      "files": "*.astro",
+      "options": {
+        "parser": "astro"
+      }
+    }
+  ]
 }

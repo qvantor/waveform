@@ -60,7 +60,7 @@ const powerSpectrum = (signal) => {
 };
 
 // the amplitude of each harmonic of a frame (a power of two long; DC and the nyquist bin 0, as realWithImag of
-// @waveform/math gives them)
+// @chisper/math gives them)
 const harmonicsOf = (frame) => {
   const size = frame.length;
   const fft = new FFT(size);

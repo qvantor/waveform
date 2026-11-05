@@ -1,0 +1,90 @@
+import { mapValues, noop } from 'lodash';
+import { FX_PARAMS } from '@chisper/preset-schema';
+import { DISTORTION_PROCESSOR } from '../../common/processors';
+import { createLfoFeed } from '../../common/lfo/lfo-curve';
+import { FxDefinition } from './types';
+import { DistortionParam, DISTORTION_PRESETS } from './distortion-presets';
+import { formatDb, formatHz } from './format';
+import { DISTORTION_MODES } from './distortion-modes';
+import { DISTORTION_LATENCY, DistortionMessage, DistortionOptions, TONE_OPEN } from './distortion-params';
+import { createWorkletFx, STEREO_WORKLET_OPTIONS } from './worklet-fx';
+import { FxModMessage, isLfoSource } from './fx-modulation';
+
+const { mode, drive, tone, level } = FX_PARAMS.distortion;
+
+// the oversampled waveshaper runs in an audio worklet (distortion-dsp.ts, distortion.worklet.ts):
+// input → worklet node → output (createWorkletFx); the module loads asynchronously, until then the input
+// goes nowhere and the params are kept, the node starts with them. Its output lags by DISTORTION_LATENCY,
+// the fx slot delays the dry signal as much and mixes them linearly (the wet signal is the dry one reshaped)
+export const distortion: FxDefinition<DistortionParam> = {
+  label: 'Distortion',
+  params: {
+    mode: { ...mode, label: 'Mode', options: DISTORTION_MODES },
+    drive: { ...drive, label: 'Drive', name: 'Input drive', precision: 10, formatValue: formatDb },
+    tone: {
+      ...tone,
+      label: 'Tone',
+      name: 'Tone cutoff',
+      mode: 'log',
+      precision: 1,
+      formatValue: (value) => (value >= TONE_OPEN ? 'Open' : formatHz(value)),
+    },
+    level: {
+      ...level,
+      label: 'Level',
+      name: 'Output level',
+      precision: 10,
+      fillFrom: 0,
+      formatValue: formatDb,
+    },
+  },
+  presets: DISTORTION_PRESETS,
+  create: (audioCtx) => {
+    const values = mapValues(FX_PARAMS.distortion, (param) => param.default);
+
+    // the node starts with the params and the LFOs kept until the module has loaded
+    const worklet = createWorkletFx(audioCtx, 'distortion', () => {
+      const lfos = feed.initial();
+      const processorOptions: DistortionOptions = {
+        params: { ...values },
+        ...(lfos && { lfos }),
+      };
+      return new AudioWorkletNode(audioCtx, DISTORTION_PROCESSOR, {
+        ...STEREO_WORKLET_OPTIONS,
+        processorOptions,
+      });
+    });
+    const post = (message: DistortionMessage) => worklet.post(message);
+    // the LFOs, only while a route of one moves a knob
+    const feed = createLfoFeed((state) => {
+      const message: FxModMessage = { lfos: state };
+      worklet.post(message);
+    });
+
+    return {
+      input: worklet.input,
+      output: worklet.output,
+      $status: worklet.$status,
+      retry: worklet.retry,
+      latency: DISTORTION_LATENCY / audioCtx.sampleRate,
+      linearMix: true,
+      // unknown keys are ignored
+      setParam: (key, value) => {
+        if (!(key in values)) return;
+        values[key as DistortionParam] = value;
+        post({ params: { [key]: value } });
+      },
+      // no loops to drain: the closed send silences the input, and the worklet idles once it is silent
+      setActive: noop,
+      clear: worklet.clear,
+      // the worklet moves the knobs once per block (the LFOs as they are first, once a route reads one)
+      setModulation: (mod) => {
+        feed.use(!!mod && mod.routes.some(({ source }) => isLfoSource(source)));
+        const message: FxModMessage = { mod };
+        worklet.post(message);
+      },
+      setLfos: feed.take,
+      destroy: worklet.destroy,
+    };
+  },
+};

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Vector2D, number, vector2d } from '@waveform/math';
+import { Vector2D, number, vector2d } from '@chisper/math';
 import { LineChart, YAxis, Line } from '../line-chart';
 import { theme } from '../common/constants';
 import { MouseInteractive } from './components';

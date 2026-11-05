@@ -1,0 +1,48 @@
+---
+interface Props {
+  // the wordmark of the header (large) or of the footer
+  size?: 'large' | 'small';
+}
+
+const { size = 'large' } = Astro.props;
+---
+
+<span class:list={['logo', size]}>
+  <span class='name'>Chisper</span>
+  <span class='by'>by Qvantor</span>
+</span>
+
+<style>
+  /* the wordmark of the synth's header: gradient letters, "by Qvantor" under their right end */
+  .logo {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: flex-end;
+    line-height: 1;
+  }
+
+  .name {
+    font-weight: 700;
+    font-size: 32px;
+    text-transform: uppercase;
+    background: var(--logo);
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+  }
+
+  .by {
+    margin-top: 2px;
+    font-weight: 700;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .small .name {
+    font-size: 22px;
+  }
+
+  .small .by {
+    font-size: 11px;
+  }
+</style>

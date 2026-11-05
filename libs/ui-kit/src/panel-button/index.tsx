@@ -1,7 +1,7 @@
 import React from 'react';
 import cls from 'classnames';
 import hexToRgba from 'hex-to-rgba';
-import { styled } from 'styled-components';
+import { css, styled } from 'styled-components';
 import { theme } from '../common/constants';
 import { textBold12 } from '../common/styles';
 
@@ -19,7 +19,7 @@ const sunken = `
 `;
 
 // fills its whole cell, so a row of them reads as one strip of keys
-const Root = styled.button`
+const key = css`
   flex: 1 1 0;
   min-width: 0;
   position: relative;
@@ -69,6 +69,15 @@ const Root = styled.button`
     background: ${theme.colors.primary};
     box-shadow: none;
   }
+`;
+
+const Root = styled.button`
+  ${key}
+`;
+
+const LinkRoot = styled.a`
+  ${key}
+  text-decoration: none;
 `;
 
 const Label = styled.span`
@@ -144,3 +153,16 @@ export const PanelButton = React.forwardRef<HTMLButtonElement, Props>(
   }
 );
 PanelButton.displayName = 'PanelButton';
+
+type LinkProps = React.AnchorHTMLAttributes<HTMLAnchorElement> & {
+  icon?: React.ReactNode;
+};
+
+// a key of the strip that goes to a page (About): the look of PanelButton on an <a>; an icon alone takes its
+// accessible name from aria-label
+export const PanelLink = ({ icon, children, ...rest }: LinkProps) => (
+  <LinkRoot {...rest}>
+    {icon}
+    {children && <Label>{children}</Label>}
+  </LinkRoot>
+);
