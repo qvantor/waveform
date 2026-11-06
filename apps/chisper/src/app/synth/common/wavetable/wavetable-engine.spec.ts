@@ -174,6 +174,9 @@ describe('wavetable engine', () => {
     const other = engine.createVoice(NOTE, {});
     engine.setRoutes([1, 2], [{ source: 1, param: 'gain1', amount: 0.5, min: 0, max: 1 }]);
     engine.setFilter([2], null);
+    // the knobs of a module (the noise) to the voices that play it, none: no event
+    engine.setKnobs([1], 'noise', { level: 0.5, pan: -0.25, cents: 700 });
+    engine.setKnobs([], 'noise', { level: 1, pan: 0, cents: 0 });
     // a microtask sends the events of the task, in one message
     expect(events()).toEqual([]);
     await Promise.resolve();
@@ -191,6 +194,7 @@ describe('wavetable engine', () => {
         routes: [{ source: 1, param: 'gain1', amount: 0.5, min: 0, max: 1 }],
       },
       { kind: 'filter', voices: [2], filter: null },
+      { kind: 'knobs', voices: [1], module: 'noise', values: { level: 0.5, pan: -0.25, cents: 700 } },
     ]);
     expect(other?.id).toBe(2);
   });

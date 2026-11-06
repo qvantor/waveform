@@ -6,6 +6,7 @@ import type {
   useEnvelopes,
   useModulation,
   useInputController,
+  useNoise,
   useOscillator1,
   useOscillator2,
   useSynth,
@@ -31,6 +32,7 @@ export interface PerfModels {
   mod: ReturnType<typeof useModulation>;
   osc1: ReturnType<typeof useOscillator1>;
   osc2: ReturnType<typeof useOscillator2>;
+  noise: ReturnType<typeof useNoise>;
   filter: ReturnType<typeof useFilter>;
   fx: ReturnType<typeof useFx>;
   synth: ReturnType<typeof useSynth>;
@@ -68,7 +70,10 @@ export const createPerfApi = (models: PerfModels) => {
     limiter: masterLimiter.$status.value,
     fx: models.fx[0].$status.value as Record<string, FxStatus>,
   });
-  const loading = () => Object.values(oscillators).some(([osc]) => osc.$waveTableLoading.value);
+  // (the sample of the noise too)
+  const loading = () =>
+    Object.values(oscillators).some(([osc]) => osc.$waveTableLoading.value) ||
+    models.noise[0].$sampleLoading.value;
 
   const stats = async (): Promise<PerfStats> => {
     const engine = await wavetables.stats();

@@ -20,7 +20,7 @@ const Root = styled.div`
   gap: 5px;
 `;
 
-// the table: as wide as the oscillator whatever its name (cut with an ellipsis)
+// the table: as wide as the oscillator whatever its name (cut in its middle)
 const Table = styled.div`
   contain: inline-size;
 `;

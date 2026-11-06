@@ -29,7 +29,8 @@ if a check failed.
 - macOS with Xcode: `xcrun xctrace` records the cycles. The first recording may ask for Developer Tools access
   of the terminal (System Settings → Privacy & Security → Developer Tools).
 - The browsers of Playwright 1.50.1: `npx -y playwright@1.50.1 install chromium webkit`.
-- The S3 keys in `.env` (the tables of the cases are downloaded once into `tmp/bench-perf/tables`).
+- The network once: the tables of the cases are downloaded from the domain of their bucket into
+  `tmp/bench-perf/tables`; the pages take them from there.
 - The Mac on its power adapter, Low Power Mode off, other audio apps closed (a DAW, a browser playing): the
   runner warns about the first two, a Bluetooth output and an output not at 48 kHz (the browser resamples the
   cases: more cycles and latency than the baseline; Audio MIDI Setup → the output → Format). The browsers are

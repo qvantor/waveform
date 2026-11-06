@@ -36,6 +36,7 @@ const setup = async ({ running = true } = {}) => {
       synth: modules.synth,
       fx,
       oscillator: [modules.osc1, modules.osc2],
+      noise: modules.noise,
     }),
     'soundSwitch',
     undefined
@@ -60,6 +61,7 @@ const setup = async ({ running = true } = {}) => {
     end,
     osc1,
     osc2,
+    noise: modules.noise,
     wavetables,
     gain,
     last,
@@ -198,6 +200,30 @@ describe('soundSwitch', () => {
     switchSound(() => osc2.$waveTableLoading.next(true));
     render(1.02);
     render(1.03);
+    expect(opened()).toBe(true);
+  });
+
+  it('waits for the sample of the noise on, not for one that is off', async () => {
+    const { switchSound, noise, wavetables, render, opened } = await setup();
+    const [model] = noise;
+    // off: its sample loading is not waited for
+    switchSound(() => model.$sampleLoading.next(true));
+    render(1.02);
+    render(1.03);
+    expect(opened()).toBe(true);
+    switchSound(() => {
+      model.$active.next(true);
+      model.$sampleLoading.next(true);
+    });
+    render(1.05);
+    render(1.06);
+    expect(opened()).toBe(false);
+    model.$sampleLoading.next(false);
+    wavetables.$tables.next({ ...wavetables.$tables.value, [model.id]: 'sending' });
+    render(1.07);
+    expect(opened()).toBe(false);
+    wavetables.$tables.next({ ...wavetables.$tables.value, [model.id]: 'stored' });
+    render(1.08);
     expect(opened()).toBe(true);
   });
 

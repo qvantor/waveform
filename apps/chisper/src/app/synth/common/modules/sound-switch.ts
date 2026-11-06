@@ -1,6 +1,7 @@
 import { rxModel, rxModelReact } from '@chisper/rxjs-react';
 import { KILL_FADE } from '../wavetable/voice-options';
 import type { FxModule } from '../../fx/modules/fx';
+import type { NoiseModule } from './noise';
 import { OscillatorModule } from './oscillator';
 import type { SynthModule } from './synth';
 import { SynthCoreModule } from './synth-core';
@@ -10,6 +11,7 @@ interface Deps {
   synth: SynthModule;
   fx: FxModule;
   oscillator: [OscillatorModule, OscillatorModule];
+  noise: NoiseModule;
 }
 
 // seconds of silence after the next preset is applied: the clear messages reach the worklets before the
@@ -28,7 +30,8 @@ const POLL = 10;
 // (synth pause); once the audio thread has rendered the silence the preset is applied (the chain rewired then
 // doesn't click) and the fx and the limiter forget the sound before (after it: the delay makes its nodes at the
 // knobs of the preset, from those before Time would glide); the output opens at once (nothing sounds before it,
-// a fade would take the attacks of the keys) when the tables of its oscillators on are played, then the keys
+// a fade would take the attacks of the keys) when the tables of its oscillators on and the sample of its noise on
+// are played, then the keys
 // still held start on it (synth resume). A preset chosen meanwhile replaces one waiting for the fade, after it is
 // applied at once (the synth is silent) and the wait starts again. A context that doesn't run isn't waited for,
 // a clock that doesn't move MAX_CLOCK_WAIT at most at either stage. A preset that throws doesn't keep the synth
@@ -38,6 +41,7 @@ const createSoundSwitch = ({
   synth: [{ voicing }, { pause, resume }],
   fx: [, { clear }],
   oscillator,
+  noise: [{ $active: $noise, samplePlayed }],
 }: Deps) => {
   // set while it switches (the poll of its stage)
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -63,7 +67,8 @@ const createSoundSwitch = ({
   // an oscillator that isn't ready plays no note anyway
   const tablesPlayed = () =>
     wavetables.$status.value !== 'ready' ||
-    oscillator.every(([{ $active, tablePlayed }]) => !$active.value || tablePlayed());
+    (oscillator.every(([{ $active, tablePlayed }]) => !$active.value || tablePlayed()) &&
+      (!$noise.value || samplePlayed()));
 
   const apply = (next: () => void) => {
     pending = null;

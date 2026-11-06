@@ -7,7 +7,7 @@ import { text10 } from '../common/styles';
 import { theme } from '../common/constants';
 import { keepFocus } from '../common/utils';
 
-export { AnchorIcon, DottedIcon, TripletIcon } from './icons';
+export { AnchorIcon, DottedIcon, LoopIcon, OneShotIcon, TrackIcon, TripletIcon } from './icons';
 
 interface Props {
   on: boolean;
@@ -215,10 +215,25 @@ const Plate = styled.div`
     letter-spacing: 1px;
   }
 
-  &.stack ${Key} {
+  &.stack ${Key}, &.fill ${Key} {
     flex: 1 1;
     min-width: 0;
     padding: 0;
+  }
+
+  /* in a strip (fill): its keys as wide as those of the plates beside it (a share of the strip a key: its flex), the
+     strip's height, a line between plates */
+  &.fill {
+    border-radius: 0;
+    background: none;
+  }
+
+  &.fill + &.fill {
+    border-left: ${LINE};
+  }
+
+  &.fill > ${Wrap} {
+    flex: 1 1 0;
   }
 
   /* all of it off (a bypassed effect): faded as a whole, as the switch of a mode is */
@@ -240,12 +255,15 @@ interface KeysProps {
   // the first key across the top, larger, the others in a row under it (BPM over T and D beside a knob; one key
   // alone all of it); its size is the one given
   stack?: boolean;
+  // in a strip (the window of the noise): the plates of the row share its width by their keys, every key as wide
+  fill?: boolean;
   className?: string;
 }
 
 // keys on one plate, a line between them (the strips of the oscillator)
 export const SwitchKeys = ({
   stack = false,
+  fill = false,
   disabled = false,
   disabledHint,
   className,
@@ -257,7 +275,8 @@ export const SwitchKeys = ({
     <Plate
       role='group'
       aria-disabled={disabled || undefined}
-      className={cls(className, { stack })}
+      className={cls(className, { stack, fill })}
+      style={fill ? { flex: `${React.Children.toArray(children).length} 1 0` } : undefined}
       {...props}
     >
       <PlateContext.Provider value={off}>{children}</PlateContext.Provider>

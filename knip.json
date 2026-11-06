@@ -15,6 +15,9 @@
     "scripts/wasm-browsers/run.mjs",
     "scripts/wasm-browsers/app.mjs",
     "scripts/renders/run.mjs",
+    "scripts/noises/process.mjs",
+    "scripts/noises/add.mjs",
+    "scripts/noises/upload.mjs",
     "scripts/**/*.test.mjs",
     "{apps/*,libs/*,netlify}/jest.config.ts",
     "{apps,libs,netlify}/**/*.spec.{ts,tsx}",
@@ -51,7 +54,7 @@
     "react-refresh",
     "@pmmmwh/react-refresh-webpack-plugin"
   ],
-  "ignoreBinaries": ["mkcert", "caffeinate", "notifyutil", "swiftc"],
+  "ignoreBinaries": ["mkcert", "caffeinate", "notifyutil", "swiftc", "afconvert", "afinfo"],
   "ignoreUnresolved": ["^[\\w.-]+=apps/chisper/src/.+\\.(worklet|worker)\\.ts$"],
   "ignoreExportsUsedInFile": true,
   "astro": {

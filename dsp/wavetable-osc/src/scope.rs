@@ -209,6 +209,13 @@ impl Scope {
         }
     }
 
+    /// new knobs of `module` (a `knobs` event) for voice `id`
+    pub fn set_knobs(&mut self, id: f64, module: usize, values: &[f64]) {
+        if let Some(voice) = self.voice(id) {
+            voice.voice.set_knobs(module, values);
+        }
+    }
+
     pub fn set_velocity(&mut self, id: f64, velocity: crate::velocity::VoiceVelocity) {
         if let Some(voice) = self.voice(id) {
             voice.voice.set_velocity(velocity);
@@ -268,6 +275,8 @@ impl Scope {
         let (frame, n) = (self.frame, self.length);
         // (none at rest: the detunes as they are, to the bit)
         let bent = !self.bend.constant || self.bend.value() != 0.0;
+        // the bend of the block for the noise of Pitch Track: one value at rest
+        let bend_one = [self.bend.value() as f32];
         while self.cursor < self.voices.len() {
             self.in_voice = true;
             // a trap leaves the memory as it is then (it is not a return): the voice rendering, the sum and the
@@ -313,7 +322,14 @@ impl Scope {
                         }
                     })
                 };
-                voice.voice.process(frame, &params, out_l, out_r, store, shared)
+                let bend: &[f32] = if self.bend.constant {
+                    &bend_one
+                } else {
+                    &self.bend.values[..n]
+                };
+                voice
+                    .voice
+                    .process(frame, &params, bend, out_l, out_r, store, shared)
             };
             self.in_voice = false;
             let (out_l, out_r) = self.out[..2 * n].split_at(n);

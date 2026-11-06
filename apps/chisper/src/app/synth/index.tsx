@@ -23,6 +23,8 @@ import {
   Oscillator2Provider,
   useOscillator1,
   useOscillator2,
+  NoiseProvider,
+  useNoise,
   KeyboardControllerProvider,
   SynthCoreProvider,
   useSynthCore,
@@ -38,6 +40,7 @@ import { VoicingSection } from './voicing';
 import { MidiInput, SettingsButton } from './settings';
 import { EnvelopeSection, VelocitySection } from './envelope';
 import { LfoSection } from './lfo';
+import { NoiseSection } from './noise';
 import { MobileLayout } from './mobile';
 import { FxScreen, FxProvider, useFx } from './fx';
 import { SYNTH_SCREENS, SynthScreen } from './screens';
@@ -52,20 +55,26 @@ const Root = styled.div`
   background: ${theme.colors.primaryLowContrast};
 `;
 
-// the oscillators and the filter after them, in the order the sound goes
+// the oscillators, the noise (half the width of the filter) and the filter after them, in the order the sound goes
+const COLUMNS = '3fr 3fr 1fr 2fr';
 const SynthRow = styled.div`
   display: grid;
-  grid-template-columns: 3fr 3fr 2fr;
+  grid-template-columns: ${COLUMNS};
   background: ${theme.colors.primaryLowContrast};
   gap: 1px;
 `;
 
-// the columns of the row above: fr shares what the gaps leave, a fourth column would move its lines
+// the columns of the row above (fr shares what the gaps leave: the same tracks, so the lines meet): ENV under OSC 1,
+// the LFOs under OSC 2 and the noise
 const ModRow = styled.div`
   display: grid;
-  grid-template-columns: 3fr 3fr 2fr;
+  grid-template-columns: ${COLUMNS};
   background: ${theme.colors.primaryLowContrast};
   gap: 1px;
+
+  & > :nth-child(2) {
+    grid-column: span 2;
+  }
 `;
 
 // the velocity and the voicing under the filter
@@ -102,6 +111,7 @@ const SynthRowInternal = () => (
   <SynthRow>
     <Oscillator1 />
     <Oscillator2 />
+    <NoiseSection />
     <FilterSection />
   </SynthRow>
 );
@@ -143,6 +153,7 @@ const SoundSwitchInternal = ({ children }: React.PropsWithChildren) => {
   const fx = useFx();
   const oscillator1 = useOscillator1();
   const oscillator2 = useOscillator2();
+  const noise = useNoise();
   return (
     <SoundSwitchProvider
       initial={undefined}
@@ -150,6 +161,7 @@ const SoundSwitchInternal = ({ children }: React.PropsWithChildren) => {
       synth={synth}
       fx={fx}
       oscillator={[oscillator1, oscillator2]}
+      noise={noise}
     >
       {children}
     </SoundSwitchProvider>
@@ -197,6 +209,7 @@ const VoicesInternal = ({ children }: React.PropsWithChildren) => {
   const modulation = useModulation();
   const oscillator1 = useOscillator1();
   const oscillator2 = useOscillator2();
+  const noise = useNoise();
   const filter = useFilter();
   return (
     <SynthProvider
@@ -207,6 +220,7 @@ const VoicesInternal = ({ children }: React.PropsWithChildren) => {
       lfo={lfo}
       modulation={modulation}
       oscillator={[oscillator1, oscillator2]}
+      noise={noise}
       filter={filter}
       synthCore={synthCore}
     >
@@ -258,7 +272,9 @@ const OscillatorInternal = ({ children }: React.PropsWithChildren) => {
         initial={{ initialWavePath: DEFAULT_WAVETABLE_PATH, active: false }}
         synthCore={synthCore}
       >
-        {children}
+        <NoiseProvider initial={{}} synthCore={synthCore}>
+          {children}
+        </NoiseProvider>
       </Oscillator2Provider>
     </Oscillator1Provider>
   );
@@ -303,11 +319,11 @@ const HeaderInternal = ({ screen, onScreenChange }: ScreenProps) => (
     <HeaderRight>
       <TapeSwitch options={SYNTH_SCREENS} value={screen} onChange={onScreenChange} switchOnDrag />
       <PresetSection
+        leading={<AboutLink />}
         actions={
           <>
             <MidiInput />
             <SettingsButton />
-            <AboutLink />
           </>
         }
       />

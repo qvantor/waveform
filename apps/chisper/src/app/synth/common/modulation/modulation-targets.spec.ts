@@ -1,6 +1,7 @@
 import { FxRoute, movedBy, routeTerm } from '../../fx/effects/fx-modulation';
 import type { ModRoute } from '../modules/modulation';
-import { lfoKnobRoutes, routeAmount } from './modulation-targets';
+import { ROUTE_IDS } from '../wavetable/voice-modules';
+import { lfoKnobRoutes, MOD_TARGETS, routeAmount } from './modulation-targets';
 
 // the knob a route moves from `base` at the level 1 of its source (unclamped: the bounds clamp it after)
 const movedAtOne = (base: number, route: FxRoute) => movedBy(base, routeTerm(route, 1), route);
@@ -36,5 +37,19 @@ describe('routeAmount', () => {
     expect(routeAmount(0.25, 'pow', [0, 32], [0, 32])).toBe(0.25);
     expect(routeAmount(0.5, 'linear', [0, 2], [0, 1])).toBe(1);
     expect(routeAmount(0.5, 'log', [1 / 32, 100], [1 / 64, 100])).toBe(0.5 * Math.log2(3200));
+  });
+});
+
+describe('the knobs of the voice', () => {
+  it('are every knob of the modules of the voice, each the route of one target (the fx follow the last note)', () => {
+    const routes = Object.values(MOD_TARGETS).flatMap((target) =>
+      target.kind === 'fx' ? [] : [target.route]
+    );
+    expect([...routes].sort()).toEqual(Object.keys(ROUTE_IDS).sort());
+    expect(MOD_TARGETS['osc2.wave']).toMatchObject({ route: 'position2' });
+    expect(MOD_TARGETS['osc1.detune']).toMatchObject({ route: 'spread1' });
+    expect(MOD_TARGETS['filter.gain']).toMatchObject({ route: 'gain' });
+    expect(MOD_TARGETS['noise.pitch']).toMatchObject({ route: 'noise.pitch' });
+    expect(MOD_TARGETS['lfo3.smooth']).toMatchObject({ route: 'lfo3.smooth' });
   });
 });

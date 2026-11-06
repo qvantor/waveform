@@ -45,6 +45,20 @@ describe('PitchWheel', () => {
     expect(screen.getByRole('slider').getAttribute('aria-valuenow')).toBe('0.5');
   });
 
+  it('draws its drum as wide as it is laid out: a wider slot, wider ribs and mark', () => {
+    const { unmount } = setup();
+    const widths = () => {
+      const mark = screen.getByTestId('pitch-wheel-mark');
+      return [mark.closest('svg')?.getAttribute('width'), mark.getAttribute('width')];
+    };
+    expect(widths()).toEqual(['20', '16']);
+    unmount();
+    const restore = withElementSize(30, 106);
+    setup();
+    expect(widths()).toEqual(['30', '26']);
+    restore();
+  });
+
   it('follows a drag up and down within -1..1 and springs back to 0 once let go', () => {
     const { wheel, onChange } = setup();
     pointer('pointerdown', wheel, 100);

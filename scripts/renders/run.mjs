@@ -20,15 +20,18 @@
 //   harmonic each: the frames each channel plays by the unison, the spread, the position, a detune mode, a stack
 // - blend.json: the blend of a unison (A Uni Blend) of 2..8 voices on a sine: the level of each voice in each
 //   channel by the knob, by Macro 1 routed to it (a mod slot of the state), and while either moves it
+// - noise.json: the noise oscillator on samples of ours (state.mjs: written into User of its noises, removed after):
+//   the pitch of Pitch, Fine and Pitch Track, the bend, the laws of Level and Pan, where Start and Rand start a
+//   note, a one-shot's end, mono notes, the images and aliasing of a sine by pitch
 // Its knobs are 0..1: the times are 32 s · v⁵, the sustain v² (-12 dB at 0.5), the voices 1 + 15v.
-// `--only=envelopes,unison,unison-modes,phases,frames,frame-fades,aliasing,spread,blend` renders some of them
+// `--only=envelopes,unison,unison-modes,phases,frames,frame-fades,aliasing,spread,blend,noise` renders some of them
 import { execFileSync, spawn, spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import { downloadTables, fileName, readEnv } from '../bench-common.mjs';
 import { analyze, frameOf, PITCHES, sawFrame, SIZE, TABLES } from '../bench-osc/sound.mjs';
-import { editedState, tables, writeTable } from './state.mjs';
+import { editedState, noisesFolder, tables, writeSample, writeTable } from './state.mjs';
 
 const require = createRequire(import.meta.url);
 const FFT = require('fft.js');
@@ -1204,6 +1207,243 @@ if (runs('aliasing')) {
       } rates, floor ${JSON.stringify(floor)}`
     );
   } finally {
+    removeTables();
+  }
+}
+
+// --- noise ---
+if (runs('noise')) {
+  // samples of ours (float32 at 44.1 kHz) written into User of the noises of the Audio Unit, removed after; the
+  // init state with osc A off and the noise on one of them, at Level 1, ENV 1 open
+  const samples = [];
+  const noiseState = (name, channels, params) => {
+    const file = join(noisesFolder(), 'User', `chisper-test-${name}.wav`);
+    writeSample(file, channels);
+    samples.push(file);
+    const state = join(work, `state-noise-${name}.bin`);
+    writeFileSync(
+      state,
+      editedState(init, [], [], {
+        path: `User/chisper-test-${name}.wav`,
+        frames: channels[0].length,
+        channels: channels.length,
+        rate: 44100,
+        params,
+      })
+    );
+    return state;
+  };
+  const NOISE = { 'A Enable': 0, 'Noise Enable': 1, 'Noise Level': 1, 'Env 1 Attack': 0, 'Env 1 Sustain': 1 };
+  const sineOf = (hz, seconds) =>
+    Float64Array.from({ length: Math.round(seconds * 44100) }, (_, i) =>
+      Math.sin((2 * Math.PI * hz * i) / 44100)
+    );
+  // a note of C5 from 0.05 to 1.5 s; the measures read 0.3..1.3 s
+  const held = (note = 72) => [{ note, on: 0.05, off: 1.5 }];
+  const play = (name, state, params, notes = held()) =>
+    hostRender(name, { seconds: 1.6, state, params: { ...NOISE, ...params }, notes });
+  const from = Math.round(0.3 * RATE);
+  // the frequency of a sine by its rising zero crossings over 0.3..1.3 s
+  const frequency = (x) => {
+    const crossings = [];
+    for (let i = from; i < from + RATE; i++)
+      if (x[i] <= 0 && x[i + 1] > 0) crossings.push(i + x[i] / (x[i] - x[i + 1]));
+    return ((crossings.length - 1) / (crossings.at(-1) - crossings[0])) * RATE;
+  };
+  const semitones = (x, base) => +(12 * Math.log2(frequency(x) / base)).toFixed(3);
+  const amplitude = (x, hz) => tone(x, hz, from, RATE).amplitude;
+  const dB = (v) => +(20 * Math.log10(v)).toFixed(3);
+  // L the sine, R the cosine of one turn over 2 s: the share of the sample a frame reads is atan2(L, R) / 2π
+  const TURN = 2 * 44100;
+  const turn = [0, 1].map((c) =>
+    Float64Array.from({ length: TURN }, (_, i) => (c ? Math.cos : Math.sin)((2 * Math.PI * i) / TURN))
+  );
+  const shareAt = (l, r, k) => (Math.atan2(l[k], r[k]) / (2 * Math.PI) + 1) % 1;
+  // the share each note of `ons` starts at: 8 frames after its first sound, less the 8 · 44100 / RATE samples it read
+  const startShares = (l, r, ons) =>
+    ons.map((on) => {
+      let i = Math.round(on * RATE) - 64;
+      while (Math.abs(l[i]) + Math.abs(r[i]) < 1e-6) i++;
+      return +((shareAt(l, r, i + 8) - (8 * 44100) / RATE / TURN + 1) % 1).toFixed(4);
+    });
+  try {
+    const sine = noiseState('sine', [sineOf(1000, 3)]);
+    const pair = noiseState('pair', [sineOf(1000, 3), sineOf(1500, 3)]);
+    const turned = noiseState('turn', turn);
+    const shot = noiseState('shot', turn, { kParamOneShot: { f32: 1 } });
+    const short = noiseState(
+      'short',
+      turn.map((c) => c.slice(0, 22050)),
+      { kParamOneShot: { f32: 1 } }
+    );
+    const PITCHES = [0, 0.1, 0.2, 0.25, 0.3, 0.4, 0.45, 0.5, 0.55, 0.6, 0.7, 0.75, 0.8, 0.9, 1];
+    const pitch = PITCHES.filter((v) => v >= 0.25).map((v) =>
+      play(`noise-pitch-${v}`, sine, { 'Noise Pitch': v }).then(([l]) => [v, semitones(l, 1000)])
+    );
+    const fine = [0, 0.25, 0.75, 1].flatMap((f) =>
+      [0.4, 0.5, 0.6].map((p) =>
+        play(`noise-fine-${p}-${f}`, sine, { 'Noise Pitch': p, 'Noise Fine': f }).then(([l]) => [
+          p,
+          f,
+          semitones(l, 1000),
+        ])
+      )
+    );
+    const track = [36, 60, 61, 72, 84].map((note) =>
+      play(`noise-track-${note}`, sine, { 'Noise Pitch Track': 1 }, held(note)).then(([l]) => [
+        note,
+        semitones(l, 1000),
+      ])
+    );
+    const bend = [0, 1].map((on) =>
+      play(`noise-bend-${on}`, sine, { 'Noise Pitch Track': on, 'Pitch Bend': 1 }).then(([l]) => [
+        !!on,
+        semitones(l, 1000),
+      ])
+    );
+    const level = [1, 0.75, 0.5, 0.25, 0.1].map((v) =>
+      play(`noise-level-${v}`, sine, { 'Noise Level': v }).then(([l]) => [v, amplitude(l, 1000)])
+    );
+    // osc A on a sine of ours at A Level 1 against the noise on a sine at Level 1: the same scale?
+    const frame = Array.from({ length: 2048 }, (_, i) => Math.sin((2 * Math.PI * i) / 2048));
+    writeTable(join(tables(), 'User', 'chisper-test-noise-sine.wav'), [frame], '00000000');
+    written.push(join(tables(), 'User', 'chisper-test-noise-sine.wav'));
+    const oscillator = hostRender('noise-osc', {
+      seconds: 1.6,
+      state: stateOf('noise-osc', [{ path: 'User/chisper-test-noise-sine.wav', frames: 1 }]),
+      params: { 'A Level': 1, 'Env 1 Attack': 0, 'Env 1 Sustain': 1 },
+      notes: held(),
+    }).then(([l]) => amplitude(l, 440 * 2 ** (3 / 12)));
+    const pan = Array.from({ length: 21 }, (_, k) => k / 20).map((v) =>
+      Promise.all([
+        play(`noise-pan-${v}`, sine, { 'Noise Pan': v }),
+        play(`noise-pan2-${v}`, pair, { 'Noise Pan': v }),
+      ]).then(([[l, r], [sl, sr]]) => ({
+        v,
+        mono: [amplitude(l, 1000), amplitude(r, 1000)],
+        stereo: [amplitude(sl, 1000), amplitude(sl, 1500), amplitude(sr, 1000), amplitude(sr, 1500)],
+      }))
+    );
+    // notes every 0.25 s; the Audio Unit draws the same random shares in every render
+    const ons = Array.from({ length: 16 }, (_, j) => 0.1 + j * 0.25);
+    const notes = ons.map((on) => ({ note: 72, on, off: on + 0.2 }));
+    const starts = (name, state, params) =>
+      hostRender(name, {
+        seconds: 4.3,
+        state,
+        params: { ...NOISE, 'Env 1 Release': 0, ...params },
+        notes,
+      }).then(([l, r]) => startShares(l, r, ons));
+    const phase = [0, 0.25, 0.5, 0.9].map((v) =>
+      // (a share of 1 is 0: the start of the loop)
+      starts(`noise-phase-${v}`, turned, { 'Noise Phase': v }).then((s) => [v, median(s) % 1])
+    );
+    const rand = [1, 0.75, 0.5, 0.25, 0.1].map((v) =>
+      starts(`noise-rand-${v}`, turned, { 'Noise Rand Phase': v }).then((s) => [v, s])
+    );
+    const late = [
+      ['loop', turned],
+      ['oneShot', shot],
+    ].map(([mode, state]) =>
+      starts(`noise-late-${mode}`, state, { 'Noise Phase': 0.8, 'Noise Rand Phase': 0.5 }).then((s) => [
+        mode,
+        s,
+      ])
+    );
+    // a sample of 0.5 s held 1.45 s: the last frame it sounds at
+    const end = [
+      [
+        'loop',
+        noiseState(
+          'short-loop',
+          turn.map((c) => c.slice(0, 22050))
+        ),
+      ],
+      ['oneShot', short],
+    ].map(([mode, state]) =>
+      play(`noise-end-${mode}`, state, {}).then(([l, r]) => {
+        let last = 0;
+        for (let i = 0; i < l.length; i++) if (Math.abs(l[i]) + Math.abs(r[i]) > 1e-6) last = i;
+        return [mode, +(last / RATE - 0.05).toFixed(3)];
+      })
+    );
+    // mono, notes at 0.1, 0.6 and 1.1 s held: the share read just before and just after each one
+    const mono = [
+      [0, 0],
+      [1, 0],
+      [0, 1],
+    ].map(([legato, randPhase]) =>
+      hostRender(`noise-mono-${legato}-${randPhase}`, {
+        seconds: 2.4,
+        state: turned,
+        params: { ...NOISE, 'Mono Toggle': 1, Legato: legato, 'Noise Rand Phase': randPhase },
+        notes: [0.1, 0.6, 1.1].map((on, j) => ({ note: 72 + 2 * j, on, off: 2.2 })),
+      }).then(([l, r]) => ({
+        legato: !!legato,
+        rand: randPhase,
+        shares: [0.59, 0.61, 1.09, 1.11].map((t) => [t, +shareAt(l, r, Math.round(t * RATE)).toFixed(4)]),
+      }))
+    );
+    // a sine of 15 kHz (44.1 kHz) by pitch: the tone and the loudest other component 200 Hz off it at least (dB)
+    const fifteen = noiseState('fifteen', [sineOf(15000, 3)]);
+    const quality = [0, 1, 12, -12, -24].map((st) =>
+      // (spectrum reads 2^18 samples from 0.2 s)
+      hostRender(`noise-quality-${st}`, {
+        seconds: 6,
+        state: fifteen,
+        params: { ...NOISE, 'Noise Pitch': 0.5 + st / (st < 0 ? 384 : 96) },
+        notes: [{ note: 72, on: 0.05, off: 5.9 }],
+      }).then(([l]) => {
+        const x = spectrum(l);
+        let main = 1;
+        for (let k = 1; k < x.length; k++) if (x[k] > x[main]) main = k;
+        const hz = (k) => (k * RATE) / N;
+        let other = 1;
+        for (let k = 1; k < x.length; k++) if (Math.abs(hz(k) - hz(main)) > 200 && x[k] > x[other]) other = k;
+        return {
+          st,
+          tone: [+hz(main).toFixed(1), dB(x[main])],
+          other: [+hz(other).toFixed(1), dB(x[other])],
+        };
+      })
+    );
+    const all = (list) => Promise.all(list);
+    const [center] = await all(level);
+    const levels = await all(level);
+    const pans = await all(pan);
+    const centerPan = pans.find(({ v }) => v === 0.5);
+    const rand1 = (await all(rand))[0][1];
+    const result = {
+      about:
+        'The noise oscillator of the Audio Unit (osc A off, the noise on samples of ours: float32 at 44.1 kHz in User of its noises, at Level 1, ENV 1 open; notes of C5 held 0.05..1.5 s, measured over 0.3..1.3 s): `pitch` [knob, semitones] of the sample played (Pitch Track off; a sine of 1 kHz); `fine` [Pitch, Fine knob, semitones]; `track` [note, semitones] with Pitch Track on; `bend` [Pitch Track, semitones] at Pitch Bend 1 (Bend Up 2); `level` [knob, dB against Level 1]; `oscillator` the noise at Level 1 over osc A at A Level 1, both on a sine of amplitude 1; `pan` [knob, left, right] of a mono sample against the centre, `stereo` [knob, L of the left channel, R of the left channel, L of the right channel, R of the right channel] of a stereo one (dB against the centre); `phase` [knob, the share of the sample a note starts at]; `rand` [knob, the span of the shares against those of Rand 1 (the same draws in every render)]; `late` the shares of notes at Phase 0.8, Rand 0.5, looped and one-shot; `end` [mode, the seconds a sample of 0.5 s sounds]; `mono` the shares read around notes of mono (0.1, 0.6, 1.1 s); `quality` a sine of 15 kHz by semitones: the tone and the loudest other component [Hz, dB full scale]; scripts/renders/run.mjs --only=noise',
+      pitch: await all(pitch),
+      fine: await all(fine),
+      track: await all(track),
+      bend: await all(bend),
+      level: levels.map(([v, a]) => [v, dB(a / center[1])]),
+      oscillator: +(center[1] / (await oscillator)).toFixed(5),
+      pan: pans.map(({ v, mono: [l, r] }) => [
+        v,
+        +(l / centerPan.mono[0]).toFixed(5),
+        +(r / centerPan.mono[1]).toFixed(5),
+      ]),
+      stereo: pans
+        .filter(({ v }) => [0, 0.25, 0.5, 0.75, 1].includes(v))
+        .map(({ v, stereo }) => [v, ...stereo.map((a, i) => dB(a / centerPan.stereo[i < 2 ? 0 : 3]))]),
+      phase: await all(phase),
+      rand: (await all(rand)).map(([v, s]) => [v, +median(s.map((share, i) => share / rand1[i])).toFixed(4)]),
+      late: Object.fromEntries(await all(late)),
+      end: Object.fromEntries(await all(end)),
+      mono: await all(mono),
+      quality: await all(quality),
+    };
+    writeFileSync(join(out, 'noise.json'), `${JSON.stringify(result, null, 1)}\n`);
+    console.log(
+      'dsp/measurements: noise',
+      JSON.stringify({ oscillator: result.oscillator, rand: result.rand })
+    );
+  } finally {
+    samples.forEach((file) => rmSync(file, { force: true }));
     removeTables();
   }
 }

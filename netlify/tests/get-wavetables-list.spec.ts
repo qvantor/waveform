@@ -10,19 +10,23 @@ jest.mock('../utils', () => ({
 
 const send = client.send as jest.Mock;
 
-const list = async (keys: string[]) => {
-  send.mockResolvedValue({ Contents: keys.map((Key) => ({ Key, Size: 1 })) });
+const answer = async () => {
   const response = (await handler({} as any, {} as any)) as HandlerResponse;
   return { ...response, tree: JSON.parse(response.body as string) };
 };
 
+const list = (keys: string[]) => {
+  send.mockResolvedValue({ Contents: keys.map((Key) => ({ Key, Size: 1 })) });
+  return answer();
+};
+
 beforeEach(() => {
   send.mockReset();
-  process.env.BUCKET = 'tables';
+  process.env.R2_BUCKET = 'tables';
 });
 
 afterAll(() => {
-  delete process.env.BUCKET;
+  delete process.env.R2_BUCKET;
 });
 
 it('lists the bucket', async () => {
@@ -74,4 +78,16 @@ it.each([
       ]),
     },
   ]);
+});
+
+it('answers 500 without the error when the bucket fails, and logs it', async () => {
+  const error = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+  const failure = new Error('No bucket');
+  send.mockRejectedValue(failure);
+  const { statusCode, headers, tree } = await answer();
+  expect(statusCode).toBe(500);
+  expect(headers?.['Access-Control-Allow-Origin']).toBe('*');
+  expect(tree).toEqual({ error: 'Internal error' });
+  expect(error).toHaveBeenCalledWith(failure);
+  error.mockRestore();
 });

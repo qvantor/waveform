@@ -16,6 +16,7 @@ jest.mock('../synth/common/modules', () => ({
   useModulation: mockTuple('mod'),
   useOscillator1: mockTuple('osc1'),
   useOscillator2: mockTuple('osc2'),
+  useNoise: mockTuple('noise'),
   useSynth: mockTuple('synth'),
 }));
 jest.mock('../synth/filter/modules', () => ({ useFilter: mockTuple('filter') }));
@@ -35,6 +36,7 @@ describe('perf hook of the perf build', () => {
       'mod',
       'osc1',
       'osc2',
+      'noise',
       'filter',
       'fx',
       'synth',

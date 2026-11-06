@@ -66,8 +66,8 @@ export const finiteSamples = (samples: Float32Array) => {
   return samples;
 };
 
-// the samples of a RIFF WAVE file as stored, without resampling (the ones that are not finite as 0)
-export const parseWav = (buffer: ArrayBuffer): Wav => {
+// the format, the data and the mark of a RIFF WAVE file
+const readWav = (buffer: ArrayBuffer) => {
   const view = new DataView(buffer);
   if (buffer.byteLength < 12 || text(view, 0) !== 'RIFF' || text(view, 8) !== 'WAVE')
     throw new Error('Not a WAV file');
@@ -88,12 +88,28 @@ export const parseWav = (buffer: ArrayBuffer): Wav => {
   }
   if (!fmt) throw new Error('WAV file has no fmt chunk');
   if (!data) throw new Error('WAV file has no data chunk');
-
   const read = sampleReader(fmt);
-  const { blockAlign } = fmt;
-  if (fmt.channels === 0 || blockAlign < (fmt.bits / 8) * fmt.channels)
-    throw new Error(`Invalid WAV block align ${blockAlign}`);
-  const samples = new Float32Array(Math.floor(data.size / blockAlign));
-  for (let i = 0; i < samples.length; i++) samples[i] = read(view, data.offset + i * blockAlign);
+  if (fmt.channels === 0 || fmt.blockAlign < (fmt.bits / 8) * fmt.channels)
+    throw new Error(`Invalid WAV block align ${fmt.blockAlign}`);
+  return { view, fmt, data, mark, read, frames: Math.floor(data.size / fmt.blockAlign) };
+};
+
+// the samples of a RIFF WAVE file as stored, without resampling (the ones that are not finite as 0)
+export const parseWav = (buffer: ArrayBuffer): Wav => {
+  const { view, fmt, data, mark, read, frames } = readWav(buffer);
+  const samples = new Float32Array(frames);
+  for (let i = 0; i < samples.length; i++) samples[i] = read(view, data.offset + i * fmt.blockAlign);
   return { sampleRate: fmt.sampleRate, samples: finiteSamples(samples), ...(mark && { mark }) };
+};
+
+// every channel of a RIFF WAVE file as stored (a sample of the noise: mono or stereo), without resampling
+export const parseWavChannels = (buffer: ArrayBuffer): { sampleRate: number; channels: Float32Array[] } => {
+  const { view, fmt, data, read, frames } = readWav(buffer);
+  const bytes = fmt.bits / 8;
+  const channels = Array.from({ length: fmt.channels }, (_, c) => {
+    const samples = new Float32Array(frames);
+    for (let i = 0; i < frames; i++) samples[i] = read(view, data.offset + i * fmt.blockAlign + c * bytes);
+    return finiteSamples(samples);
+  });
+  return { sampleRate: fmt.sampleRate, channels };
 };

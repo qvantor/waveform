@@ -1,7 +1,9 @@
-// the browsers of a run (Playwright): a fresh context per run, nothing but localhost loads, the test hook of
-// the perf build (window.__chisperPerf) driven from Node
+// the browsers of a run (Playwright): a fresh context per run, nothing but localhost and the tables of the run
+// load, the test hook of the perf build (window.__chisperPerf) driven from Node
+import fs from 'fs';
 import path from 'path';
-import { SCENE_RATE, sleep } from './util.mjs';
+import { fileName, WAVETABLES_ORIGIN } from '../bench-common.mjs';
+import { SCENE_RATE, sleep, tablesDir } from './util.mjs';
 
 // headed by default: the audio output of headless Chromium is muted (its callbacks and latency are not real);
 // a headless Chromium is the same binary (channel 'chromium', not the headless shell): its processes are found
@@ -52,8 +54,16 @@ export const openPage = async (
 ) => {
   const context = await browser.newContext({ viewport });
   await context.route('**/*', (route) => {
-    const { hostname } = new URL(route.request().url());
-    return hostname === 'localhost' || hostname === '127.0.0.1' ? route.continue() : route.abort();
+    const url = new URL(route.request().url());
+    if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') return route.continue();
+    if (url.origin !== WAVETABLES_ORIGIN) return route.abort();
+    // a table from the domain of its bucket: the one downloaded (the page is cross-origin isolated, a CORS
+    // response passes; a tree from before the domains asks the functions of the server, site.mjs)
+    const file = path.join(tablesDir, fileName(decodeURIComponent(url.pathname)));
+    const headers = { 'access-control-allow-origin': '*', 'cache-control': 'no-store' };
+    return fs.existsSync(file)
+      ? route.fulfill({ status: 200, headers, contentType: 'audio/wav', body: fs.readFileSync(file) })
+      : route.fulfill({ status: 404, headers });
   });
   // the options of every context of the page. Chromium at low latency (128 frames), as the app plays in a Chrome
   // that counts dropouts (latency.ts): forced here, not through the setting of the app (Chromium 133 counts none,

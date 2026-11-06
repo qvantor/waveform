@@ -3,9 +3,13 @@
 //! gives its buffer back to a pool (a table it holds takes it: the memory doesn't grow again). A table arrives in
 //! chunks: begin() takes a slot with the room of its data, chunk() gives the room of each chunk in order (only
 //! the chunk is zeroed: the audio thread never fills 64 MB), commit() makes it the latest once every chunk has
-//! come (a stale version, older than the latest, is freed at once)
+//! come (a stale version, older than the latest, is freed at once). A sample of the noise (noise.rs) is a version
+//! too, its levels at its rate (not 0): its room allocated as it is (a buffer of the pool of 64 MB would hold
+//! 2 MB), given back to the allocator, not the pool; the first one builds the kernels of the noise, unless the
+//! store took those of another (the prewarm's: take_kernels)
 
-use alloc::{vec, vec::Vec};
+use crate::noise::Kernels;
+use alloc::{boxed::Box, vec, vec::Vec};
 use jsmath::{sin, PI};
 
 pub const FRAME_GUARD: usize = 3;
@@ -16,13 +20,15 @@ pub const MAX_LEVEL_LENGTH: usize = 4096;
 const POOL: usize = 2;
 const POOL_SAMPLES: usize = 16_670_976;
 
-/// WavetableLevels: the layout of the band-limited levels of a table (wavetable-levels.ts)
+/// WavetableLevels: the layout of the band-limited levels of a table (wavetable-levels.ts); of a sample of the
+/// noise (noise-levels.ts) its rate (0: a table) and its channels as its frames
 pub struct Levels {
     pub frames: i32,
     pub harmonics: Vec<i32>,
     pub lengths: Vec<i32>,
     pub offsets: Vec<i32>,
     pub data: Vec<f32>,
+    pub rate: f64,
 }
 
 /// a version of a table and its holders
@@ -62,6 +68,9 @@ pub struct Store {
     // the bytes of the versions freed since the wrapper last read it (it sets it back to 0): memory for a version
     // refused before
     pub freed_bytes: f64,
+    // the windowed sincs the noise reads its samples through (built with the first sample, or taken from a store
+    // that built them: take_kernels)
+    pub kernels: Option<Box<Kernels>>,
 }
 
 // played until the table of an oscillator has arrived: one sine cycle, its levels as wavetable-mipmap builds them
@@ -79,6 +88,7 @@ fn sine_levels() -> Levels {
         lengths: vec![length; 5],
         offsets: vec![0, 0, 0, 0, stride],
         data,
+        rate: 0.0,
     }
 }
 
@@ -96,6 +106,7 @@ impl Default for Store {
             freed: Vec::new(),
             track_freed: false,
             freed_bytes: 0.0,
+            kernels: None,
         }
     }
 }
@@ -110,6 +121,14 @@ impl Store {
 
     fn find(&self, table: u32) -> Option<usize> {
         self.current.iter().position(|(id, _)| *id == table)
+    }
+
+    /// the kernels of the noise `from` built, unless the store has its own: the worklet builds them once, as it
+    /// loads (the prewarm), not with its first sample on the audio thread
+    pub fn take_kernels(&mut self, from: &mut Store) {
+        if self.kernels.is_none() {
+            self.kernels = from.kernels.take();
+        }
     }
 
     /// the latest version of a table, None: none yet
@@ -131,7 +150,9 @@ impl Store {
             self.freed.push((table, version));
         }
         self.freed_bytes += 4.0 * levels.data.capacity() as f64;
-        self.recycle(levels.data);
+        if levels.rate == 0.0 {
+            self.recycle(levels.data);
+        }
     }
 
     // a buffer no version holds into the pool, the oldest ones out of it until it fits (never allocates: its room
@@ -231,8 +252,8 @@ impl Store {
         }
     }
 
-    /// a slot for a version of `length` samples of data and its layout, their room reserved, nothing written;
-    /// None: no memory for it (the version is refused, the latest one plays on)
+    /// a slot for a version of `length` samples of data and its layout, their room reserved, nothing written (a
+    /// sample of the noise: `rate` not 0); None: no memory for it (the version is refused, the latest one plays on)
     pub fn begin(
         &mut self,
         table: u32,
@@ -240,6 +261,7 @@ impl Store {
         frames: i32,
         layout: [Vec<i32>; 3],
         length: usize,
+        rate: f64,
     ) -> Option<u32> {
         // a version of the table still coming (its worker stopped halfway) gives its buffer back first
         let stale: Vec<usize> = (0..self.pending.len())
@@ -252,7 +274,17 @@ impl Store {
         if !self.pending.iter().any(Option::is_none) {
             self.pending.try_reserve(1).ok()?;
         }
-        let data = self.room(length)?;
+        let data = if rate == 0.0 {
+            self.room(length)?
+        } else {
+            if self.kernels.is_none() {
+                // (the bank reserves its data, its box is a few words)
+                self.kernels = Some(Box::new(Kernels::build()?));
+            }
+            let mut data = Vec::new();
+            data.try_reserve_exact(length).ok()?;
+            data
+        };
         let [harmonics, lengths, offsets] = layout;
         let entry = Entry {
             table,
@@ -263,6 +295,7 @@ impl Store {
                 lengths,
                 offsets,
                 data,
+                rate,
             },
             refs: 0,
         };
@@ -319,7 +352,9 @@ impl Store {
     /// a slot that will not be committed (its worker stopped, a chunk failed): its buffer goes back to the pool
     pub fn abort(&mut self, slot: u32) {
         if let Some(pending) = self.pending.get_mut(slot as usize).and_then(Option::take) {
-            self.recycle(pending.entry.levels.data);
+            if pending.entry.levels.rate == 0.0 {
+                self.recycle(pending.entry.levels.data);
+            }
         }
     }
 

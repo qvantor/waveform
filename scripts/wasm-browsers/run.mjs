@@ -102,7 +102,7 @@ const renderOscInPage = (page, { bundle, rate, frames, tables, voices, lfos }) =
         store.port.onmessage = ({ data }) => {
           if (data.stored && --waiting === 0) resolve();
         };
-        tables.forEach(({ table, frames: count, harmonics, lengths, offsets, data }) =>
+        tables.forEach(({ table, frames: count, harmonics, lengths, offsets, data, rate }) =>
           store.port.postMessage({
             table,
             version: 1,
@@ -112,6 +112,8 @@ const renderOscInPage = (page, { bundle, rate, frames, tables, voices, lfos }) =
               lengths: Int32Array.from(lengths),
               offsets: Int32Array.from(offsets),
               data: decode(data),
+              // (a sample of the noise)
+              ...(rate && { rate }),
             },
           })
         );
@@ -179,13 +181,14 @@ try {
       const tables =
         scene.kind === 'osc' &&
         Object.entries(await sceneLevels(scene)).map(
-          ([table, { frames, harmonics, lengths, offsets, data }]) => ({
+          ([table, { frames, harmonics, lengths, offsets, data, rate }]) => ({
             table,
             frames,
             harmonics: [...harmonics],
             lengths: [...lengths],
             offsets: [...offsets],
             data: toBase64(data),
+            rate,
           })
         );
       {

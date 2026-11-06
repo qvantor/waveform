@@ -1,6 +1,7 @@
 import React from 'react';
 
-// icons of the keys of the tempo, 16 × 16 in currentColor: shown at the size of the key's text and up
+// icons of the keys of the tempo and of the noise, 16 × 16 in currentColor: shown at the size of the key's text and
+// up
 
 const Icon = ({ children }: React.PropsWithChildren) => (
   <svg viewBox='0 0 16 16' fill='currentColor' aria-hidden focusable='false'>
@@ -48,5 +49,48 @@ export const DottedIcon = () => (
   <Icon>
     <Quarter x={5.2} />
     <circle cx={11.6} cy={11.6} r={1.5} />
+  </Icon>
+);
+
+const LINE = {
+  fill: 'none',
+  stroke: 'currentColor',
+  strokeWidth: 1.4,
+  strokeLinecap: 'round',
+  strokeLinejoin: 'round',
+} as const;
+
+// a sample played around and around: a loop of an arrow
+export const LoopIcon = () => (
+  <Icon>
+    <g {...LINE}>
+      <path d='M3 9.2V7.6a3 3 0 0 1 3-3h7' />
+      <path d='M11 2.6l2 2-2 2' />
+      <path d='M13 6.8v1.6a3 3 0 0 1-3 3H3' />
+      <path d='M5 13.4l-2-2 2-2' />
+    </g>
+  </Icon>
+);
+
+// a sample played once: an arrow up to a stop
+export const OneShotIcon = () => (
+  <Icon>
+    <g {...LINE}>
+      <path d='M2 8h9' />
+      <path d='M8 5l3 3-3 3' />
+      <path d='M13.6 3.6v8.8' />
+    </g>
+  </Icon>
+);
+
+// the pitch following the keys: two keys of a keyboard under a rising arrow
+export const TrackIcon = () => (
+  <Icon>
+    <g {...LINE}>
+      <rect x={2.2} y={8.4} width={4.8} height={6} rx={0.6} />
+      <rect x={9} y={8.4} width={4.8} height={6} rx={0.6} />
+      <path d='M3 5.6l4-3.2 2.6 2 3.6-3' />
+      <path d='M11 1.4h2.2v2.2' />
+    </g>
   </Icon>
 );

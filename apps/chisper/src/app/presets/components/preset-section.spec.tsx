@@ -31,9 +31,9 @@ beforeEach(() => {
 });
 
 describe('PresetSection', () => {
-  const setupSection = (actions?: React.ReactNode) => {
+  const setupSection = (actions?: React.ReactNode, leading?: React.ReactNode) => {
     const user = userEvent.setup();
-    const result = renderWithPresets(<PresetSection actions={actions} />);
+    const result = renderWithPresets(<PresetSection leading={leading} actions={actions} />);
     const prev = screen.getByRole('button', { name: 'Previous preset' });
     const next = screen.getByRole('button', { name: 'Next preset' });
     // the name follows ◀
@@ -136,5 +136,13 @@ describe('PresetSection', () => {
     setupSection(<button type='button'>Extra</button>);
     const extra = screen.getByRole('button', { name: 'Extra' });
     expect(screen.getByRole('button', { name: 'Share' }).nextElementSibling).toBe(extra);
+  });
+
+  it('renders leading keys before Save, the first under ◀', () => {
+    const { prev } = setupSection(undefined, <button type='button'>Lead</button>);
+    const lead = screen.getByRole('button', { name: 'Lead' });
+    expect(lead.nextElementSibling).toContainElement(screen.getByRole('button', { name: /Save/ }));
+    expect(lead.parentElement?.firstElementChild).toBe(lead);
+    expect(lead.parentElement?.previousElementSibling?.firstElementChild).toBe(prev);
   });
 });

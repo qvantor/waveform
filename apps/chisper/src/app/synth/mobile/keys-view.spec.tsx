@@ -1,3 +1,4 @@
+import React from 'react';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { withElementSize } from '@chisper/ui-kit/test-utils';
 import { InputControllerProvider } from '../common/modules';
@@ -6,7 +7,9 @@ import { KeysView } from './keys-view';
 // the mini synth, the mini fx and the wheel read the other models: not what these specs are about
 jest.mock('./synth-sections', () => ({ SynthSections: () => null }));
 jest.mock('../fx', () => ({ FxScreen: () => null }));
-jest.mock('../pitch-bend', () => ({ PitchBend: () => null }));
+jest.mock('../pitch-bend', () => ({
+  PitchBend: ({ wheelWidth }: { wheelWidth?: number }) => <div data-testid='wheel' data-width={wheelWidth} />,
+}));
 
 let restoreSize: () => unknown = () => undefined;
 afterEach(() => restoreSize());
@@ -37,6 +40,11 @@ describe('KeysView', () => {
     fireEvent.click(downs()[1]);
     expect(octaves()).toEqual(['C5', 'C2']);
     expect(stored()).toEqual([5, 2]);
+  });
+
+  it('has the wheel as wide as the octave buttons', () => {
+    setup(true);
+    expect(screen.getByTestId('wheel').getAttribute('data-width')).toBe('36');
   });
 
   it('in landscape two octaves a tier: a stored octave past the last start plays from there, ▲ off', () => {

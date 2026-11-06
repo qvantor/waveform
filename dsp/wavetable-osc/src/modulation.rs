@@ -2,40 +2,30 @@
 //! base + Σ amount × level (base × 2^Σ for a log one), clamped; one value while every envelope a param follows
 //! is in a flat stage. Source 3, after ENV 1–3, is the velocity of the voice (VELO: velocity.rs), flat but
 //! for a glide to the velocity of a note that takes the voice over; sources 4–7 its LFOs (lfo.rs). A bipolar
-//! route moves a param by amount × (level - ½) (a uni one: amount × level, to the bit). The pitch of an
-//! oscillator (Semi, Fine) is two params of base 0 (an offset of its detune within the bounds of its routes: the
-//! range of the knob from its value). The knobs of the LFOs are params too (targets 15–34: a Modulation of their
-//! own in the voice, sources ENV 1–3 and VELO): the times by a share of their travel (pow: the knob is max ·
-//! share⁴), Phase around the cycle (not clamped)
+//! route moves a param by amount × (level - ½) (a uni one: amount × level, to the bit). The params are the knobs of
+//! the modules of targets.rs, by id; the base of each comes from the module that has it (BaseOf), asked only for
+//! the params a route moves. The pitch of an oscillator (Semi, Fine) is two params of base 0 (an offset of its
+//! detune within the bounds of its routes: the range of the knob from its value), so is the pitch of the noise. The
+//! knobs of the LFOs are params too (a Modulation of their own in the voice, sources ENV 1–3 and VELO): the times
+//! by a share of their travel (pow: the knob is max · share⁴), Phase around the cycle (not clamped)
 
 use crate::envelope::EnvelopeBlock;
 use crate::glided::{glide_length, Glided};
-use crate::lfo::{frac, LfoBlock, KNOBS, LFOS, PHASE};
+use crate::lfo::{frac, LfoBlock, LFOS, PHASE};
+use crate::targets::{self, LFO_KNOBS, TARGETS};
 use crate::voice::is_constant;
 use alloc::{vec, vec::Vec};
 use jsmath::{max, min, pow, sqrt};
 
-// the params a route moves, by id (the facade sends their names as these): the knobs of each oscillator
-// (position, spread, gain, then the offsets of its detune: Semi in cents, Fine, then the blend of its unison), then
-// the knobs of the filter
-pub const POSITION1: usize = 0;
-pub const SPREAD1: usize = 1;
-pub const GAIN1: usize = 2;
-pub const PITCH1: usize = 3;
-pub const FINE1: usize = 4;
-pub const BLEND1: usize = 5;
-/// the params of each oscillator
-pub const OSC_TARGETS: usize = 6;
-pub const CUTOFF: usize = 2 * OSC_TARGETS;
-pub const RESONANCE: usize = CUTOFF + 1;
-pub const FILTER_GAIN: usize = CUTOFF + 2;
-/// the params of the voice, then the knobs of LFO 1–4 (rate, delay, rise, smooth, phase each)
-pub const VOICE_TARGETS: usize = FILTER_GAIN + 1;
-pub const TARGET_PARAMS: usize = VOICE_TARGETS + LFOS * KNOBS;
-
 /// knob `knob` of LFO `lfo` as a param of the routes
 pub const fn lfo_target(lfo: usize, knob: usize) -> usize {
-    VOICE_TARGETS + KNOBS * lfo + knob
+    targets::target(LFO_KNOBS, lfo, knob)
+}
+
+/// the base of a param in a block (one value, or one a sample), by the module that has it: knob `knob` of instance
+/// `instance` of `module` (targets.rs)
+pub trait BaseOf {
+    fn base(&self, module: usize, instance: usize, knob: usize) -> &[f32];
 }
 
 // the sources of the routes, by index (MOD_SOURCES of the schema): ENV 1–3, the velocity of the voice, LFO 1–4
@@ -176,6 +166,10 @@ enum Current {
 
 struct Target {
     param: usize,
+    // the knob it is (targets::of): its base comes from its module
+    module: usize,
+    instance: usize,
+    knob: usize,
     routes: Vec<Route>,
     min: f64,
     max: f64,
@@ -198,20 +192,20 @@ pub struct Modulation {
     used: [bool; SOURCES],
     dropped: bool,
     quiet_until: f64,
-    // the params of the voice a route may move (an oscillator off for the note has none)
-    accesses: [bool; TARGET_PARAMS],
+    // the params of the voice a route may move, bits of their ids (an oscillator off for the note has none)
+    accesses: u128,
     pub active: bool,
 }
 
 impl Modulation {
     /// the routes of a voice with `envelopes` envelopes, the velocity and (`lfos`) its LFOs to the params of
-    /// `accesses`
+    /// `accesses` (bits of their ids)
     pub fn new(
         sample_rate: f64,
         envelopes: usize,
         lfos: bool,
         initial: &[VoiceRoute],
-        accesses: [bool; TARGET_PARAMS],
+        accesses: u128,
     ) -> Modulation {
         let mut modulation = Modulation {
             glide: glide_length(sample_rate),
@@ -273,20 +267,26 @@ impl Modulation {
             if (source < VELO && source >= self.envelopes) || (source >= LFO && !self.lfos) {
                 continue;
             }
-            if route.param >= TARGET_PARAMS || !self.accesses[route.param] {
+            if route.param >= TARGETS || self.accesses >> route.param & 1 == 0 {
                 continue;
             }
+            let Some((module, instance, knob)) = targets::of(route.param) else {
+                continue;
+            };
             let scale = if route.scale == LOG || route.scale == POW {
                 route.scale
             } else {
                 LINEAR
             };
-            let wrap = route.param >= VOICE_TARGETS && (route.param - VOICE_TARGETS) % KNOBS == PHASE;
+            let wrap = module == LFO_KNOBS && knob == PHASE;
             let index = match self.targets.iter().position(|target| target.param == route.param) {
                 Some(index) => index,
                 None => {
                     self.targets.push(Target {
                         param: route.param,
+                        module,
+                        instance,
+                        knob,
                         routes: Vec::new(),
                         min: route.min,
                         max: route.max,
@@ -370,17 +370,9 @@ impl Modulation {
             .any(|target| target.param == param && target.routes.iter().any(|route| route.target > 0.0))
     }
 
-    /// the moved params of the samples a..b of a block of n; `bases` the base of each param in the block (of the
-    /// params it moves), the levels of the sources there
-    pub fn apply(
-        &mut self,
-        bases: &[&[f32]; TARGET_PARAMS],
-        sources: &Sources,
-        frame: f64,
-        a: f64,
-        b: f64,
-        n: usize,
-    ) {
+    /// the moved params of the samples a..b of a block of n; `bases` the base of each param in the block (asked
+    /// only for the params it moves), the levels of the sources there
+    pub fn apply<B: BaseOf>(&mut self, bases: &B, sources: &Sources, frame: f64, a: f64, b: f64, n: usize) {
         if self.dropped {
             self.dropped = false;
             self.index();
@@ -390,7 +382,7 @@ impl Modulation {
         }
         if frame + b <= self.quiet_until {
             let still = self.targets.iter().all(|target| {
-                let base = bases[target.param];
+                let base = bases.base(target.module, target.instance, target.knob);
                 base[0] as f64 == target.base && is_constant(base)
             });
             if still {
@@ -401,7 +393,7 @@ impl Modulation {
         let mut dropped = false;
         for target in self.targets.iter_mut() {
             let (min_value, max_value, scale, wrap) = (target.min, target.max, target.scale, target.wrap);
-            let base = bases[target.param];
+            let base = bases.base(target.module, target.instance, target.knob);
             // (128 equal values in Firefox are one value too: the per-sample path cost +19% of a voice there)
             let mut constant = is_constant(base);
             let mut same = constant && base[0] as f64 == target.base && target.current == Current::One;
@@ -527,9 +519,39 @@ impl Modulation {
 mod tests {
     use super::*;
     use crate::envelope::EnvelopeParams;
-    use crate::lfo::{LfoGlobal, LfoState, DELAY, RATE};
+    use crate::lfo::{LfoGlobal, LfoState, DELAY, KNOBS, RATE};
+    use crate::targets::{target, CUTOFF, FILTER, GAIN, OSC};
+    use core::cell::RefCell;
 
     const RATE_48: f64 = 48000.0;
+    const GAIN1: usize = target(OSC, 0, GAIN);
+    const CUTOFF1: usize = target(FILTER, 0, CUTOFF);
+
+    // one base for every param; the params asked for, in order
+    struct Bases<'a> {
+        values: &'a [f32],
+        asked: RefCell<Vec<(usize, usize, usize)>>,
+    }
+
+    impl<'a> Bases<'a> {
+        fn new(values: &'a [f32]) -> Bases<'a> {
+            Bases {
+                values,
+                asked: RefCell::new(Vec::new()),
+            }
+        }
+    }
+
+    impl BaseOf for Bases<'_> {
+        fn base(&self, module: usize, instance: usize, knob: usize) -> &[f32] {
+            self.asked.borrow_mut().push((module, instance, knob));
+            self.values
+        }
+    }
+
+    fn only(param: usize) -> u128 {
+        1 << param
+    }
 
     // ENV 1–3 at a level: an attack of 0 to a sustain of `level`, rendered for the block at 0
     fn envelopes(level: f64) -> Vec<EnvelopeBlock> {
@@ -565,13 +587,11 @@ mod tests {
 
     // the value of `param` moved by `routes` from a base of `base` (one value), the envelopes at `level`
     fn moved_one(routes: &[VoiceRoute], param: usize, base: f32, level: f64, lfos: bool) -> Option<f32> {
-        let mut accesses = [false; TARGET_PARAMS];
-        accesses[param] = true;
-        let mut modulation = Modulation::new(RATE_48, 3, lfos, routes, accesses);
+        let mut modulation = Modulation::new(RATE_48, 3, lfos, routes, only(param));
         let envelopes = envelopes(level);
         let velocity = Glided::new(0.0);
         let one = [base];
-        let bases: [&[f32]; TARGET_PARAMS] = core::array::from_fn(|_| &one[..]);
+        let bases = Bases::new(&one);
         let sources = Sources {
             envelopes: &envelopes,
             velocity: &velocity,
@@ -588,7 +608,7 @@ mod tests {
         let bipolar = moved_one(&[route(1.0, GAIN1, 10.0, LINEAR, true)], GAIN1, 1.0, 0.25, false);
         assert_eq!(bipolar, Some((1.0 + 10.0 * (0.25 - 0.5)) as f32));
         // a log one in octaves around it
-        let log = moved_one(&[route(0.0, CUTOFF, 2.0, LOG, true)], CUTOFF, 4.0, 1.0, false);
+        let log = moved_one(&[route(0.0, CUTOFF1, 2.0, LOG, true)], CUTOFF1, 4.0, 1.0, false);
         assert_eq!(log, Some(8.0));
     }
 
@@ -645,11 +665,13 @@ mod tests {
             Some(4.0)
         );
         // a route of the params of the voice reads them
-        let mut modulation = Modulation::new(RATE_48, 3, true, &[route(5.0, GAIN1, 1.0, LINEAR, false)], {
-            let mut accesses = [false; TARGET_PARAMS];
-            accesses[GAIN1] = true;
-            accesses
-        });
+        let mut modulation = Modulation::new(
+            RATE_48,
+            3,
+            true,
+            &[route(5.0, GAIN1, 1.0, LINEAR, false)],
+            only(GAIN1),
+        );
         assert!(modulation.uses_lfos() && modulation.uses(LFO + 1));
         modulation.set(&[]);
         assert!(modulation.uses(LFO + 1));
@@ -671,20 +693,18 @@ mod tests {
             },
             true,
         );
-        let mut accesses = [false; TARGET_PARAMS];
-        accesses[GAIN1] = true;
         let mut modulation = Modulation::new(
             RATE_48,
             3,
             true,
             &[route(4.0, GAIN1, 1.0, LINEAR, false)],
-            accesses,
+            only(GAIN1),
         );
         let envelopes = envelopes(1.0);
         let velocity = Glided::new(0.0);
         let mut lfos: Vec<LfoBlock> = (0..LFOS).map(|_| LfoBlock::new(RATE_48, 0.0)).collect();
         let one = [0.5f32];
-        let bases: [&[f32]; TARGET_PARAMS] = core::array::from_fn(|_| &one[..]);
+        let bases = Bases::new(&one);
         lfos[0].render(0.0, 0.0, 128.0, 128, &lfo, &[None; KNOBS]);
         let sources = Sources {
             envelopes: &envelopes,
@@ -698,15 +718,13 @@ mod tests {
 
     #[test]
     fn another_polarity_glides_as_the_amount_does() {
-        let mut accesses = [false; TARGET_PARAMS];
-        accesses[GAIN1] = true;
         let uni = route(1.0, GAIN1, 10.0, LINEAR, false);
         let bipolar = route(1.0, GAIN1, 10.0, LINEAR, true);
-        let mut modulation = Modulation::new(RATE_48, 3, false, &[uni], accesses);
+        let mut modulation = Modulation::new(RATE_48, 3, false, &[uni], only(GAIN1));
         let envelopes = envelopes(0.25);
         let velocity = Glided::new(0.0);
         let one = [1.0f32];
-        let bases: [&[f32]; TARGET_PARAMS] = core::array::from_fn(|_| &one[..]);
+        let bases = Bases::new(&one);
         let sources = Sources {
             envelopes: &envelopes,
             velocity: &velocity,
@@ -741,5 +759,35 @@ mod tests {
                 played[i - 1]
             );
         }
+    }
+
+    #[test]
+    fn the_bases_are_asked_only_of_the_params_a_route_moves_and_by_their_module() {
+        // routes on Gain of osc 1 and on Cutoff, every param of the voice open to them
+        let routes = [
+            route(1.0, GAIN1, 0.5, LINEAR, false),
+            route(0.0, CUTOFF1, 1.0, LOG, false),
+        ];
+        let mut modulation = Modulation::new(RATE_48, 3, false, &routes, u128::MAX);
+        let envelopes = envelopes(0.5);
+        let velocity = Glided::new(0.0);
+        let one = [100.0f32];
+        let bases = Bases::new(&one);
+        let sources = Sources {
+            envelopes: &envelopes,
+            velocity: &velocity,
+            lfos: &[],
+        };
+        modulation.apply(&bases, &sources, 0.0, 0.0, 128.0, 128);
+        assert_eq!(
+            bases.asked.borrow().as_slice(),
+            [(OSC, 0, GAIN), (FILTER, 0, CUTOFF)].as_slice()
+        );
+        // a param out of the accesses takes no route, so no base is asked for it
+        let mut modulation = Modulation::new(RATE_48, 3, false, &routes, only(GAIN1));
+        let bases = Bases::new(&one);
+        modulation.apply(&bases, &sources, 0.0, 0.0, 128.0, 128);
+        assert_eq!(bases.asked.borrow().as_slice(), [(OSC, 0, GAIN)].as_slice());
+        assert_eq!(modulation.moved(CUTOFF1), None);
     }
 }

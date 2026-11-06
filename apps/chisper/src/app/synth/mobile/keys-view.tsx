@@ -43,7 +43,7 @@ const MiniFx = styled(Scaled)`
   ${miniPanel}
 `;
 
-// px of the octave buttons
+// px of the octave buttons and of the wheel
 const OCTAVE_WIDTH = 36;
 
 // a column as wide as the octave buttons left of the keys of both tiers: in portrait the octaves of both tiers
@@ -76,7 +76,6 @@ const Wheel = styled.div`
   flex: 1 1 0;
   min-height: 0;
   display: flex;
-  justify-content: center;
 `;
 
 const isOctaves = (value: unknown): value is [number, number] =>
@@ -122,8 +121,8 @@ export const KeysView = ({ portrait, screen }: { portrait: boolean; screen: Synt
         <Side>
           {portrait && tiers.map((tier, i) => <OctaveControl key={i} {...tier} />)}
           <Wheel>
-            {/* alone: its range is the preset's */}
-            <PitchBend compact />
+            {/* alone: its range is the preset's; as wide as the octave buttons */}
+            <PitchBend compact wheelWidth={OCTAVE_WIDTH} />
           </Wheel>
         </Side>
         {tiers.map((tier, i) => (

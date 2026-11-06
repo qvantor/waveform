@@ -3,6 +3,7 @@ import { CascadeOption, CascadeSelect } from '@chisper/ui-kit';
 import { useBehaviorSubject } from '@chisper/rxjs-react';
 import { useWavetables, useOscillatorContext } from '../hooks';
 
+// the table of the oscillator, by pack and category; ◀ ▶ through all of them
 export const WaveSelector = () => {
   const wavetables = useWavetables();
   const [{ $waveTablePath, $waveTableLoading }, { setWaveTablePath }] = useOscillatorContext();
@@ -29,8 +30,12 @@ export const WaveSelector = () => {
   }, [waveTablePath, wavetables]);
 
   return (
-    <CascadeSelect options={wavetables} value={waveTablePath} setValue={setWaveTablePath} loading={loading}>
-      {label}
-    </CascadeSelect>
+    <CascadeSelect
+      options={wavetables}
+      value={waveTablePath}
+      setValue={setWaveTablePath}
+      loading={loading}
+      label={label}
+    />
   );
 };

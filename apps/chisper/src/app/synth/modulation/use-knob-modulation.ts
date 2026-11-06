@@ -108,7 +108,7 @@ export const useKnobModulation = (target: string, knob?: KnobScale): KnobModulat
     const units: KnobScale | undefined =
       scale && min !== undefined && max !== undefined
         ? { scale, range: [min, max] }
-        : definition.kind === 'osc' || definition.kind === 'lfo'
+        : definition.kind === 'osc' || definition.kind === 'lfo' || definition.kind === 'noise'
           ? definition
           : undefined;
     // in the order of the sources: each has its section of the dot in the same place

@@ -43,6 +43,7 @@ export { FqAnalyser } from './fq-analyser';
 export { QUIET_MS } from './common/utils/meter-loop';
 export { Filter, FilterResponse, frequencyResponseDb } from './filter';
 export { Select, CascadeSelect } from './select';
+export { MiddleEllipsis } from './middle-ellipsis';
 export { DraggableNumber } from './draggable-number';
 export { DragValue } from './drag-value';
 export { SegmentDisplay } from './segment-display';
@@ -50,7 +51,16 @@ export { Checkbox } from './checkbox';
 export { TapeSwitch } from './tape-switch';
 export { ModeSwitch } from './mode-switch';
 export { Lamp } from './lamp';
-export { AnchorIcon, DottedIcon, SwitchKey, SwitchKeys, TripletIcon } from './switch-key';
+export {
+  AnchorIcon,
+  DottedIcon,
+  LoopIcon,
+  OneShotIcon,
+  SwitchKey,
+  SwitchKeys,
+  TrackIcon,
+  TripletIcon,
+} from './switch-key';
 export { PanelButton, PanelLink } from './panel-button';
 export { SortableList } from './sortable-list';
 export { theme } from './common/constants';
@@ -62,7 +72,7 @@ export type { CascadeOption } from './select';
 export type { HandleProps, HandleModulation } from './handle';
 export type { NotePath } from './adsr-envelope';
 export type { Theme } from './common/constants';
-export { useIsMobile, useIsPortrait, useElementSize } from './common/hooks';
+export { useIsMobile, useIsPortrait, useElementSize, useCanvas } from './common/hooks';
 export { useLiveDraw, liveKnob, onFrame, singlePointerTracker, keepFocus } from './common/utils';
 export type { LiveKnob, ModTravel } from './common/utils';
 export type { AdsrSteps } from './adsr-envelope';

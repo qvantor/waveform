@@ -1,0 +1,1211 @@
+{
+  "defaults": {
+    "rate": 44100,
+    "maxSeconds": 5,
+    "attackMs": 30,
+    "gapMs": 100
+  },
+  "sounds": [
+    {
+      "id": "analog-white",
+      "name": "White",
+      "folder": "Analog",
+      "kind": "loop",
+      "maxSeconds": 2,
+      "generate": {
+        "seconds": 2.5,
+        "type": "noise",
+        "color": "white",
+        "seed": 1
+      }
+    },
+    {
+      "id": "analog-pink",
+      "name": "Pink",
+      "folder": "Analog",
+      "kind": "loop",
+      "maxSeconds": 2,
+      "generate": {
+        "seconds": 2.5,
+        "type": "noise",
+        "color": "pink",
+        "seed": 2
+      }
+    },
+    {
+      "id": "analog-brown",
+      "name": "Brown",
+      "folder": "Analog",
+      "kind": "loop",
+      "maxSeconds": 2,
+      "generate": {
+        "seconds": 2.5,
+        "type": "noise",
+        "color": "brown",
+        "seed": 3
+      }
+    },
+    {
+      "id": "analog-blue",
+      "name": "Blue",
+      "folder": "Analog",
+      "kind": "loop",
+      "maxSeconds": 2,
+      "generate": {
+        "seconds": 2.5,
+        "type": "noise",
+        "color": "blue",
+        "seed": 4
+      }
+    },
+    {
+      "id": "analog-violet",
+      "name": "Violet",
+      "folder": "Analog",
+      "kind": "loop",
+      "maxSeconds": 2,
+      "generate": {
+        "seconds": 2.5,
+        "type": "noise",
+        "color": "violet",
+        "seed": 5
+      }
+    },
+    {
+      "id": "analog-white-stereo",
+      "name": "White Stereo",
+      "folder": "Analog",
+      "kind": "loop",
+      "maxSeconds": 2,
+      "generate": {
+        "seconds": 2.5,
+        "type": "noise",
+        "color": "white",
+        "channels": 2,
+        "seed": 6
+      }
+    },
+    {
+      "id": "analog-dark-white",
+      "name": "Dark White",
+      "folder": "Analog",
+      "kind": "loop",
+      "maxSeconds": 2,
+      "generate": {
+        "seconds": 2.5,
+        "type": "noise",
+        "color": "white",
+        "filter": {
+          "type": "lowpass",
+          "hz": 1500
+        },
+        "seed": 9
+      }
+    },
+    {
+      "id": "analog-hp12-white",
+      "name": "Bright White",
+      "folder": "Analog",
+      "kind": "loop",
+      "maxSeconds": 2,
+      "generate": {
+        "seconds": 2.5,
+        "type": "noise",
+        "color": "white",
+        "filter": {
+          "type": "highpass",
+          "hz": 1000
+        },
+        "seed": 7
+      }
+    },
+    {
+      "id": "analog-hp12-pink",
+      "name": "Bright Pink",
+      "folder": "Analog",
+      "kind": "loop",
+      "maxSeconds": 2,
+      "generate": {
+        "seconds": 2.5,
+        "type": "noise",
+        "color": "pink",
+        "filter": {
+          "type": "highpass",
+          "hz": 500
+        },
+        "seed": 8
+      }
+    },
+    {
+      "id": "analog-chorus-white",
+      "name": "Chorus White",
+      "folder": "Analog",
+      "kind": "loop",
+      "maxSeconds": 2,
+      "generate": {
+        "seconds": 2.5,
+        "type": "noise",
+        "color": "white",
+        "chorus": {},
+        "seed": 13
+      }
+    },
+    {
+      "id": "analog-chorus-pink",
+      "name": "Chorus Pink",
+      "folder": "Analog",
+      "kind": "loop",
+      "maxSeconds": 2,
+      "generate": {
+        "seconds": 2.5,
+        "type": "noise",
+        "color": "pink",
+        "chorus": {},
+        "seed": 14
+      }
+    },
+    {
+      "id": 644432,
+      "name": "Crackly White",
+      "folder": "Analog",
+      "kind": "loop",
+      "file": "644432__raining-0n-satrn__crackly-white-noise.wav",
+      "sha256": "ac2f2a273cd34cef059dfab5f74fedda48f8a8fd99e00ba1d85b9ff35b737478",
+      "author": "Raining-0n-Satrn",
+      "url": "https://freesound.org/people/Raining-0n-Satrn/sounds/644432/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "analog-band-400",
+      "name": "Band 400",
+      "folder": "Analog",
+      "kind": "loop",
+      "maxSeconds": 2,
+      "generate": {
+        "seconds": 2.5,
+        "type": "noise",
+        "color": "white",
+        "filter": {
+          "type": "bandpass",
+          "hz": 400,
+          "q": 2
+        },
+        "seed": 10
+      }
+    },
+    {
+      "id": "analog-band-1600",
+      "name": "Band 1600",
+      "folder": "Analog",
+      "kind": "loop",
+      "maxSeconds": 2,
+      "generate": {
+        "seconds": 2.5,
+        "type": "noise",
+        "color": "white",
+        "filter": {
+          "type": "bandpass",
+          "hz": 1600,
+          "q": 2
+        },
+        "seed": 11
+      }
+    },
+    {
+      "id": "analog-band-6000",
+      "name": "Band 6000",
+      "folder": "Analog",
+      "kind": "loop",
+      "maxSeconds": 2,
+      "generate": {
+        "seconds": 2.5,
+        "type": "noise",
+        "color": "white",
+        "filter": {
+          "type": "bandpass",
+          "hz": 6000,
+          "q": 2
+        },
+        "seed": 12
+      }
+    },
+    {
+      "id": "analog-crushed-8k",
+      "name": "Crushed 8k",
+      "folder": "Analog",
+      "kind": "loop",
+      "maxSeconds": 2,
+      "generate": {
+        "seconds": 2.5,
+        "type": "crushed",
+        "hold": 8000,
+        "bits": 4,
+        "seed": 15
+      }
+    },
+    {
+      "id": "analog-chip-1k",
+      "name": "Chip 1k",
+      "folder": "Analog",
+      "kind": "loop",
+      "maxSeconds": 2,
+      "generate": {
+        "seconds": 2.5,
+        "type": "lfsr",
+        "bits": 23,
+        "clock": 1000
+      }
+    },
+    {
+      "id": "analog-chip-4k",
+      "name": "Chip 4k",
+      "folder": "Analog",
+      "kind": "loop",
+      "maxSeconds": 2,
+      "generate": {
+        "seconds": 2.5,
+        "type": "lfsr",
+        "bits": 23,
+        "clock": 4000
+      }
+    },
+    {
+      "id": "analog-chip-16k",
+      "name": "Chip 16k",
+      "folder": "Analog",
+      "kind": "loop",
+      "maxSeconds": 2,
+      "generate": {
+        "seconds": 2.5,
+        "type": "lfsr",
+        "bits": 23,
+        "clock": 16000
+      }
+    },
+    {
+      "id": "analog-chip-metallic",
+      "name": "Chip Metallic",
+      "folder": "Analog",
+      "kind": "loop",
+      "maxSeconds": 2,
+      "generate": {
+        "seconds": 2.5,
+        "type": "lfsr",
+        "bits": 15,
+        "clock": 22050
+      }
+    },
+    {
+      "id": "kick-soft",
+      "name": "Soft",
+      "folder": "Kick Attacks",
+      "kind": "attack",
+      "attackMs": 24,
+      "generate": {
+        "type": "kick",
+        "start": 200,
+        "end": 48,
+        "sweepMs": 20,
+        "attackMs": 1,
+        "seed": 47
+      }
+    },
+    {
+      "id": "kick-boom",
+      "name": "Boom",
+      "folder": "Kick Attacks",
+      "kind": "attack",
+      "attackMs": 24,
+      "generate": {
+        "type": "kick",
+        "start": 160,
+        "end": 42,
+        "sweepMs": 40,
+        "seed": 43
+      }
+    },
+    {
+      "id": "kick-thump",
+      "name": "Thump",
+      "folder": "Kick Attacks",
+      "kind": "attack",
+      "attackMs": 24,
+      "generate": {
+        "type": "kick",
+        "start": 240,
+        "end": 50,
+        "sweepMs": 25,
+        "seed": 40
+      }
+    },
+    {
+      "id": "kick-punch",
+      "name": "Punch",
+      "folder": "Kick Attacks",
+      "kind": "attack",
+      "attackMs": 24,
+      "generate": {
+        "type": "kick",
+        "start": 400,
+        "end": 55,
+        "sweepMs": 12,
+        "click": "impulse",
+        "drive": 2,
+        "seed": 41,
+        "clickLevel": 2
+      }
+    },
+    {
+      "id": "kick-knock",
+      "name": "Knock",
+      "folder": "Kick Attacks",
+      "kind": "attack",
+      "attackMs": 24,
+      "generate": {
+        "type": "kick",
+        "start": 330,
+        "end": 80,
+        "sweepMs": 8,
+        "click": "impulse",
+        "drive": 3,
+        "seed": 44,
+        "clickLevel": 2.5
+      }
+    },
+    {
+      "id": "kick-beater",
+      "name": "Beater",
+      "folder": "Kick Attacks",
+      "kind": "attack",
+      "attackMs": 24,
+      "generate": {
+        "type": "kick",
+        "start": 290,
+        "end": 55,
+        "sweepMs": 15,
+        "click": "noise",
+        "clickHz": 5000,
+        "clickMs": 4,
+        "seed": 45,
+        "clickLevel": 3
+      }
+    },
+    {
+      "id": "kick-snap",
+      "name": "Snap",
+      "folder": "Kick Attacks",
+      "kind": "attack",
+      "attackMs": 24,
+      "generate": {
+        "type": "kick",
+        "start": 600,
+        "end": 60,
+        "sweepMs": 6,
+        "click": "noise",
+        "clickHz": 3000,
+        "clickMs": 2,
+        "drive": 1.5,
+        "seed": 42,
+        "clickLevel": 3
+      }
+    },
+    {
+      "id": "kick-hard",
+      "name": "Hard",
+      "folder": "Kick Attacks",
+      "kind": "attack",
+      "attackMs": 24,
+      "generate": {
+        "type": "kick",
+        "start": 520,
+        "end": 50,
+        "sweepMs": 10,
+        "click": "metal",
+        "clickMs": 2,
+        "drive": 4,
+        "seed": 46,
+        "clickLevel": 3
+      }
+    },
+    {
+      "id": 501762,
+      "name": "MPC 808",
+      "folder": "Kick Attacks",
+      "kind": "attack",
+      "file": "501762__kbeezy88__mpc_808_f1.aiff",
+      "sha256": "fd88de5347e3b1a4de4d8732e30d717024ea36173309eff1ab44f8f6d6880c3e",
+      "author": "kbeezy88",
+      "url": "https://freesound.org/people/kbeezy88/sounds/501762/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 132584,
+      "name": "Kick E1",
+      "folder": "Kick Attacks",
+      "kind": "attack",
+      "file": "132584__rob10__kick-drum-e-1.wav",
+      "sha256": "096c5a81c1985e3f707726a4029d8620233e3335a24684161051f33d1c407276",
+      "author": "Rob10",
+      "url": "https://freesound.org/people/Rob10/sounds/132584/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 89203,
+      "name": "Bounce",
+      "folder": "Kick Attacks",
+      "kind": "attack",
+      "file": "89203__smokum__bounce-kick-6.wav",
+      "sha256": "257aabe9cb9ceb2ed23f865d8838e7b800c16785abb4885beee8cfd0d888e610",
+      "author": "smokum",
+      "url": "https://freesound.org/people/smokum/sounds/89203/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 774957,
+      "name": "Dubstep",
+      "folder": "Kick Attacks",
+      "kind": "attack",
+      "file": "774957__mrbossosity__dubstep-kick-4-clean.wav",
+      "sha256": "23465fac26b56966c9f9f513d8bb95d49451746aff1ecedaf0d4a8f82e1080ce",
+      "author": "mrbossosity",
+      "url": "https://freesound.org/people/mrbossosity/sounds/774957/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 445962,
+      "name": "Cough",
+      "folder": "Kick Attacks",
+      "kind": "attack",
+      "file": "445962__breviceps__bass-drum-cough.wav",
+      "sha256": "ec5791697cd5f1337fd57362caf020cd29b940471d1383cd86c33a1b11fe3e08",
+      "author": "Breviceps",
+      "url": "https://freesound.org/people/Breviceps/sounds/445962/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 674296,
+      "name": "Closed Hat",
+      "folder": "Transients",
+      "kind": "one-shot",
+      "file": "674296__theendofacycle__hi-hat-closed-hit-clean.wav",
+      "sha256": "c5c1bff3c1686c200e73b0c0f3749edc01538c807a98f0cf8e8826a6c0b0b43e",
+      "author": "TheEndOfACycle",
+      "url": "https://freesound.org/people/TheEndOfACycle/sounds/674296/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 140536,
+      "name": "Room Hat",
+      "folder": "Transients",
+      "kind": "one-shot",
+      "file": "140536__stomachache__closedhatroomphrase-010.wav",
+      "sha256": "282f8d636006d8b1f2a9c7a9a1e1ae8434fbf6c51bc034ff095699aa8ae6d47d",
+      "author": "stomachache",
+      "url": "https://freesound.org/people/stomachache/sounds/140536/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 42548,
+      "name": "Hats",
+      "folder": "Transients",
+      "kind": "one-shot",
+      "file": "42548__psycho-boomer__5.wav",
+      "sha256": "ba7e9a79b5adf6a526d9e6963adccfb1b6713127d358e4d1f5ce1b9daf345435",
+      "author": "PSYCHO BOOMER",
+      "url": "https://freesound.org/people/PSYCHO BOOMER/sounds/42548/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 233527,
+      "name": "Hat Shaker",
+      "folder": "Transients",
+      "kind": "one-shot",
+      "file": "233527__waveplaysfx__drums-hat-shaker-high-end-noise-thing.wav",
+      "sha256": "0f8dad30932ee11634661846e1e3719d5c94383540f04b8d0cf590dad04d6490",
+      "author": "waveplaySFX",
+      "url": "https://freesound.org/people/waveplaySFX/sounds/233527/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 579671,
+      "name": "Wood Shaker",
+      "folder": "Transients",
+      "kind": "one-shot",
+      "file": "579671__curesforbrokenhearts__wood-shaker-round-2.wav",
+      "sha256": "960f530ec557b699e3477623adbcc3cc4ffa318c8799c92efefca25b1a64d6db",
+      "author": "curesforbrokenhearts",
+      "url": "https://freesound.org/people/curesforbrokenhearts/sounds/579671/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 792505,
+      "name": "Big Maraca",
+      "folder": "Transients",
+      "kind": "one-shot",
+      "file": "792505__sadiquecat__big-maraca-os-1.wav",
+      "sha256": "75051242b83c3a7793689fe70ce70a27c6d6a9bebbdc272184d7696fc83e5688",
+      "author": "Sadiquecat",
+      "url": "https://freesound.org/people/Sadiquecat/sounds/792505/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 513421,
+      "name": "Short Clap",
+      "folder": "Transients",
+      "kind": "one-shot",
+      "file": "513421__pomeroyjoshua__anu-clap-09.wav",
+      "sha256": "1794fb3dcc67a4c3fbe9eb3bb6d90918c8563adeb86b7157d9f7d2a2dd291011",
+      "author": "pomeroyjoshua",
+      "url": "https://freesound.org/people/pomeroyjoshua/sounds/513421/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 509526,
+      "name": "Claps",
+      "folder": "Transients",
+      "kind": "one-shot",
+      "file": "509526__synthnisse__claps.wav",
+      "sha256": "560f9a1e417d854d78c8be87285c02d33f7d5944ede91d5702921af821d9dec7",
+      "author": "synthnisse",
+      "url": "https://freesound.org/people/synthnisse/sounds/509526/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 147597,
+      "name": "Long Clap",
+      "folder": "Transients",
+      "kind": "one-shot",
+      "file": "147597__kendallbear__never-be-clap.wav",
+      "sha256": "a57f047cd0889e54751de4d57a5d68f8c75fd0f8aea543f49f7eea230334782f",
+      "author": "kendallbear",
+      "url": "https://freesound.org/people/kendallbear/sounds/147597/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 449128,
+      "name": "Finger Snap",
+      "folder": "Transients",
+      "kind": "one-shot",
+      "file": "449128__harpyharpharp__fingers-snapping.mp3",
+      "sha256": "fb9c0ab2d844e54397160e25f88e1d32934e5a5ce26c37196b8b728bf5074ad7",
+      "author": "HarpyHarpHarp",
+      "url": "https://freesound.org/people/HarpyHarpHarp/sounds/449128/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 422679,
+      "name": "Power Snare",
+      "folder": "Transients",
+      "kind": "one-shot",
+      "file": "422679__yellowtree__80s-power-snare.wav",
+      "sha256": "138e4b9e663062bf4914f291940b7abe40467d0072ba347e3435260a35e5cb21",
+      "author": "YellowTree",
+      "url": "https://freesound.org/people/YellowTree/sounds/422679/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 737299,
+      "name": "Lofi Snare",
+      "folder": "Transients",
+      "kind": "one-shot",
+      "file": "737299__deadrobotmusic__lil-lofi-snare-8.wav",
+      "sha256": "b3976e0d77eb3bb9d4baa0d673d946c510363bc0e3babb84e3a05ebc049d2d88",
+      "author": "deadrobotmusic",
+      "url": "https://freesound.org/people/deadrobotmusic/sounds/737299/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 368200,
+      "name": "8-bit Snare",
+      "folder": "Transients",
+      "kind": "one-shot",
+      "file": "368200__terry93d__8-bit-power-snare.wav",
+      "sha256": "bc440cd433db19ef5b73b772eac24551aeb1c3d3bdb720cea93e032818d033dd",
+      "author": "Terry93D",
+      "url": "https://freesound.org/people/Terry93D/sounds/368200/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 176351,
+      "name": "Reverse Snare",
+      "folder": "Transients",
+      "kind": "one-shot",
+      "file": "176351__sakebeats__909-sn-02a-rev.wav",
+      "sha256": "ee9e070d83be21dedb5fc3f9263c437999fd716a7cd391f81756e68c1ab0f8b4",
+      "author": "sakebeats",
+      "url": "https://freesound.org/people/sakebeats/sounds/176351/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 573259,
+      "name": "Rimshot",
+      "folder": "Transients",
+      "kind": "one-shot",
+      "file": "573259__sorinious_genious__rimshot-1.wav",
+      "sha256": "3720486fd8068385b62aa70e88bcf19ffbe161a594a57d00b1c061a33e589f84",
+      "author": "Sorinious_Genious",
+      "url": "https://freesound.org/people/Sorinious_Genious/sounds/573259/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 82281,
+      "name": "Acoustic Rim",
+      "folder": "Transients",
+      "kind": "one-shot",
+      "file": "82281__kevoy__acoustic-snare-rimshot.wav",
+      "sha256": "e778c671d5696894322aafc06e2847dfd1558b3a3dcae3211e1b5fbf4676f22f",
+      "author": "KEVOY",
+      "url": "https://freesound.org/people/KEVOY/sounds/82281/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 478197,
+      "name": "Click",
+      "folder": "Transients",
+      "kind": "one-shot",
+      "file": "478197__jonnyruss01__click_1.wav",
+      "sha256": "a8e533281c013db7db2e616809e5ecb897e02fcf398cc7385ee9ec4dcccd2ba4",
+      "author": "JonnyRuss01",
+      "url": "https://freesound.org/people/JonnyRuss01/sounds/478197/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 43689,
+      "name": "Dull Click",
+      "folder": "Transients",
+      "kind": "one-shot",
+      "file": "43689__stijn__click9.wav",
+      "sha256": "7f1b403b957fe315421f4311a5e06ba9f706c6f1fe340c3b6282279d0040284c",
+      "author": "stijn",
+      "url": "https://freesound.org/people/stijn/sounds/43689/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 668355,
+      "name": "Tick",
+      "folder": "Transients",
+      "kind": "one-shot",
+      "file": "668355__deltacode__single-tick.wav",
+      "sha256": "2984cda8ad06b413fb4b08bd184c06b4e2680b906e5223935da521600449c00d",
+      "author": "DeltaCode",
+      "url": "https://freesound.org/people/DeltaCode/sounds/668355/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 185610,
+      "name": "Metal Tick",
+      "folder": "Transients",
+      "kind": "one-shot",
+      "file": "185610__kubawolanin__metal-tick-2.wav",
+      "sha256": "058cc53d3d61590e0e411bff5a97c4fa4e8ea9c8ad83b56f4d08a8409be246d2",
+      "author": "kubawolanin",
+      "url": "https://freesound.org/people/kubawolanin/sounds/185610/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 262958,
+      "name": "Glass Tap",
+      "folder": "Transients",
+      "kind": "one-shot",
+      "file": "262958__unicornaphobist__glass-tap.wav",
+      "sha256": "abaaf6efed41115c48eacfce148c9d51831caac5c05560a26e1635bf75ea58dd",
+      "author": "Unicornaphobist",
+      "url": "https://freesound.org/people/Unicornaphobist/sounds/262958/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 246286,
+      "name": "Guitar Kick",
+      "folder": "Transients",
+      "kind": "one-shot",
+      "file": "246286__afleetingspeck__mute-guitar-bass-kick-hit-percussion.wav",
+      "sha256": "5c1ab53481ae2c78bcfa52df8b4b60593e49a9a401155257aa67eee76a0d72d3",
+      "author": "afleetingspeck",
+      "url": "https://freesound.org/people/afleetingspeck/sounds/246286/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 333641,
+      "name": "Modular Scratch",
+      "folder": "Transients",
+      "kind": "one-shot",
+      "file": "333641__cabled_mess__modular_noises_short_scratches.wav",
+      "sha256": "f28b99e95c59f34bfe628ec6af21b644d62a2dc798d22c24aaca41af6c875bbb",
+      "author": "cabled_mess",
+      "url": "https://freesound.org/people/cabled_mess/sounds/333641/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": "inharm-bell",
+      "name": "Bell",
+      "folder": "Inharmonic",
+      "kind": "loop",
+      "maxSeconds": 2,
+      "generate": {
+        "seconds": 2.5,
+        "type": "partials",
+        "f0": 220,
+        "ratios": [
+          0.56,
+          0.92,
+          1.19,
+          1.7,
+          2,
+          2.74,
+          3,
+          3.76,
+          4.07
+        ],
+        "amps": [
+          0.37,
+          0.25,
+          0.37,
+          0.67,
+          1,
+          0.63,
+          0.55,
+          0.5,
+          0.5
+        ],
+        "seed": 22
+      }
+    },
+    {
+      "id": "inharm-bar",
+      "name": "Bar",
+      "folder": "Inharmonic",
+      "kind": "loop",
+      "maxSeconds": 2,
+      "generate": {
+        "seconds": 2.5,
+        "type": "partials",
+        "f0": 300,
+        "ratios": [
+          1,
+          2.756,
+          5.404,
+          8.933,
+          13.344
+        ],
+        "tilt": 0.5,
+        "seed": 23
+      }
+    },
+    {
+      "id": "inharm-plate",
+      "name": "Plate",
+      "folder": "Inharmonic",
+      "kind": "loop",
+      "maxSeconds": 2,
+      "generate": {
+        "seconds": 2.5,
+        "type": "partials",
+        "f0": 180,
+        "ratios": [
+          1,
+          1.581,
+          2,
+          2.236,
+          2.55,
+          2.915,
+          3,
+          3.162,
+          3.536,
+          4
+        ],
+        "tilt": 0.6,
+        "seed": 25
+      }
+    },
+    {
+      "id": "inharm-membrane",
+      "name": "Membrane",
+      "folder": "Inharmonic",
+      "kind": "loop",
+      "maxSeconds": 2,
+      "generate": {
+        "seconds": 2.5,
+        "type": "partials",
+        "f0": 160,
+        "ratios": [
+          1,
+          1.594,
+          2.136,
+          2.296,
+          2.653,
+          2.918,
+          3.156,
+          3.501,
+          3.6,
+          4.06
+        ],
+        "tilt": 0.7,
+        "seed": 24
+      }
+    },
+    {
+      "id": "inharm-stretched",
+      "name": "Stretched",
+      "folder": "Inharmonic",
+      "kind": "loop",
+      "maxSeconds": 2,
+      "generate": {
+        "seconds": 2.5,
+        "type": "partials",
+        "f0": 110,
+        "count": 16,
+        "stretch": 0.004,
+        "seed": 21
+      }
+    },
+    {
+      "id": "inharm-cluster",
+      "name": "Cluster",
+      "folder": "Inharmonic",
+      "kind": "loop",
+      "maxSeconds": 2,
+      "generate": {
+        "seconds": 2.5,
+        "type": "partials",
+        "f0": 300,
+        "random": {
+          "count": 12,
+          "low": 300,
+          "high": 4000
+        },
+        "tilt": 0.3,
+        "seed": 30
+      }
+    },
+    {
+      "id": "inharm-ring-clang",
+      "name": "Ring Clang",
+      "folder": "Inharmonic",
+      "kind": "loop",
+      "maxSeconds": 2,
+      "generate": {
+        "seconds": 2.5,
+        "type": "ring",
+        "f1": 140,
+        "harmonics": 6,
+        "f2": 323,
+        "seed": 29
+      }
+    },
+    {
+      "id": "inharm-fm-golden",
+      "name": "FM Golden",
+      "folder": "Inharmonic",
+      "kind": "loop",
+      "maxSeconds": 2,
+      "generate": {
+        "seconds": 2.5,
+        "type": "fm",
+        "carrier": 160,
+        "ratio": 1.618,
+        "index": 5,
+        "seed": 27
+      }
+    },
+    {
+      "id": "inharm-fm-root2",
+      "name": "FM Tritone",
+      "folder": "Inharmonic",
+      "kind": "loop",
+      "maxSeconds": 2,
+      "generate": {
+        "seconds": 2.5,
+        "type": "fm",
+        "carrier": 220,
+        "ratio": 1.41421,
+        "index": 3,
+        "seed": 26
+      }
+    },
+    {
+      "id": "inharm-fm-e",
+      "name": "FM Euler",
+      "folder": "Inharmonic",
+      "kind": "loop",
+      "maxSeconds": 2,
+      "generate": {
+        "seconds": 2.5,
+        "type": "fm",
+        "carrier": 330,
+        "ratio": 2.71828,
+        "index": 2,
+        "seed": 28
+      }
+    },
+    {
+      "id": 54962,
+      "name": "Breath",
+      "folder": "Organic",
+      "kind": "one-shot",
+      "file": "54962__cidchili__breath-human-sci2.wav",
+      "sha256": "6fb7ebb47abf7203963648354dc1f09f79b50c86bbea347f0b65969d9bc45d1c",
+      "author": "cidchili",
+      "url": "https://freesound.org/people/cidchili/sounds/54962/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 701175,
+      "name": "Shh",
+      "folder": "Organic",
+      "kind": "one-shot",
+      "file": "701175__connerdrake98__sh-sound-effect-voice-shh.wav",
+      "sha256": "b03e7ee1334de59081440fdca18e54162e3f7b2362b557dcce22d0b67ac41cc8",
+      "author": "connerdrake98",
+      "url": "https://freesound.org/people/connerdrake98/sounds/701175/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 416080,
+      "name": "Air Release",
+      "folder": "Organic",
+      "kind": "one-shot",
+      "file": "416080__davidlay1__air-release.wav",
+      "sha256": "1caf47f73e8daa3be7c4033f9a904fab03aa69a76887e6d71f7a0738854a0f81",
+      "author": "davidlay1",
+      "url": "https://freesound.org/people/davidlay1/sounds/416080/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 353125,
+      "name": "Paper Rustle",
+      "folder": "Organic",
+      "kind": "one-shot",
+      "file": "353125__benjaminnelan__paper-rustle.wav",
+      "sha256": "00ca487300a31abc667f1e0fc11740d4ac5f5f2a2edff542c24e1b466ced3736",
+      "author": "BenjaminNelan",
+      "url": "https://freesound.org/people/BenjaminNelan/sounds/353125/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 655630,
+      "name": "Plastic Bag",
+      "folder": "Organic",
+      "kind": "one-shot",
+      "file": "655630__hankof__plastic-bag.wav",
+      "sha256": "6e222077fd41c3b437d88a004df5b4b716176cc3ead09500702712f56cc9903d",
+      "author": "Hankof",
+      "url": "https://freesound.org/people/Hankof/sounds/655630/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 590171,
+      "name": "Creak",
+      "folder": "Organic",
+      "kind": "one-shot",
+      "file": "590171__greg_surr__creaking-in-room-8.wav",
+      "sha256": "0b07d7f7265d15cd6165d399a4d2bdc8db996aeadaf07ccb9400c5f6d09900ad",
+      "author": "Greg_Surr",
+      "url": "https://freesound.org/people/Greg_Surr/sounds/590171/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 185821,
+      "name": "Chimes",
+      "folder": "Organic",
+      "kind": "one-shot",
+      "file": "185821__lloydevans09__chimes-harmony.wav",
+      "sha256": "388216fadd13b73110ae1781fc0dc4828abc448a756ee8259531605b42182443",
+      "author": "LloydEvans09",
+      "url": "https://freesound.org/people/LloydEvans09/sounds/185821/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 451860,
+      "name": "Deep Hum",
+      "folder": "Organic",
+      "kind": "loop",
+      "file": "451860__kyles__electric-hum-buzz-deep-short-bg-noise.flac",
+      "sha256": "7c975ccc43784f89de75e1d390dd21f1958c89057f63865f8ca7d8737228c0de",
+      "author": "kyles",
+      "url": "https://freesound.org/people/kyles/sounds/451860/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 493122,
+      "name": "Vinyl Crackle",
+      "folder": "Textures",
+      "kind": "loop",
+      "file": "493122__scottyhigh20__vinyl-crackle-1.wav",
+      "sha256": "2c7fb12b1c32d75f3016c5421542dfcbaa68044ad7f04772fec6a50738b50c07",
+      "author": "scottyhigh20",
+      "url": "https://freesound.org/people/scottyhigh20/sounds/493122/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 452910,
+      "name": "Tape Hiss",
+      "folder": "Textures",
+      "kind": "loop",
+      "file": "452910__kyles__cassette-tape-hiss-poof-on.flac",
+      "sha256": "740a87e52ae649a20e7a64c24a1b7ca0b8a698771e495d98232172ac979ab710",
+      "author": "kyles",
+      "url": "https://freesound.org/people/kyles/sounds/452910/",
+      "license": "CC0-1.0",
+      "highpass": 80
+    },
+    {
+      "id": 596531,
+      "name": "VHS Hum",
+      "folder": "Textures",
+      "kind": "loop",
+      "file": "596531__flacfile__vhs-hum-sound.wav",
+      "sha256": "3845392efef80bc856f0ead1ad454691480ff88df3be045461d18253c807c53b",
+      "author": "flacfile",
+      "url": "https://freesound.org/people/flacfile/sounds/596531/",
+      "license": "CC0-1.0",
+      "highpass": 30
+    },
+    {
+      "id": 726319,
+      "name": "Wind",
+      "folder": "Textures",
+      "kind": "loop",
+      "file": "726319__zipcreates__wind-8.wav",
+      "sha256": "eb3bdf6514a15f801844dfadac08f7b142729e33662f50ef279145ad35fed499",
+      "author": "ZIP.Creates",
+      "url": "https://freesound.org/people/ZIP.Creates/sounds/726319/",
+      "license": "CC0-1.0",
+      "highpass": 150
+    },
+    {
+      "id": 640651,
+      "name": "Heavy Rain",
+      "folder": "Textures",
+      "kind": "loop",
+      "file": "640651__barkenov__heavy-rain-and-gutter.wav",
+      "sha256": "19ec1396202ea1b6019be927108da984c71618cb2be7a8c0ce82b43f5d704302",
+      "author": "barkenov",
+      "url": "https://freesound.org/people/barkenov/sounds/640651/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 398698,
+      "name": "Pebbles",
+      "folder": "Textures",
+      "kind": "one-shot",
+      "file": "398698__bbrocer__slow-pebble-tumble.wav",
+      "sha256": "bbc5d5b700cc5930c42be7afd73035d0959574d38b3ee90b2abf1733215042fd",
+      "author": "bbrocer",
+      "url": "https://freesound.org/people/bbrocer/sounds/398698/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 259706,
+      "name": "Radio Tuning",
+      "folder": "Textures",
+      "kind": "loop",
+      "file": "259706__davidbain__fm-radio-tuning-sweep.wav",
+      "sha256": "2444f41e80e88d5292332dd77bcef39fb580ddf176f0df3d3734a0d8f2e7a06c",
+      "author": "davidbain",
+      "url": "https://freesound.org/people/davidbain/sounds/259706/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 162381,
+      "name": "Interference",
+      "folder": "Textures",
+      "kind": "one-shot",
+      "file": "162381__qubodup__rocket-launcher-interference.flac",
+      "sha256": "206e9699e41782fc417de1a943bdd3f294ddcc0e32f85406992607baceb89da9",
+      "author": "qubodup",
+      "url": "https://freesound.org/people/qubodup/sounds/162381/",
+      "license": "CC0-1.0",
+      "highpass": 40
+    },
+    {
+      "id": 869579,
+      "name": "Power Supply",
+      "folder": "Textures",
+      "kind": "one-shot",
+      "file": "869579__bassimat__computer-monitor-power-supply-converter-electromagnetic-field-recording.wav",
+      "sha256": "d3f483fc36a5e37cf91a5c1ccc14f531fdaad3f895b2b009f8e737e114f7b117",
+      "author": "bassimat",
+      "url": "https://freesound.org/people/bassimat/sounds/869579/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 475550,
+      "name": "Ringback Tone",
+      "folder": "Textures",
+      "kind": "one-shot",
+      "file": "475550__nucleartape__ring-back-tone.wav",
+      "sha256": "6dfe0d5f66c54002f269178c0e2cf8f39ecb34e7d0b9efa6b7df008f2d2842b5",
+      "author": "NuclearTape",
+      "url": "https://freesound.org/people/NuclearTape/sounds/475550/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 560879,
+      "name": "Circuit Breaker",
+      "folder": "Textures",
+      "kind": "one-shot",
+      "file": "560879__rentless__circuitbreaker-remix.wav",
+      "sha256": "5c49e68190ac585ad0114e25b800a1a7eef57fada9dacc7d960075934da286ae",
+      "author": "rentless",
+      "url": "https://freesound.org/people/rentless/sounds/560879/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 249669,
+      "name": "Broken Computer",
+      "folder": "Textures",
+      "kind": "one-shot",
+      "file": "249669__unfa__broken-computer.flac",
+      "sha256": "e4dd7ddc9c24b3bc1b8e876599b67e61f462fe829bc5d95a54deb4e4738fa6ff",
+      "author": "unfa",
+      "url": "https://freesound.org/people/unfa/sounds/249669/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 458065,
+      "name": "Digital Glitch",
+      "folder": "Textures",
+      "kind": "one-shot",
+      "file": "458065__tadaizm__digital-glitch_v1.wav",
+      "sha256": "4ba830cb90fddbc4f350f6f732e566abc5fc6b96610993272ac32ef34119b67b",
+      "author": "tadaizm",
+      "url": "https://freesound.org/people/tadaizm/sounds/458065/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 353046,
+      "name": "Whiff",
+      "folder": "Textures",
+      "kind": "one-shot",
+      "file": "353046__deleted_user_6479820__g_whiff_2.mp3",
+      "sha256": "686863d7fcf52f0fc1dad8486cf0c681d895aba4cc65d0915762336a2ef4173e",
+      "author": "deleted_user_6479820",
+      "url": "https://freesound.org/people/deleted_user_6479820/sounds/353046/",
+      "license": "CC0-1.0"
+    },
+    {
+      "id": 865164,
+      "name": "Fire Crackle",
+      "folder": "Atmospheres",
+      "kind": "loop",
+      "file": "865164__bassimat__fireplaces-with-organic-electromagnetic-glitches.wav",
+      "sha256": "284fa423f23d5bbe87ef596c6a95e2ae09c58b19060a7494662007aa5a90456d",
+      "author": "bassimat",
+      "url": "https://freesound.org/people/bassimat/sounds/865164/",
+      "license": "CC0-1.0",
+      "highpass": 800
+    },
+    {
+      "id": 504641,
+      "name": "Underwater",
+      "folder": "Atmospheres",
+      "kind": "loop",
+      "file": "504641__fission9__underwater-ambience.wav",
+      "sha256": "20a69742db76524d0db7553f795981121adf38f49ac5bfaafa12466d79ce7f12",
+      "author": "Fission9",
+      "url": "https://freesound.org/people/Fission9/sounds/504641/",
+      "license": "CC0-1.0",
+      "highpass": 800
+    }
+  ]
+}

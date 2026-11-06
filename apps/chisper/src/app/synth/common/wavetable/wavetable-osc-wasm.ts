@@ -9,7 +9,9 @@ import type {
   StoreChunkMessage,
   StoreChunksMessage,
 } from './wavetable-builder';
+import { KNOB_ORDER, MODULE_IDS, ROUTE_IDS } from './voice-modules';
 import {
+  KnobsModule,
   StatsRequest,
   StoreTableMessage,
   TableStoreStats,
@@ -19,7 +21,10 @@ import {
   VoiceAutomation,
   VoiceEvent,
   VoiceFilterOptions,
+  VoiceModuleKnobs,
+  VoiceNoiseOptions,
   VoiceOptions,
+  VoiceOscOptions,
   VoiceRoute,
   VoicesReportMessage,
   VoiceStats,
@@ -35,6 +40,7 @@ import { VOICE_PARAMETERS, VoiceParam } from './wavetable-osc-params';
 
 export interface OscExports extends CoreExports {
   osc_command: () => number;
+  osc_targets: () => number;
   osc_store_new: () => number;
   osc_store_free: (store: number) => void;
   osc_store_begin: (
@@ -43,7 +49,8 @@ export interface OscExports extends CoreExports {
     version: number,
     frames: number,
     levels: number,
-    length: number
+    length: number,
+    rate: number
   ) => number;
   osc_store_chunk: (store: number, slot: number, at: number, length: number) => number;
   osc_store_commit: (store: number, slot: number) => number;
@@ -56,6 +63,7 @@ export interface OscExports extends CoreExports {
   osc_store_track_freed: (store: number, on: boolean) => void;
   osc_store_freed: (store: number) => number;
   osc_store_freed_bytes: (store: number) => number;
+  osc_store_take_kernels: (store: number, from: number) => void;
   osc_shared_new: () => number;
   osc_shared_free: (shared: number) => void;
   osc_shared_stats: (shared: number) => void;
@@ -71,6 +79,7 @@ export interface OscExports extends CoreExports {
   osc_voice_set_routes: (voice: number) => void;
   osc_voice_set_filter: (voice: number) => void;
   osc_voice_set_velocity: (voice: number) => void;
+  osc_voice_set_knobs: (voice: number, module: number, count: number) => void;
   osc_voice_end: (voice: number, store: number, shared: number) => void;
   osc_voice_ended: (voice: number) => number;
   osc_voice_started_at: (voice: number) => number;
@@ -82,6 +91,7 @@ export interface OscExports extends CoreExports {
   osc_scope_routes: (scope: number, id: number) => void;
   osc_scope_filter: (scope: number, id: number) => void;
   osc_scope_velocity: (scope: number, id: number) => void;
+  osc_scope_knobs: (scope: number, id: number, module: number, count: number) => void;
   osc_scope_bend: (scope: number, cents: number, instantly: number) => void;
   osc_scope_direct: (scope: number, id: number, frames: number) => number;
   osc_scope_process: (scope: number, store: number, shared: number, frame: number, frames: number) => void;
@@ -114,18 +124,8 @@ export const VOICE_PARAM_ORDER: readonly VoiceParam[] = [
   'gain2',
   'blend2',
 ];
-// the params a route moves, by their id in the core (another name: none, the route is left out): those of each
-// oscillator (position, spread, gain, the offsets of its pitch: Semi in cents, Fine, the blend of its unison), the
-// knobs of the filter, then the knobs of each LFO (lfo_target of modulation.rs)
-const LFO_KNOBS = ['rate', 'delay', 'rise', 'smooth', 'phase'];
-const OSC_ROUTE_PARAMS = ['position', 'spread', 'gain', 'pitch', 'fine', 'blend'];
-const ROUTE_PARAMS = [
-  ...[1, 2].flatMap((osc) => OSC_ROUTE_PARAMS.map((param) => `${param}${osc}`)),
-  'cutoff',
-  'resonance',
-  'gain',
-  ...[1, 2, 3, 4].flatMap((lfo) => LFO_KNOBS.map((knob) => `lfo${lfo}.${knob}`)),
-];
+// the id of a param no module has: the core leaves its route out (ROUTE_IDS of voice-modules.ts the others)
+const NO_ROUTE = 255;
 // the scales of the params in the core (LINEAR, LOG, POW of modulation.rs)
 const ROUTE_SCALES = ['linear', 'log', 'pow'];
 // the values of a state of an LFO in the command buffer (LFO_STATE of shared.rs)
@@ -161,13 +161,14 @@ export const createOscScope = (exports: OscExports) => {
   };
 };
 
-// the layout of a version (WavetableLevels without its data)
+// the layout of a version (WavetableLevels without its data; a sample of the noise: its rate)
 export interface LevelsLayout {
   frames: number;
   harmonics: ArrayLike<number>;
   lengths: ArrayLike<number>;
   offsets: ArrayLike<number>;
   length: number;
+  rate?: number;
 }
 
 // a version as latest() gives it (the specs compare it with the levels freed, hold it as a voice does)
@@ -232,7 +233,8 @@ export const createTableStoreWasm = (scope: OscScope, onFree?: (levels: Wavetabl
       version,
       layout.frames,
       levels,
-      layout.length
+      layout.length,
+      layout.rate ?? 0
     );
     return slot < 0 ? null : slot;
   };
@@ -272,8 +274,8 @@ export const createTableStoreWasm = (scope: OscScope, onFree?: (levels: Wavetabl
     },
     // a version at once (false: refused, no memory for it)
     set: (table: string, version: number, levels: WavetableLevels) => {
-      const { frames, harmonics, lengths, offsets, data } = levels;
-      const slot = begin(table, version, { frames, harmonics, lengths, offsets, length: data.length });
+      const { frames, harmonics, lengths, offsets, data, rate } = levels;
+      const slot = begin(table, version, { frames, harmonics, lengths, offsets, length: data.length, rate });
       if (slot === null) return false;
       try {
         write(slot, 0, data);
@@ -320,6 +322,9 @@ export const createTableStoreWasm = (scope: OscScope, onFree?: (levels: Wavetabl
       const [tables, versions, bytes] = scope.command();
       return { tables, versions, bytes };
     },
+    // the kernels of the noise another store of the scope built (the prewarm's), unless it has its own: its first
+    // sample builds none
+    takeKernels: (from: { handle: number }) => exports.osc_store_take_kernels(handle, from.handle),
     // (once no voice plays from it)
     free: () => exports.osc_store_free(handle),
   };
@@ -388,9 +393,8 @@ export type VoiceSharedWasm = ReturnType<typeof createVoiceSharedWasm>;
 const writeRoutes = (command: Float64Array, at: number, routes: VoiceRoute[]) => {
   command[at++] = routes.length;
   routes.forEach(({ source, param, amount, min, max, scale = 'linear', bipolar }) => {
-    const id = ROUTE_PARAMS.indexOf(param);
     command[at++] = source;
-    command[at++] = id < 0 ? 255 : id;
+    command[at++] = ROUTE_IDS[param] ?? NO_ROUTE;
     command[at++] = amount;
     command[at++] = min;
     command[at++] = max;
@@ -408,6 +412,13 @@ const writeFilter = (command: Float64Array, at: number, filter: VoiceFilterOptio
   command[at++] = filter?.resonance ?? 0;
   command[at++] = filter?.gain ?? 0;
   return at;
+};
+
+// the knobs of a module of playing voices (a `knobs` event) at the start of the command buffer: their count
+const writeKnobs = <M extends KnobsModule>(command: Float64Array, module: M, values: VoiceModuleKnobs[M]) => {
+  const order = KNOB_ORDER[module];
+  order.forEach((knob, k) => (command[k] = values[knob] as number));
+  return order.length;
 };
 
 // a voice without a velocity: no VELO, its volume ENV 1 alone
@@ -432,10 +443,60 @@ const writeEnvelopes = (command: Float64Array, at: number, envelopes: EnvelopePa
   return at;
 };
 
-// the options of a voice into the command buffer of the core (its reader, read_voice_options): random() draws
-// the start phases of the unison voices of each oscillator on, in their order, as the TS voice drew them, then
-// the shares of a random detune (the core starts the lowest voice of both at the first share of the note, the
-// first draw of osc 2 is not read); where they end
+// an oscillator of a voice (read_osc of the core): on, its table, unison, phase, phaseRand, the 8 start phases of
+// its unison voices, then its UnisonShape and the 8 random shares of a random detune (drawn after the phases, only
+// for a random detune: the phases of a linear one stay those of before); a block of 0 when it is off
+const writeOsc = (
+  scope: OscScope,
+  command: Float64Array,
+  at: number,
+  osc: VoiceOscOptions | null,
+  random: () => number
+) => {
+  command[at++] = osc ? 1 : 0;
+  command[at++] = osc ? scope.id(osc.table) : 0;
+  command[at++] = osc?.unison ?? 0;
+  command[at++] = osc?.phase ?? 0;
+  command[at++] = osc?.phaseRand ?? 0;
+  for (let v = 0; v < MAX_UNISON; v++) command[at++] = osc ? random() : 0;
+  const shape = osc?.unisonShape ?? UNISON_SHAPE;
+  command[at++] = shape.width;
+  command[at++] = UNISON_STACKS.indexOf(shape.stack);
+  command[at++] = UNISON_DETUNES.indexOf(shape.detune);
+  const randomDetune = osc !== null && shape.detune === 'random';
+  command[at++] = shape.positionSpread;
+  for (let v = 0; v < MAX_UNISON; v++) command[at++] = randomDetune ? random() : 0;
+  return at;
+};
+
+// the noise of a voice (read_noise of the core): on, its sample, loop, Pitch Track, start, rand, the random share of
+// its start (drawn only with a noise: the draws of a voice without one stay those of before), its knobs
+const writeNoise = (
+  scope: OscScope,
+  command: Float64Array,
+  at: number,
+  noise: VoiceNoiseOptions | null,
+  random: () => number
+) => {
+  command[at++] = noise ? 1 : 0;
+  command[at++] = noise ? scope.id(noise.sample) : 0;
+  command[at++] = noise?.loop ? 1 : 0;
+  command[at++] = noise?.keytrack ? 1 : 0;
+  command[at++] = noise?.start ?? 0;
+  command[at++] = noise?.rand ?? 0;
+  command[at++] = noise ? random() : 0;
+  command[at++] = noise?.level ?? 0;
+  command[at++] = noise?.pan ?? 0;
+  command[at++] = noise?.cents ?? 0;
+  return at;
+};
+
+// the options of a voice into the command buffer of the core (its reader, read_voice_options): the start, then its
+// sources in the order of their slots, each a block whose first value says whether it is on (random() draws in
+// their order: the start phases of the unison voices of each oscillator on, as the TS voice drew them, and the shares
+// of a random detune; the core starts the lowest voice of both at the first share of the note, the first draw of
+// osc 2 is not read; then the random share of the start of the noise), then the envelopes, the velocity, the
+// filter and the routes; where they end
 const writeVoiceOptions = (
   scope: OscScope,
   command: Float64Array,
@@ -446,28 +507,17 @@ const writeVoiceOptions = (
   command[at++] = options.start;
   command[at++] = options.envStart;
   command[at++] = options.phrase;
-  for (let index = 0; index < 2; index++) {
-    const osc = options.osc[index] ?? null;
-    command[at++] = osc ? 1 : 0;
-    command[at++] = osc ? scope.id(osc.table) : 0;
-    command[at++] = osc?.unison ?? 0;
-    command[at++] = osc?.phase ?? 0;
-    command[at++] = osc?.phaseRand ?? 0;
-    for (let v = 0; v < MAX_UNISON; v++) command[at++] = osc ? random() : 0;
-    const shape = osc?.unisonShape ?? UNISON_SHAPE;
-    command[at++] = shape.width;
-    command[at++] = UNISON_STACKS.indexOf(shape.stack);
-    command[at++] = UNISON_DETUNES.indexOf(shape.detune);
-    const randomDetune = osc !== null && shape.detune === 'random';
-    command[at++] = shape.positionSpread;
-    // (drawn after the phases, only for a random detune: the phases of a linear one stay those of before)
-    for (let v = 0; v < MAX_UNISON; v++) command[at++] = randomDetune ? random() : 0;
-  }
+  for (let index = 0; index < 2; index++)
+    at = writeOsc(scope, command, at, options.osc[index] ?? null, random);
+  at = writeNoise(scope, command, at, options.noise ?? null, random);
   at = writeEnvelopes(command, at, options.envelopes);
   at = writeVelocity(command, at, options.velocity);
   at = writeFilter(command, at, options.filter);
   return writeRoutes(command, at, options.routes);
 };
+
+// the bend of a block of a voice alone at rest
+const NO_BEND = new Float32Array(1);
 
 // createVoiceDsp in the core: random() draws the start phases of the unison voices of each oscillator on, in
 // their order, as the TS voice drew them, then the shares of a random detune
@@ -507,12 +557,14 @@ export const createVoiceWasm = (
   };
 
   return {
-    // a block starting at `frame` into the outputs; false once the voice has ended
+    // a block starting at `frame` into the outputs, `bend` the pitch bend of the block (cents; on the detunes
+    // already: the noise of Pitch Track reads it); false once the voice has ended
     process: (
       frame: number,
       params: Record<VoiceParam, Float32Array>,
       outL: Float32Array,
-      outR: Float32Array
+      outR: Float32Array,
+      bend: Float32Array = NO_BEND
     ) => {
       const n = outL.length;
       if (ended) {
@@ -531,10 +583,12 @@ export const createVoiceWasm = (
           lengthsAt = exports.osc_io_lengths(shared.handle);
           output = exports.osc_io_output(shared.handle);
         }
-        const data = paramsView(pointer, VOICE_PARAM_ORDER.length * stride);
-        const lengths = lengthsView(lengthsAt, VOICE_PARAM_ORDER.length);
-        for (let k = 0; k < VOICE_PARAM_ORDER.length; k++) {
-          const values = params[VOICE_PARAM_ORDER[k]];
+        // (the params, then the bend)
+        const rows = VOICE_PARAM_ORDER.length + 1;
+        const data = paramsView(pointer, rows * stride);
+        const lengths = lengthsView(lengthsAt, rows);
+        for (let k = 0; k < rows; k++) {
+          const values = k < VOICE_PARAM_ORDER.length ? params[VOICE_PARAM_ORDER[k]] : bend;
           if (values.length > 1) {
             lengths[k] = n;
             data.set(values, k * stride);
@@ -568,6 +622,12 @@ export const createVoiceWasm = (
       if (ended) return;
       writeVelocity(scope.command(), 0, velocity);
       exports.osc_voice_set_velocity(handle);
+    },
+    // new knobs of a module (those no param carries: the noise's); a voice that doesn't play it takes nothing
+    setKnobs: <M extends KnobsModule>(module: M, values: VoiceModuleKnobs[M]) => {
+      if (ended) return;
+      const count = writeKnobs(scope.command(), module, values);
+      exports.osc_voice_set_knobs(handle, MODULE_IDS[module], count);
     },
     // ends the voice at once (its process threw): the versions and the mixes it holds are given back
     end: () => {
@@ -692,6 +752,13 @@ export const createVoiceScopeWasm = (
           writeVelocity(scope.command(), 0, event.velocity);
           event.voices.forEach((id) => guard(() => exports.osc_scope_velocity(handle, id)));
         });
+      } else if (event.kind === 'knobs') {
+        flush();
+        guard(() => {
+          const count = writeKnobs(scope.command(), event.module, event.values);
+          const module = MODULE_IDS[event.module];
+          event.voices.forEach((id) => guard(() => exports.osc_scope_knobs(handle, id, module, count)));
+        });
       } else if (event.kind === 'bend') {
         flush();
         guard(() => exports.osc_scope_bend(handle, event.cents, event.instantly ? 1 : 0));
@@ -788,6 +855,8 @@ export const createVoiceScopeWasm = (
       apply([{ kind: 'filter', voices: [id], filter }]),
     setVelocity: (id: number, velocity: VoiceVelocity) =>
       apply([{ kind: 'velocity', voices: [id], velocity }]),
+    setKnobs: <M extends KnobsModule>(id: number, module: M, values: VoiceModuleKnobs[M]) =>
+      apply([{ kind: 'knobs', voices: [id], module, values } as VoiceEvent]),
     // the pitch bend of every voice (cents): it glides there in 10 ms
     setBend: (cents: number) => apply([{ kind: 'bend', cents }]),
     // the params of voice `id` for the next blocks of `n` frames as they are (one value or n each); false: no such

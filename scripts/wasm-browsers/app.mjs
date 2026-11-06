@@ -10,7 +10,7 @@
 // threw nothing; then every LFO on over the notes (traced in Chromium too), the voices play their positions
 // directly, and in Chromium the page is not restyled, laid out nor painted while the LFOs move the marks and the
 // charts (the synth and the FX screen). The tables come from the
-// cache of bench-perf (S3 keys in .env otherwise). Exit 1 on a failed check
+// cache of bench-perf (the domain of their bucket otherwise). Exit 1 on a failed check
 import { loadPlaywright, parseArgs } from '../bench-common.mjs';
 import { launch, openPage, traceEvents } from '../bench-perf/browser.mjs';
 import {

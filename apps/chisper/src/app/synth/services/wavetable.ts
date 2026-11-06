@@ -1,3 +1,5 @@
+import { bucketUrl, WAVETABLES_ORIGIN } from './buckets';
+import { fetchOk } from './fetch';
 import { parseWav } from './wav';
 
 const WAVE_SIZE = 2048;
@@ -10,22 +12,15 @@ export interface Wavetable {
 
 export type LoadWavetable = (id: string) => Promise<Wavetable>;
 
-// the leaf of a wavetable path (the cascade value of a file) is its S3 key
+// the leaf of a wavetable path (the cascade value of a file) is its key in the bucket
 export const wavetableId = (path: (string | number)[]) =>
   path.length > 0 ? String(path[path.length - 1]) : '';
 
-const fetchOk = async (url: string) => {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`${url} responded ${res.status}`);
-  return res;
-};
-
-// every wave is one cycle of WAVE_SIZE samples in the file (or of the size of its mark), whatever its sample
-// rate: the samples are read from the file, decodeAudioData would resample them to the context rate (44.1 →
-// 48 kHz: 1.09 cycles a wave)
+// the file from the domain of the bucket; every wave is one cycle of WAVE_SIZE samples in it (or of the size of its
+// mark), whatever its sample rate: the samples are read from the file, decodeAudioData would resample them to the
+// context rate (44.1 → 48 kHz: 1.09 cycles a wave)
 const fetchWavetable: LoadWavetable = async (id) => {
-  const res = await fetchOk(`/.netlify/functions/get-wavetable?id=${encodeURIComponent(id)}`);
-  const file = await fetchOk(await res.text());
+  const file = await fetchOk(bucketUrl(WAVETABLES_ORIGIN, id));
   const { samples, mark } = parseWav(await file.arrayBuffer());
   const size = mark?.frameSize || WAVE_SIZE;
   const wavesCount = Math.floor(samples.length / size);
