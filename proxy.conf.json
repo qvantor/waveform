@@ -12,5 +12,12 @@
     ],
     "target": "https://localhost:8888/",
     "secure": false
+  },
+  {
+    "context": [
+      "/files"
+    ],
+    "target": "https://localhost:8888/",
+    "secure": false
   }
 ]

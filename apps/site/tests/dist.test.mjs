@@ -207,8 +207,8 @@ describe('every version of the page', () => {
           social.map((link) => [link.getAttribute('aria-label'), link.getAttribute('href')]),
           [
             ['GitHub', 'https://github.com/qvantor/chisper'],
-            ['Instagram', 'https://www.instagram.com/waveformsound/'],
-            ['YouTube', 'https://www.youtube.com/@waveform-sound'],
+            ['Instagram', 'https://www.instagram.com/chispersound/'],
+            ['YouTube', 'https://www.youtube.com/@chisper-sound'],
           ]
         );
         for (const link of social) assert.ok(link.querySelector('svg path').getAttribute('d').length > 100);

@@ -4,6 +4,10 @@
 export const WAVETABLES_ORIGIN = 'https://wavetables.chisper.qvantor.org';
 export const NOISES_ORIGIN = 'https://noises.chisper.qvantor.org';
 
+// the same files through the site (the rewrites of netlify.toml), where the domains don't load
+export const WAVETABLES_PROXY = '/files/wavetables';
+export const NOISES_PROXY = '/files/noises';
+
 // the url of an object by its key: the slashes of the key are the path, each part of it encoded (a space, & and #)
 export const bucketUrl = (origin: string, key: string) =>
   `${origin}/${key.split('/').map(encodeURIComponent).join('/')}`;
