@@ -24,8 +24,8 @@ describe('jsonLd', () => {
       inLanguage: 'en',
       sameAs: [
         'https://github.com/qvantor/chisper',
-        'https://www.instagram.com/waveformsound/',
-        'https://www.youtube.com/@waveform-sound',
+        'https://www.instagram.com/chispersound/',
+        'https://www.youtube.com/@chisper-sound',
       ],
     });
   });

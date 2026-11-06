@@ -22,10 +22,16 @@ const fetchMock = jest.fn();
 // the file from the domain of the bucket
 const respondOk = (buffer = wavetableFile(samples)) => fetchMock.mockResolvedValueOnce(response(200, buffer));
 
+const urls = () => fetchMock.mock.calls.map(([url]) => url);
+
+let warn: jest.SpyInstance;
 beforeEach(() => {
   fetchMock.mockReset();
   Object.assign(globalThis, { fetch: fetchMock });
+  // a file the domain doesn't give is tried through the site
+  warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
 });
+afterEach(() => warn.mockRestore());
 
 // the cache lives for the module, so every test loads its own ids
 describe('loadWavetable', () => {
@@ -34,9 +40,7 @@ describe('loadWavetable', () => {
 
     const wavetable = await loadWavetable('Basics/Saw & Square #1.wav');
 
-    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
-      'https://wavetables.chisper.qvantor.org/Basics/Saw%20%26%20Square%20%231.wav',
-    ]);
+    expect(urls()).toEqual(['https://wavetables.chisper.qvantor.org/Basics/Saw%20%26%20Square%20%231.wav']);
     // (its mark: a morph)
     expect(wavetable).toEqual({ frames: waves, morph: true });
   });
@@ -61,28 +65,54 @@ describe('loadWavetable', () => {
     expect(third).toBe(first);
   });
 
-  it('rejects when the file request fails and loads again next time', async () => {
+  // a domain throttled or blocked on the way: the site proxies the bucket (netlify.toml)
+  it('loads the file through the site where the domain of the bucket fails', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    respondOk();
+    expect(await loadWavetable('Basics/Saw & Square.wav')).toEqual({ frames: waves, morph: true });
+
+    // through the site first from then on, from the domain again where only it gives a file
+    fetchMock.mockResolvedValueOnce(response(502));
+    respondOk();
+    await loadWavetable('Basics/Sine.wav');
+    expect(urls()).toEqual([
+      'https://wavetables.chisper.qvantor.org/Basics/Saw%20%26%20Square.wav',
+      '/files/wavetables/Basics/Saw%20%26%20Square.wav',
+      '/files/wavetables/Basics/Sine.wav',
+      'https://wavetables.chisper.qvantor.org/Basics/Sine.wav',
+    ]);
+  });
+
+  it('rejects when the file request fails both ways and loads again next time', async () => {
     fetchMock.mockResolvedValueOnce(response(404));
-    await expect(loadWavetable('file-fails.wav')).rejects.toThrow('404');
-    expect(fetchMock).toHaveBeenCalledTimes(1);
+    fetchMock.mockResolvedValueOnce(response(404));
+    await expect(loadWavetable('file-fails.wav')).rejects.toThrow(
+      '/files/wavetables/file-fails.wav responded 404'
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(2);
 
     respondOk();
     expect((await loadWavetable('file-fails.wav')).frames).toHaveLength(2);
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 
   it('does not keep a network error, a file that is not a WAV or one without a whole wave', async () => {
-    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    fetchMock
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'));
     await expect(loadWavetable('broken.wav')).rejects.toThrow('Failed to fetch');
 
     respondOk(ascii('<Error>AccessDenied</Error>').buffer);
+    respondOk(ascii('<Error>AccessDenied</Error>').buffer);
     await expect(loadWavetable('broken.wav')).rejects.toThrow('Not a WAV file');
 
+    respondOk(wavetableFile(samples.slice(0, WAVE_SIZE - 1)));
     respondOk(wavetableFile(samples.slice(0, WAVE_SIZE - 1)));
     await expect(loadWavetable('broken.wav')).rejects.toThrow('broken.wav is shorter than one wave');
 
     respondOk();
     expect((await loadWavetable('broken.wav')).frames).toEqual(waves);
+    expect(fetchMock).toHaveBeenCalledTimes(7);
   });
 });
 

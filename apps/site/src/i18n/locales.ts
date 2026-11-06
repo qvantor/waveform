@@ -33,6 +33,6 @@ export const presetUrl = (presetId: string) => `/?preset=${presetId}`;
 
 export const LINKS = {
   github: 'https://github.com/qvantor/chisper',
-  instagram: 'https://www.instagram.com/waveformsound/',
-  youtube: 'https://www.youtube.com/@waveform-sound',
+  instagram: 'https://www.instagram.com/chispersound/',
+  youtube: 'https://www.youtube.com/@chisper-sound',
 };

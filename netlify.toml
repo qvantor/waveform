@@ -29,3 +29,15 @@
   to = "https://chisper.qvantor.org/:splat"
   status = 301
   force = true
+
+# the files of the buckets through the site, where their domains don't load (Cloudflare throttled or blocked on
+# the way: the browser talks only to Netlify, which fetches them): the fallback of `bucketLoader` of the app
+[[redirects]]
+  from = "/files/wavetables/*"
+  to = "https://wavetables.chisper.qvantor.org/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/files/noises/*"
+  to = "https://noises.chisper.qvantor.org/:splat"
+  status = 200

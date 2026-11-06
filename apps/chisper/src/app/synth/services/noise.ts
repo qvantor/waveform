@@ -1,5 +1,5 @@
-import { bucketUrl, NOISES_ORIGIN } from './buckets';
-import { fetchOk } from './fetch';
+import { NOISES_ORIGIN, NOISES_PROXY } from './buckets';
+import { bucketLoader } from './fetch';
 import { parseWavChannels } from './wav';
 
 // a sample of the noise oscillator: its channels (one or two) at its own rate (the engine plays it at any rate of
@@ -11,13 +11,15 @@ export interface NoiseSample {
 
 export type LoadNoiseSample = (id: string) => Promise<NoiseSample>;
 
-// the file from the domain of the bucket, as stored (no resampling)
-const fetchNoiseSample: LoadNoiseSample = async (id) => {
-  const file = await fetchOk(bucketUrl(NOISES_ORIGIN, id));
-  const { channels, sampleRate } = parseWavChannels(await file.arrayBuffer());
-  if (channels.length === 0 || channels[0].length === 0) throw new Error(`${id} has no samples`);
-  return { channels: channels.slice(0, 2), sampleRate };
-};
+const loadFile = bucketLoader(NOISES_ORIGIN, NOISES_PROXY);
+
+// the file from the domain of the bucket (else through the site), as stored (no resampling)
+const fetchNoiseSample: LoadNoiseSample = (id) =>
+  loadFile(id, (bytes) => {
+    const { channels, sampleRate } = parseWavChannels(bytes);
+    if (channels.length === 0 || channels[0].length === 0) throw new Error(`${id} has no samples`);
+    return { channels: channels.slice(0, 2), sampleRate };
+  });
 
 // for the whole session; a failed load is dropped, so the next one retries
 const cache = new Map<string, Promise<NoiseSample>>();
