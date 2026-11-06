@@ -6,12 +6,18 @@ import type { TableState } from '../wavetable/wavetable-engine';
 const flush = () => new Promise((resolve) => setTimeout(resolve));
 const SAMPLE: NoiseSample = { channels: [Float32Array.of(0.5, -0.5, 0.25)], sampleRate: 44100 };
 
-// a noise whose loads stay pending until the test settles them, the latest one per key
+// a noise whose loads stay pending until the test settles them, the latest one per key (with the signal it got:
+// aborted, no one waits for it)
 const createLoading = () => {
-  const loads = new Map<string, { resolve: (sample: NoiseSample) => void; reject: (error: Error) => void }>();
+  const loads = new Map<
+    string,
+    { resolve: (sample: NoiseSample) => void; reject: (error: Error) => void; signal?: AbortSignal }
+  >();
   const load = jest.fn(
-    (key: string) => new Promise<NoiseSample>((resolve, reject) => loads.set(key, { resolve, reject }))
+    (key: string, signal?: AbortSignal) =>
+      new Promise<NoiseSample>((resolve, reject) => loads.set(key, { resolve, reject, signal }))
   );
+  const aborted = (key: string) => loads.get(key)?.signal?.aborted;
   const synthCore = createSynthCore();
   const { wavetables } = synthCore[0];
   const setSample = jest.spyOn(wavetables, 'setSample');
@@ -24,7 +30,7 @@ const createLoading = () => {
     loads.get(key)?.reject(new Error('404'));
     await flush();
   };
-  return { model, actions, load, resolve, reject, setSample, wavetables };
+  return { model, actions, load, resolve, reject, setSample, wavetables, aborted };
 };
 
 describe('noise', () => {
@@ -57,7 +63,7 @@ describe('noise', () => {
       await flush();
       expect(load).not.toHaveBeenCalled();
       actions.toggleActive();
-      expect(load).toHaveBeenCalledWith('Analog/White.wav');
+      expect(load).toHaveBeenCalledWith('Analog/White.wav', expect.any(AbortSignal));
       expect(model.$sampleLoading.value).toBe(true);
       expect(model.samplePlayed()).toBe(false);
       await resolve('Analog/White.wav');
@@ -71,14 +77,14 @@ describe('noise', () => {
       actions.toggleActive();
       await resolve('Analog/White.wav');
       actions.setSamplePath(['Textures', 'Textures/Rain.wav']);
-      expect(load).toHaveBeenLastCalledWith('Textures/Rain.wav');
+      expect(load).toHaveBeenLastCalledWith('Textures/Rain.wav', expect.any(AbortSignal));
       await resolve('Textures/Rain.wav');
       actions.toggleActive();
       actions.setSamplePath(['Analog', 'Analog/Pink.wav']);
       await flush();
       expect(load).toHaveBeenCalledTimes(2);
       actions.toggleActive();
-      expect(load).toHaveBeenLastCalledWith('Analog/Pink.wav');
+      expect(load).toHaveBeenLastCalledWith('Analog/Pink.wav', expect.any(AbortSignal));
       // switched on again on the same path: no load
       await resolve('Analog/Pink.wav');
       actions.toggleActive();
@@ -86,15 +92,26 @@ describe('noise', () => {
       expect(load).toHaveBeenCalledTimes(3);
     });
 
-    it('a newer path cancels the pending load', async () => {
-      const { actions, resolve, setSample } = createLoading();
+    it('a newer path cancels the pending load, its download aborted', async () => {
+      const { actions, resolve, setSample, aborted } = createLoading();
       actions.toggleActive();
       actions.setSamplePath(['Textures', 'Textures/Rain.wav']);
+      expect(aborted('Analog/White.wav')).toBe(true);
+      expect(aborted('Textures/Rain.wav')).toBe(false);
       await resolve('Analog/White.wav');
       expect(setSample).not.toHaveBeenCalled();
       await resolve('Textures/Rain.wav', { ...SAMPLE, sampleRate: 48000 });
       expect(setSample).toHaveBeenCalledTimes(1);
       expect(setSample.mock.calls[0][2]).toBe(48000);
+    });
+
+    it('stops loading when the model stops, its load aborted', async () => {
+      const { actions, resolve, setSample, aborted } = createLoading();
+      actions.toggleActive();
+      stopModels();
+      expect(aborted('Analog/White.wav')).toBe(true);
+      await resolve('Analog/White.wav');
+      expect(setSample).not.toHaveBeenCalled();
     });
 
     it('retries a failed load twice a second apart, then gives up: the next switch on tries again', async () => {
@@ -259,10 +276,10 @@ describe('noise', () => {
     it('loads the sample of the path it applies only: on after the path, off before it', async () => {
       const { load, resolve } = createLoading();
       applySnapshot({ noise: { a: true, p: ['Textures', 'Textures/Rain.wav'] } });
-      expect(load.mock.calls).toEqual([['Textures/Rain.wav']]);
+      expect(load.mock.calls).toEqual([['Textures/Rain.wav', expect.any(AbortSignal)]]);
       await resolve('Textures/Rain.wav');
       applySnapshot({ noise: { a: true, p: ['Analog', 'Analog/Pink.wav'] } });
-      expect(load).toHaveBeenLastCalledWith('Analog/Pink.wav');
+      expect(load).toHaveBeenLastCalledWith('Analog/Pink.wav', expect.any(AbortSignal));
       await resolve('Analog/Pink.wav');
       // off with another path: none; on again on the path loaded: none
       applySnapshot({ noise: { a: false, p: ['Textures', 'Textures/Rain.wav'] } });

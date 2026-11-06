@@ -2,7 +2,6 @@ import {
   BehaviorSubject,
   catchError,
   combineLatest,
-  defer,
   distinctUntilChanged,
   filter,
   map,
@@ -14,6 +13,7 @@ import { ArrayBS, ObjectBS, PrimitiveBS, rxModel, rxModelReact } from '@chisper/
 import { FINE_MAX, NOISE_DEFAULTS, NOISE_PITCH_MAX } from '@chisper/preset-schema';
 import { generateId, Vector2D } from '@chisper/math';
 import { urlSnapshotPlugin } from '../../../app';
+import { abortable } from '../../../common/services';
 import { loadNoiseSample, LoadNoiseSample, NoiseSample, wavetableId } from '../../services';
 import type { VoiceNoiseKnobs, VoiceNoiseOptions } from '../wavetable/voice-options';
 import { SynthCoreModule } from './synth-core';
@@ -145,11 +145,11 @@ export const noise = ({
             filter(([active]) => active),
             map(([, path]) => wavetableId(path)),
             filter((key) => key !== '' && key !== sampleId),
-            // a newer path cancels the pending load
+            // a newer path cancels the pending load, its download aborted
             switchMap((key) => {
               sampleId = key;
               $sampleLoading.next(true);
-              return defer(() => load(key)).pipe(
+              return abortable((signal) => load(key, signal)).pipe(
                 map((sample) => ({ key, sample })),
                 retry({ count: 2, delay: 1000 }),
                 catchError((error) => {

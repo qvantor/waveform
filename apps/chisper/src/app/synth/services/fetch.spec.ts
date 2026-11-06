@@ -315,6 +315,59 @@ describe('bucketLoader', () => {
     expect(signal(1).aborted).toBe(true);
   });
 
+  // no one waits for it any more (a newer path): on a slow line it would share it with the one played
+  it('aborts a load whose signal aborts: its request with its reason, no other route, the order kept', async () => {
+    jest.useFakeTimers();
+    const load = bucketLoader(ORIGIN, PROXY);
+    const caller = new AbortController();
+    fetchMock.mockResolvedValueOnce(streamed(Promise.resolve('fi'), never()));
+
+    const loaded = load('one.wav', parse, caller.signal);
+    loaded.catch(() => undefined);
+    await jest.advanceTimersByTimeAsync(1000);
+    const reason = new Error('a newer path');
+    caller.abort(reason);
+    await expect(loaded).rejects.toBe(reason);
+    expect(signal(0).aborted).toBe(true);
+    expect(signal(0).reason).toBe(reason);
+    expect(urls()).toEqual([domain('one.wav')]);
+    expect(warn).not.toHaveBeenCalled();
+    expect(jest.getTimerCount()).toBe(0);
+
+    fetchMock.mockResolvedValueOnce(file(200));
+    await load('two.wav', parse);
+    expect(urls().slice(1)).toEqual([domain('two.wav')]);
+  });
+
+  it('aborts the second route too, the order of the routes kept', async () => {
+    jest.useFakeTimers();
+    const load = bucketLoader(ORIGIN, PROXY);
+    const caller = new AbortController();
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    fetchMock.mockResolvedValueOnce(streamed(Promise.resolve('fi'), never()));
+
+    const loaded = load('one.wav', parse, caller.signal);
+    loaded.catch(() => undefined);
+    await jest.advanceTimersByTimeAsync(1000);
+    expect(urls()).toEqual([domain('one.wav'), site('one.wav')]);
+    const reason = new Error('stopped');
+    caller.abort(reason);
+    await expect(loaded).rejects.toBe(reason);
+    expect(signal(1).aborted).toBe(true);
+    expect(jest.getTimerCount()).toBe(0);
+
+    fetchMock.mockResolvedValueOnce(file(200));
+    await load('two.wav', parse);
+    expect(urls().slice(2)).toEqual([domain('two.wav')]);
+  });
+
+  it('requests nothing for a signal aborted before', async () => {
+    const load = bucketLoader(ORIGIN, PROXY);
+    const reason = new Error('gone');
+    await expect(load('one.wav', parse, AbortSignal.abort(reason))).rejects.toBe(reason);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('aborts a response it does not read and leaves no timer', async () => {
     jest.useFakeTimers();
     const load = bucketLoader(ORIGIN, PROXY);

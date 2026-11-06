@@ -10,12 +10,18 @@ const placeholder = [0, 1, 0, -1];
 
 const flush = () => new Promise((resolve) => setTimeout(resolve));
 
-// an oscillator whose wavetable loads stay pending until the test settles them, the latest one per id
+// an oscillator whose wavetable loads stay pending until the test settles them, the latest one per id (with the
+// signal it got: aborted, no one waits for it)
 const createLoading = (initialWavePath = ['folder', 'a.wav']) => {
-  const loads = new Map<string, { resolve: (table: Wavetable) => void; reject: (error: Error) => void }>();
+  const loads = new Map<
+    string,
+    { resolve: (table: Wavetable) => void; reject: (error: Error) => void; signal?: AbortSignal }
+  >();
   const load = jest.fn(
-    (id: string) => new Promise<Wavetable>((resolve, reject) => loads.set(id, { resolve, reject }))
+    (id: string, signal?: AbortSignal) =>
+      new Promise<Wavetable>((resolve, reject) => loads.set(id, { resolve, reject, signal }))
   );
+  const aborted = (id: string) => loads.get(id)?.signal?.aborted;
   const synthCore = createSynthCore();
   const [model, actions] = createOscillator(synthCore, 'osc1', { active: true, initialWavePath }, load);
   const resolve = async (id: string, table: number[][], morph = false) => {
@@ -34,7 +40,7 @@ const createLoading = (initialWavePath = ['folder', 'a.wav']) => {
     }
   };
   const table = () => model.$waveTable.value.map(({ value }) => value);
-  return { model, actions, load, resolve, reject, fail, table };
+  return { model, actions, load, resolve, reject, fail, table, aborted };
 };
 
 describe('oscillator', () => {
@@ -237,14 +243,16 @@ describe('oscillator', () => {
     afterEach(() => jest.useRealTimers());
 
     it('loads the table of the initial path', async () => {
-      const { model, load, resolve, table } = createLoading(['folder', 'a.wav']);
-      expect(load).toHaveBeenCalledWith('a.wav');
+      const { model, load, resolve, table, aborted } = createLoading(['folder', 'a.wav']);
+      expect(load).toHaveBeenCalledWith('a.wav', expect.any(AbortSignal));
       expect(model.$waveTableLoading.value).toBe(true);
 
       await resolve('a.wav', [saw, square]);
 
       expect(table()).toEqual([saw, square]);
       expect(model.$waveTableLoading.value).toBe(false);
+      // (a load that ended isn't aborted)
+      expect(aborted('a.wav')).toBe(false);
     });
 
     it('loads the table of an applied preset without any component', async () => {
@@ -253,7 +261,7 @@ describe('oscillator', () => {
 
       applySnapshot({ osc1: { p: ['folder', 'b.wav'], w: 1 } });
 
-      expect(load).toHaveBeenLastCalledWith('b.wav');
+      expect(load).toHaveBeenLastCalledWith('b.wav', expect.any(AbortSignal));
       expect(model.$waveTableLoading.value).toBe(true);
       await resolve('b.wav', [saw, square]);
       expect(table()).toEqual([saw, square]);
@@ -265,7 +273,7 @@ describe('oscillator', () => {
     it('loads the table of a selected path', async () => {
       const { actions, load, resolve, table } = createLoading();
       actions.setWaveTablePath(['folder', 'b.wav']);
-      expect(load).toHaveBeenLastCalledWith('b.wav');
+      expect(load).toHaveBeenLastCalledWith('b.wav', expect.any(AbortSignal));
       await resolve('b.wav', [square]);
       expect(table()).toEqual([square]);
     });
@@ -283,9 +291,11 @@ describe('oscillator', () => {
       expect(model.$waveTableLoading.value).toBe(false);
     });
 
-    it('ignores a load that finishes after a newer path was set', async () => {
-      const { model, actions, resolve, table } = createLoading();
+    it('aborts the load of a path a newer one replaced and ignores it if it finishes', async () => {
+      const { model, actions, resolve, table, aborted } = createLoading();
       actions.setWaveTablePath(['folder', 'b.wav']);
+      expect(aborted('a.wav')).toBe(true);
+      expect(aborted('b.wav')).toBe(false);
 
       await resolve('a.wav', [saw]);
       expect(table()).toEqual([placeholder]);
@@ -335,9 +345,10 @@ describe('oscillator', () => {
       error.mockRestore();
     });
 
-    it('stops loading when the model stops', async () => {
-      const { resolve, table, load } = createLoading();
+    it('stops loading when the model stops, its load aborted', async () => {
+      const { resolve, table, load, aborted } = createLoading();
       stopModels();
+      expect(aborted('a.wav')).toBe(true);
       await resolve('a.wav', [saw]);
       expect(load).toHaveBeenCalledTimes(1);
       expect(table()).toEqual([placeholder]);

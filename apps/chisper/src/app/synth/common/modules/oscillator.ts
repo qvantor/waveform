@@ -4,7 +4,6 @@ import {
   BehaviorSubject,
   filter,
   switchMap,
-  defer,
   retry,
   catchError,
   of,
@@ -17,6 +16,7 @@ import { ObjectBS, rxModel, rxModelReact, PrimitiveBS, ArrayBS } from '@chisper/
 import { FINE_MAX, OSC_DEFAULTS, SEMI_MAX, withLegacyPhase } from '@chisper/preset-schema';
 import { generateId, Vector2D } from '@chisper/math';
 import { urlSnapshotPlugin } from '../../../app';
+import { abortable } from '../../../common/services';
 import { loadWavetable, LoadWavetable, wavetableId } from '../../services';
 import { UNISON_SHAPE, UnisonShape } from '../wavetable/voice-options';
 import {
@@ -239,11 +239,12 @@ export const oscillator = ({
         .pipe(
           map(wavetableId),
           filter((id) => id !== '' && id !== tableId),
-          // a newer path cancels the pending load, so a slower response can't overwrite its table
+          // a newer path cancels the pending load (its download aborted where no oscillator waits for it), so a
+          // slower response can't overwrite its table
           switchMap((id) => {
             tableId = id;
             $waveTableLoading.next(true);
-            return defer(() => load(id)).pipe(
+            return abortable((signal) => load(id, signal)).pipe(
               retry({ count: 2, delay: 1000 }),
               catchError((error) => {
                 console.error(`Failed to load the wavetable ${id}`, error);

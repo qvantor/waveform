@@ -42,18 +42,24 @@ const concat = (chunks: Uint8Array[], length: number) => {
   return bytes.buffer;
 };
 
-// the bytes of an ok response within its limits, else the request aborted; aborted once done too: a response not
-// read to its end (a status that isn't ok) lets its connection go
-const downloadWithin = async (url: string, { stallMs, minRate }: Limits): Promise<ArrayBuffer> => {
+// the bytes of an ok response within its limits, else the request aborted (`signal` aborts it too, with its
+// reason); aborted once done too: a response not read to its end (a status that isn't ok) lets its connection go
+const downloadWithin = async (
+  url: string,
+  { stallMs, minRate }: Limits,
+  signal?: AbortSignal
+): Promise<ArrayBuffer> => {
   const controller = new AbortController();
-  let fail!: (error: Error) => void;
+  let fail!: (error: unknown) => void;
   const stopped = new Promise<never>((_, reject) => (fail = reject));
   stopped.catch(() => undefined);
-  const stalled = () => {
-    const error = new Error(`${url} gave nothing for ${stallMs} ms`);
+  const stop = (error: unknown) => {
     fail(error);
     controller.abort(error);
   };
+  const stalled = () => stop(new Error(`${url} gave nothing for ${stallMs} ms`));
+  const aborted = () => stop(signal?.reason);
+  signal?.addEventListener('abort', aborted, { once: true });
   let stall: ReturnType<typeof setTimeout> | undefined;
   const arm = () => {
     clearTimeout(stall);
@@ -86,6 +92,7 @@ const downloadWithin = async (url: string, { stallMs, minRate }: Limits): Promis
     }
   } finally {
     clearTimeout(stall);
+    signal?.removeEventListener('abort', aborted);
     controller.abort();
   }
 };
@@ -94,16 +101,19 @@ const downloadWithin = async (url: string, { stallMs, minRate }: Limits): Promis
 // netlify.toml), where the domain doesn't load (Cloudflare throttled or blocked on the way: the page and the lists
 // come from Netlify all the same). The route that served what the other didn't goes first for the session, with
 // FIRST_LIMITS; the other one with SECOND_LIMITS: every load ends (a hung one would stay in the caches of the
-// files). `parse` is part of a load: a block page answered 200 isn't the file. Both failing, the error of the second
+// files). `parse` is part of a load: a block page answered 200 isn't the file. Both failing, the error of the second.
+// `signal` aborts a load (no one waits for it any more): its request with its reason, no other route, the order kept
 export const bucketLoader = (origin: string, proxy: string) => {
   let routes = [origin, proxy];
-  return async <T>(key: string, parse: (bytes: ArrayBuffer) => T): Promise<T> => {
+  return async <T>(key: string, parse: (bytes: ArrayBuffer) => T, signal?: AbortSignal): Promise<T> => {
+    if (signal?.aborted) throw signal.reason;
     const [first, second] = routes;
     try {
-      return parse(await downloadWithin(bucketUrl(first, key), FIRST_LIMITS));
+      return parse(await downloadWithin(bucketUrl(first, key), FIRST_LIMITS, signal));
     } catch (error) {
+      if (signal?.aborted) throw error;
       console.warn(`${key} didn't load from ${first}, trying ${second}`, error);
-      const result = parse(await downloadWithin(bucketUrl(second, key), SECOND_LIMITS));
+      const result = parse(await downloadWithin(bucketUrl(second, key), SECOND_LIMITS, signal));
       routes = [second, first];
       return result;
     }
